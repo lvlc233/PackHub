@@ -11,6 +11,7 @@
     "test:kernel": "vitest run packages/kernel/test",
     "test:runtime": "vitest run packages/runtime/test",
     "test:runner": "vitest run packages/runner/test",
+    "test:registry": "vitest run packages/registry/test",
     "test:hub": "vitest run packages/hub/test",
     "typecheck": "tsc --noEmit --pretty false",
     "packhub": "node --experimental-strip-types packages/cli/src/bin.ts",

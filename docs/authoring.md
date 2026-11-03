@@ -340,6 +340,9 @@ packhub probe my-pack --target dsh       # 真机探针：harness 有没有读�
 packhub probe my-pack --target opencode  # 同上，OpenCode：opencode run --model opencode-go/…
 packhub probe my-pack --target codex     # 同上，Codex：codex exec -m gpt-5.6-sol（原生账号）
 
+# 8. 发布：干净安装 + 校验通过才写进 registry
+packhub publish my-pack --registry ./registry
+
 # 5. 之后改了清单，先看差异再重新锁
 packhub diff my-pack          # 对比锁里的计划与当前计划：多了什么、少了什么
 

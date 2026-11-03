@@ -245,6 +245,24 @@ packhub doctor my-pack      # 文件还在不在、托管块还在不在
 
 后续可选的更保守方案：宿主若支持 `@import`（Claude Code 的 CLAUDE.md 支持），可以只在宿主文件里写一行导入，正文放 `.packhub/PACKHUB.md`——宿主文件零污染，但依赖各家对 import 的支持，未验证前不做默认。
 
+## 九点七三、发布流程：`packhub publish`
+
+发布不是"把文件丢进目录"，而是一串必须全过的检查：
+
+```bash
+packhub publish my-pack                       # 默认写 ./registry
+packhub publish my-pack --registry ./registry --dry-run
+packhub publish my-pack --out .tmp/pr         # PR 模式：只产出要提交的部分
+```
+
+1. 清单必须零错误；
+2. **runner 在干净目录里装一遍并校验**，不过就拒绝发布（装不上的包进不了 registry）；
+3. 版本目录已存在就拒绝（已发布版本不可变），`--force` 才覆盖；
+4. 写 `packhub.yaml` / `packhub.lock.json`（按当前计划重算）/ `verify.json` / `<version>.phub`（vendored）；
+5. 重生成 `index.json`，门禁（visibility、锁一致、不可变、verify 与计划一致）不过就不写。
+
+PR 模式把同样结构写到 `--out` 目录，提交成 PR 即可，不碰主 registry。
+
 ## 九点七五、发布门禁：runner
 
 `packages/runner` 是"这个包在别人机器上装得起来吗"的唯一执行者：复制到临时目录 → 清掉 `.packhub` → install → verify → 出 `verify.json`。registry CI 与本地发布共用同一段代码：

@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import { defineCommand, type CommandDef } from 'citty';
 import { defaultStaticDir, startHub } from '@packhub/hub';
 import { runPack } from '@packhub/runner';
+import { publishPack, writeIndex } from '@packhub/registry';
 import { loadPack, planFor, buildLock, diffActions, describeAction, type Issue, type Plan } from '@packhub/kernel';
 import {
   addResource,
@@ -448,6 +449,44 @@ const run = defineCommand({
   },
 });
 
+const publish = defineCommand({
+  meta: { name: 'publish', description: '发布一个包：先干净安装+校验，再写进 registry' },
+  args: {
+    dir: { type: 'positional', required: false, default: '.' },
+    registry: { type: 'string', default: 'registry', description: 'registry 根目录' },
+    out: { type: 'string', description: '写到别的目录（PR 模式）' },
+    'dry-run': { type: 'boolean', default: false },
+    force: { type: 'boolean', default: false, description: '允许覆盖已存在的版本目录' },
+  },
+  async run({ args }) {
+    const registry = resolve(String(args.registry));
+    try {
+      const res = await publishPack(resolve(String(args.dir)), {
+        registry,
+        ...(args.out ? { out: resolve(String(args.out)) } : {}),
+        dryRun: Boolean(args['dry-run']),
+        force: Boolean(args.force),
+        log: (line) => console.log(line),
+      });
+      if (args['dry-run']) {
+        console.log(`\n[dry-run] 将发布 ${res.name}@${res.version}，未写盘`);
+        return;
+      }
+      if (!args.out) {
+        const idx = writeIndex(registry);
+        console.log(idx.ok ? `\n索引已更新：${idx.packs} 个包` : '\n索引有错误，未写入（看上面）');
+        if (!idx.ok) process.exit(1);
+      } else {
+        console.log(`\n已写到 ${res.dir}；把${args.out} 下改动提交成 PR 即可`);
+      }
+      console.log(`发布完成：${res.name}@${res.version}`);
+    } catch (err) {
+      console.error(`x ${(err as Error).message}`);
+      process.exit(1);
+    }
+  },
+});
+
 const doctor = defineCommand({
   meta: { name: 'doctor', description: '检查已装的包有没有被外部改写（文件被删、托管块被吃）' },
   args: {
@@ -789,6 +828,7 @@ export const main: CommandDef = defineCommand({
     hub,
     doctor,
     run,
+    publish,
     probe,
     licenses,
     keygen,
