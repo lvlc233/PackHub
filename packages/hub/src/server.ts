@@ -3,6 +3,7 @@ import { appendFileSync, existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildPlan, parseManifest, validateGraph, type TargetId } from '@packhub/kernel';
+import { collectPackResources } from './resources.ts';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -233,6 +234,14 @@ async function handleApi(
       lock: readJson(join(dir, 'packhub.lock.json')),
       verify: readJson(join(dir, 'verify.json')),
     });
+  }
+
+  if (url.pathname === '/api/registry/resources' && req.method === 'GET') {
+    const name = url.searchParams.get('name') ?? '';
+    const version = url.searchParams.get('version') ?? undefined;
+    const result = collectPackResources(root, name, version);
+    if (!result) return sendJson(res, 404, { error: '没有这个包或版本' });
+    return sendJson(res, 200, result);
   }
 
   if (url.pathname === '/api/plan' && req.method === 'POST') {

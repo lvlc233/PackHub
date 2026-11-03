@@ -129,7 +129,7 @@
   color: var(--ink-2);
 }
 
-.cs-editor textarea {
+.cs-editor > textarea {
   display: block;
   width: 100%;
   min-height: 560px;
@@ -240,4 +240,237 @@
   .cs-editor textarea {
     min-height: 380px;
   }
+}
+
+/* ---- 创作台：收藏 / 资源池 / 表单 ---- */
+.cs-target {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.cs-target select {
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+  font: 11.5px/1 var(--font-mono);
+  color: var(--ink-2);
+}
+
+.cs-side section {
+  margin-bottom: 18px;
+}
+
+.cs-side h2 .cs-link {
+  margin-left: 8px;
+}
+
+.cs-res-head {
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  font-size: 11.5px !important;
+  color: var(--ink-2) !important;
+}
+
+.cs-res-head span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cs-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: 500 11px/1 var(--font-ui);
+  color: var(--accent-ink);
+  cursor: pointer;
+}
+
+.cs-fav,
+.cs-res {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  background: var(--surface-2);
+  margin-bottom: 5px;
+}
+
+.cs-fav > div,
+.cs-res > div:first-child {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.cs-fav code,
+.cs-res code {
+  font: 11px/1.3 var(--font-mono);
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cs-fav span,
+.cs-res span {
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.cs-fav button,
+.cs-res-actions button {
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--ink-2);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.cs-res-actions {
+  display: flex;
+  flex-direction: row;
+  flex: none;
+  gap: 4px;
+}
+
+.cs-res-actions .is-on {
+  color: var(--accent-ink);
+  border-color: var(--accent-line, var(--line-strong));
+}
+
+.cs-base.is-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+
+.cs-form {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.cs-form label {
+  display: grid;
+  gap: 4px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.cs-form input,
+.cs-form textarea,
+.cs-restable-row input,
+.cs-restable-row select {
+  min-width: 0;
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-2);
+  color: var(--ink);
+  font: 12px/1.4 var(--font-mono);
+  outline: none;
+}
+
+.cs-form textarea {
+  resize: vertical;
+  min-height: 0;
+  height: 62px;
+  font-family: var(--font-ui);
+}
+
+.cs-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.cs-row.two {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 10px;
+}
+
+.cs-label {
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.cs-check {
+  display: flex !important;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.cs-reslist {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.cs-reslist-head {
+  display: flex;
+  justify-content: space-between;
+  font: 600 11px/1 var(--font-ui);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.cs-restable-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 104px minmax(0, 1.5fr) 64px 24px;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.cs-restable-row .cs-slot {
+  font-size: 11px;
+}
+
+.cs-del {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.cs-yaml {
+  padding: 12px 16px 16px;
+}
+
+.cs-yaml summary {
+  cursor: pointer;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.cs-yaml pre {
+  margin: 8px 0 0;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  font: 11px/1.7 var(--font-mono);
+  color: var(--ink-2);
+  max-height: 320px;
+  overflow: auto;
 }

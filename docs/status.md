@@ -36,6 +36,7 @@
 - [x] runner：`packages/runner` 的 `runPack`（干净目录 install+verify+报告），CLI `packhub run`，CI 脚本改为它的薄壳
 - [x] 发布：`packhub publish`（先跑 runner，再写版本目录 + 归档 + 索引；`--dry-run` / `--out` PR 模式 / 版本不可变）
 - [x] 结构收尾：`apps/local`（bin `packhub`）与 `packages/hub`（bin `packhub-hub`）；`pnpm build:local` 出单文件 bundle，npm pack 后可 npx 跑（schema 已内嵌）
+- [x] 创作台补全：收藏池、registry 资源浏览器（`/api/registry/resources`）、结构化表单、实时计划预览、草稿与收藏本地保存
 - [x] registry 归档入库：`.gitignore` 放行 `registry/packs/**/*.phub`，新克隆的 registry 才能被 `add` 消费
 - [ ] `CLAUDE.md` 托管块与 `.claude/skills` 是否被 Claude Code 采用（未验证，需要一次模型调用）
 - [x] DSH 读项目级 `AGENTS.md`：`packhub probe --target dsh` 实测通过（headless + opencode-go 转发）；卸载后探针报文件不存在

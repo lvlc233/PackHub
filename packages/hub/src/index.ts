@@ -1,1 +1,6 @@
-export { startHub, defaultStaticDir, type HubOptions } from './server.ts';
+export { startHub, defaultStaticDir, type HubAuth, type HubOptions } from './server.ts';
+export {
+  collectPackResources,
+  type PackResourceInfo,
+  type PackResourcesResult,
+} from './resources.ts';

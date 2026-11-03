@@ -3,7 +3,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { buildPlan, loadPack, parseManifest, planFor, validateGraph, type TargetId } from '@packhub/kernel';
 import { installPack, loadState, verifyPack } from '@packhub/runtime';
-import { defaultStaticDir } from '@packhub/hub';
+import { collectPackResources, defaultStaticDir } from '@packhub/hub';
 
 export interface ServeOptions {
   root: string;
@@ -121,6 +121,14 @@ async function handleApi(
       packDir: root,
     });
     return sendJson(res, 200, { issues: planIssues, plan: plan ?? null });
+  }
+
+  if (url.pathname === '/api/registry/resources' && req.method === 'GET') {
+    const name = url.searchParams.get('name') ?? '';
+    const version = url.searchParams.get('version') ?? undefined;
+    const result = collectPackResources(root, name, version);
+    if (!result) return sendJson(res, 404, { error: '没有这个包或版本' });
+    return sendJson(res, 200, result);
   }
 
   if (url.pathname === '/api/registry' && req.method === 'GET') {

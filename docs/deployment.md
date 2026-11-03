@@ -132,6 +132,14 @@ Hub **不内置 runner**：验证交给一次性容器（CI 或临时 job），H
 
 ## 九点五、创作台（已实装）
 
+三栏：左边是**收藏池 + registry 资源浏览器**，中间是**结构化表单**（包名/版本/title/description/targets + 资源行：id/type/source/slot），右边是**实时计划预览**。
+
+- 浏览某个包 → 每个资源有「☆ 收藏」与「+ 加入草稿」；「用作底稿」把该包的 metadata 与资源灌进表单。
+- 表单每次改动自动调 `POST /api/plan`（400ms 防抖），不写盘、不联网。
+- 资源池来自只读接口 `GET /api/registry/resources?name=&version=`（服务端用内核解析清单，把 resources 拆出来）。
+- 草稿存 localStorage（`packhub.draft.v2`），收藏存 `packhub.favorites.v1`，可下载成 `packhub.yaml`。
+
+
 `/console`：左边列出 registry 里的包可作底稿，中间改 `packhub.yaml`，右边点「预览计划」由服务端内核算问题与动作（`POST /api/plan`，只读、不落盘、不联网）。草稿存在 localStorage，可下载成 `packhub.yaml`。
 
 它只做"写清单 + 看计划"，不做在线安装——安装永远在用户机器上。
