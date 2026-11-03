@@ -2,7 +2,17 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { installPack, loadPack, loadState, planFor, verifyPack } from '@packhub/core';
+import {
+  buildPlan,
+  installPack,
+  loadPack,
+  loadState,
+  parseManifest,
+  planFor,
+  validateGraph,
+  verifyPack,
+  type TargetId,
+} from '@packhub/core';
 
 export interface ServeOptions {
   root: string;
@@ -98,6 +108,28 @@ async function handleApi(
       };
     });
     return sendJson(res, 200, { root: relative(process.cwd(), root), packs });
+  }
+
+  // 草稿预览：吃一段 manifest 文本，不落盘，只返回问题与计划
+  if (url.pathname === '/api/plan' && req.method === 'POST') {
+    const body = await readBody(req);
+    const text = String(body.manifest ?? '');
+    if (!text.trim()) return sendJson(res, 400, { error: 'manifest 为空' });
+    const parsed = parseManifest(text, '<draft>');
+    if (!parsed.manifest) {
+      return sendJson(res, 200, { issues: parsed.issues, plan: null });
+    }
+    const { graph, issues } = validateGraph(parsed.manifest);
+    const errors = [...parsed.issues, ...issues].filter((i) => i.severity === 'error');
+    if (errors.length > 0) {
+      return sendJson(res, 200, { issues: [...parsed.issues, ...issues], plan: null });
+    }
+    const { plan, issues: planIssues } = buildPlan(parsed.manifest, graph, {
+      target: (String(body.target ?? 'dir') as TargetId) || 'dir',
+      targetVars: {},
+      packDir: root,
+    });
+    return sendJson(res, 200, { issues: planIssues, plan: plan ?? null });
   }
 
   if (url.pathname === '/api/registry' && req.method === 'GET') {

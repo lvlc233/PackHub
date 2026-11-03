@@ -130,6 +130,12 @@ Hub **不内置 runner**：验证交给一次性容器（CI 或临时 job），H
 
 `/packs` 列表与 `/packs/<scope>/<name>` 详情页，只读 `registry/index.json` 与版本目录里的 manifest / lock / verify.json；`/api/registry` 与 `/api/registry/pack` 是它们的唯一数据源。页面上只给命令，不给在线安装。
 
+## 九点五、创作台（已实装）
+
+`/console`：左边列出 registry 里的包可作底稿，中间改 `packhub.yaml`，右边点「预览计划」由服务端内核算问题与动作（`POST /api/plan`，只读、不落盘、不联网）。草稿存在 localStorage，可下载成 `packhub.yaml`。
+
+它只做"写清单 + 看计划"，不做在线安装——安装永远在用户机器上。
+
 ## 九点六、DSH 与 Claude Code 的实测方法（待执行）
 
 投影写出来了，但"harness 真的会读"还没验。验法要固定，不然每次都是猜：
