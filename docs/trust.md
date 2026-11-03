@@ -1,28 +1,28 @@
 # 可见性、鉴权与许可
 
-三件事分开管，别混成一个「权限系统」：
+1. packhub本体开源，提供自部署机制，部署后可以配置公开或白名单权限，相关连接需要部署者维护配置。
+2. pack的一个pack具有也具有公开隐藏机制[tokne?密码?白名单?]
+3. pack的资源项可能不一定公开,因此需要在配置中设定有鉴权，使客户端可以自行通过验证配置安全审核。-->暗示分多端。
 
-| 问题 | 谁负责 | 答案 |
-|---|---|---|
-| 谁能**看到/拿到**这个包 | 代码托管（GitHub / GitLab / Gitea）的仓库权限 | PackHub 不自建账号，只认「你能 clone 这个 registry 吗」 |
-| 装的时候**凭什么下载** | 环境变量 / 本机凭证文件 / git credential helper | manifest 只声明**需要哪个**凭证，绝不写值 |
-| 有没有**权利再分发** | 包作者 + registry 审查 | `license` 字段 + vendored 内容的来源许可 |
 
-## 一、可见性：三档，靠分发通道区分
+## 一、可见性：四档，靠分发通道与索引区分
 
 | 档位 | 放在哪 | 谁能装 | 索引 |
 |---|---|---|---|
 | `public` | 公共 registry（静态 Pages） | 所有人 | 公开 `index.json` |
-| `internal` | 公司内网 registry（同一个仓库格式，换个 host） | 有仓库权限的人 | 内网 `index.json` |
+| `unlisted` | 同一 registry，但**不进索引** | 知道确切包名（+ token）的人 | 无 |
+| `internal` | 公司内网 registry（同一格式，换个 host） | 有仓库权限的人 | 内网 `index.json` |
 | `private` | 只在本地 / 私有仓库，不发布 | 自己 | 无 |
+
+`unlisted` 是"分享链接"的等价物：不需要知道用户是谁，只需要他知道包名。白名单做不到——那需要身份源，交给 Hub 前置的网关。
 
 要点：
 
 1. **registry 就是 git 仓库 + `index.json`**，所以「内网 registry」不是一个新系统，只是把同样的目录放到公司的 GitLab 上。PackHub 不区分，只认 URL。
-2. **默认 `private`**，要发布必须显式写 `visibility: public`。默认公开迟早会泄露一次。
+2. **默认 `private`**，要进公共索引必须显式写 `visibility: public`；`registry:check` 会拒绝非 public 的包。默认公开迟早会泄露一次。
 3. 静态索引没法做「部分可见」：内网 registry 的索引对能访问的人就是全量。真要做细粒度，得靠 git 仓库的分支/权限，不要在 PackHub 里发明 ACL。
 
-## 二、鉴权：只声明，不保存
+## 二、鉴权：只声明，不保存（客户端直连为默认，Hub 代取可选）
 
 ### manifest 里写「需要什么」，不写「是什么」
 
@@ -46,6 +46,11 @@
 2. 本机凭证文件 `~/.packhub/credentials.json`（`0600`，不进版本库）：`{ "GITLAB_TOKEN": "…" }`
 3. git credential helper（HTTPS 克隆场景，需要时再读）
 
+### 两种取法：客户端直连 / Hub 代取
+
+- **客户端直连（默认）**：凭证在目标机器上（环境变量），Hub 从不接触密钥。适合开发者本机与 CI。
+- **Hub 代取（可选，部署者开启）**：Hub 持有资源凭证，客户端只跟 Hub 认证一次。适合内网，资源地址甚至可以不暴露。代价是 Hub 变成密钥保管处，安全责任集中，默认不开。
+
 ### 一个已知的硬边界
 
 现在从 git 仓库直接拉**单个私有文件**没有好方案（GitHub/GitLab 的 raw 端点要 token，tarball 端点也要）。所以私有内容的推荐做法只有两条：
@@ -63,7 +68,13 @@
 
 现在只做到了「包级 license 字段 + 文档提醒」，**没有自动检查**。计划里加一条 `license-check` 探针：vendored 资源的来源仓库里若有 `LICENSE`，抓下来判断是否允许再分发；不允许就报错。这条不急，但必须在「有人开始 vendored 别人的 skill」之前有。
 
-## 四、信任：verified 之外再加 signature（未实装）
+## 四、Hub 的职责边界
+
+Hub **不内置 runner**。验证交给一次性容器（CI 或临时 job）：容器里跑 `install + verify`，产出 `verify.json`，Hub 只消费报告。理由很直接——Hub 面向公网，不能执行别人写的 `exec` 与脚本。
+
+Hub 也**不自建账号**：身份来自部署层（反向代理、SSO、静态 token 白名单），Hub 只消费身份头或 bearer token。真正的执行面（验证 runner、目标机器上的同步 agent）都在 hub-runtime 里，见 [deployment.md](deployment.md)。
+
+## 五、信任：verified 之外再加 signature（未实装）
 
 `verified` 只证明「在干净环境装得上、校验过」，不证明「这是谁发的」。内网场景需要后者：
 
@@ -73,7 +84,7 @@
 
 不在 0.x 范围内，但 schema 里预留 `signatures` 字段，避免以后破坏格式。
 
-## 五、配置放哪
+## 六、配置放哪
 
 ```jsonc
 // ~/.packhub/config.json（本机，所有项目共用）
@@ -90,11 +101,19 @@
 - 清单里不写 registry 地址；`packhub add corp/code-review` 的 `corp` 前缀解析到配置里的 registry。
 - 私有 registry 的 token 只在本机配置/环境里，不进包、不进锁。
 
-## 六、这次要落的最小实现
+## 七、实现状态
 
-1. schema 加 `metadata.visibility`（默认 `private`）与 `resources[].auth`（只存变量名）。
-2. 下载时按 `auth` 取环境变量拼请求头；401/403 报错指名变量；错误信息脱敏。
-3. 测试：本地 http 服务校验 Authorization；缺凭证时错误信息包含变量名；带 token 但 401 时不打印 token。
-4. 文档：上面这套写进 `authoring.md` 的来源一节。
+已做：
 
-签名、license 自动检查、内网 registry 示例，留给后续。
+1. `metadata.visibility` 四档（`public` / `unlisted` / `internal` / `private`），默认 `private`；`registry:check` 只放行 `public`。
+2. `resources[].auth` 只存变量名与 scheme；下载时从环境变量取 token 拼请求头，401/403 报错指名变量，日志与报错都不含 token，URL 只留 host + path。
+3. 测试：本地 http 服务校验 Authorization（注入 / 缺变量 / 401 不泄漏 / 枚举校验）。
+
+未做（按优先级）：
+
+1. `unlisted` 的取包路径——现在 `add` 还没实现，等它落地时一起做"不进索引也能按名装"。
+2. 签名（minisign / sigstore）：`verified` 只证明装得上，不证明谁发的。
+3. 许可自动检查：`vendored` 会复制别人的内容，上游 `NonCommercial` / `NoDerivatives` 不能这么干，现在只有文档提醒。
+4. 资源级 license 字段（现在只有包级）。
+
+Hub 侧的执行面（验证 runner、同步 agent）不在这一层，见 [deployment.md](deployment.md)。

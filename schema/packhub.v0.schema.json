@@ -45,7 +45,7 @@
           "items": { "enum": ["dir", "dsh", "claude-code"] }
         },
         "visibility": {
-          "enum": ["public", "internal", "private"],
+          "enum": ["public", "unlisted", "internal", "private"],
           "default": "private",
           "description": "public 才会进公共索引；internal 走内网 registry；private 不发布"
         }

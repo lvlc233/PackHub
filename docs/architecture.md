@@ -10,6 +10,8 @@ manifest（声明） → plan（要做什么） → state（做了什么） → 
 
 ---
 
+> 这里只讲"数据怎么流动"。**谁在跑、谁拉谁、怎么同步**（Hub / 资源主机 / 目标机器 / Runner 四种角色）见 [deployment.md](deployment.md)。
+
 ## 一、链路
 
 ```
@@ -128,6 +130,10 @@ draft ──lock──► locked ──verify──► verified ──publish─
 | 断点 | 现状 | 补法 |
 |---|---|---|
 | ⑤ 取包 | 没有 `add`，registry 已被生成但没人消费 | `packhub add` 三种入口：`registry:name` / `git+https://` / `./x.phub` |
+| ⑩ 差异 | 没有 `diff / update`，无法做增量同步 | 生成两份 plan 的差异，按动作粒度展示 |
+| ⑪ 版本与回滚 | install 原地写，装坏了退不回 | 装到 `.packhub/versions/<ver>/`，用激活指针切换 |
+| ⑫ 并发 | 两个进程同时装同一目录会互相踩 | `.packhub/lock` 互斥 |
+| ⑬ 接入宿主 | 只物化到 `.packhub/`，harness 读不到 | 投影 adapter：`.claude/skills`、`.mcp.json`、`AGENTS.md` 托管块 |
 | ③ 自动验 | `verify.json` 目前本地跑出来，CI 只做门禁 | CI 里跑 `verify-pack`，失败即拒绝合并 |
 | ⑨ 深校验 | `command` / `mcp-ready` / `knowledge-integrity` 仍是 `skipped` | 起 MCP 进程探活、按 integrity 校验知识文件 |
 | ⑧ 卸载 | `state.written` 有了，但没有 `remove` | 按 state 反向删，冲突则提示人工确认 |

@@ -74,7 +74,7 @@ export interface Manifest {
     authors?: { name: string; url?: string }[];
     targets: TargetId[];
     /** 默认 private：要进公共索引必须显式写 public */
-    visibility?: 'public' | 'internal' | 'private';
+    visibility?: 'public' | 'unlisted' | 'internal' | 'private';
   };
   requires: { packhub: string; agent?: string };
   vars?: Record<string, string | number | boolean>;
