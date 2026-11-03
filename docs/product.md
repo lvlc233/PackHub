@@ -59,9 +59,9 @@ Hub 是**创作台 + 仓库**：收藏、草稿、diff、探针结果、版本�
 ```yaml
 slots:
   voice:
-    contract: [audio.speak]        # 占位实现必须提供什么
+    contract: [audio:speak]        # 占位实现必须提供什么
   memory:
-    contract: [memory.read, memory.write]
+    contract: [memory:read, memory:write]
 
 resources:
   - { id: tts-a, type: tool, slot: voice, source: npm:tts-a@1.2.0 }
@@ -74,7 +74,7 @@ bindings:
 ```
 
 - **候选留在清单里**，装不装由 `bindings` 决定；未绑定的候选不进入计划。
-- **契约必须校验**：绑定的实现要覆盖 `slot.contract`，否则报错——否则"可替换"只是换个不通的东西。
+- **契约必须校验**：绑定的实现要覆盖 `slot.contract`，否则报错——否则“可替换”只是换个不通的东西。`packhub slot swap <slot> <id>` 一条命令换绑，并打印计划差异。
 - 换绑时 `plan` 显示"卸掉谁、装上谁"，其它动作不变。
 
 ### 2. 路径统一（paths）

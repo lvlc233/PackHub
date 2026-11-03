@@ -252,6 +252,56 @@ overlays:
 | `overrides`（资源级） | 换掉某个资源的 pin / 实现 / 安装参数 | 上游用 `@0.6.2`，本项目锁 `@0.6.3` |
 | `overlays`（文件级） | 装完之后按路径覆盖文件 | 把上游的 `SKILL.md` 换成加了团队规则的版本 |
 
+### 槽位与路径：换实现只改一行
+
+**槽位（slot）** 是可替换的位置：同一个位置可以有多个候选实现，`bindings` 决定这次装哪个。
+
+```yaml
+apiVersion: packhub.dev/v0
+kind: Pack
+metadata:
+  name: demo/voice-pack
+  version: 0.0.1
+  targets: [dir]
+requires:
+  packhub: ">=0.0.1 <0.1"
+slots:
+  voice:
+    contract: [audio:speak]        # 占这个位的实现必须提供什么
+paths:
+  state: .packhub/state            # 包统一发号施令的路径
+resources:
+  - id: tts-a
+    type: tool
+    slot: voice
+    source: npm:tts-a@1.2.0
+    provides: [audio:speak]
+  - id: tts-b
+    type: tool
+    slot: voice
+    source: npm:tts-b@0.4.0
+    provides: [audio:speak]
+bindings:
+  voice: tts-b                     # 只装这个；tts-a 记为 excluded
+verify:
+  - type: file-exists
+    path: "${paths.state}/voice.json"
+```
+
+规则：
+
+- **候选留在清单里**，装不装由 `bindings` 决定；未绑定的候选不进计划，会在 `excluded` 里注明原因。
+- **契约要满足**：绑定的实现必须 `provides` 覆盖 `slot.contract`，否则报 `slot-contract-unmet`。
+- **有候选但没绑定** → `slot-unbound`（不猜你装哪个）。
+- 换实现：`packhub slot swap voice tts-a`，只改 `bindings` 一行，并打印计划差异（卸掉谁、装上谁）。
+
+**路径（paths）** 解决“资源各读各的默认位置”。包里统一声明，资源里用 `${paths.x}` 引用，生成计划时求值：
+
+- 必须是目标目录内的相对路径；`../` 或绝对路径直接报 `bad-path`。
+- 可以用在资源 `config`、`composition.env`、`verify`、`overlays` 的路径里。
+
+能力名统一写成 `命名空间:名字`（`audio:speak`、`memory:read`、`tool:repo_search`），槽位契约与 `provides` / `needs` 用同一套写法。
+
 ### 生成物不要手写
 
 | 文件 | 谁生成 | 干什么 |

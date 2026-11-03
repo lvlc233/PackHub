@@ -40,6 +40,7 @@
     { "actionId": "write#1", "op": "write", "to": ".packhub/knowledge/style-guide.md", "from": "./resources/style-guide.md", "resource": "style-guide" }
   ],
   "verify": [{ "type": "file-exists", "path": ".packhub/knowledge/style-guide.md" }],
+  "excluded": [{ "resource": "tts-a", "slot": "voice", "reason": "unbound-slot" }],
   "planHash": "sha256-…"
 }
 ```
@@ -51,7 +52,9 @@
 3. `actions[].dependsOn` 指向的 id 必须存在于同一 plan。
 4. 所有路径是相对 Pack 目录的；执行层必须拒绝 `..` 逃逸。
 
-动作原语（v0.0.2 已实装）：`fetch` · `unpack` · `write` · `link.skill` · `register.mcp` · `merge.config` · `exec` · `probe`。
+动作原语（已实装）：`fetch` · `unpack` · `write` · `link.skill` · `register.mcp` · `merge.config` · `exec` · `probe`。
+
+`excluded` 记录被槽位绑定排除的候选（`reason: unbound-slot`）：它们不进动作列表，但必须在计划里可见，否则「为什么没装」无从查起。能力名统一写成 `命名空间:名字`（`audio:speak`、`memory:read`、`tool:repo_search`），槽位契约与 `provides`/`needs` 共用这套写法。
 
 ---
 

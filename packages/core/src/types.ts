@@ -16,6 +16,8 @@ export interface ResourceSpec {
   auth?: { env: string; scheme?: 'bearer' | 'token' | 'basic' };
   transport?: 'stdio' | 'http';
   config?: Record<string, unknown>;
+  /** 占用哪个可替换位（slot）；未绑定的候选不进计划 */
+  slot?: string;
   provides?: string[];
   needs?: string[];
   dependsOn?: string[];
@@ -59,6 +61,12 @@ export type VerifyCheck =
   | { type: 'mcp-ready'; resource: string; timeout?: number }
   | { type: 'knowledge-integrity'; resource: string };
 
+export interface SlotSpec {
+  /** 占位实现必须提供的能力 */
+  contract?: string[];
+  note?: string;
+}
+
 export interface Manifest {
   apiVersion: 'packhub.dev/v0';
   kind: 'Pack';
@@ -80,6 +88,12 @@ export interface Manifest {
   vars?: Record<string, string | number | boolean>;
   resources: ResourceSpec[];
   composition?: Composition;
+  /** 可替换位：槽位名 → 契约 */
+  slots?: Record<string, SlotSpec>;
+  /** 槽位 → 资源 id；只有被绑定的实现会进计划 */
+  bindings?: Record<string, string>;
+  /** 包统一管理的路径表，资源里用 ${paths.x} 引用 */
+  paths?: Record<string, string>;
   overrides?: { resource: string; source?: string; config?: Record<string, unknown> }[];
   /** 装完之后按路径覆盖目标文件：mod 的 mod */
   overlays?: Overlay[];
@@ -129,6 +143,8 @@ export interface Plan {
   target: TargetId;
   actions: PlanAction[];
   verify: VerifyCheck[];
+  /** 被槽位绑定排除的候选：说明为什么没装 */
+  excluded: { resource: string; slot: string; reason: string }[];
   /** 计划内容的规范化哈希：同输入必须同哈希 */
   planHash: string;
 }

@@ -42,6 +42,7 @@ export function buildPlan(
   const scope: Record<string, unknown> = {
     vars: manifest.vars ?? {},
     target: targetVars,
+    paths: manifest.paths ?? {},
   };
 
   const missing: string[] = [];
@@ -256,6 +257,7 @@ export function buildPlan(
     pack: { name: manifest.metadata.name, version: manifest.metadata.version },
     target: opts.target,
     actions,
+    excluded: graph.excluded,
     verify,
   };
   return { plan: { ...plan, planHash: sha256(canonicalize(plan)) }, issues };

@@ -72,6 +72,28 @@
       "items": { "$ref": "#/definitions/resource" }
     },
     "composition": { "$ref": "#/definitions/composition" },
+    "slots": {
+      "type": "object",
+      "description": "可替换位：每个槽位声明契约，资源用 slot 占位，bindings 决定装哪个",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "contract": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+          "note": { "type": "string", "maxLength": 200 }
+        }
+      }
+    },
+    "bindings": {
+      "type": "object",
+      "description": "槽位 → 资源 id；只有被绑定的实现会被安装",
+      "additionalProperties": { "type": "string" }
+    },
+    "paths": {
+      "type": "object",
+      "description": "包统一发号施令的路径表，资源里用 ${paths.x} 引用；必须是相对路径",
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    },
     "overlay": {
       "type": "object",
       "additionalProperties": false,
@@ -118,6 +140,7 @@
             "scheme": { "enum": ["bearer", "token", "basic"], "default": "bearer" }
           }
         },
+        "slot": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
         "transport": { "enum": ["stdio", "http"] },
         "config": { "type": "object" },
         "provides": { "$ref": "#/definitions/capabilities" },
@@ -143,7 +166,7 @@
       "type": "array",
       "items": {
         "type": "string",
-        "pattern": "^(tool|skill|prompt|knowledge|config|tool\\.cli):[a-z0-9_]+$"
+        "pattern": "^[a-z][a-z0-9-]*:[a-z0-9_.]+$"
       },
       "uniqueItems": true
     },

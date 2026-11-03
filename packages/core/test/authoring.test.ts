@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { addResource, inferId } from '../src/authoring.ts';
+import { addResource, inferId, setBinding } from '../src/authoring.ts';
 import { loadPack, planFor } from '../src/index.ts';
 
 const MANIFEST = `# 注释要被保留
@@ -73,5 +73,53 @@ describe('addResource', () => {
     const { id } = addResource(file, { type: 'knowledge', source: './a.md', id: 'extra' });
     expect(id).toBe('extra');
     rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe('setBinding（换实现）', () => {
+  const withSlots = `# 头部注释
+apiVersion: packhub.dev/v0
+kind: Pack
+metadata: { name: demo/slots, version: 0.0.1, targets: [dir] }
+requires: { packhub: ">=0.0.1 <0.1" }
+slots:
+  voice: { contract: [audio:speak] }
+resources:
+  - id: tts-a
+    type: tool
+    slot: voice
+    source: npm:tts-a@1.2.0
+    provides: [audio:speak]
+  - id: tts-b
+    type: tool
+    slot: voice
+    source: npm:tts-b@0.4.0
+    provides: [audio:speak]
+bindings:
+  voice: tts-a
+`;
+
+  function fixture(): { dir: string; file: string } {
+    const dir = mkdtempSync(join(tmpdir(), 'packhub-bind-'));
+    const file = join(dir, 'packhub.yaml');
+    writeFileSync(file, withSlots, 'utf8');
+    return { dir, file };
+  }
+
+  it('只改 bindings 那一个键，注释与结构保留', () => {
+    const { file } = fixture();
+    const { id } = setBinding(file, 'voice', 'tts-b');
+    expect(id).toBe('tts-b');
+    const text = readFileSync(file, 'utf8');
+    expect(text).toContain('# 头部注释');
+    expect(text).toMatch(/bindings:\s*\n\s*voice: tts-b/);
+    expect(text).toContain('tts-a');
+  });
+
+  it('槽位不存在、资源不存在、资源不占该槽都要报错', () => {
+    const { file } = fixture();
+    expect(() => setBinding(file, 'nope', 'tts-a')).toThrow(/没有声明槽位/);
+    expect(() => setBinding(file, 'voice', 'nope')).toThrow(/没有这个资源/);
+    expect(() => setBinding(file, 'voice', 'x')).toThrow();
   });
 });

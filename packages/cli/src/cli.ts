@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import { defineCommand, type CommandDef } from 'citty';
 import {
   addResource,
+  setBinding,
   buildLock,
   installPack,
   loadPack,
@@ -226,6 +227,57 @@ const resource = defineCommand({
   subCommands: { add: resourceAdd },
 });
 
+const slotSwap = defineCommand({
+  meta: { name: 'swap', description: '换某个槽位的实现（只改 bindings 一行）' },
+  args: {
+    slot: { type: 'positional', required: true },
+    resource: { type: 'positional', required: true, description: '占该槽位的资源 id' },
+    dir: { type: 'string', default: '.' },
+  },
+  run({ args }) {
+    const dir = resolve(String(args.dir));
+    const file = join(dir, 'packhub.yaml');
+    if (!existsSync(file)) {
+      console.error(`没有 packhub.yaml：${file}`);
+      process.exit(2);
+    }
+    const before = planFor(loadPack(dir)).plan;
+
+    setBinding(file, String(args.slot), String(args.resource));
+    console.log(`✓ bindings.${String(args.slot)} → ${String(args.resource)}`);
+
+    const ctx = loadPack(dir);
+    const errors = ctx.issues.filter((i) => i.severity === 'error');
+    if (errors.length) {
+      for (const e of errors) console.error(`error [${e.code}] ${e.message}`);
+      process.exit(1);
+    }
+    const { plan } = planFor(ctx);
+    const after = plan;
+    // 换绑时 actionId（fetch#1）不变，必须按内容比，否则看不出换了什么
+    const fp = (a: { op: string } & Record<string, unknown>): string =>
+      JSON.stringify({ ...a, actionId: undefined, dependsOn: undefined });
+    const beforeSet = new Set((before?.actions ?? []).map((a) => fp(a as never)));
+    const afterSet = new Set((after?.actions ?? []).map((a) => fp(a as never)));
+    const describe = (a: { op: string } & Record<string, unknown>): string => {
+      const target = (a.to ?? a.dest ?? a.path ?? a.uri ?? a.resource ?? '') as string;
+      return `${a.op} ${target}`.trim();
+    };
+    const removed = (before?.actions ?? []).filter((a) => !afterSet.has(fp(a as never)));
+    const added = (after?.actions ?? []).filter((a) => !beforeSet.has(fp(a as never)));
+    console.log(`计划：${after?.actions.length ?? 0} 个动作（+${added.length} / -${removed.length}）`);
+    for (const a of removed) console.log(`  - ${describe(a as never)}`);
+    for (const a of added) console.log(`  + ${describe(a as never)}`);
+    for (const e of after?.excluded ?? []) console.log(`  · 跳过 ${e.resource}（槽位 ${e.slot} 未绑定）`);
+    console.log(`planHash ${after?.planHash.slice(0, 22) ?? '—'}…`);
+  },
+});
+
+const slot = defineCommand({
+  meta: { name: 'slot', description: '槽位操作（可替换的实现）' },
+  subCommands: { swap: slotSwap },
+});
+
 const search = defineCommand({
   meta: { name: 'search', description: '在静态索引里搜索（v0.0.2：需要 registry index.json）' },
   args: { keyword: { type: 'positional', required: false } },
@@ -253,5 +305,5 @@ const serve = defineCommand({
 
 export const main: CommandDef = defineCommand({
   meta: { name: 'packhub', version: '0.0.1', description: 'Agent 能力的整合包工具' },
-  subCommands: { plan, install, verify, lock, init, serve, search, resource },
+  subCommands: { plan, install, verify, lock, init, serve, search, resource, slot },
 });
