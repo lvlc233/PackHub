@@ -189,7 +189,15 @@ packhub probe <项目> --target dsh --patch scripts/dsh-headless-opencode.yml
 
 没有 `--patch` 时 headless 走默认的 `deepseek-official` 路由，会报余额不足；patch 文件把 provider 换成 `opencode-go`（就是桌面端在用的转发）。
 
-**Claude Code**：没有可用账号，`CLAUDE.md` 这一面未验证；MCP 那一面已验。
+**OpenCode**
+
+已验（2026-11-03）：`packhub probe <dir> --target opencode` 调用 `opencode run --model opencode-go/deepseek-v4.1-flash`，回答里出现托管块标记，且它的日志里自己写着 `Read AGENTS.md`。
+
+所以 **AGENTS.md 这条约定不是 DSH 特有的**：DSH（headless）、OpenCode 都读。项目里放 `AGENTS.md` 是跨 harness 可移植的。
+
+**Codex**：能装上、能读到 `AGENTS.md`（它的默认指令文件也是 `AGENTS.md`），但这台机器上跑不通——Codex 只支持 `wire_api = "responses"`，打 `https://opencode.ai/zen/v1/responses` 返回 402 Insufficient account funds；换成它自带模型又提示该 ChatGPT 账号不支持任何试过的模型。**结论：Codex 的探针跑不起来，原因是账号/通道，不是投影有问题。**
+
+**Claude Code**：没有可用账号，`CLAUDE.md` 这一面未验证；MCP 那一面已验（`claude mcp list` 显示 ✓ Connected）。用户明确表示不使用 CC，这一面按"环境不具备"记录。
 
 ## 十、下一步：先验证，再抽象
 

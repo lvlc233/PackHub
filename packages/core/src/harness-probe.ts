@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-export type HarnessTarget = 'dsh' | 'claude-code';
+export type HarnessTarget = 'dsh' | 'claude-code' | 'opencode';
 
 export interface RunnerResult {
   status: number | null;
@@ -18,6 +18,8 @@ export interface ProbeOptions {
   timeoutMs?: number;
   /** dsh 用的额外 patch 层（配置 provider 等），可省 */
   patchFile?: string;
+  /** opencode 用的模型，默认走 opencode-go 的免费档路线 */
+  model?: string;
   /** 测试注入用；默认 spawnSync */
   runner?: Runner;
 }
@@ -87,7 +89,7 @@ function parseDshFinal(stdout: string): string {
  * 声明式检查做不到这件事——只有真跑一次才知道 harness 有没有读。
  */
 export function probeHarness(opts: ProbeOptions): ProbeResult {
-  const instructionFile = opts.target === 'dsh' ? 'AGENTS.md' : 'CLAUDE.md';
+  const instructionFile = opts.target === 'claude-code' ? 'CLAUDE.md' : 'AGENTS.md';
   const file = join(opts.projectDir, instructionFile);
   const base: ProbeResult = {
     ok: false,
@@ -107,10 +109,13 @@ export function probeHarness(opts: ProbeOptions): ProbeResult {
   }
 
   const runner = opts.runner ?? DEFAULT_RUNNER;
+  const model = opts.model ?? 'opencode-go/deepseek-v4.1-flash';
   const command =
     opts.target === 'dsh'
       ? `dsh --profile headless${opts.patchFile ? ` --patch ${opts.patchFile}` : ''} --json "<question>"`
-      : 'claude -p "<question>" --max-budget-usd 0.05 --no-session-persistence';
+      : opts.target === 'opencode'
+        ? `opencode run --model ${model} "<question>"`
+        : 'claude -p "<question>" --max-budget-usd 0.05 --no-session-persistence';
 
   const dshArgs = [
     '--profile',
@@ -122,13 +127,21 @@ export function probeHarness(opts: ProbeOptions): ProbeResult {
   const res =
     opts.target === 'dsh'
       ? runner('dsh', dshArgs, opts.projectDir)
-      : runner(
-          'claude',
-          ['-p', QUESTION, '--max-budget-usd', '0.05', '--no-session-persistence'],
-          opts.projectDir,
-        );
+      : opts.target === 'opencode'
+        ? runner('opencode', ['run', '--model', model, QUESTION], opts.projectDir)
+        : runner(
+            'claude',
+            ['-p', QUESTION, '--max-budget-usd', '0.05', '--no-session-persistence'],
+            opts.projectDir,
+          );
 
-  const answer = opts.target === 'dsh' ? parseDshFinal(res.stdout) : res.stdout.trim();
+  const stripAnsi = (s: string): string => s.replace(/\x1B\[[0-9;]*[A-Za-z]/g, '');
+  const answer =
+    opts.target === 'dsh'
+      ? parseDshFinal(res.stdout)
+      : opts.target === 'opencode'
+        ? stripAnsi(res.stdout).trim()
+        : res.stdout.trim();
   const combined = `${res.stdout}\n${res.stderr}`;
 
   if (/MISSING_CREDENTIAL|no API key/i.test(combined)) {

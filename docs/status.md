@@ -33,6 +33,8 @@
 - [x] 探针封装：`packhub probe --target dsh|claude-code`（调 headless 问一句，检查回答里的标记；缺凭证会明确报出）
 - [ ] `CLAUDE.md` 托管块与 `.claude/skills` 是否被 Claude Code 采用（未验证，需要一次模型调用）
 - [x] DSH 读项目级 `AGENTS.md`：`packhub probe --target dsh` 实测通过（headless + opencode-go 转发）；卸载后探针报文件不存在
+- [x] OpenCode 读 `AGENTS.md`：`packhub probe --target opencode` 实测通过（日志里自己写 `Read AGENTS.md`）
+- [ ] Codex：投影与文件没问题，但本机通道跑不通（responses API 402 / 账号不支持模型），未完成探针
 - [x] 探针支持 `--patch`：headless 用 opencode-go 路由而不是默认 deepseek-official
 - [x] 签名：ed25519，签 `{pack@version, planHash}`，写独立文件 `packhub.signatures.json`（不改清单）；`keygen` / `sign` / `verify-sig`，支持信任列表；verify 报告与 index 带签名结果
 - [x] 许可证检查：`packhub licenses` 找 LICENSE/COPYING 并猜 SPDX，`--strict` 供 CI；不做法律判断

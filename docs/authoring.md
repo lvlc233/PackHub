@@ -337,6 +337,7 @@ packhub lock my-pack          # 成功后把解析结果（含计划快照）钉
 packhub sign my-pack --key packhub.key   # 可选：给计划哈希签名（别人能验来源）
 packhub licenses my-pack --strict        # vendored 资源必须有许可证文件才能发布
 packhub probe my-pack --target dsh       # 真机探针：harness 有没有读到写进去的指令（需要模型凭证）
+packhub probe my-pack --target opencode  # 同上，OpenCode：opencode run --model opencode-go/…
 
 # 5. 之后改了清单，先看差异再重新锁
 packhub diff my-pack          # 对比锁里的计划与当前计划：多了什么、少了什么

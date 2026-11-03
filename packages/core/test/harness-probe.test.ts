@@ -75,3 +75,28 @@ describe('probeHarness', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 });
+describe('opencode 目标', () => {
+  it('读 AGENTS.md，去掉 ANSI 控制符后比对标记', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'packhub-probe-oc-'));
+    writeFileSync(join(dir, 'AGENTS.md'), AGENTS, 'utf8');
+    const runner: Runner = () => ({
+      status: 0,
+      stdout: '\u001b[0m> build · deepseek-v4.1-flash\n\u001b[0m这个项目装了一个整合包：**测试包标题**（0.0.1）。\n',
+      stderr: '',
+    });
+    const res = probeHarness({ target: 'opencode', projectDir: dir, runner });
+    expect(res.ok).toBe(true);
+    expect(res.answer).not.toContain('\u001b[');
+    expect(res.command).toContain('opencode run --model');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('opencode 失败时给出退出码原因', () => {
+    const dir = project();
+    const runner: Runner = () => ({ status: 2, stdout: '', stderr: 'Insufficient Balance' });
+    const res = probeHarness({ target: 'opencode', projectDir: dir, runner });
+    expect(res.ok).toBe(false);
+    expect(res.reason).toMatch(/退出码 2/);
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
