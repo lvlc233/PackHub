@@ -16,25 +16,35 @@
 | MC 里有什么 | 作用 | PackHub 对应 | 现状 |
 |---|---|---|---|
 | `mods/` + 每个 mod 的版本 | 组件选择 | `resources[]` + source pin | ✅ 有 |
-| `overrides/config/*` | **作者改过的默认值**（不改就冲突/不好玩） | `config` 资源 + `merge.config` | ⚠️ 有合并，没有「针对某个资源的覆盖」 |
+| `overrides/config/*` | **作者改过的默认值**（不改就冲突/不好玩） | `overlays`（文件级）+ `overrides`（资源级） | ✅ 已实装，含冲突检测 |
 | `manifest.json`（带每个文件的哈希） | 可复现 | `lock` + `planHash` | ✅ 有 |
 | `side: client / server / both` | 同一个包，服务端只装必要部分 | `targets`（dir / dsh / claude-code） | ⚠️ 有 target，没有「服务端裁剪」 |
 | pack version + changelog | 版本化与迁移说明 | `metadata.version` | ⚠️ 有版本，没有 changelog |
 | 任务书 / 说明 / 上手引导 | 这个包**是干什么的**、怎么用 | Pack 的 README / 意图 | ❌ 没有 |
-| 冲突处理（ID、配方、能量单位） | 让组件能共存 | `provides`/`needs`、`pin-conflict` | ⚠️ 只有能力图，没有覆盖冲突检测 |
+| 冲突处理（ID、配方、能量单位） | 让组件能共存 | `provides`/`needs`、`pin-conflict`、`output-conflict`、`config-key-conflict` | ✅ 能力图 + 输出冲突检测 |
 
 结论：我们现在有「组件选择 + 可复现 + 安装」，缺的是**让一个包成为作品的那三样**——配置覆盖、客户端/服务端拆分、包自己的说明与变更记录。
 
 ## 三、由此推出的四件事
 
-### 1. 覆盖（overrides）要成为一等公民
+### 1. 覆盖（overrides）—— 已实装
 
-MC 整合包的价值一半在 config 覆盖。PackHub 现在只有全局 `merge.config`，粒度太粗。需要两层：
+MC 整合包的价值一半在 config 覆盖。现在两层都有：
 
-- **资源级覆盖**：`resources[].config` 已存在，但只作用于该资源的安装参数（比如 MCP 的 env）。
-- **文件级覆盖**：包里带一份 `overrides/`，装完后按路径覆盖目标环境的文件（配置、规则文件、脚本）。这一层现在完全没有。
+- **资源级覆盖** `overrides:`：换某个资源的 pin / 实现 / 安装参数，与它原有的 `config` 深合并；上游清单不动。
+- **文件级覆盖** `overlays:`：包里带一个目录，装完后按路径覆盖目标文件（配置、skill 里的文件、知识）。覆盖层最后执行，盖得住任何生成物；可以带二进制。
 
-并且要有**冲突检测**：两个资源改同一个配置键时，`plan` 必须报出来，而不是后装的静默赢。这对应 MC 里「两个 mod 改同一个配方」。
+**冲突检测**（对应 MC 里「两个 mod 改同一个配方」）：
+
+| 报错码 | 触发条件 |
+|---|---|
+| `output-conflict` | 两个动作写同一个文件 |
+| `overlay-conflict` | 两个覆盖层改同一个文件 |
+| `config-key-conflict` | 两个 config / MCP 改同一个配置键（此前是后写的静默赢） |
+| `overlay-shadows` | 覆盖层盖住生成文件（**警告**，确认是有意的） |
+| `override-unknown-resource` | `overrides` 指向不存在的资源 |
+
+还没做：**用户本地覆盖**（`.packhub/local.yaml`），装完之后用户自己再改一层、不随包分发。这是下一处该补的口子。
 
 ### 2. 客户端 / 服务端拆分
 
@@ -77,7 +87,7 @@ zip 工具解决「传过去」，整合包解决「传过去还能跑」。后�
 
 ## 五、建议的下一步顺序
 
-1. **overrides + 冲突检测**（让包能承载作者的调整，这是「整合」的本体）
+1. ~~overrides + 冲突检测~~（已实装）
 2. **PACK.md / CHANGELOG + 包页渲染**（让包成为可传播的作品）
 3. **server profile**（让「装到服务器」有真实差异）
 4. **`.phub` 归档 + registry 分发**（前面三样齐了，分发才有意义）

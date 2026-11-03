@@ -67,7 +67,23 @@
       "items": { "$ref": "#/definitions/resource" }
     },
     "composition": { "$ref": "#/definitions/composition" },
+    "overlay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from"],
+      "properties": {
+        "from": { "type": "string", "pattern": "^\\./.*" },
+        "to": { "type": "string", "default": "." },
+        "include": { "type": "array", "items": { "type": "string" } },
+        "note": { "type": "string", "maxLength": 200 }
+      }
+    },
     "overrides": { "$ref": "#/definitions/overrides" },
+    "overlays": {
+      "type": "array",
+      "description": "装完之后按路径覆盖目标文件：mod 的 mod，用来改上游组件而不动它本身",
+      "items": { "$ref": "#/definitions/overlay" }
+    },
     "install": { "$ref": "#/definitions/install" },
     "verify": {
       "type": "array",
@@ -141,6 +157,17 @@
             }
           }
         }
+      }
+    },
+    "overlay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from"],
+      "properties": {
+        "from": { "type": "string", "pattern": "^\\./.*" },
+        "to": { "type": "string", "default": "." },
+        "include": { "type": "array", "items": { "type": "string" } },
+        "note": { "type": "string", "maxLength": 200 }
       }
     },
     "overrides": {

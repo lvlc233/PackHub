@@ -1,5 +1,6 @@
 import type { Issue, Manifest, ResourceSpec } from './types.ts';
 import { checkSource, parseSource } from './ref.ts';
+import { deepMerge } from './util.ts';
 
 export interface Graph {
   /** capability -> 提供它的 resource id 列表 */
@@ -15,8 +16,19 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
   const resources = new Map<string, ResourceSpec>();
   const providers = new Map<string, string[]>();
 
-  manifest.resources.forEach((res, index) => {
+  const overrideOf = new Map((manifest.overrides ?? []).map((o) => [o.resource, o]));
+
+  manifest.resources.forEach((raw, index) => {
     const at = `resources[${index}]`;
+    // 资源级覆盖：换 pin / 实现 / 安装参数，但不动上游那份清单
+    const ov = overrideOf.get(raw.id);
+    const res: ResourceSpec = ov
+      ? {
+          ...raw,
+          ...(ov.source ? { source: ov.source } : {}),
+          ...(ov.config ? { config: deepMerge(raw.config ?? {}, ov.config) as Record<string, unknown> } : {}),
+        }
+      : raw;
     if (resources.has(res.id)) {
       issues.push({
         code: 'duplicate-resource-id',

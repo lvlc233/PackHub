@@ -214,6 +214,44 @@ verify:                              # 发布时必须有；本地可先留一�
   - { type: config-key, path: "${target.configFile}", key: "mcpServers.repo-search.command", equals: npx }
 ```
 
+### 覆盖：mod 的 mod
+
+上游组件保持原样，本项目在它上面叠一层。这是 MC 整合包 `overrides/` 的同款机制：
+
+```yaml
+apiVersion: packhub.dev/v0
+kind: Pack
+metadata:
+  name: lvlc233/my-pack-overlay
+  version: 0.0.2
+  targets: [dir]
+requires:
+  packhub: ">=0.0.1 <0.1"
+resources:
+  - id: style-guide
+    type: knowledge
+    source: ./resources/style-guide.md
+overlays:
+  - from: ./overrides          # 目录结构 = 目标路径结构
+    include: [.md]             # 可选：只盖匹配的文件
+    note: 把上游那份规范换成本项目的规范
+```
+
+`overrides/.packhub/knowledge/style-guide.md` 这个文件，会在安装最后一步盖掉生成的那份。规则：
+
+- **覆盖层最后执行**，所以能盖住任何生成物（配置、skill 里的文件、知识）。
+- 盖住生成文件得到一条 `overlay-shadows` **警告**（提醒是有意的），不是错误。
+- 两个覆盖层改同一个文件 → `overlay-conflict` 报错。
+- 覆盖层可以带二进制（图片、字体），安装时按字节拷贝，不做文本转换。
+- 覆盖层会被打进包里分发：**不要放凭证**。
+
+两个容易混的字段：
+
+| 字段 | 作用 | 例子 |
+|---|---|---|
+| `overrides`（资源级） | 换掉某个资源的 pin / 实现 / 安装参数 | 上游用 `@0.6.2`，本项目锁 `@0.6.3` |
+| `overlays`（文件级） | 装完之后按路径覆盖文件 | 把上游的 `SKILL.md` 换成加了团队规则的版本 |
+
 ### 生成物不要手写
 
 | 文件 | 谁生成 | 干什么 |

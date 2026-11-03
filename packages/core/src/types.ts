@@ -32,6 +32,16 @@ export interface Composition {
   needs?: CompositionNeed[];
 }
 
+export interface Overlay {
+  /** Pack 内的目录，例如 ./overrides */
+  from: string;
+  /** 目标根，默认 "."（Pack 目录） */
+  to?: string;
+  /** 只覆盖文件名匹配这些后缀/名字的文件 */
+  include?: string[];
+  note?: string;
+}
+
 export interface ExecSpec {
   command: string;
   args?: string[];
@@ -67,6 +77,8 @@ export interface Manifest {
   resources: ResourceSpec[];
   composition?: Composition;
   overrides?: { resource: string; source?: string; config?: Record<string, unknown> }[];
+  /** 装完之后按路径覆盖目标文件：mod 的 mod */
+  overlays?: Overlay[];
   install?: { exec?: ExecSpec[] };
   verify?: VerifyCheck[];
 }

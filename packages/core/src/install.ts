@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import * as tar from 'tar';
@@ -165,6 +165,22 @@ async function applyAction(
 
     case 'write': {
       const to = within(opts.root, action.to);
+      // 覆盖层可能带二进制文件（图片、字体、脚本），不能一律按 UTF-8 读
+      if (action.content === undefined && action.from) {
+        const raw = readFileSync(within(opts.root, action.from));
+        const binary = raw.subarray(0, 8192).includes(0);
+        if (binary) {
+          if (existsSync(to) && readFileSync(to).equals(raw)) {
+            return { actionId: action.actionId, op: action.op, status: 'noop', target: action.to };
+          }
+          if (!opts.dryRun) {
+            mkdirSync(dirname(to), { recursive: true });
+            copyFileSync(within(opts.root, action.from), to);
+            written.push(action.to);
+          }
+          return { actionId: action.actionId, op: action.op, status: 'done', target: action.to };
+        }
+      }
       const content =
         action.content !== undefined
           ? action.content

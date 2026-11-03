@@ -22,6 +22,8 @@ function materialize(manifestYaml: string): string {
     writeFileSync(join(dir, f), '# 示例\n', 'utf8');
   }
   writeFileSync(join(dir, 'fragments/agent.yaml'), 'review:\n  strict: true\n', 'utf8');
+  mkdirSync(join(dir, 'overrides/.packhub/knowledge'), { recursive: true });
+  writeFileSync(join(dir, 'overrides/.packhub/knowledge/style-guide.md'), '# 改过的规范\n', 'utf8');
   return dir;
 }
 
