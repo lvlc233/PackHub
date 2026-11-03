@@ -72,7 +72,7 @@ const plan = defineCommand({
 });
 
 const install = defineCommand({
-  meta: { name: 'install', description: '执行计划（dir adapter）' },
+  meta: { name: 'install', description: '执行计划（--target 决定落点：dir / claude-code / dsh）' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
     'dry-run': { type: 'boolean', default: false },
