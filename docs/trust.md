@@ -111,7 +111,7 @@ Hub 也**不自建账号**：身份来自部署层（反向代理、SSO、静态
 
 未做（按优先级）：
 
-1. `unlisted` 的取包路径——现在 `add` 还没实现，等它落地时一起做"不进索引也能按名装"。
+1. ~~`unlisted` 的取包路径~~ ——已实装：`add scope/name --version x.y.z` 允许绕过索引直接取归档。
 2. 签名（minisign / sigstore）：`verified` 只证明装得上，不证明谁发的。
 3. 许可自动检查：`vendored` 会复制别人的内容，上游 `NonCommercial` / `NoDerivatives` 不能这么干，现在只有文档提醒。
 4. 资源级 license 字段（现在只有包级）。

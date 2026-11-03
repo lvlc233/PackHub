@@ -342,7 +342,7 @@ const add = defineCommand({
       const fetched = await fetchPack({
         name: target,
         index: String(args.index),
-        ...(args.version ? { version: String(args.version) } : {}),
+        ...(args.version ? { version: String(args.version), allowUnlisted: true } : {}),
         dest: packDir,
       });
       label = `${target}@${fetched.version}`;

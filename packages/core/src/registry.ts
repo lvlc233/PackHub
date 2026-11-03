@@ -61,13 +61,18 @@ export async function fetchPack(opts: {
   index: string;
   version?: string;
   dest: string;
+  /** unlisted：知道确切名称与版本时，可以不走索引 */
+  allowUnlisted?: boolean;
 }): Promise<{ dir: string; version: string; bytes: number }> {
   const index = await readIndex(opts.index);
   const entry = index.packs.find((p) => p.name === opts.name);
-  if (!entry) throw new RegistryError(`索引里没有这个包：${opts.name}`, 'not-found');
+  if (!entry && !(opts.allowUnlisted && opts.version)) {
+    throw new RegistryError(`索引里没有这个包：${opts.name}`, 'not-found');
+  }
 
-  const version = opts.version ?? entry.latest;
-  if (!entry.versions.includes(version)) {
+  const version = opts.version ?? entry?.latest;
+  if (!version) throw new RegistryError(`${opts.name} 没有可用的版本`, 'not-found');
+  if (entry && !entry.versions.includes(version)) {
     throw new RegistryError(
       `${opts.name} 没有版本 ${version}（有：${entry.versions.join(', ')}）`,
       'not-found',

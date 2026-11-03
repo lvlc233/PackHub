@@ -84,3 +84,28 @@ describe('update', () => {
     rmSync(project, { recursive: true, force: true });
   });
 });
+describe('unlisted', () => {
+  it('索引里没有这个包，但给了版本就能装（unlisted）', async () => {
+    const reg = await registry();
+    const project = mkdtempSync(join(tmpdir(), 'packhub-unl-'));
+    const { fetchPack } = await import('../src/index.ts');
+    const dest = join(project, '.packhub/packs/demo/upd');
+
+    // 正常情况下索引里没这个包就该报错
+    await expect(
+      fetchPack({ name: 'demo/missing', index: join(reg, 'index.json'), dest }),
+    ).rejects.toThrow(/索引里没有这个包/);
+
+    // unlisted：知道确切名称与版本，允许绕过索引
+    const res = await fetchPack({
+      name: 'demo/upd',
+      index: join(reg, 'index.json'),
+      version: '0.1.0',
+      allowUnlisted: true,
+      dest,
+    });
+    expect(res.version).toBe('0.1.0');
+    rmSync(reg, { recursive: true, force: true });
+    rmSync(project, { recursive: true, force: true });
+  });
+});
