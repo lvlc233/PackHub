@@ -18,6 +18,6 @@ try {
   });
   process.exit(report.ok ? 0 : 1);
 } catch (err) {
-  console.error(`x ${(err as Error).message}`);
+  console.error(`x ${err && err.message ? err.message : err}`);
   process.exit(1);
 }
