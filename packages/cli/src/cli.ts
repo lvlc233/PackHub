@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { defineCommand, type CommandDef } from 'citty';
 import {
+  addResource,
   buildLock,
   installPack,
   loadPack,
@@ -137,7 +138,8 @@ const init = defineCommand({
       process.exit(1);
     }
     mkdirSync(join(dir, 'resources'), { recursive: true });
-    const template = `apiVersion: packhub.dev/v0.0.1
+    const template = `# yaml-language-server: $schema=https://raw.githubusercontent.com/lvlc233/PackHub/main/schema/packhub.v0.0.1.schema.json
+apiVersion: packhub.dev/v0.0.1
 kind: Pack
 
 metadata:
@@ -154,15 +156,74 @@ resources:
   - id: example-knowledge
     type: knowledge
     source: ./resources/example.md
+    # provides: [knowledge:your_thing]   # 只有需要被别的资源依赖时才写
 
 verify:
   - type: file-exists
-    path: "\${target.knowledgeDir}/example-knowledge.md"
+    path: "\${target.knowledgeDir}/example.md"
 `;
     writeFileSync(file, template, 'utf8');
     writeFileSync(join(dir, 'resources', 'example.md'), '# 示例知识\n\n替换成真实内容。\n', 'utf8');
     console.log(`created ${file}`);
+    console.log('下一步：packhub resource add <type> <source> 追加资源，然后 packhub plan 看动作');
   },
+});
+
+const RESOURCE_TYPES = ['mcp', 'skill', 'prompt', 'knowledge', 'config', 'tool'] as const;
+
+const resourceAdd = defineCommand({
+  meta: { name: 'add', description: '往 packhub.yaml 追加一个资源（结构化编辑，保留注释）' },
+  args: {
+    type: {
+      type: 'positional',
+      required: true,
+      description: `资源类型：${RESOURCE_TYPES.join(' / ')}`,
+    },
+    source: {
+      type: 'positional',
+      required: true,
+      description: 'npm: pypi: github: https:// 或 ./相对路径',
+    },
+    dir: { type: 'string', default: '.', description: 'Pack 目录' },
+    id: { type: 'string', description: '自定义资源 id（默认从 source 推断）' },
+  },
+  run({ args }) {
+    const type = String(args.type) as (typeof RESOURCE_TYPES)[number];
+    if (!RESOURCE_TYPES.includes(type)) {
+      console.error(`未知类型：${type}（可选：${RESOURCE_TYPES.join(' / ')}）`);
+      process.exit(2);
+    }
+    const dir = resolve(String(args.dir));
+    const file = join(dir, 'packhub.yaml');
+    if (!existsSync(file)) {
+      console.error(`没有 packhub.yaml：${file}（先跑 packhub init）`);
+      process.exit(2);
+    }
+
+    const { id } = addResource(file, {
+      type,
+      source: String(args.source),
+      ...(args.id ? { id: String(args.id) } : {}),
+    });
+    console.log(`✓ 已追加资源 ${id}（${type}）→ ${file}`);
+
+    // 加完立刻重算：格式对不对、能力图缺不缺，当场能看到
+    const ctx = loadPack(dir);
+    const errors = ctx.issues.filter((i) => i.severity === 'error');
+    if (errors.length) {
+      for (const e of errors) console.error(`error [${e.code}] ${e.message}`);
+      console.error('\n资源已写入，但清单还有错误，先修完再安装。');
+      process.exit(1);
+    }
+    const { plan } = planFor(ctx);
+    console.log(`计划：${plan?.actions.length ?? 0} 个动作 · planHash ${plan?.planHash.slice(0, 22)}…`);
+    console.log('下一步：packhub install . --dry-run 看会发生什么');
+  },
+});
+
+const resource = defineCommand({
+  meta: { name: 'resource', description: '资源编辑' },
+  subCommands: { add: resourceAdd },
 });
 
 const search = defineCommand({
@@ -192,5 +253,5 @@ const serve = defineCommand({
 
 export const main: CommandDef = defineCommand({
   meta: { name: 'packhub', version: '0.0.1', description: 'Agent 能力的整合包工具' },
-  subCommands: { plan, install, verify, lock, init, serve, search },
+  subCommands: { plan, install, verify, lock, init, serve, search, resource },
 });
