@@ -42,8 +42,9 @@ export async function packArchive(
 
   const out = opts.out ?? join(root, 'pack.phub');
   mkdirSync(dirname(out), { recursive: true });
-  await tar.c({ gzip: true, file: out, cwd: root, portable: true }, entries);
-  return { file: out, entries, bytes: statSync(out).size };
+  const unique = [...new Set(entries)];
+  await tar.c({ gzip: true, file: out, cwd: root, portable: true }, unique);
+  return { file: out, entries: unique, bytes: statSync(out).size };
 }
 
 /** 解包 `.phub` 到目录（strip 0：归档内就是 Pack 根）。 */

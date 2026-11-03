@@ -17,6 +17,7 @@
     "registry:pack": "node --experimental-strip-types scripts/registry/build-archives.mjs",
     "registry:check": "node --experimental-strip-types scripts/registry/build-index.mjs --check",
     "registry:verify": "node --experimental-strip-types scripts/registry/verify-pack.mjs",
+    "registry:verify-all": "node --experimental-strip-types scripts/registry/verify-all.mjs",
     "check": "pnpm typecheck && pnpm test"
   },
   "devDependencies": {

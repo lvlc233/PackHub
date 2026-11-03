@@ -39,6 +39,9 @@ jobs:
       - name: registry 校验（schema · pin · 锁一致性 · 版本不可变）
         run: pnpm registry:check
 
+      - name: 真装一遍并校验（干净环境，需要联网取资源）
+        run: pnpm registry:verify-all
+
   publish-index:
     needs: verify
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'

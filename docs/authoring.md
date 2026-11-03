@@ -344,6 +344,10 @@ packhub uninstall my-pack     # 按 .packhub/state.json 的 written 反向删除
 # 6.5 装坏了就退回上一步
 packhub rollback my-pack      # 用安装前的快照恢复被改写的文件、删掉本次新建的
 
+# 6.5b 从归档或 git 仓库直接装
+packhub add ./demo.phub                       # 本地 .phub
+packhub add git+https://github.com/o/r@v1.0.0  # GitHub / GitLab 仓库（走 archive 端点）
+
 # 6.6 别人装了你发的包，升级
 packhub update lvlc233/team-conventions --index <registry/index.json>
 

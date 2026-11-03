@@ -12,6 +12,7 @@ import {
   packArchive,
   fetchPack,
   updatePack,
+  resolveAddSource,
   installPack,
   loadPack,
   planFor,
@@ -297,11 +298,15 @@ const slot = defineCommand({
 });
 
 const add = defineCommand({
-  meta: { name: 'add', description: '从 registry 取一个包，装进当前项目' },
+  meta: { name: 'add', description: '装一个包：registry 名称、.phub 归档，或 git+https 仓库' },
   args: {
-    name: { type: 'positional', required: true, description: 'scope/name' },
-    index: { type: 'string', required: true, description: 'registry 的 index.json（本地路径或 URL）' },
-    version: { type: 'string', description: '默认取 latest' },
+    source: {
+      type: 'positional',
+      required: true,
+      description: 'scope/name（配合 --index）、./x.phub，或 git+https://github.com/o/r@ref',
+    },
+    index: { type: 'string', description: 'registry 的 index.json（本地路径或 URL）' },
+    version: { type: 'string', description: 'registry 包的版本，默认 latest' },
     dir: { type: 'string', default: '.', description: '项目目录' },
     target: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code' },
     'dry-run': { type: 'boolean', default: false },
@@ -309,21 +314,43 @@ const add = defineCommand({
   },
   async run({ args }) {
     const projectDir = resolve(String(args.dir));
-    const name = String(args.name);
-    const dest = join(projectDir, '.packhub/packs', name);
+    const target = String(args.source);
+    const targetEnv = String(args.target);
 
-    console.log(`→ 取 ${name}${args.version ? `@${args.version}` : ''} …`);
-    const fetched = await fetchPack({
-      name,
-      index: String(args.index),
-      ...(args.version ? { version: String(args.version) } : {}),
-      dest,
-    });
-    console.log(`✓ ${fetched.dir}（${fetched.version}，${Math.max(1, Math.round(fetched.bytes / 1024))} KB）`);
+    let packDir: string;
+    let label: string;
 
-    const ctx = loadPack(dest);
+    if (target.endsWith('.phub') || target.startsWith('git+')) {
+      const slug = target
+        .replace(/^git\+/, '')
+        .replace(/\.phub$/, '')
+        .replace(/[@/\\:]/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(-48);
+      packDir = join(projectDir, '.packhub/packs', slug);
+      console.log(`→ 取 ${target} …`);
+      const resolved = await resolveAddSource(target, packDir);
+      packDir = resolved.dir;
+      label = resolved.label;
+    } else {
+      if (!args.index) {
+        console.error('用 registry 名称安装需要 --index（也可以用 .phub 或 git+https://…）');
+        process.exit(2);
+      }
+      packDir = join(projectDir, '.packhub/packs', target);
+      console.log(`→ 取 ${target}${args.version ? `@${args.version}` : ''} …`);
+      const fetched = await fetchPack({
+        name: target,
+        index: String(args.index),
+        ...(args.version ? { version: String(args.version) } : {}),
+        dest: packDir,
+      });
+      label = `${target}@${fetched.version}`;
+    }
+
+    const ctx = loadPack(packDir);
     if (reportIssues(ctx.issues)) process.exit(2);
-    const { plan, issues } = planFor(ctx, { target: String(args.target) as never });
+    const { plan, issues } = planFor(ctx, { target: targetEnv as never });
     if (!plan) {
       reportIssues(issues, 'packhub add');
       process.exit(2);
@@ -336,7 +363,7 @@ const add = defineCommand({
 
     const result = await installPack(ctx, plan, {
       root: projectDir,
-      packRoot: dest,
+      packRoot: packDir,
       overwrite: Boolean(args.overwrite),
     });
     for (const o of result.outcomes) {
@@ -344,7 +371,7 @@ const add = defineCommand({
       console.log(`${mark} ${o.actionId.padEnd(16)} ${o.status.padEnd(10)} ${o.message ?? o.target ?? ''}`);
     }
     if (result.outcomes.some((o) => o.status === 'failed')) process.exit(1);
-    console.log(`\n装上 ${name}@${fetched.version}；state: ${result.statePath}`);
+    console.log(`\n装上 ${label} → ${projectDir}`);
   },
 });
 
