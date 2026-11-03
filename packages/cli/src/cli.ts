@@ -8,6 +8,8 @@ import {
   diffActions,
   describeAction,
   removePack,
+  packArchive,
+  fetchPack,
   installPack,
   loadPack,
   planFor,
@@ -290,6 +292,74 @@ const slot = defineCommand({
   subCommands: { swap: slotSwap },
 });
 
+const add = defineCommand({
+  meta: { name: 'add', description: '从 registry 取一个包，装进当前项目' },
+  args: {
+    name: { type: 'positional', required: true, description: 'scope/name' },
+    index: { type: 'string', required: true, description: 'registry 的 index.json（本地路径或 URL）' },
+    version: { type: 'string', description: '默认取 latest' },
+    dir: { type: 'string', default: '.', description: '项目目录' },
+    target: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code' },
+    'dry-run': { type: 'boolean', default: false },
+  },
+  async run({ args }) {
+    const projectDir = resolve(String(args.dir));
+    const name = String(args.name);
+    const dest = join(projectDir, '.packhub/packs', name);
+
+    console.log(`→ 取 ${name}${args.version ? `@${args.version}` : ''} …`);
+    const fetched = await fetchPack({
+      name,
+      index: String(args.index),
+      ...(args.version ? { version: String(args.version) } : {}),
+      dest,
+    });
+    console.log(`✓ ${fetched.dir}（${fetched.version}，${Math.max(1, Math.round(fetched.bytes / 1024))} KB）`);
+
+    const ctx = loadPack(dest);
+    if (reportIssues(ctx.issues)) process.exit(2);
+    const { plan, issues } = planFor(ctx, { target: String(args.target) as never });
+    if (!plan) {
+      reportIssues(issues, 'packhub add');
+      process.exit(2);
+    }
+
+    if (args['dry-run']) {
+      printPlan(plan);
+      return;
+    }
+
+    const result = await installPack(ctx, plan, {
+      root: projectDir,
+      packRoot: dest,
+    });
+    for (const o of result.outcomes) {
+      const mark = o.status === 'failed' ? 'x' : o.status === 'skipped' ? '-' : '✓';
+      console.log(`${mark} ${o.actionId.padEnd(16)} ${o.status.padEnd(10)} ${o.message ?? o.target ?? ''}`);
+    }
+    if (result.outcomes.some((o) => o.status === 'failed')) process.exit(1);
+    console.log(`\n装上 ${name}@${fetched.version}；state: ${result.statePath}`);
+  },
+});
+
+const pack = defineCommand({
+  meta: { name: 'pack', description: '打成 .phub 归档（tar.gz）' },
+  args: {
+    dir: { type: 'positional', required: false, default: '.' },
+    out: { type: 'string', description: '输出路径，默认 <dir>/pack.phub' },
+    vendored: { type: 'boolean', default: false, description: '把本地资源一起打进去（离线可装）' },
+  },
+  async run({ args }) {
+    const dir = resolve(String(args.dir));
+    const res = await packArchive(dir, {
+      vendored: Boolean(args.vendored),
+      ...(args.out ? { out: resolve(String(args.out)) } : {}),
+    });
+    console.log(`✓ ${res.file}（${Math.max(1, Math.round(res.bytes / 1024))} KB）`);
+    console.log(`包含：${res.entries.join('、')}${args.vendored ? '' : '（reference 模式，装的时候要联网取资源）'}`);
+  },
+});
+
 const uninstall = defineCommand({
   meta: { name: 'uninstall', description: '按 state 反向删除已装的文件' },
   args: {
@@ -381,5 +451,5 @@ const serve = defineCommand({
 
 export const main: CommandDef = defineCommand({
   meta: { name: 'packhub', version: '0.0.1', description: 'Agent 能力的整合包工具' },
-  subCommands: { plan, install, uninstall, verify, lock, init, serve, search, resource, slot, diff },
+  subCommands: { plan, install, uninstall, verify, lock, init, serve, search, add, resource, slot, diff, pack },
 });

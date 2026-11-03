@@ -27,6 +27,15 @@ export {
 export { download, resolveDownloadUrl, FetchError, type FetchResult } from './download.ts';
 export { addResource, setBinding, inferId, type AddResourceInput, type AddResourceResult } from './authoring.ts';
 export { diffActions, describeAction, type ActionDiff } from './diff.ts';
+export { packArchive, unpackArchive, type PackArchiveOptions, type PackArchiveResult } from './pack.ts';
+export {
+  readIndex,
+  fetchPack,
+  archivePath,
+  RegistryError,
+  type RegistryIndex,
+  type IndexEntry,
+} from './registry.ts';
 export { runChecks, type CheckResult, type CheckStatus, type VerifyOptions } from './verify.ts';
 export { canonicalize, sha256, interpolate, deepMerge, isPlainObject } from './util.ts';
 
@@ -63,9 +72,13 @@ export function planFor(ctx: PackContext, opts: Partial<PlanOptions> = {}): { pl
 export function installPack(
   ctx: PackContext,
   plan: Plan,
-  opts: Omit<ApplyOptions, 'root'> = {},
+  opts: Omit<ApplyOptions, 'root' | 'packRoot'> & { root?: string; packRoot?: string } = {},
 ): Promise<ApplyResult> {
-  return applyPlan(plan, { ...opts, root: ctx.dir });
+  return applyPlan(plan, {
+    ...opts,
+    root: opts.root ?? ctx.dir,
+    packRoot: opts.packRoot ?? ctx.dir,
+  });
 }
 
 export function verifyPack(dir: string, plan: Plan): CheckResult[] {

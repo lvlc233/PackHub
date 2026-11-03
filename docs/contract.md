@@ -196,3 +196,19 @@ registry/packs/<scope>/<name>/
 - `plan` / `lock` / `state` / `index` 各自独立升版本；读方遇到不认识的 `apiVersion` 主版本必须拒绝，不得猜测。
 - 新增可选字段不算破坏性变更；删除字段、改变语义、收紧校验算。
 - v0.0.2 起，registry 里的包**必须**有 lock 与（若要 verified）verify 报告。
+
+---
+
+## 8. 归档与 registry 布局
+
+`.phub` = tar.gz，解包后就是 Pack 根目录（`packhub.yaml` + 可选资源）。
+
+```
+<registry>/
+├── index.json                              # 生成物，不手写
+└── packs/<scope>/<name>/<version>.phub     # 归档路径是约定，不写进索引
+```
+
+- `reference` 模式只打 `packhub.yaml` + `packhub.lock.json`，装的时候联网取资源。
+- `vendored` 模式把 `resources/ fragments/ overrides/ skills/ glue/` 一起打进去，离线可装（内网场景用这个）。
+- `packhub add <name> --index <路径|URL>`：读索引 → 取 `<base>/packs/<name>/<latest>.phub` → 解包到 `.packhub/packs/<name>/` → 生成计划 → 装进项目。索引与归档的相对位置固定，避免两处真相。

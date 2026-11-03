@@ -14,6 +14,7 @@
     "web:dev": "pnpm --filter @packhub/web dev",
     "web:build": "pnpm --filter @packhub/web build",
     "registry:index": "node --experimental-strip-types scripts/registry/build-index.mjs",
+    "registry:pack": "node --experimental-strip-types scripts/registry/build-archives.mjs",
     "registry:check": "node --experimental-strip-types scripts/registry/build-index.mjs --check",
     "registry:verify": "node --experimental-strip-types scripts/registry/verify-pack.mjs",
     "check": "pnpm typecheck && pnpm test"

@@ -19,8 +19,10 @@ import { canonicalize, deepMerge, sha256 } from './util.ts';
 import { download } from './download.ts';
 
 export interface ApplyOptions {
-  /** Pack 目录（plan 里的相对路径都相对它） */
+  /** 目标目录：写到哪里、state 放哪里 */
   root: string;
+  /** Pack 来源目录：`from` 读哪里；默认与 root 相同 */
+  packRoot?: string;
   /** 允许执行安装期命令（默认拒绝） */
   allowExec?: boolean;
   /** 只计算不落盘 */
@@ -37,6 +39,8 @@ export interface ActionOutcome {
   target?: string;
   /** instruction 动作用的块标识，卸载时据此只摘自己的块 */
   blockId?: string;
+  /** register.mcp 用了哪个资源 id，卸载时据此摘掉对应 server 条目 */
+  resource?: string;
 }
 
 export interface ApplyResult {
@@ -169,6 +173,20 @@ export function removePack(root: string, packKey?: string): RemoveResult {
         const abs = within(root, rel);
         if (!existsSync(abs)) continue;
 
+        // 配置文件是共享的：只摘掉自己登记的 server 条目，不整文件删
+        const regs = record.actions.filter((a) => a.op === 'register.mcp' && a.target === rel && a.resource);
+        if (regs.length > 0 && /\.json$/i.test(rel)) {
+          const data = JSON.parse(readFileSync(abs, 'utf8')) as Record<string, unknown>;
+          const servers = { ...(data.mcpServers as Record<string, unknown> | undefined) };
+          for (const a of regs) delete servers[a.resource as string];
+          if (Object.keys(servers).length === 0) delete data.mcpServers;
+          else data.mcpServers = servers;
+          if (Object.keys(data).length === 0) rmSync(abs, { force: true });
+          else writeFileSync(abs, JSON.stringify(data, null, 2) + '\n', 'utf8');
+          removed.push(rel);
+          continue;
+        }
+
         // 指令文件是用户也会写的：只摘掉自己的托管块，不整文件删
         const blockIds = record.actions
           .filter((a) => a.op === 'instruction' && a.target === rel && a.blockId)
@@ -238,7 +256,7 @@ async function applyAction(
     }
 
     case 'unpack': {
-      const from = within(opts.root, action.from);
+      const from = within(opts.packRoot ?? opts.root, action.from);
       const to = within(opts.root, action.to);
       if (!existsSync(from)) throw new Error(`待解包文件不存在：${action.from}`);
       if (!opts.dryRun) {
@@ -272,7 +290,7 @@ async function applyAction(
       };
     }
     case 'link.skill': {
-      const from = within(opts.root, action.from);
+      const from = within(opts.packRoot ?? opts.root, action.from);
       const to = within(opts.root, action.to);
       if (!existsSync(from)) {
         throw new Error(`skill 源目录不存在：${action.from}`);
@@ -288,7 +306,7 @@ async function applyAction(
       const to = within(opts.root, action.to);
       // 覆盖层可能带二进制文件（图片、字体、脚本），不能一律按 UTF-8 读
       if (action.content === undefined && action.from) {
-        const raw = readFileSync(within(opts.root, action.from));
+        const raw = readFileSync(within(opts.packRoot ?? opts.root, action.from));
         const binary = raw.subarray(0, 8192).includes(0);
         if (binary) {
           if (existsSync(to) && readFileSync(to).equals(raw)) {
@@ -296,7 +314,7 @@ async function applyAction(
           }
           if (!opts.dryRun) {
             mkdirSync(dirname(to), { recursive: true });
-            copyFileSync(within(opts.root, action.from), to);
+            copyFileSync(within(opts.packRoot ?? opts.root, action.from), to);
             written.push(action.to);
           }
           return { actionId: action.actionId, op: action.op, status: 'done', target: action.to };
@@ -305,7 +323,7 @@ async function applyAction(
       const content =
         action.content !== undefined
           ? action.content
-          : readFileSync(within(opts.root, action.from ?? ''), 'utf8');
+          : readFileSync(within(opts.packRoot ?? opts.root, action.from ?? ''), 'utf8');
       if (existsSync(to) && readFileSync(to, 'utf8') === content) {
         return { actionId: action.actionId, op: action.op, status: 'noop', target: action.to };
       }
@@ -319,7 +337,7 @@ async function applyAction(
 
     case 'merge.config': {
       const to = within(opts.root, action.path);
-      const patch = action.patch ?? readStructured(within(opts.root, action.patchFrom ?? ''));
+      const patch = action.patch ?? readStructured(within(opts.packRoot ?? opts.root, action.patchFrom ?? ''));
       const current = existsSync(to) ? readStructured(to) : {};
       const merged = deepMerge(current, patch);
       const nextText = stringifyFor(to, merged);
@@ -347,7 +365,13 @@ async function applyAction(
       const nextText = JSON.stringify(merged, null, 2) + '\n';
       const before = existsSync(to) ? readFileSync(to, 'utf8') : '';
       if (before === nextText) {
-        return { actionId: action.actionId, op: action.op, status: 'noop', target: path };
+        return {
+          actionId: action.actionId,
+          op: action.op,
+          status: 'noop',
+          target: path,
+          resource: key,
+        };
       }
       if (!opts.dryRun) {
         mkdirSync(dirname(to), { recursive: true });
@@ -355,7 +379,13 @@ async function applyAction(
         writeFileSync(to, nextText, 'utf8');
         if (!written.includes(path)) written.push(path);
       }
-      return { actionId: action.actionId, op: action.op, status: 'done', target: path };
+      return {
+        actionId: action.actionId,
+        op: action.op,
+        status: 'done',
+        target: path,
+        resource: key,
+      };
     }
 
     case 'instruction': {

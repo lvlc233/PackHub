@@ -129,7 +129,7 @@ draft ──lock──► locked ──verify──► verified ──publish─
 
 | 断点 | 现状 | 补法 |
 |---|---|---|
-| ⑤ 取包 | 没有 `add`，registry 已被生成但没人消费 | `packhub add` 三种入口：`registry:name` / `git+https://` / `./x.phub` |
+| ⑤ 取包 | ✅ `packhub add` 从 registry 取 `.phub` 并装进项目（本地路径与 http 索引都支持） | 还剩 `git+https://` 直连与多包冲突检测 |
 | ⑩ 差异 | 没有 `diff / update`，无法做增量同步 | 生成两份 plan 的差异，按动作粒度展示 |
 | ⑪ 版本与回滚 | install 原地写，装坏了退不回 | 装到 `.packhub/versions/<ver>/`，用激活指针切换 |
 | ⑫ 并发 | 两个进程同时装同一目录会互相踩 | `.packhub/lock` 互斥 |
