@@ -5,6 +5,7 @@ import {
   existsSync,
   mkdirSync,
   openSync,
+  readdirSync,
   readFileSync,
   renameSync,
   rmSync,
@@ -50,6 +51,8 @@ export interface ApplyResult {
 
 interface State {
   apiVersion: 'packhub.dev/state/v0';
+  /** 每次安装一个 generation，用于退回 */
+  generations?: Generation[];
   packs: Record<
     string,
     { planHash: string; installedAt: string; actions: ActionOutcome[]; written: string[] }
@@ -90,11 +93,73 @@ function acquireLock(root: string): () => void {
   };
 }
 
+/** 一次安装 = 一个 generation；退回就是拿它的快照覆盖回去。 */
+interface Generation {
+  id: string;
+  at: string;
+  pack: string;
+  planHash: string;
+  /** 装之前就存在、被改写的文件（回了要把原内容放回去） */
+  existed: string[];
+  /** 装之前不存在、这次新建的（回了要删掉） */
+  created: string[];
+}
+
+function generationId(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+
+/** 计划会写到哪些相对路径（含目录）。 */
+function touchedPaths(plan: Plan): string[] {
+  const out: string[] = [];
+  for (const a of plan.actions) {
+    if (a.op === 'write' || a.op === 'unpack' || a.op === 'link.skill') out.push(a.to);
+    else if (a.op === 'merge.config') out.push(a.path);
+    else if (a.op === 'register.mcp') out.push(a.path ?? '.packhub/config.json');
+    else if (a.op === 'instruction') out.push(a.file);
+  }
+  return [...new Set(out)];
+}
+
+function prepareGeneration(root: string, plan: Plan): Generation {
+  const id = generationId();
+  const dir = join(root, STATE_DIR, 'snapshots', id);
+  const existed: string[] = [];
+  const created: string[] = [];
+  for (const rel of touchedPaths(plan)) {
+    const abs = within(root, rel);
+    if (existsSync(abs)) {
+      const dest = join(dir, 'files', rel);
+      mkdirSync(dirname(dest), { recursive: true });
+      cpSync(abs, dest, { recursive: true, force: true });
+      existed.push(rel);
+    } else {
+      created.push(rel);
+    }
+  }
+  const statePath = join(root, STATE_FILE);
+  if (existsSync(statePath)) cpSync(statePath, join(dir, 'state.json'));
+  mkdirSync(dir, { recursive: true });
+  const gen: Generation = {
+    id,
+    at: new Date().toISOString(),
+    pack: `${plan.pack.name}@${plan.pack.version}`,
+    planHash: plan.planHash,
+    existed,
+    created,
+  };
+  writeFileSync(join(dir, 'meta.json'), JSON.stringify(gen, null, 2) + '\n', 'utf8');
+  return gen;
+}
+
 export async function applyPlan(plan: Plan, opts: ApplyOptions): Promise<ApplyResult> {
   const release = opts.dryRun ? () => {} : acquireLock(opts.root);
   const outcomes: ActionOutcome[] = [];
   const written: string[] = [];
   const key = `${plan.pack.name}@${plan.pack.version}`;
+  const gen = opts.dryRun ? undefined : prepareGeneration(opts.root, plan);
 
   for (const action of plan.actions) {
     const blockedBy = (action.dependsOn ?? []).find((id) => {
@@ -135,11 +200,84 @@ export async function applyPlan(plan: Plan, opts: ApplyOptions): Promise<ApplyRe
       // 记录「这个 Pack 拥有哪些文件」而不是「最后一次写了几个」：重复安装时后者会归零
       written: [...new Set([...previous, ...written])],
     };
+    if (gen) {
+      state.generations = [...(state.generations ?? []), gen].slice(-5);
+      pruneSnapshots(opts.root, state.generations);
+    }
     mkdirSync(dirname(statePath), { recursive: true });
     writeFileSync(statePath, JSON.stringify(state, null, 2) + '\n', 'utf8');
   }
   release();
   return { outcomes, statePath };
+}
+
+function pruneSnapshots(root: string, keep: Generation[]): void {
+  const base = join(root, STATE_DIR, 'snapshots');
+  if (!existsSync(base)) return;
+  for (const entry of readdirSync(base, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    if (!keep.some((g) => g.id === entry.name)) {
+      rmSync(join(base, entry.name), { recursive: true, force: true });
+    }
+  }
+}
+
+export interface RollbackResult {
+  generation: string;
+  restored: string[];
+  removed: string[];
+}
+
+/**
+ * 退回上一次安装之前：被改写的文件按快照放回去，新建的文件删掉，state 也回到当时。
+ * 一次回退一个 generation，连续回退就再调一次。
+ */
+export function rollbackPack(root: string, generation?: string): RollbackResult {
+  const release = acquireLock(root);
+  try {
+    const state = loadState(root);
+    const gens = state.generations ?? [];
+    if (gens.length === 0) throw new Error('没有可回退的安装记录');
+    const gen = generation ? gens.find((g) => g.id === generation) : gens[gens.length - 1];
+    if (!gen) throw new Error(`找不到这个 generation：${generation ?? '(latest)'}`);
+
+    const dir = join(root, STATE_DIR, 'snapshots', gen.id);
+    if (!existsSync(dir)) throw new Error(`快照已不在：${gen.id}（可能超过保留数量）`);
+
+    const restored: string[] = [];
+    for (const rel of gen.existed) {
+      const src = join(dir, 'files', rel);
+      if (!existsSync(src)) continue;
+      const abs = within(root, rel);
+      mkdirSync(dirname(abs), { recursive: true });
+      cpSync(src, abs, { recursive: true, force: true });
+      restored.push(rel);
+    }
+
+    const removed: string[] = [];
+    for (const rel of [...gen.created].sort((a, b) => b.length - a.length)) {
+      const abs = within(root, rel);
+      if (!existsSync(abs)) continue;
+      rmSync(abs, { recursive: true, force: true });
+      removed.push(rel);
+    }
+
+    const stateBackup = join(dir, 'state.json');
+    const statePath = join(root, STATE_FILE);
+    if (existsSync(stateBackup)) cpSync(stateBackup, statePath);
+    else rmSync(statePath, { force: true });
+
+    const after = loadState(root);
+    after.generations = (after.generations ?? []).filter((g) => g.id !== gen.id);
+    if (after.generations.length > 0) {
+      writeFileSync(statePath, JSON.stringify(after, null, 2) + '\n', 'utf8');
+    }
+    rmSync(dir, { recursive: true, force: true });
+
+    return { generation: gen.id, restored, removed };
+  } finally {
+    release();
+  }
 }
 
 export interface RemoveResult {
@@ -471,7 +609,11 @@ export function loadState(root: string): State {
   if (!existsSync(file)) return { apiVersion: STATE_API, packs: {} };
   const parsed = JSON.parse(readFileSync(file, 'utf8')) as Partial<State>;
   // 早期 state 没有 apiVersion：补上而不是拒绝——它是本机缓存，不是发布契约
-  return { apiVersion: STATE_API, packs: parsed.packs ?? {} };
+  return {
+    apiVersion: STATE_API,
+    ...(parsed.generations ? { generations: parsed.generations } : {}),
+    packs: parsed.packs ?? {},
+  };
 }
 
 /** 原子替换，供后续 adapter 复用。 */

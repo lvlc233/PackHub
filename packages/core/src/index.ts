@@ -17,10 +17,12 @@ export {
   applyPlan,
   loadState,
   removePack,
+  rollbackPack,
   atomicWrite,
   type ApplyOptions,
   type ApplyResult,
   type RemoveResult,
+  type RollbackResult,
   type ActionOutcome,
   type ActionStatus,
 } from './install.ts';

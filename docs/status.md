@@ -24,7 +24,7 @@
 
 ## 目标内未完成
 
-- [ ] 版本目录 + 激活指针 + 回滚（现在 install 原地写，坏版本退不回）
+- [x] 版本与回滚：每次安装存 generation 快照（`existed`/`created` + 当时 state），`packhub rollback` 回退一步，保留最近 5 个
 - [ ] `update`（基于 `diff` 应用新版本）
 - [ ] 跨包冲突检测（项目级所有权表；现在只有包内 output-conflict）
 - [ ] 多入口：`git+https://` 直连、`./x.phub` 本地归档

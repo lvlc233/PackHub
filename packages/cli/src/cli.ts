@@ -8,6 +8,7 @@ import {
   diffActions,
   describeAction,
   removePack,
+  rollbackPack,
   packArchive,
   fetchPack,
   installPack,
@@ -342,6 +343,22 @@ const add = defineCommand({
   },
 });
 
+const rollback = defineCommand({
+  meta: { name: 'rollback', description: '退回上一次安装之前的状态' },
+  args: {
+    dir: { type: 'positional', required: false, default: '.' },
+    generation: { type: 'string', description: '指定 generation（默认最近一次）' },
+  },
+  run({ args }) {
+    const dir = resolve(String(args.dir));
+    const res = rollbackPack(dir, args.generation ? String(args.generation) : undefined);
+    console.log(`回退 ${res.generation}`);
+    for (const r of res.restored) console.log(`  ↩ ${r}`);
+    for (const r of res.removed) console.log(`  × ${r}`);
+    console.log(`\n恢复 ${res.restored.length} 个文件，删除 ${res.removed.length} 个新建文件`);
+  },
+});
+
 const pack = defineCommand({
   meta: { name: 'pack', description: '打成 .phub 归档（tar.gz）' },
   args: {
@@ -451,5 +468,5 @@ const serve = defineCommand({
 
 export const main: CommandDef = defineCommand({
   meta: { name: 'packhub', version: '0.0.1', description: 'Agent 能力的整合包工具' },
-  subCommands: { plan, install, uninstall, verify, lock, init, serve, search, add, resource, slot, diff, pack },
+  subCommands: { plan, install, uninstall, rollback, verify, lock, init, serve, search, add, resource, slot, diff, pack },
 });
