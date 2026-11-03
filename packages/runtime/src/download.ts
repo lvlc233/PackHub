@@ -64,7 +64,7 @@ export function resolveDownloadUrl(source: string): { url: string; kind: 'npm' |
     return { url: `https://registry.npmjs.org/${name}/${version}`, kind: 'npm' };
   }
   if (source.startsWith('pypi:')) {
-    throw new FetchError('pypi 资源在 0.0.2 还不支持下载（需要 wheel 解包），先用 npm / github / https', 'unsupported-scheme');
+    throw new FetchError('pypi 的下载地址要查 PyPI 元数据，请用 resolvePypiSdist()', 'unsupported-scheme');
   }
   throw new FetchError(`无法下载的 source：${source}`, 'unsupported-scheme');
 }
@@ -148,3 +148,72 @@ export async function download(
 }
 
 export const __internals = { npmTarball };
+
+export interface PypiSdist {
+  url: string;
+  filename: string;
+  version: string;
+}
+
+interface PypiPayload {
+  info?: { version?: string };
+  urls?: {
+    packagetype?: string;
+    filename?: string;
+    url?: string;
+    yanked?: boolean;
+    digests?: { sha256?: string };
+  }[];
+}
+
+/**
+ * 从 PyPI 的 JSON 元数据里挑源码包（sdist 的 .tar.gz）。
+ * 只有 wheel 的包直接报错：wheel 是 zip，我们没有解包器，也不该把二进制当源码装。
+ */
+export function pickSdist(payload: PypiPayload): PypiSdist {
+  const files = (payload.urls ?? []).filter((u) => u.url && u.filename && !u.yanked);
+  const sdist = files.find(
+    (u) => u.packagetype === 'sdist' && u.filename!.endsWith('.tar.gz'),
+  );
+  if (!sdist) {
+    const wheelOnly = files.some((u) => u.packagetype === 'bdist_wheel');
+    throw new FetchError(
+      wheelOnly
+        ? '这个包只发了 wheel（zip），没有 .tar.gz 源码包；PackHub 不装二进制，换别的来源或让作者补 sdist'
+        : '这个版本没有可用的 .tar.gz 源码包',
+      'not-found',
+    );
+  }
+  return {
+    url: sdist.url!,
+    filename: sdist.filename!,
+    version: payload.info?.version ?? '',
+  };
+}
+
+/** `pypi:name@1.2.3` → 真正的 sdist 地址。pyPI 的 URL 带哈希，不能离线拼，只能查。 */
+export async function resolvePypiSdist(spec: string): Promise<PypiSdist> {
+  const body = spec.slice('pypi:'.length);
+  const at = body.lastIndexOf('@');
+  if (at <= 0) {
+    throw new FetchError('pypi 来源必须 pin 到版本：pypi:name@1.2.3', 'unsupported-scheme');
+  }
+  const name = body.slice(0, at);
+  const version = body.slice(at + 1);
+
+  ensureProxy();
+  let res: Response;
+  try {
+    res = (await undiciFetch(
+      `https://pypi.org/pypi/${encodeURIComponent(name)}/${encodeURIComponent(version)}/json`,
+      { headers: { accept: 'application/json' } },
+    )) as unknown as Response;
+  } catch (err) {
+    throw new FetchError(`查 PyPI 元数据失败：${(err as Error).message}`, 'network');
+  }
+  if (!res.ok) {
+    throw new FetchError(`PyPI 返回 ${res.status}：${name}@${version}`, 'not-found');
+  }
+  const payload = (await res.json()) as PypiPayload;
+  return pickSdist(payload);
+}

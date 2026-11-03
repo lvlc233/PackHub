@@ -20,7 +20,15 @@ export {
   type ActionOutcome,
   type ActionStatus,
 } from './install.ts';
-export { download, resolveDownloadUrl, FetchError, type FetchResult } from './download.ts';
+export {
+  download,
+  resolveDownloadUrl,
+  resolvePypiSdist,
+  pickSdist,
+  FetchError,
+  type FetchResult,
+  type PypiSdist,
+} from './download.ts';
 export {
   addResource,
   addSignature,

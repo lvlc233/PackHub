@@ -407,6 +407,8 @@ https://…/note.md                         # 任意 https 单文件（knowledge
 
 **40 位 commit 从哪来**：GitHub 上 commit 页地址里那串；或 `git rev-parse HEAD`；或 `git ls-remote https://github.com/o/r refs/heads/main`。不接受 `@main`、`@latest`——它们会漂。
 
+**PyPI 怎么用**：`source: pypi:six@1.16.0`（必须 pin 版本）。装的时候先查 `https://pypi.org/pypi/<name>/<version>/json`，取 **sdist 的 .tar.gz** 再按 skill / tool 解包。只有 wheel 的包会被拒绝——wheel 是 zip，PackHub 不装二进制。内网镜像可以把 `HTTPS_PROXY` 指过去。
+
 **公司 GitLab / Gitea 怎么用**：拿它的 archive 下载链接（形如 `https://gitlab.example.com/g/p/-/archive/<sha>/p-<sha>.tar.gz`），配 `integrity`，`type` 用 `skill` 或 `tool`。私有仓库的鉴权目前没有支持（不带 token），内网场景建议直接把内容 vendored 进包。
 
 规则：**发布版必须落到不可变的东西上**。`@main`、`@latest`、无 integrity 的 https 都会在 `plan` 阶段被拒；integrity 由 `packhub lock` 或安装时自动补齐。

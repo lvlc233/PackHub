@@ -17,7 +17,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import * as tar from 'tar';
 import type { Plan, PlanAction } from '@packhub/kernel';
 import { canonicalize, deepMerge, isPlainObject, sha256 } from '@packhub/kernel';
-import { download } from './download.ts';
+import { download, resolvePypiSdist } from './download.ts';
 
 export interface ApplyOptions {
   /** 目标目录：写到哪里、state 放哪里 */
@@ -415,7 +415,11 @@ async function applyAction(
         headers.Authorization =
           scheme === 'basic' ? `Basic ${token}` : scheme === 'token' ? `token ${token}` : `Bearer ${token}`;
       }
-      const res = await download(action.uri, dest, action.integrity, {
+      // pypi 的地址要查元数据才知道（文件名带哈希），在下载前解析
+      const uri = action.uri.startsWith('pypi:')
+        ? (await resolvePypiSdist(action.uri)).url
+        : action.uri;
+      const res = await download(uri, dest, action.integrity, {
         ...(Object.keys(headers).length ? { headers } : {}),
         ...(auth ? { authHint: auth.env } : {}),
       });
