@@ -85,6 +85,15 @@ export function buildPlan(
         break;
       }
       case 'skill': {
+        if (parsed.kind === 'http' && !looksLikeArchive(res.source)) {
+          issues.push({
+            code: 'source-not-archive',
+            severity: 'error',
+            message: `skill 的 https 来源必须是 .tar.gz（现在是单文件）：${res.source}`,
+            path: at,
+          });
+          break;
+        }
         if (parsed.kind === 'local') {
           push({ op: 'link.skill', from: parsed.locator, to: `${targetVars.skillsDir}/${id}`, resource: id });
         } else {
@@ -145,6 +154,15 @@ export function buildPlan(
         break;
       }
       case 'tool': {
+        if (parsed.kind === 'http' && !looksLikeArchive(res.source)) {
+          issues.push({
+            code: 'source-not-archive',
+            severity: 'error',
+            message: `tool 的 https 来源必须是 .tar.gz（现在是单文件）：${res.source}`,
+            path: at,
+          });
+          break;
+        }
         const fetched = push({
           op: 'fetch',
           uri: res.source,
@@ -399,4 +417,10 @@ function detectConflicts(
     }
   }
   return issues;
+}
+
+/** https 来源能不能当归档解包（目前只认 tar 系）。 */
+function looksLikeArchive(url: string): boolean {
+  const path = url.split('?')[0] ?? url;
+  return /\.(tar\.gz|tgz|tar)$/i.test(path);
 }

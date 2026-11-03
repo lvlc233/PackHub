@@ -305,15 +305,28 @@ packhub lock my-pack          # 成功后把解析结果钉死
 
 ### `source`：决定可复现性
 
+现在实际可用的是四类（`pypi:` 与 `packhub://` 只在 schema 里声明，还没有下载实现）：
+
 ```
-npm:@scope/pkg@1.2.3        # 版本号必须写
-pypi:name@1.0.0             # 0.0.2 还不支持下载，先别用
-github:owner/repo/sub/path@<40位commit>   # 不接受 @main
-https://…                    # 必须带 integrity
-./resources/x.md             # 只能用于本地草稿/随包 vendored
+npm:@scope/pkg@1.2.3                      # npm 包（MCP server 常用）
+github:owner/repo/sub/path@<40位 commit>  # GitHub 仓库/子目录，codeload tarball
+https://…/x.tar.gz                        # 任意 https 归档（GitLab/Gitea/内网均可）
+https://…/note.md                         # 任意 https 单文件（knowledge / prompt）
+./resources/x.md                          # 本地，随包 vendored
 ```
 
-规则很简单：**发布版必须能落到不可变的东西上**。`@main`、`@latest`、无 integrity 的 https 都会在 `plan` 阶段被拒。integrity 用 `packhub lock` 或安装时自动补齐。
+| 来源 | 适合 | 装的时候做什么 |
+|---|---|---|
+| `npm:` | 通过 npx 分发的 MCP server | 只登记启动命令，不下载包体 |
+| `github:` | 仓库里的 skill 目录、工具、文档 | 下载 tarball → 解包 → 按子路径挂载 |
+| `https: … .tar.gz` | 公司 GitLab / Gitea 的 archive、任何归档 | 下载 → 解包（`skill` / `tool` 必须给归档；单文件给 `knowledge` / `prompt`） |
+| `./…` | 本地草稿、必须随包分发的内容 | 直接拷贝（发布前要 vendored 进版本目录） |
+
+**40 位 commit 从哪来**：GitHub 上 commit 页地址里那串；或 `git rev-parse HEAD`；或 `git ls-remote https://github.com/o/r refs/heads/main`。不接受 `@main`、`@latest`——它们会漂。
+
+**公司 GitLab / Gitea 怎么用**：拿它的 archive 下载链接（形如 `https://gitlab.example.com/g/p/-/archive/<sha>/p-<sha>.tar.gz`），配 `integrity`，`type` 用 `skill` 或 `tool`。私有仓库的鉴权目前没有支持（不带 token），内网场景建议直接把内容 vendored 进包。
+
+规则：**发布版必须落到不可变的东西上**。`@main`、`@latest`、无 integrity 的 https 都会在 `plan` 阶段被拒；integrity 由 `packhub lock` 或安装时自动补齐。
 
 ### `provides` / `needs`：只在有依赖时写
 

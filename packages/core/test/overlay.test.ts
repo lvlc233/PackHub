@@ -220,3 +220,50 @@ overrides:
     rmSync(dir, { recursive: true, force: true });
   });
 });
+
+describe('来源形态', () => {
+  const manifest = (source: string): string => `apiVersion: packhub.dev/v0
+kind: Pack
+metadata:
+  name: demo/src
+  version: 0.0.1
+  targets: [dir]
+requires:
+  packhub: ">=0.0.1 <0.1"
+resources:
+  - id: rules
+    type: skill
+    source: ${source}
+`;
+
+  it('https 的 tar.gz 可以当 skill 来源（公司 GitLab/Gitea 的 archive 链接）', () => {
+    const dir = pack({
+      'packhub.yaml': manifest('https://gitlab.example.com/g/p/-/archive/abc123/p-abc123.tar.gz'),
+    });
+    // 没有 integrity 会先被 schema/ref 拦；这里补一个假哈希看计划形状
+    writeFileSync(
+      join(dir, 'packhub.yaml'),
+      manifest('https://gitlab.example.com/g/p/-/archive/abc123/p-abc123.tar.gz').replace(
+        '    source: https://gitlab.example.com/g/p/-/archive/abc123/p-abc123.tar.gz',
+        '    source: https://gitlab.example.com/g/p/-/archive/abc123/p-abc123.tar.gz\n    integrity: sha256-AAAA',
+      ),
+      'utf8',
+    );
+    const { plan } = planFor(loadPack(dir));
+    const ops = plan?.actions.map((a) => a.op) ?? [];
+    expect(ops).toEqual(['fetch', 'unpack', 'link.skill']);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('https 的单文件不能当 skill 来源', () => {
+    const dir = pack({
+      'packhub.yaml': manifest(
+        'https://example.com/docs/note.md\n    integrity: sha256-AAAA',
+      ),
+    });
+    const { plan, issues } = planFor(loadPack(dir));
+    expect(plan).toBeUndefined();
+    expect(issues.map((i) => i.code)).toContain('source-not-archive');
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
