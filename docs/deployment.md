@@ -140,12 +140,21 @@ Hub **不内置 runner**：验证交给一次性容器（CI 或临时 job），H
 
 投影写出来了，但"harness 真的会读"还没验。验法要固定，不然每次都是猜：
 
-**Claude Code**（能离线验一半）：
+**Claude Code**
 
-1. 在空目录里 `packhub add <包> --target claude-code`；
-2. 打开 Claude Code，问它"这个项目装了哪些能力"——回答里出现 `CLAUDE.md` 托管块的内容 = 指令面生效；
-3. 让它调用包里声明的 MCP 工具，能调 = `.mcp.json` 生效；
-4. `packhub uninstall`，再问一次，能力应该消失。
+已验（2026-11-03）：
+
+```
+$ packhub install ./demo --target claude-code
+$ claude mcp list
+local-files: npx -y @modelcontextprotocol/server-filesystem@2025.1.14 . - ✓ Connected
+```
+
+Claude Code 读到了项目里的 `.mcp.json`，并且把声明的 server 连上了——**MCP 投影这条链是真的**。
+
+未验：`CLAUDE.md` 托管块会不会被模型读进上下文、`.claude/skills` 这个落点 Claude Code 认不认。这两条都要真跑一次模型（`claude -p`），会花账号额度，所以留着由人决定什么时候跑。
+
+验法：装包后 `claude -p "这个项目装了哪些能力？"`，回答里出现托管块内容 = 指令面生效；再 `packhub uninstall`，重复一次，能力应该消失。
 
 **DSH**：项目级是否读 `AGENTS.md` / skills 目录尚未验证。验法：新开一个 DSH 会话（cwd 指向装了包的项目），看系统提示里是否带出 `AGENTS.md` 的托管块；如果没有，说明 DSH 只读 `~/.dsh/AGENTS.md`，那 `--target dsh` 就应该改成"写机器级配置 + 在项目里留一份说明"，这一条要等实测再定。
 
