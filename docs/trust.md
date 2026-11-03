@@ -66,7 +66,16 @@
 2. 上游许可允许再分发吗？（MIT/CC-BY 一般可以，带 `NonCommercial`、`NoDerivatives` 的不行）
 3. 包自己的许可（`metadata.license`）是否覆盖了 vendored 内容？冲突时以更严格者为准。
 
-现在只做到了「包级 license 字段 + 文档提醒」，**没有自动检查**。计划里加一条 `license-check` 探针：vendored 资源的来源仓库里若有 `LICENSE`，抓下来判断是否允许再分发；不允许就报错。这条不急，但必须在「有人开始 vendored 别人的 skill」之前有。
+现在有了一个"查得到"的工具，但它不是法律判断：
+
+```bash
+packhub licenses my-pack          # 列出每个资源的许可证情况
+packhub licenses my-pack --strict # 缺许可证就非零退出（CI 用）
+```
+
+- 只查 **vendored**（本地）资源：在资源目录里找 `LICENSE` / `COPYING` / `NOTICE`，从文本猜 SPDX（MIT / Apache-2.0 / BSD / CC-BY / MPL-2.0 / GPL）。
+- 远程资源的许可在它自己的仓库里，我们看不到，只能标注「在上游仓库」。
+- **不做**许可证兼容性判断（NonCommercial / NoDerivatives 这类限制得人读）。
 
 ## 四、Hub 的职责边界
 

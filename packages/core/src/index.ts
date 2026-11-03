@@ -38,6 +38,7 @@ export {
 export { diffActions, describeAction, type ActionDiff } from './diff.ts';
 export { updatePack, type UpdateOptions, type UpdateResult } from './update.ts';
 export { resolveAddSource, gitArchiveUrl, type ResolvedSource } from './source.ts';
+export { inspectLicenses, type LicenseFinding } from './license.ts';
 export {
   generateKeyPair,
   signPlan,

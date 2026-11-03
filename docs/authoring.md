@@ -335,6 +335,7 @@ packhub plan my-pack
 cp -r my-pack /tmp/try && packhub install /tmp/try && packhub verify /tmp/try
 packhub lock my-pack          # 成功后把解析结果（含计划快照）钉死
 packhub sign my-pack --key packhub.key   # 可选：给计划哈希签名（别人能验来源）
+packhub licenses my-pack --strict        # vendored 资源必须有许可证文件才能发布
 
 # 5. 之后改了清单，先看差异再重新锁
 packhub diff my-pack          # 对比锁里的计划与当前计划：多了什么、少了什么

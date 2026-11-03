@@ -4,6 +4,7 @@ import { defineCommand, type CommandDef } from 'citty';
 import {
   addResource,
   addSignature,
+  inspectLicenses,
   generateKeyPair,
   signPlan,
   verifySignatures,
@@ -425,6 +426,37 @@ const rollback = defineCommand({
   },
 });
 
+const licenses = defineCommand({
+  meta: { name: 'licenses', description: '列出每个资源的许可证情况（只查 vendored 的本地内容）' },
+  args: {
+    dir: { type: 'positional', required: false, default: '.' },
+    strict: { type: 'boolean', default: false, description: '缺许可证就以非零码退出' },
+  },
+  run({ args }) {
+    const dir = resolve(String(args.dir));
+    const ctx = loadPack(dir);
+    if (reportIssues(ctx.issues)) process.exit(2);
+    const findings = inspectLicenses(dir, ctx.manifest);
+    let missing = 0;
+    for (const f of findings) {
+      if (!f.vendored) {
+        console.log(`- ${f.resource.padEnd(20)} 远程（许可在上游仓库）`);
+        continue;
+      }
+      if (f.file) {
+        console.log(`✓ ${f.resource.padEnd(20)} ${f.spdx ?? '未知'} · ${f.file}`);
+      } else {
+        missing++;
+        console.log(`x ${f.resource.padEnd(20)} 没有 LICENSE/COPYING`);
+      }
+    }
+    if (missing > 0) {
+      console.log(`\n${missing} 个 vendored 资源缺少许可证文件；不确定能不能再分发时先去上游确认`);
+      if (args.strict) process.exit(1);
+    }
+  },
+});
+
 const keygen = defineCommand({
   meta: { name: 'keygen', description: '生成一对 ed25519 签名密钥' },
   args: {
@@ -618,5 +650,25 @@ const serve = defineCommand({
 
 export const main: CommandDef = defineCommand({
   meta: { name: 'packhub', version: '0.0.1', description: 'Agent 能力的整合包工具' },
-  subCommands: { plan, install, uninstall, rollback, update, verify, lock, init, serve, search, add, resource, slot, diff, pack, keygen, sign, 'verify-sig': verifySig },
+  subCommands: {
+    plan,
+    install,
+    uninstall,
+    rollback,
+    update,
+    verify,
+    lock,
+    init,
+    serve,
+    search,
+    add,
+    resource,
+    slot,
+    diff,
+    pack,
+    licenses,
+    keygen,
+    sign,
+    'verify-sig': verifySig,
+  },
 });
