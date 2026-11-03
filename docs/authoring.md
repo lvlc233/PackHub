@@ -344,6 +344,9 @@ packhub uninstall my-pack     # 按 .packhub/state.json 的 written 反向删除
 # 6.5 装坏了就退回上一步
 packhub rollback my-pack      # 用安装前的快照恢复被改写的文件、删掉本次新建的
 
+# 6.6 别人装了你发的包，升级
+packhub update lvlc233/team-conventions --index <registry/index.json>
+
 # 7. 装进某个宿主（投影到 harness 会读的位置）
 packhub install my-pack --target claude-code   # .claude/skills + .mcp.json + CLAUDE.md 托管块
 packhub install my-pack --target dsh           # .packhub/skills + AGENTS.md 托管块

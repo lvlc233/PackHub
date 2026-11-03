@@ -11,6 +11,7 @@ import {
   rollbackPack,
   packArchive,
   fetchPack,
+  updatePack,
   installPack,
   loadPack,
   planFor,
@@ -343,6 +344,34 @@ const add = defineCommand({
   },
 });
 
+const update = defineCommand({
+  meta: { name: 'update', description: '把已装的包升级到 registry 上的新版本' },
+  args: {
+    name: { type: 'positional', required: true },
+    index: { type: 'string', required: true },
+    dir: { type: 'string', default: '.' },
+    version: { type: 'string' },
+    target: { type: 'string', default: 'dir' },
+  },
+  async run({ args }) {
+    const res = await updatePack({
+      name: String(args.name),
+      index: String(args.index),
+      projectDir: resolve(String(args.dir)),
+      target: String(args.target),
+      ...(args.version ? { version: String(args.version) } : {}),
+    });
+    if (!res.changed) {
+      console.log(`${res.name} 已是最新（planHash ${res.planHash.slice(0, 22)}…）`);
+      return;
+    }
+    console.log(`更新 ${res.from ?? '(未装)'} → ${res.to}`);
+    for (const a of res.removed) console.log(`  - ${a}`);
+    for (const a of res.added) console.log(`  + ${a}`);
+    console.log(`\nplanHash ${res.planHash.slice(0, 22)}…（可用 packhub rollback 退回）`);
+  },
+});
+
 const rollback = defineCommand({
   meta: { name: 'rollback', description: '退回上一次安装之前的状态' },
   args: {
@@ -468,5 +497,5 @@ const serve = defineCommand({
 
 export const main: CommandDef = defineCommand({
   meta: { name: 'packhub', version: '0.0.1', description: 'Agent 能力的整合包工具' },
-  subCommands: { plan, install, uninstall, rollback, verify, lock, init, serve, search, add, resource, slot, diff, pack },
+  subCommands: { plan, install, uninstall, rollback, update, verify, lock, init, serve, search, add, resource, slot, diff, pack },
 });

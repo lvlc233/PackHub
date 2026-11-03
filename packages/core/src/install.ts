@@ -55,7 +55,14 @@ interface State {
   generations?: Generation[];
   packs: Record<
     string,
-    { planHash: string; installedAt: string; actions: ActionOutcome[]; written: string[] }
+    {
+      planHash: string;
+      installedAt: string;
+      actions: ActionOutcome[];
+      written: string[];
+      /** 上一份计划快照，update 靠它算差异 */
+      plan?: Plan;
+    }
   >;
 }
 
@@ -199,6 +206,8 @@ export async function applyPlan(plan: Plan, opts: ApplyOptions): Promise<ApplyRe
       actions: outcomes,
       // 记录「这个 Pack 拥有哪些文件」而不是「最后一次写了几个」：重复安装时后者会归零
       written: [...new Set([...previous, ...written])],
+      // 计划快照：update 靠它算出「多了什么、少了什么」
+      plan,
     };
     if (gen) {
       state.generations = [...(state.generations ?? []), gen].slice(-5);

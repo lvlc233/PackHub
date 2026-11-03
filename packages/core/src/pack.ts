@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import * as tar from 'tar';
 
@@ -31,8 +31,12 @@ export async function packArchive(
 
   const entries = ['packhub.yaml', 'packhub.lock.json'].filter((f) => existsSync(join(root, f)));
   if (opts.vendored) {
-    for (const dir of VENDOR_DIRS) {
-      if (existsSync(join(root, dir))) entries.push(dir);
+    // vendored：把本地引用到的东西都带上。不按固定目录列，避免漏掉根目录下的文件
+    const skip = new Set(['.packhub', 'node_modules', '.git', 'dist']);
+    for (const entry of readdirSync(root, { withFileTypes: true })) {
+      if (skip.has(entry.name)) continue;
+      if (entry.isFile() && (entry.name === 'pack.phub' || entry.name.endsWith('.tar.gz'))) continue;
+      entries.push(entry.name);
     }
   }
 

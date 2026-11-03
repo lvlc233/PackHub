@@ -29,6 +29,7 @@ export {
 export { download, resolveDownloadUrl, FetchError, type FetchResult } from './download.ts';
 export { addResource, setBinding, inferId, type AddResourceInput, type AddResourceResult } from './authoring.ts';
 export { diffActions, describeAction, type ActionDiff } from './diff.ts';
+export { updatePack, type UpdateOptions, type UpdateResult } from './update.ts';
 export { packArchive, unpackArchive, type PackArchiveOptions, type PackArchiveResult } from './pack.ts';
 export {
   readIndex,
