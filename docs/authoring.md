@@ -15,21 +15,21 @@
 ### 最小可用（13 行）
 
 ```yaml
-apiVersion: packhub.dev/v0.0.1
-kind: Pack
+apiVersion: packhub.dev/v0.0.1   # 清单格式版本；目前只有这一个合法值
+kind: Pack                        # 固定 Pack，给以后别的类型留位
 
 metadata:
-  name: lvlc233/my-pack
-  version: 0.0.1
-  targets: [dir]
+  name: lvlc233/my-pack           # scope/name，scope 用 GitHub 用户名；这是全局主键
+  version: 0.0.1                  # 语义化版本；发布后不可改，改动要发新版本
+  targets: [dir]                  # 能装到哪：dir（中性目录）/ dsh / claude-code
 
 requires:
-  packhub: ">=0.0.1 <0.1"
+  packhub: ">=0.0.1 <0.1"         # 需要的平台版本范围；不在范围内就拒绝执行
 
-resources:
-  - id: style-guide
-    type: knowledge
-    source: ./resources/style-guide.md
+resources:                        # 至少一项
+  - id: style-guide               # Pack 内唯一，小写字母开头，只含 a-z0-9-
+    type: knowledge               # mcp / skill / prompt / knowledge / config / tool
+    source: ./resources/style-guide.md   # 从哪来；决定这份清单能不能被别人复现
 ```
 
 四个必填块：`apiVersion` + `kind`、`metadata`（name / version / targets）、`requires.packhub`、`resources[]`。`resources` 里至少一项，每项要 `id` / `type` / `source`。
