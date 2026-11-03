@@ -1,0 +1,791 @@
+/* PackHub 面板 —— 代码主导的 Operate 界面。
+   世界只提供四样：字体、调色、密度、一个签名动作（运行单的落笔）。
+   导航与控件保持平台标准。 */
+
+:root {
+  --shell: #101a1b;
+  --shell-2: #1a2a2b;
+  --ground: #e4e5df;
+  --panel: #f4f4ee;
+  --panel-raise: #fbfbf5;
+  --ink: #16191a;
+  --ink-2: #3a4542;
+  --mute: #58625f;
+  --rule: #c6c9c0;
+  --rule-soft: #dcdeD5;
+  --accent: #d9a100;
+  --accent-ink: #191300;
+  --accent-deep: #8a6400;
+  --accent-soft: rgba(217, 161, 0, 0.26);
+  --ok: #2c6b4f;
+  --warn: #9a6a10;
+  --bad: #a63a2e;
+  --font-ui: "Segoe UI Variable Text", "Segoe UI", -apple-system, "Noto Sans SC",
+    "Microsoft YaHei", sans-serif;
+  --font-mono: "Cascadia Mono", Consolas, "SFMono-Regular", ui-monospace, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font: 14px/1.5 var(--font-ui);
+  -webkit-font-smoothing: antialiased;
+  caret-color: var(--accent-deep);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #b3b8ad;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+.rail ::-webkit-scrollbar-thumb {
+  background: #3a4d49;
+  background-clip: content-box;
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent-deep);
+  outline-offset: 2px;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #9aa39a transparent;
+}
+
+.shell {
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+/* ---------- 左侧：仓库与包列表 ---------- */
+
+.rail {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 22px 14px 16px;
+  background: var(--shell);
+  color: #dce2dc;
+}
+
+.mark {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font: 600 15px/1 var(--font-ui);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  padding: 0 2px;
+}
+
+.mark-tag {
+  font: 500 10px/1 var(--font-mono);
+  letter-spacing: 0.08em;
+  color: #94a9a3;
+  border: 1px solid #2b3c3b;
+  padding: 3px 5px;
+}
+
+.rail-root {
+  margin: 0;
+  padding: 0 2px;
+  font: 11px/1.45 var(--font-mono);
+  color: #8fa39d;
+  word-break: break-all;
+}
+
+.pack-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  margin: 0 -4px;
+  padding: 0 4px;
+}
+
+.pack-row {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  padding: 9px 10px 10px;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.pack-row:hover {
+  background: var(--shell-2);
+}
+
+.pack-row.is-active {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.pack-name,
+.pack-meta,
+.pack-stats {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pack-name {
+  font: 600 13px/1.25 var(--font-ui);
+}
+
+.pack-meta {
+  font: 11px/1.3 var(--font-mono);
+  opacity: 0.75;
+}
+
+.pack-stats {
+  font: 11px/1.3 var(--font-ui);
+  opacity: 0.62;
+}
+
+.rail-empty {
+  margin: 6px 2px;
+  font-size: 12px;
+  color: #94a9a3;
+}
+
+.rail-foot {
+  margin-top: auto;
+  display: grid;
+  gap: 4px;
+  padding: 12px 2px 0;
+  border-top: 1px solid #24332f;
+  font: 11px/1.4 var(--font-mono);
+  color: #9db0aa;
+}
+
+.rail-foot span {
+  font-family: var(--font-ui);
+  color: #86a09a;
+}
+
+/* ---------- 主区 ---------- */
+
+.board {
+  padding: 28px 36px 56px;
+  max-width: 1340px;
+}
+
+.head {
+  position: relative;
+  display: flex;
+  gap: 32px;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.head::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.head.is-stamped::after {
+  transform: scaleX(1);
+}
+
+h1 {
+  margin: 0 0 6px;
+  font: 600 24px/1.2 var(--font-ui);
+  letter-spacing: -0.01em;
+  max-width: 30ch;
+}
+
+.head-sub {
+  margin: 0;
+  max-width: 64ch;
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+
+.head-side {
+  display: grid;
+  gap: 12px;
+  justify-items: end;
+  flex: 0 0 auto;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.chip {
+  font: 11px/1 var(--font-mono);
+  border: 1px solid var(--ink);
+  padding: 4px 7px;
+  white-space: nowrap;
+}
+
+.chip-quiet {
+  border-color: var(--rule);
+  color: var(--mute);
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+.btn {
+  font: 600 13px/1 var(--font-ui);
+  padding: 10px 15px;
+  border: 1px solid var(--ink);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background 0.16s ease-out, color 0.16s ease-out;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--panel-raise);
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.btn-solid {
+  background: var(--ink);
+  color: #f2f1e9;
+}
+
+.btn-solid:hover:not(:disabled) {
+  background: #000;
+}
+
+.serial {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 14px 0 22px;
+  font-size: 12px;
+  color: var(--mute);
+}
+
+.serial-key {
+  font: 500 10.5px/1 var(--font-ui);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.serial code {
+  font: 12px/1 var(--font-mono);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  word-break: break-all;
+}
+
+.serial-note {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.banner {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--bad);
+  color: var(--bad);
+  background: #f7ece9;
+  font-size: 13px;
+}
+
+.muted {
+  color: var(--mute);
+}
+
+/* ---------- 两栏 ---------- */
+
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.42fr) minmax(330px, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.col {
+  display: grid;
+  gap: 20px;
+  align-content: start;
+  min-width: 0;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  padding: 16px 18px 14px;
+}
+
+.panel h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0 0 12px;
+  font: 600 11.5px/1 var(--font-ui);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.count {
+  font: 11px/1 var(--font-mono);
+  letter-spacing: 0;
+  color: var(--mute);
+  font-variant-numeric: tabular-nums;
+}
+
+.panel-note {
+  margin: 12px 0 2px;
+  font-size: 12px;
+  color: var(--mute);
+}
+
+/* ---------- 物料清单 ---------- */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th {
+  padding: 0 12px 8px 0;
+  text-align: left;
+  font: 500 10px/1 var(--font-ui);
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--mute);
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+
+td {
+  padding: 10px 12px 10px 0;
+  border-bottom: 1px solid var(--rule-soft);
+  vertical-align: top;
+  font-size: 13px;
+}
+
+tbody tr:hover {
+  background: var(--panel-raise);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.type {
+  font: 500 10.5px/1.4 var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  border-bottom: 1px solid var(--accent);
+  padding-bottom: 2px;
+  white-space: nowrap;
+}
+
+.src {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.pin {
+  margin-left: 6px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--accent-deep);
+  white-space: nowrap;
+}
+
+.caps {
+  display: block;
+  margin-top: 6px;
+}
+
+.col-type {
+  width: 80px;
+}
+
+.col-id {
+  width: 138px;
+  white-space: nowrap;
+}
+
+/* ---------- 接线与环境 ---------- */
+
+.wiring dl,
+.bench dl {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0 14px;
+  margin: 0;
+}
+
+.wiring dt,
+.wiring dd,
+.bench dt,
+.bench dd {
+  margin: 0;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--rule-soft);
+  align-self: center;
+}
+
+.wiring dt,
+.bench dt {
+  font: 11.5px/1.4 var(--font-mono);
+  color: var(--mute);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wiring dd,
+.bench dd {
+  font: 12px/1.4 var(--font-mono);
+  color: var(--ink);
+  text-align: right;
+  max-width: 22ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wiring dl > dt:last-of-type,
+.wiring dl > dd:last-of-type,
+.bench dl > dt:last-of-type,
+.bench dl > dd:last-of-type {
+  border-bottom: 0;
+}
+
+.bench dd {
+  font-family: var(--font-ui);
+  font-size: 12.5px;
+}
+
+.written {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 10px 0 0;
+  border-top: 1px solid var(--rule-soft);
+  display: grid;
+  gap: 4px;
+}
+
+.written li {
+  font-size: 11.5px;
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cap {
+  display: inline-block;
+  margin: 0 4px 4px 0;
+  padding: 3px 5px;
+  font: 10.5px/1 var(--font-mono);
+  border: 1px solid var(--rule);
+  color: #41504c;
+}
+
+.cap-need {
+  border-style: dashed;
+  color: #7a6636;
+}
+
+/* ---------- 运行单 / 校验 ---------- */
+
+.runsheet ol,
+.checks ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.runsheet li,
+.checks li {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.runsheet li:last-child,
+.checks li:last-child {
+  border-bottom: 0;
+}
+
+.idx {
+  font: 11px/1.6 var(--font-mono);
+  color: var(--mute);
+  font-variant-numeric: tabular-nums;
+}
+
+.body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.op {
+  font: 600 12.5px/1.4 var(--font-ui);
+}
+
+.act {
+  font: 11px/1.3 var(--font-mono);
+  color: var(--mute);
+}
+
+.tgt {
+  font: 11.5px/1.35 var(--font-mono);
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.st {
+  font: 500 11px/1.7 var(--font-ui);
+  color: var(--mute);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.st::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  vertical-align: 1px;
+}
+
+li.is-done .st,
+li.is-pass .st {
+  color: var(--ok);
+}
+
+li.is-done .st::before,
+li.is-pass .st::before {
+  background: currentColor;
+}
+
+li.is-noop .st {
+  color: var(--mute);
+}
+
+li.is-skipped .st,
+li.is-needs-approval .st {
+  color: var(--warn);
+}
+
+li.is-failed .st,
+li.is-fail .st {
+  color: var(--bad);
+}
+
+li.is-failed .st::before,
+li.is-fail .st::before {
+  background: currentColor;
+}
+
+li.is-done,
+li.is-fail {
+  animation: settle 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes settle {
+  from {
+    background: var(--accent-soft);
+  }
+  to {
+    background: transparent;
+  }
+}
+
+/* ---------- 问题 ---------- */
+
+.issues {
+  margin: 0 0 20px;
+  padding: 14px 16px;
+  border: 1px solid var(--bad);
+  background: #f7ece9;
+}
+
+.issues h2 {
+  margin: 0 0 8px;
+  font: 600 12px/1 var(--font-ui);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--bad);
+}
+
+.issues ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+.issues li {
+  display: flex;
+  gap: 10px;
+  font-size: 12.5px;
+}
+
+.issues code {
+  font: 11px/1.5 var(--font-mono);
+  color: var(--bad);
+  white-space: nowrap;
+}
+
+/* ---------- 窄屏 ---------- */
+
+@media (max-width: 1040px) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+
+  .rail {
+    position: static;
+    height: auto;
+    padding: 16px 16px 12px;
+  }
+
+  .pack-list {
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 6px;
+    margin: 0 -16px;
+    padding: 0 16px 4px;
+  }
+
+  .pack-row {
+    min-width: 190px;
+    border: 1px solid #24332f;
+  }
+
+  .rail-foot {
+    display: none;
+  }
+
+  .board {
+    padding: 20px 16px 40px;
+  }
+
+  .head {
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .head-side {
+    justify-items: start;
+  }
+
+  .chips {
+    justify-content: flex-start;
+  }
+
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* 窄屏：先看做什么，再看由什么组成 */
+  .grid > .col:last-child {
+    order: -1;
+  }
+
+  .bom table {
+    table-layout: fixed;
+    width: 100%;
+  }
+
+  .col-type {
+    width: 70px;
+  }
+
+  .col-id {
+    width: 96px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .wiring dd,
+  .bench dd {
+    max-width: 16ch;
+  }
+
+  .serial {
+    flex-wrap: wrap;
+  }
+
+  .serial-note {
+    margin-left: 0;
+  }
+
+  .caps {
+    max-width: none;
+  }
+}
