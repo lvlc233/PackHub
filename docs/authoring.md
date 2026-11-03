@@ -34,6 +34,121 @@ resources:
 
 四个必填块：`apiVersion` + `kind`、`metadata`（name / version / targets）、`requires.packhub`、`resources[]`。`resources` 里至少一项，每项要 `id` / `type` / `source`。
 
+### 逐项解释这 13 行
+
+| 字段 | 必填 | 含义 | 写错的后果 |
+|---|---|---|---|
+| `apiVersion` | 是 | 清单格式版本，目前只能是 `packhub.dev/v0.0.1` | schema 直接拒；主版本不认识就不读，不做猜测 |
+| `kind` | 是 | 固定 `Pack`（给未来别的类型留位） | schema 拒 |
+| `metadata.name` | 是 | `scope/name`，scope 用 GitHub 用户名；全局唯一，也是 index 里的主键 | 格式不符（大写、下划线）→ 拒；重名 → 后发的版本无法进 registry |
+| `metadata.version` | 是 | 语义化版本；**发布后不可改**，改动必须发新版本 | registry 的不可变检查会拦下来 |
+| `metadata.targets` | 是 | 这份清单打算装到哪些环境：`dir`（中性目录）/ `dsh` / `claude-code` | 声明了但没实现的 adapter 会给了明确报错；`dir` 是永远可用的兜底 |
+| `requires.packhub` | 是 | 需要的平台版本范围，例：`">=0.0.1 <0.1"` | 范围外直接拒绝执行，避免用旧内核跑新清单 |
+| `resources` | 是 | 至少一项；每项要 `id` / `type` / `source` 三个键 | 空数组 → schema 拒 |
+| `resources[].id` | 是 | Pack 内唯一，小写字母开头，只含 `a-z0-9-` | 重复 → `duplicate-resource-id`；大写 → schema 拒 |
+| `resources[].type` | 是 | 六选一：`mcp` / `skill` / `prompt` / `knowledge` / `config` / `tool` | 未知类型 → `unknown-resource-type` |
+| `resources[].source` | 是 | 从哪来。形态决定可复现性：`npm:` `pypi:` `github:` `https://` `./` | 无 pin → `unpinned-source`；https 无 integrity → `http-missing-integrity` |
+
+最小清单里没写 `verify`、`title`、`license`——它们不是必填，但**要进 registry 就得补**（见第〇节的字段分层）。
+
+---
+
+### 六种资源各长什么样
+
+每种资源的 `source` 形态、安装期动作、装完落在哪都不同。下面六段都可以单独塞进 `resources:` 就跑通（本文件所有示例由 `docs-examples.test.ts` 校验）。
+
+#### 1. `mcp` —— 只写配置，不下载包体
+
+```yaml
+- id: repo-search
+  type: mcp
+  source: npm:@modelcontextprotocol/server-everything@0.6.2
+  transport: stdio
+  config:
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-everything@0.6.2"]
+    env:
+      ROOT: .
+  provides: [tool:repo_search]
+```
+
+- **判定**：能被 `npx` / `uvx` 拉起、靠 stdio 或 http 通信的 MCP Server。
+- **安装期**：只生成 `register.mcp`，写进目标环境的 MCP 配置；包体由目标环境运行时装。`transport` 必填。
+- **装完落在哪**：`.packhub/config.json` 的 `mcpServers.<id>`。
+- **verify 写什么**：`config-key`（确认 command 写对了）。`mcp-ready` 现在记为「跳过」。
+
+#### 2. `skill` —— 必须指到含 SKILL.md 的目录
+
+```yaml
+- id: review-rules
+  type: skill
+  source: github:lvlc233/skill-hub/skills/code-review@9f2c1ab7d4e5f60718293a4b5c6d7e8f90123456
+  provides: [skill:code_review]
+```
+
+- **判定**：一个目录，里面有 `SKILL.md`（Agent Skills 的约定）。
+- **安装期**：`fetch`（整仓 tarball）→ `unpack`（去掉仓库顶层目录）→ `link.skill` 拷贝到 skills 目录。`github:owner/repo/sub/path@ref` 的 `sub/path` 会在解包后按路径取。
+- **装完落在哪**：`.packhub/skills/<id>/`。
+- **verify 写什么**：`file-exists` 指到 `"${target.skillsDir}/<id>/SKILL.md"`。
+- **注意**：`github:` 的 pin 必须是 commit；写 `@main` 会被拒。
+
+#### 3. `prompt` —— 一段模板，不是代码
+
+```yaml
+- id: commit-rules
+  type: prompt
+  source: ./resources/rules.md
+  provides: [prompt:commit_message]
+```
+
+- **判定**：要喂给 Agent 的提示词/角色/输出约定。
+- **安装期**：本地源直接 `write`；远程源 `fetch`。按源文件 basename 落到 prompts 目录。
+- **装完落在哪**：`.packhub/prompts/<文件名>`。
+- **verify 写什么**：`file-exists`。
+
+#### 4. `knowledge` —— 文档、规范、资料
+
+```yaml
+- id: house-style
+  type: knowledge
+  source: https://raw.githubusercontent.com/lvlc233/PackHub/533147315257260f9054947f1ece2ba20588bc93/README.md
+  integrity: sha256-CtMPyOdCbw/DtVRSFoKxJ4FbnhiPq2f92mvzzF5MR5Q=
+```
+
+- **判定**：要被引用而不是被执行的资料。
+- **安装期**：https 必须带 `integrity`（sha256），下载即校验；本地源直接拷贝。
+- **装完落在哪**：`.packhub/knowledge/<文件名>`。
+- **verify 写什么**：`file-exists`；要更强的保证可写 `knowledge-integrity`（目前记为跳过）。
+- **注意**：指向会变的内容（分支上的文件）时，integrity 迟早会失效——**pin 到 commit**。
+
+#### 5. `config` —— 只合并，不覆盖
+
+```yaml
+- id: agent-config
+  type: config
+  source: ./fragments/agent.yaml
+```
+
+- **判定**：一小段要并进目标配置的 YAML/JSON（不要写成完整配置文件）。
+- **安装期**：`merge.config` 深合并进 `.packhub/config.json`；数组整体替换，对象逐键合并。原文件不存在则创建。
+- **装完落在哪**：`.packhub/config.json`。
+- **verify 写什么**：`config-key` 检查某个键的最终值。
+- **注意**：合并前会备份原内容到 `.packhub/backups/`。
+
+#### 6. `tool` —— CLI、脚本、独立二进制
+
+```yaml
+- id: biome
+  type: tool
+  source: npm:@biomejs/biome@1.9.4
+```
+
+- **判定**：有自己的命令行入口，装完供人或 Agent 直接调用。
+- **安装期**：`fetch` → `unpack` 到 `.packhub/cache/tools/<id>/`。**不会**自动加到 `PATH`，也不会执行。
+- **装完落在哪**：`.packhub/cache/tools/<id>/`。
+- **verify 写什么**：`command` 跑一次 `--version`（目前记为跳过）；临时用 `file-exists` 指到解包后的入口文件。
+- **注意**：真正要执行东西（安装脚本、`git config`）得写 `install.exec`，且默认拒绝执行，需要 `--allow-exec`。
+
 ### 完整的（每条批注都是真实现状）
 
 ```yaml
@@ -122,6 +237,10 @@ verify:                              # 发布时必须有；本地可先留一�
 | `.packhub/state.json` | `packhub install` | 这台机器上装了什么、写了哪些文件 |
 | `verify.json` | `pnpm registry:verify` | 干净环境里的校验报告，`verified` 的唯一依据 |
 | `registry/index.json` | `pnpm registry:index` | 站点与 `search` 读的清单 |
+
+> **本页是维护对象，不是一次性说明。** 所有 `yaml` 代码块都由 `packages/core/test/docs-examples.test.ts` 提取并实际跑 `loadPack` + `planFor`：完整清单必须零错误，六段资源示例必须能单独生成计划、且六种类型都要覆盖。改文档时如果示例不能跑，测试会红。
+>
+> 加新示例的规矩：资源片段以 `- id:` 开头、单独成块；不要用编造得看不出来的 pin（commit 可以是假哈希，但**格式必须合法**，因为它们会被真的解析）。
 
 ---
 

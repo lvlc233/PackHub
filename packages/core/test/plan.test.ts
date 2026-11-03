@@ -38,6 +38,62 @@ describe('示例 Pack', () => {
   });
 });
 
+describe('计划细节', () => {
+  it('github 子路径的 skill 从解包后的子目录挂载', async () => {
+    const { parseManifest } = await import('../src/manifest.ts');
+    const { validateGraph } = await import('../src/graph.ts');
+    const { buildPlan } = await import('../src/plan.ts');
+    const { DIR_TARGET_VARS } = await import('../src/plan.ts');
+
+    const manifest = parseManifest(`apiVersion: packhub.dev/v0.0.1
+kind: Pack
+metadata:
+  name: t/sub
+  version: 0.0.1
+  targets: [dir]
+requires:
+  packhub: ">=0.0.1 <0.1"
+resources:
+  - id: rules
+    type: skill
+    source: github:o/r/skills/code-review@9f2c1ab7d4e5f60718293a4b5c6d7e8f90123456
+`).manifest!;
+    const { graph } = validateGraph(manifest);
+    const { plan } = buildPlan(manifest, graph, { target: 'dir', targetVars: DIR_TARGET_VARS });
+    const link = plan!.actions.find((a) => a.op === 'link.skill');
+    expect(link && 'from' in link ? link.from : '').toBe('.packhub/cache/skills/rules/skills/code-review');
+  });
+
+  it('composition.env 会生成一条 merge.config，并插值 vars', async () => {
+    const { parseManifest } = await import('../src/manifest.ts');
+    const { validateGraph } = await import('../src/graph.ts');
+    const { buildPlan, DIR_TARGET_VARS } = await import('../src/plan.ts');
+
+    const manifest = parseManifest(`apiVersion: packhub.dev/v0.0.1
+kind: Pack
+metadata:
+  name: t/env
+  version: 0.0.1
+  targets: [dir]
+requires:
+  packhub: ">=0.0.1 <0.1"
+vars:
+  root: /repo
+resources:
+  - id: k
+    type: knowledge
+    source: ./k.md
+composition:
+  env:
+    ROOT: "\${vars.root}"
+`).manifest!;
+    const { graph } = validateGraph(manifest);
+    const { plan } = buildPlan(manifest, graph, { target: 'dir', targetVars: DIR_TARGET_VARS });
+    const envAction = plan!.actions.find((a) => a.op === 'merge.config');
+    expect(envAction && 'patch' in envAction ? envAction.patch : null).toEqual({ env: { ROOT: '/repo' } });
+  });
+});
+
 describe('install + verify 闭环（本地资源，离线）', () => {
   it('装完通过 verify，重复安装为 noop', async () => {
     const ctx = loadPack(work);

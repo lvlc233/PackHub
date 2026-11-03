@@ -100,9 +100,13 @@ export function buildPlan(
             resource: id,
             dependsOn: [fetched.actionId],
           });
+          // github:owner/repo/sub/path@ref 的 sub/path 只在解包后的仓库里取
+          const from = parsed.subpath
+            ? `${targetVars.cacheDir}/skills/${id}/${parsed.subpath}`
+            : `${targetVars.cacheDir}/skills/${id}`;
           push({
             op: 'link.skill',
-            from: `${targetVars.cacheDir}/skills/${id}`,
+            from,
             to: `${targetVars.skillsDir}/${id}`,
             resource: id,
             dependsOn: [unpacked.actionId],
