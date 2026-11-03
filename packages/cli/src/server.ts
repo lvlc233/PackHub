@@ -1,18 +1,9 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import {
-  buildPlan,
-  installPack,
-  loadPack,
-  loadState,
-  parseManifest,
-  planFor,
-  validateGraph,
-  verifyPack,
-  type TargetId,
-} from '@packhub/core';
+import { buildPlan, loadPack, parseManifest, planFor, validateGraph, type TargetId } from '@packhub/kernel';
+import { installPack, loadState, verifyPack } from '@packhub/runtime';
+import { defaultStaticDir } from '@packhub/hub';
 
 export interface ServeOptions {
   root: string;
@@ -246,6 +237,4 @@ async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> 
   }
 }
 
-export function defaultStaticDir(): string {
-  return fileURLToPath(new URL('../../web/dist/', import.meta.url));
-}
+export { defaultStaticDir } from '@packhub/hub';

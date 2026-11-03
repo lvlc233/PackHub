@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import type { Manifest } from './types.ts';
-import { parseSource } from './ref.ts';
+import type { Manifest } from '@packhub/kernel';
+import { parseSource } from '@packhub/kernel';
 
 export interface LicenseFinding {
   resource: string;

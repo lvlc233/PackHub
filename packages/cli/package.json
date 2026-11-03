@@ -5,7 +5,9 @@
   "type": "module",
   "bin": { "packhub": "./src/bin.ts" },
   "dependencies": {
-    "@packhub/core": "workspace:*",
+    "@packhub/kernel": "workspace:*",
+    "@packhub/runtime": "workspace:*",
+    "@packhub/hub": "workspace:*",
     "citty": "^0.1.6"
   }
 }

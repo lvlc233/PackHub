@@ -40,10 +40,10 @@ describe('示例 Pack', () => {
 
 describe('计划细节', () => {
   it('github 子路径的 skill 从解包后的子目录挂载', async () => {
-    const { parseManifest } = await import('../src/manifest.ts');
-    const { validateGraph } = await import('../src/graph.ts');
-    const { buildPlan } = await import('../src/plan.ts');
-    const { DIR_TARGET_VARS } = await import('../src/plan.ts');
+    const { parseManifest } = await import('@packhub/kernel');
+    const { validateGraph } = await import('@packhub/kernel');
+    const { buildPlan } = await import('@packhub/kernel');
+    const { DIR_TARGET_VARS } = await import('@packhub/kernel');
 
     const manifest = parseManifest(`apiVersion: packhub.dev/v0
 kind: Pack
@@ -65,9 +65,9 @@ resources:
   });
 
   it('composition.env 会生成一条 merge.config，并插值 vars', async () => {
-    const { parseManifest } = await import('../src/manifest.ts');
-    const { validateGraph } = await import('../src/graph.ts');
-    const { buildPlan, DIR_TARGET_VARS } = await import('../src/plan.ts');
+    const { parseManifest } = await import('@packhub/kernel');
+    const { validateGraph } = await import('@packhub/kernel');
+    const { buildPlan, DIR_TARGET_VARS } = await import('@packhub/kernel');
 
     const manifest = parseManifest(`apiVersion: packhub.dev/v0
 kind: Pack
@@ -113,7 +113,7 @@ describe('install + verify 闭环（本地资源，离线）', () => {
   });
 
   it('planHash 变化会体现在锁文件里', async () => {
-    const { buildLock } = await import('../src/lock.ts');
+    const { buildLock } = await import('@packhub/kernel');
     const ctx = loadPack(work);
     const { plan } = planFor(ctx);
     const lock = buildLock(ctx.manifest, plan!);

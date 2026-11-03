@@ -1,0 +1,15 @@
+{
+  "name": "@packhub/runtime",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@packhub/kernel": "workspace:*",
+    "tar": "^7.5.22",
+    "undici": "^8.12.3",
+    "yaml": "^2.6.1"
+  }
+}

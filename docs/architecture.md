@@ -84,28 +84,45 @@ registry/packs/<scope>/<name>/<version>/  ──④ index.json（生成，不手
 ## 四、代码地图（一个环节一个文件）
 
 ```
-packages/core/src/
+packages/kernel/src/       纯契约：不出网、不写盘、不 spawn（读文件可以）
 ├── manifest.ts   YAML → 对象，ajv 跑 schema（唯一的"结构真实"）
 ├── ref.ts        source 解析、pin 是否可复现（唯一的"引用真实"）
 ├── graph.ts      provides/needs、顺序、成环、pin 冲突（唯一的"接线真实"）
 ├── plan.ts       manifest → 动作清单 + planHash（唯一的"副作用描述"）
-├── download.ts   npm/github/https 下载 + 完整性（唯一的"字节真实"）
-├── install.ts    执行 plan、备份、state（唯一的"副作用"）
-├── verify.ts     只读检查（唯一的"结果真实"）
-└── lock.ts       解析结果固化（唯一的"复现凭据"）
+├── diff.ts       两份计划按内容比较
+├── lock.ts       解析结果固化（唯一的"复现凭据"）
+└── index.ts      loadPack / planFor（只读入口）
 
-packages/cli/src/
-├── cli.ts        plan / install / verify / lock / init / serve（薄命令）
-└── server.ts     四个只读+一个写接口（任何前端都只吃这一层）
+packages/runtime/src/      执行面：下载、写盘、进程
+├── download.ts   npm/github/https 下载 + 完整性
+├── install.ts    执行 plan、备份、state、快照与回退
+├── registry.ts   取包（registry 索引 + 归档）
+├── pack.ts       .phub 打包/解包
+├── verify.ts     只读检查（跑 manifest 里的检查项）
+├── doctor.ts     漂移检测（文件/托管块被外部改写）
+├── harness-probe.ts  真机探针（调 harness headless 问一句）
+├── license.ts    许可证探测
+├── source.ts     .phub / git+https 来源
+├── signature.ts  ed25519 签名与校验
+└── authoring.ts  改清单（add resource / binding / signature）
+
+packages/hub/src/          只读发布端：没有执行接口
+├── server.ts     /api/registry、/api/registry/pack、/api/plan 与静态产物
+└── index.ts      startHub（监听 loopback；对外部署时前面挂反向代理与鉴权）
+
+packages/cli/src/          本地 app：命令 + 本地面板
+├── cli.ts        plan/install/add/update/rollback/probe/hub/serve…（薄命令）
+└── server.ts     本地面板接口（含 install，仅 loopback，不对外）
 
 scripts/registry/
-├── build-index.mjs   ④ 门禁 + 索引生成
-└── verify-pack.mjs   ②③ 干净环境安装 + 报告
+├── build-index.mjs   门禁 + 索引生成
+├── build-archives.mjs  .phub 归档
+└── verify-pack.mjs   干净环境安装 + 报告
 
-packages/web/          只做映射：/（作者座舱） /packs（未实现） /forms（形态 demo）
+packages/web/          一份界面：/（本地面板） /packs（公开目录） /console（创作台） /forms（形态 demo）
 ```
 
-原则：**判断只在 core，执行只在 install，记录只在 state，呈现只在 web。** 任何一层重复实现一次判断，闭环就开始漏气。
+原则：**判断只在 kernel，执行只在 runtime，发布只在 hub（只读），呈现只在 web。** 任何一层重复实现一次判断，闭环就开始漏气。
 
 ---
 

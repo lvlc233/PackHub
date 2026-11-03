@@ -1,8 +1,8 @@
 import { join } from 'node:path';
 import { fetchPack } from './registry.ts';
 import { loadPack, planFor, installPack, loadState } from './index.ts';
-import { diffActions, describeAction } from './diff.ts';
-import type { Plan } from './types.ts';
+import { diffActions, describeAction } from '@packhub/kernel';
+import type { Plan } from '@packhub/kernel';
 
 export interface UpdateOptions {
   name: string;

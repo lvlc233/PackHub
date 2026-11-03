@@ -1,5 +1,5 @@
 {
-  "name": "@packhub/core",
+  "name": "@packhub/kernel",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -9,8 +9,6 @@
   "dependencies": {
     "ajv": "^8.17.1",
     "ajv-formats": "^3.0.1",
-    "tar": "^7.5.22",
-    "undici": "^8.12.3",
     "yaml": "^2.6.1"
   }
 }

@@ -20,14 +20,26 @@ importers:
 
   packages/cli:
     dependencies:
-      '@packhub/core':
+      '@packhub/hub':
         specifier: workspace:*
-        version: link:../core
+        version: link:../hub
+      '@packhub/kernel':
+        specifier: workspace:*
+        version: link:../kernel
+      '@packhub/runtime':
+        specifier: workspace:*
+        version: link:../runtime
       citty:
         specifier: ^0.1.6
         version: 0.1.6
 
-  packages/core:
+  packages/hub:
+    dependencies:
+      '@packhub/kernel':
+        specifier: workspace:*
+        version: link:../kernel
+
+  packages/kernel:
     dependencies:
       ajv:
         specifier: ^8.17.1
@@ -35,6 +47,15 @@ importers:
       ajv-formats:
         specifier: ^3.0.1
         version: 3.0.1(ajv@8.20.0)
+      yaml:
+        specifier: ^2.6.1
+        version: 2.9.1
+
+  packages/runtime:
+    dependencies:
+      '@packhub/kernel':
+        specifier: workspace:*
+        version: link:../kernel
       tar:
         specifier: ^7.5.22
         version: 7.5.22

@@ -4,7 +4,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
-import { loadPack, planFor, canonicalize, sha256 } from '../../packages/core/src/index.ts';
+import { loadPack, planFor, canonicalize, sha256 } from '../../packages/runtime/src/index.ts';
 
 const ROOT = resolve(import.meta.dirname, '../..');
 const PACKS = join(ROOT, 'registry/packs');

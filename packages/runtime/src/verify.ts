@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { extname, resolve, sep } from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import type { VerifyCheck } from './types.ts';
+import type { VerifyCheck } from '@packhub/kernel';
 
 export type CheckStatus = 'pass' | 'fail' | 'skipped';
 

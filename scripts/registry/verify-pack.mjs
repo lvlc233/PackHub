@@ -11,7 +11,7 @@ import {
   verifyPack,
   verifySignatures,
   readSignatures,
-} from '../../packages/core/src/index.ts';
+} from '../../packages/runtime/src/index.ts';
 
 const arg = process.argv[2];
 if (!arg) {

@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { parseDocument } from 'yaml';
-import type { Manifest, ResourceType } from './types.ts';
+import type { Manifest, ResourceType } from '@packhub/kernel';
 
 export interface AddResourceInput {
   type: ResourceType;

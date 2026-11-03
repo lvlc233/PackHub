@@ -15,8 +15,8 @@ import {
 import { dirname, join, resolve, sep } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import * as tar from 'tar';
-import type { Plan, PlanAction } from './types.ts';
-import { canonicalize, deepMerge, sha256 } from './util.ts';
+import type { Plan, PlanAction } from '@packhub/kernel';
+import { canonicalize, deepMerge, sha256 } from '@packhub/kernel';
 import { download } from './download.ts';
 
 export interface ApplyOptions {

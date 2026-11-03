@@ -1,6 +1,8 @@
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { defineCommand, type CommandDef } from 'citty';
+import { defaultStaticDir, startHub } from '@packhub/hub';
+import { loadPack, planFor, buildLock, diffActions, describeAction, type Issue, type Plan } from '@packhub/kernel';
 import {
   addResource,
   readSignatures,
@@ -12,9 +14,6 @@ import {
   signPlan,
   verifySignatures,
   setBinding,
-  buildLock,
-  diffActions,
-  describeAction,
   removePack,
   rollbackPack,
   packArchive,
@@ -22,12 +21,8 @@ import {
   updatePack,
   resolveAddSource,
   installPack,
-  loadPack,
-  planFor,
   verifyPack,
-  type Issue,
-  type Plan,
-} from '@packhub/core';
+} from '@packhub/runtime';
 
 const errorCount = (issues: Issue[]): number => issues.filter((i) => i.severity === 'error').length;
 
@@ -695,6 +690,25 @@ const search = defineCommand({
   },
 });
 
+const hub = defineCommand({
+  meta: { name: 'hub', description: '启动只读发布端（索引、包页、计划预览；没有执行接口）' },
+  args: {
+    dir: { type: 'positional', required: false, default: '.' },
+    port: { type: 'string', default: '8788' },
+  },
+  async run({ args }) {
+    const server = await startHub({
+      root: resolve(String(args.dir)),
+      port: Number(args.port),
+      staticDir: defaultStaticDir(),
+    });
+    const addr = server.address();
+    const port = typeof addr === 'object' && addr ? addr.port : Number(args.port);
+    console.log(`Hub（只读）→ http://127.0.0.1:${port}`);
+    console.log('执行接口一个都没有；安装请用 packhub install / add');
+  },
+});
+
 const serve = defineCommand({
   meta: { name: 'serve', description: '起本地控制面板（API + 静态产物）' },
   args: {
@@ -729,6 +743,7 @@ export const main: CommandDef = defineCommand({
     slot,
     diff,
     pack,
+    hub,
     doctor,
     probe,
     licenses,

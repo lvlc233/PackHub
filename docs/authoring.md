@@ -311,7 +311,7 @@ verify:
 | `verify.json` | `pnpm registry:verify` | 干净环境里的校验报告，`verified` 的唯一依据 |
 | `registry/index.json` | `pnpm registry:index` | 站点与 `search` 读的清单 |
 
-> **本页是维护对象，不是一次性说明。** 所有 `yaml` 代码块都由 `packages/core/test/docs-examples.test.ts` 提取并实际跑 `loadPack` + `planFor`：完整清单必须零错误，六段资源示例必须能单独生成计划、且六种类型都要覆盖。改文档时如果示例不能跑，测试会红。
+> **本页是维护对象，不是一次性说明。** 所有 `yaml` 代码块都由 `packages/runtime/test/docs-examples.test.ts` 提取并实际跑 `loadPack` + `planFor`：完整清单必须零错误，六段资源示例必须能单独生成计划、且六种类型都要覆盖。改文档时如果示例不能跑，测试会红。
 >
 > 加新示例的规矩：资源片段以 `- id:` 开头、单独成块；不要用编造得看不出来的 pin（commit 可以是假哈希，但**格式必须合法**，因为它们会被真的解析）。
 

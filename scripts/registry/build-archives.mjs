@@ -3,7 +3,7 @@
 // registry/packs/<scope>/<name>/<version>.phub
 import { readdirSync, existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { packArchive } from '../../packages/core/src/index.ts';
+import { packArchive } from '../../packages/runtime/src/index.ts';
 
 const ROOT = resolve(import.meta.dirname, '../..');
 const PACKS = join(ROOT, 'registry/packs');

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkSource, isVolatilePin, parseSource } from '../src/ref.ts';
+import { checkSource, isVolatilePin, parseSource } from '@packhub/kernel';
 
 describe('parseSource', () => {
   it('解析带版本的 npm 包（含 scope）', () => {
