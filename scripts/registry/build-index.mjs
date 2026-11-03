@@ -100,9 +100,12 @@ for (const scope of dirs(PACKS)) {
 
       let trust = 'community';
       let verifiedAt = null;
+      let signers = [];
       const verifyPath = join(dir, 'verify.json');
       if (existsSync(verifyPath)) {
         const report = JSON.parse(readFileSync(verifyPath, 'utf8'));
+        const sigs = Array.isArray(report.signatures) ? report.signatures : [];
+        signers = sigs.filter((s) => s.ok).map((s) => s.key);
         if (report.ok === true && report.planHash === plan.planHash) {
           trust = 'verified';
           verifiedAt = report.verifiedAt ?? null;
@@ -117,6 +120,7 @@ for (const scope of dirs(PACKS)) {
         planHash: plan.planHash,
         trust,
         verifiedAt,
+        signers,
         manifestHash: sha256(canonicalize(ctx.manifest)),
       });
     }
@@ -137,6 +141,7 @@ for (const scope of dirs(PACKS)) {
       targets: m.targets,
       trust: allVerified ? 'verified' : 'community',
       verifiedAt: lead.verifiedAt,
+      signers: lead.signers ?? [],
       keywords: m.keywords ?? [],
       resourceCount: lead.manifest.resources.length,
       install: `npx packhub add ${packName}`,

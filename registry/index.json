@@ -1,6 +1,6 @@
 {
   "apiVersion": "packhub.dev/index/v0",
-  "generatedAt": "2026-11-03T10:45:46.480Z",
+  "generatedAt": "2026-11-03T13:36:29.565Z",
   "packs": [
     {
       "name": "lvlc233/remote-demo",
@@ -14,7 +14,8 @@
         "dir"
       ],
       "trust": "verified",
-      "verifiedAt": "2026-11-03T10:44:17.076Z",
+      "verifiedAt": "2026-11-03T13:36:27.305Z",
+      "signers": [],
       "keywords": [
         "demo",
         "remote",
@@ -35,7 +36,8 @@
         "dir"
       ],
       "trust": "verified",
-      "verifiedAt": "2026-11-03T10:44:14.414Z",
+      "verifiedAt": "2026-11-03T13:36:27.867Z",
+      "signers": [],
       "keywords": [
         "conventions",
         "knowledge",

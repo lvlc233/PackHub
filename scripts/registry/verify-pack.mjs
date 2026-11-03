@@ -4,7 +4,13 @@
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { installPack, loadPack, planFor, verifyPack } from '../../packages/core/src/index.ts';
+import {
+  installPack,
+  loadPack,
+  planFor,
+  verifyPack,
+  verifySignatures,
+} from '../../packages/core/src/index.ts';
 
 const arg = process.argv[2];
 if (!arg) {
@@ -55,10 +61,18 @@ try {
   const failedActions = result.outcomes.filter((o) => o.status === 'failed').length;
   const ok = failedActions === 0 && checks.every((c) => c.status !== 'fail');
 
+  const signatures = (ctx.manifest.signatures ?? []).map((s) => ({
+    key: s.key,
+    ...(verifySignatures([s], `${ctx.manifest.metadata.name}@${ctx.manifest.metadata.version}`, plan.planHash)[0] ?? {
+      ok: false,
+    }),
+  }));
+
   const report = {
     apiVersion: 'packhub.dev/verify/v0',
     planHash: plan.planHash,
     ok,
+    signatures,
     checks,
     outcomes: result.outcomes.map((o) => ({ actionId: o.actionId, op: o.op, status: o.status })),
     verifiedAt: new Date().toISOString(),
