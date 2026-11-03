@@ -16,7 +16,7 @@ import { dirname, join, resolve, sep } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import * as tar from 'tar';
 import type { Plan, PlanAction } from '@packhub/kernel';
-import { canonicalize, deepMerge, sha256 } from '@packhub/kernel';
+import { canonicalize, deepMerge, isPlainObject, sha256 } from '@packhub/kernel';
 import { download } from './download.ts';
 
 export interface ApplyOptions {
@@ -44,6 +44,11 @@ export interface ActionOutcome {
   blockId?: string;
   /** register.mcp 用了哪个资源 id，卸载时据此摘掉对应 server 条目 */
   resource?: string;
+  /** merge.config 的撤销信息：每个叶子键在合并前是否存在、值是什么 */
+  undo?: {
+    file: string;
+    ops: { path: string[]; had: boolean; value?: unknown }[];
+  };
 }
 
 export interface ApplyResult {
@@ -334,16 +339,24 @@ export function removePack(root: string, packKey?: string): RemoveResult {
         const abs = within(root, rel);
         if (!existsSync(abs)) continue;
 
-        // 配置文件是共享的：只摘掉自己登记的 server 条目，不整文件删
+        // 配置文件是共享的：先按 merge 的 undo 还原键，再摘掉自己登记的 server 条目，不整文件删
         const regs = record.actions.filter((a) => a.op === 'register.mcp' && a.target === rel && a.resource);
-        if (regs.length > 0 && /\.json$/i.test(rel)) {
+        const undos = record.actions.filter((a) => a.op === 'merge.config' && a.target === rel && a.undo);
+        if ((regs.length > 0 || undos.length > 0) && /\.json$/i.test(rel)) {
           const data = JSON.parse(readFileSync(abs, 'utf8')) as Record<string, unknown>;
+          for (const a of undos) {
+            for (const op of a.undo!.ops) {
+              if (op.had) setPath(data, op.path, op.value);
+              else deletePath(data, op.path);
+            }
+          }
           const servers = { ...(data.mcpServers as Record<string, unknown> | undefined) };
           for (const a of regs) delete servers[a.resource as string];
           if (Object.keys(servers).length === 0) delete data.mcpServers;
           else data.mcpServers = servers;
-          if (Object.keys(data).length === 0) rmSync(abs, { force: true });
-          else writeFileSync(abs, JSON.stringify(data, null, 2) + '\n', 'utf8');
+          const pruned = pruneEmpty(data);
+          if (Object.keys(pruned).length === 0) rmSync(abs, { force: true });
+          else writeFileSync(abs, JSON.stringify(pruned, null, 2) + '\n', 'utf8');
           removed.push(rel);
           continue;
         }
@@ -503,6 +516,13 @@ async function applyAction(
       const merged = deepMerge(current, patch);
       const nextText = stringifyFor(to, merged);
       const before = existsSync(to) ? readFileSync(to, 'utf8') : '';
+      const undo = {
+        file: action.path,
+        ops: leafPaths(patch).map((p) => {
+          const prev = getPath(current, p);
+          return prev === undefined ? { path: p, had: false } : { path: p, had: true, value: prev };
+        }),
+      };
       if (before === nextText) {
         return { actionId: action.actionId, op: action.op, status: 'noop', target: action.path };
       }
@@ -512,7 +532,13 @@ async function applyAction(
         writeFileSync(to, nextText, 'utf8');
         written.push(action.path);
       }
-      return { actionId: action.actionId, op: action.op, status: 'done', target: action.path };
+      return {
+        actionId: action.actionId,
+        op: action.op,
+        status: 'done',
+        target: action.path,
+        undo,
+      };
     }
 
     case 'register.mcp': {
@@ -675,6 +701,61 @@ function stripBlock(text: string, blockId: string): string {
 
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** 对象的所有叶子路径；数组当一个叶子整体处理。 */
+export function leafPaths(value: unknown, base: string[] = []): string[][] {
+  if (isPlainObject(value) && Object.keys(value as object).length > 0) {
+    return Object.entries(value as Record<string, unknown>).flatMap(([k, v]) => leafPaths(v, [...base, k]));
+  }
+  return [base];
+}
+
+export function getPath(obj: unknown, path: string[]): unknown {
+  let cur: unknown = obj;
+  for (const key of path) {
+    if (!isPlainObject(cur)) return undefined;
+    cur = (cur as Record<string, unknown>)[key];
+    if (cur === undefined) return undefined;
+  }
+  return cur;
+}
+
+function setPath(obj: unknown, path: string[], value: unknown): void {
+  if (path.length === 0) return;
+  let cur = obj as Record<string, unknown>;
+  for (let i = 0; i < path.length - 1; i++) {
+    const key = path[i]!;
+    if (!isPlainObject(cur[key])) cur[key] = {};
+    cur = cur[key] as Record<string, unknown>;
+  }
+  cur[path[path.length - 1]!] = value;
+}
+
+function deletePath(obj: unknown, path: string[]): void {
+  if (path.length === 0) return;
+  let cur = obj as Record<string, unknown>;
+  for (let i = 0; i < path.length - 1; i++) {
+    const key = path[i]!;
+    if (!isPlainObject(cur[key])) return;
+    cur = cur[key] as Record<string, unknown>;
+  }
+  delete cur[path[path.length - 1]!];
+}
+
+/** 去掉空对象（撤销后留下的壳），保留数组与假值。 */
+export function pruneEmpty(value: unknown): Record<string, unknown> {
+  if (!isPlainObject(value)) return {};
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+    if (isPlainObject(v)) {
+      const pruned = pruneEmpty(v);
+      if (Object.keys(pruned).length > 0) out[k] = pruned;
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
 }
 
 /** 共享路径：配置文件（多个包合并）与根目录的指令文件（托管块各写各的）。 */

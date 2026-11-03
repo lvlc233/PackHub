@@ -37,6 +37,7 @@
 - [x] 发布：`packhub publish`（先跑 runner，再写版本目录 + 归档 + 索引；`--dry-run` / `--out` PR 模式 / 版本不可变）
 - [x] 结构收尾：`apps/local`（bin `packhub`）与 `packages/hub`（bin `packhub-hub`）；`pnpm build:local` 出单文件 bundle，npm pack 后可 npx 跑（schema 已内嵌）
 - [x] 创作台补全：收藏池、registry 资源浏览器（`/api/registry/resources`）、结构化表单、实时计划预览、草稿与收藏本地保存
+- [x] 合并配置可逆：`merge.config` 记录叶子级 undo，卸载按它还原并清掉空壳；rollback 走快照
 - [x] registry 归档入库：`.gitignore` 放行 `registry/packs/**/*.phub`，新克隆的 registry 才能被 `add` 消费
 - [ ] `CLAUDE.md` 托管块与 `.claude/skills` 是否被 Claude Code 采用（未验证，需要一次模型调用）
 - [x] DSH 读项目级 `AGENTS.md`：`packhub probe --target dsh` 实测通过（headless + opencode-go 转发）；卸载后探针报文件不存在
@@ -51,7 +52,7 @@
 
 ## 已知限制
 
-- 卸载不还原被合并的配置内容（备份在 `.packhub/backups/`）。
+- 合并配置的 undo 按叶子键记录：如果两个包先后改同一个键，后卸载的那个会把值还原成"它合并前"的样子，不保证是最初值。
 - `pypi:` 只声明，未实现下载。
 - 私有来源靠环境变量 token；没有 token 存储与轮换。
 - 计划结构一变，`planHash` 全变，历史锁需要重生成（`registry:check` 会提示）。
