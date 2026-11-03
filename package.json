@@ -8,6 +8,9 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:kernel": "vitest run packages/kernel/test",
+    "test:runtime": "vitest run packages/runtime/test",
+    "test:hub": "vitest run packages/hub/test",
     "typecheck": "tsc --noEmit --pretty false",
     "packhub": "node --experimental-strip-types packages/cli/src/bin.ts",
     "serve": "node --experimental-strip-types packages/cli/src/bin.ts serve .",

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { parseManifest } from '@packhub/kernel';
-import { validateGraph } from '@packhub/kernel';
-import type { Manifest } from '@packhub/kernel';
+import { parseManifest } from '../src/index.ts';
+import { validateGraph } from '../src/index.ts';
+import type { Manifest } from '../src/index.ts';
 
 const base = (patch: Partial<Manifest> = {}): string =>
   JSON.stringify({

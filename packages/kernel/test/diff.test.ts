@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildLock, diffActions, loadPack, planFor } from '../src/index.ts';
-import type { PlanAction } from '@packhub/kernel';
+import type { PlanAction } from '../src/index.ts';
 
 const EXAMPLE = fileURLToPath(new URL('../../../examples/team-conventions/', import.meta.url));
 
