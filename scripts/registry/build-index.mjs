@@ -67,7 +67,8 @@ for (const scope of dirs(PACKS)) {
       // 不可变：已存在的版本目录，manifest 不许变
       const headText = gitShowHead(relManifest);
       const currentText = readFileSync(manifestPath, 'utf8');
-      if (headText !== null && headText !== currentText) {
+      const norm = (s) => s.replace(/\r\n/g, '\n');
+      if (headText !== null && norm(headText) !== norm(currentText)) {
         errors.push(`${packName}@${version}: 版本目录不可变，packhub.yaml 已被修改（应发新版本）`);
       }
 

@@ -10,6 +10,121 @@
 
 ---
 
+## 〇、packhub.yaml 长什么样
+
+### 最小可用（13 行）
+
+```yaml
+apiVersion: packhub.dev/v0.0.1
+kind: Pack
+
+metadata:
+  name: lvlc233/my-pack
+  version: 0.0.1
+  targets: [dir]
+
+requires:
+  packhub: ">=0.0.1 <0.1"
+
+resources:
+  - id: style-guide
+    type: knowledge
+    source: ./resources/style-guide.md
+```
+
+四个必填块：`apiVersion` + `kind`、`metadata`（name / version / targets）、`requires.packhub`、`resources[]`。`resources` 里至少一项，每项要 `id` / `type` / `source`。
+
+### 完整的（每条批注都是真实现状）
+
+```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/lvlc233/PackHub/main/schema/packhub.v0.0.1.schema.json
+apiVersion: packhub.dev/v0.0.1
+kind: Pack
+
+metadata:
+  name: lvlc233/code-review          # scope/name，scope 用 GitHub 用户名
+  version: 0.0.2                     # 语义化版本；发布后不可改
+  title: 代码审查整合包               # 列表页显示的标题
+  description: 组合代码检索 MCP、审查规范 Skill 与团队规范知识，装完即可用。
+  license: MIT
+  homepage: https://github.com/lvlc233/PackHub
+  keywords: [code-review, mcp, skill]
+  authors:
+    - name: lvlc233
+  targets: [dir, dsh]                # 支持的目标环境，dir = 中性目录
+
+requires:
+  packhub: ">=0.0.1 <0.1"            # 平台版本范围；发布时必填
+  agent: ">=0.0.1"                   # 可选：目标 Agent 版本
+
+vars:                                # 可被 ${vars.x} 引用；0.0.2 只读，不支持安装期覆盖
+  projectRoot: "."
+  strict: true
+
+resources:
+  - id: repo-search                  # Pack 内唯一
+    type: mcp                        # mcp / skill / prompt / knowledge / config / tool
+    source: npm:@modelcontextprotocol/server-everything@0.6.2
+    transport: stdio                 # mcp 必填
+    config:
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-everything@0.6.2"]
+      env:
+        ROOT: ${vars.projectRoot}    # 插值发生在生成计划时，写进配置的是真值
+    provides: [tool:repo_search]
+
+  - id: review-rules
+    type: skill
+    source: github:lvlc233/skill-hub/skills/code-review@9f2c1ab   # 必须 40 位 commit
+    dependsOn: [repo-search]         # 安装顺序；不是能力依赖
+    provides: [skill:code_review]
+    needs: [tool:repo_search]        # 能力依赖；没人提供就报 unmet-need
+
+  - id: house-style
+    type: knowledge
+    source: https://raw.githubusercontent.com/lvlc233/PackHub/main/README.md
+    integrity: sha256-CtMPyOdCbw/DtVRSFoKxJ4FbnhiPq2f92mvzzF5MR5Q=
+    provides: [knowledge:house_style]
+
+  - id: agent-config
+    type: config
+    source: ./fragments/agent.yaml   # 合并进目标配置，不覆盖其它键
+
+composition:
+  env:                               # 写进目标 config 的 env，所有资源共享
+    REVIEW_ROOT: ${vars.projectRoot}
+    STRICT: "${vars.strict}"
+  order: [agent-config, repo-search, review-rules]   # 省略则按 dependsOn 拓扑排序
+  needs:                             # 整个 Pack 层面的依赖声明
+    - capability: skill:code_review
+      requires: [tool:repo_search, knowledge:house_style]
+      bind: review-rules             # 绑定到具体实现，锁住行为
+
+verify:                              # 发布时必须有；本地可先留一条
+  - { type: mcp-ready, resource: repo-search, timeout: 30 }
+  - { type: file-exists, path: "${target.skillsDir}/review-rules/SKILL.md" }
+  - { type: config-key, path: "${target.configFile}", key: "mcpServers.repo-search.command", equals: npx }
+```
+
+### 字段分三层
+
+| 层 | 字段 | 什么时候写 |
+|---|---|---|
+| **必写** | `apiVersion` · `kind` · `metadata.name/version/targets` · `requires.packhub` · `resources[].id/type/source` | 每个 Pack |
+| **按需** | `vars` · `composition` · `provides` / `needs` / `dependsOn` · `install.exec` · `overrides` | 有变量、有接线、有依赖时 |
+| **发布时** | `verify` · `integrity`（https 必填）· `metadata.license/authors/keywords` | 要进 registry 之前 |
+
+### 生成物不要手写
+
+| 文件 | 谁生成 | 干什么 |
+|---|---|---|
+| `packhub.lock.json` | `packhub lock` | 钉死每个引用，供复现与审查 |
+| `.packhub/state.json` | `packhub install` | 这台机器上装了什么、写了哪些文件 |
+| `verify.json` | `pnpm registry:verify` | 干净环境里的校验报告，`verified` 的唯一依据 |
+| `registry/index.json` | `pnpm registry:index` | 站点与 `search` 读的清单 |
+
+---
+
 ## 一、从零到能装：四步
 
 ```bash

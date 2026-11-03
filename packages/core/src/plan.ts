@@ -41,6 +41,9 @@ export function buildPlan(
     target: targetVars,
   };
 
+  const missing: string[] = [];
+  const interp = (value: unknown): unknown => interpolate(value, scope, missing);
+
   const actions: PlanAction[] = [];
   const counters = new Map<string, number>();
   const push = (action: PlanActionInput): PlanAction => {
@@ -50,6 +53,17 @@ export function buildPlan(
     actions.push(next);
     return next;
   };
+
+  // 接线：Pack 级 env 注入到目标配置，让所有资源都能读到
+  const packEnv = manifest.composition?.env;
+  if (packEnv && Object.keys(packEnv).length > 0) {
+    push({
+      op: 'merge.config',
+      path: targetVars.configFile ?? '.packhub/config.json',
+      strategy: 'json-merge',
+      patch: { env: interp(packEnv) },
+    });
+  }
 
   for (const id of graph.order) {
     const res = graph.resources.get(id);
@@ -62,7 +76,7 @@ export function buildPlan(
         // MCP 由目标环境自己用 npx/uvx 拉起，安装期只登记，不预先下载包体
         push({
           op: 'register.mcp',
-          spec: mcpSpec(res),
+          spec: mcpSpec(res, interp(res.config ?? {}) as Record<string, unknown>),
           resource: id,
         });
         break;
@@ -162,8 +176,7 @@ export function buildPlan(
     });
   }
 
-  const missing: string[] = [];
-  const verify = (manifest.verify ?? []).map((check) => interpolate(check, scope, missing) as VerifyCheck);
+  const verify = (manifest.verify ?? []).map((check) => interp(check) as VerifyCheck);
   for (const key of new Set(missing)) {
     issues.push({
       code: 'undefined-variable',
@@ -184,9 +197,9 @@ export function buildPlan(
   return { plan: { ...plan, planHash: sha256(canonicalize(plan)) }, issues };
 }
 
-function mcpSpec(res: ResourceSpec): Record<string, unknown> {
+function mcpSpec(res: ResourceSpec, raw: Record<string, unknown>): Record<string, unknown> {
   const parsed = parseSource(res.source);
-  const config = isPlainObject(res.config) ? res.config : {};
+  const config = isPlainObject(raw) ? raw : {};
   const env = isPlainObject(config.env) ? config.env : undefined;
   const spec: Record<string, unknown> = {
     transport: res.transport ?? 'stdio',
