@@ -11,6 +11,9 @@ importers:
       '@types/node':
         specifier: ^22.10.2
         version: 22.20.5
+      esbuild:
+        specifier: ^0.25.0
+        version: 0.25.0
       typescript:
         specifier: ^5.7.2
         version: 5.7.2
@@ -18,23 +21,23 @@ importers:
         specifier: ^2.1.8
         version: 2.1.8(@types/node@22.20.5)
 
-  packages/cli:
+  apps/local:
     dependencies:
       '@packhub/hub':
         specifier: workspace:*
-        version: link:../hub
+        version: link:../../packages/hub
       '@packhub/kernel':
         specifier: workspace:*
-        version: link:../kernel
+        version: link:../../packages/kernel
       '@packhub/registry':
         specifier: workspace:*
-        version: link:../registry
+        version: link:../../packages/registry
       '@packhub/runner':
         specifier: workspace:*
-        version: link:../runner
+        version: link:../../packages/runner
       '@packhub/runtime':
         specifier: workspace:*
-        version: link:../runtime
+        version: link:../../packages/runtime
       citty:
         specifier: ^0.1.6
         version: 0.1.6

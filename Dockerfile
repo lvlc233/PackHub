@@ -6,6 +6,7 @@ WORKDIR /app
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages ./packages
+COPY apps ./apps
 RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @packhub/web build
 
@@ -15,4 +16,4 @@ ENV NODE_ENV=production
 COPY --from=build /app /app
 EXPOSE 8788
 # 对外监听必须带 PACKHUB_HUB_TOKEN，否则 hub 会拒绝启动（fail-closed）
-CMD ["node", "--experimental-strip-types", "packages/cli/src/bin.ts", "hub", ".", "--host", "0.0.0.0", "--port", "8788"]
+CMD ["node", "--experimental-strip-types", "apps/local/src/bin.ts", "hub", ".", "--host", "0.0.0.0", "--port", "8788"]

@@ -113,7 +113,7 @@ packages/hub/src/          只读发布端：没有执行接口
 ├── server.ts     /api/registry、/api/registry/pack、/api/plan 与静态产物
 └── index.ts      startHub（监听 loopback；对外部署时前面挂反向代理与鉴权）
 
-packages/cli/src/          本地 app：命令 + 本地面板
+apps/local/src/            本地 app：命令 + 本地面板（bin: packhub）
 ├── cli.ts        plan/install/add/update/rollback/probe/hub/serve…（薄命令）
 └── server.ts     本地面板接口（含 install，仅 loopback，不对外）
 

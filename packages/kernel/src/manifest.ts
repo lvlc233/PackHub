@@ -4,13 +4,13 @@ import Ajv, { type ValidateFunction } from 'ajv';
 import addFormats from 'ajv-formats';
 import type { Issue, Manifest } from './types.ts';
 
-const SCHEMA_URL = new URL('../../../schema/packhub.v0.schema.json', import.meta.url);
+import schemaJson from '../../../schema/packhub.v0.schema.json' with { type: 'json' };
 
 let cachedValidator: ValidateFunction | undefined;
 
 function validator(): ValidateFunction {
   if (!cachedValidator) {
-    const schema = JSON.parse(readFileSync(SCHEMA_URL, 'utf8'));
+    const schema = schemaJson as Record<string, unknown>;
     const ajv = new Ajv({ allErrors: true, strict: false });
     addFormats(ajv);
     cachedValidator = ajv.compile(schema);

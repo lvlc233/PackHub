@@ -14,5 +14,5 @@
     "jsx": "react-jsx",
     "types": ["node"]
   },
-  "include": ["packages/**/*.ts", "packages/**/*.tsx", "scripts/**/*.mjs"]
+  "include": ["packages/**/*.ts", "packages/**/*.tsx", "apps/**/*.ts", "scripts/**/*.mjs"]
 }

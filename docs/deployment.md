@@ -245,6 +245,27 @@ packhub doctor my-pack      # 文件还在不在、托管块还在不在
 
 后续可选的更保守方案：宿主若支持 `@import`（Claude Code 的 CLAUDE.md 支持），可以只在宿主文件里写一行导入，正文放 `.packhub/PACKHUB.md`——宿主文件零污染，但依赖各家对 import 的支持，未验证前不做默认。
 
+## 九点四、客户端怎么装
+
+仓库里有两个可交付入口，各自有 bin：
+
+| 入口 | bin | 用途 |
+|---|---|---|
+| `apps/local` | `packhub` | 本机命令：plan / install / add / update / publish / probe / serve … |
+| `packages/hub` | `packhub-hub` | 只读发布端（fail-closed 鉴权） |
+
+**单文件分发**（npx 用这个）：
+
+```bash
+pnpm build:local        # esbuild 打成 dist/local/packhub.mjs（含 yaml/ajv/tar/undici，schema 也打进去）
+pnpm pack:local         # 再 npm pack，出 dist/local/packhub-<version>.tgz
+npm install ./dist/local/packhub-0.0.1.tgz   # 或 npx ./packhub-0.0.1.tgz
+```
+
+实测：装进空项目后 `node node_modules/packhub/packhub.mjs plan <pack>` 能直接出计划，不需要仓库里的 `schema/` 或 workspace 链接。
+
+**为什么单独打一份**：`apps/local` 依赖 workspace 包（`workspace:*`），直接 `npm pack` 装不了；bundle 之后只有一个文件加一个 `package.json`，npx 才能用。
+
 ## 九点七三、发布流程：`packhub publish`
 
 发布不是"把文件丢进目录"，而是一串必须全过的检查：
