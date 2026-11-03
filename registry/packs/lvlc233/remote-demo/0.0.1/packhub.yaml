@@ -1,0 +1,31 @@
+﻿apiVersion: packhub.dev/v0.0.1
+kind: Pack
+
+metadata:
+  name: lvlc233/remote-demo
+  version: 0.0.1
+  title: 远程资源示例
+  description: 一个只用远程资源的整合包：GitHub tarball 里的文档 + 固定 commit 上的一份 README。用来验证「别人能装」这条链路。
+  license: MIT
+  keywords: [demo, remote, github]
+  targets: [dir]
+
+requires:
+  packhub: ">=0.0.1 <0.1"
+
+resources:
+  - id: repo-docs
+    type: skill
+    source: github:lvlc233/PackHub@533147315257260f9054947f1ece2ba20588bc93
+    provides: [knowledge:repo_docs]
+
+  - id: readme
+    type: knowledge
+    source: https://raw.githubusercontent.com/lvlc233/PackHub/533147315257260f9054947f1ece2ba20588bc93/README.md
+    integrity: sha256-CtMPyOdCbw/DtVRSFoKxJ4FbnhiPq2f92mvzzF5MR5Q=
+
+verify:
+  - type: file-exists
+    path: .packhub/knowledge/README.md
+  - type: file-exists
+    path: .packhub/skills/repo-docs/README.md

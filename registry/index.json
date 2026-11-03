@@ -1,0 +1,48 @@
+{
+  "apiVersion": "packhub.dev/index/v0.1",
+  "generatedAt": "2026-11-03T07:23:33.437Z",
+  "packs": [
+    {
+      "name": "lvlc233/remote-demo",
+      "title": "远程资源示例",
+      "description": "一个只用远程资源的整合包：GitHub tarball 里的文档 + 固定 commit 上的一份 README。用来验证「别人能装」这条链路。",
+      "latest": "0.0.1",
+      "versions": [
+        "0.0.1"
+      ],
+      "targets": [
+        "dir"
+      ],
+      "trust": "verified",
+      "verifiedAt": "2026-11-03T07:23:24.266Z",
+      "keywords": [
+        "demo",
+        "remote",
+        "github"
+      ],
+      "resourceCount": 2,
+      "install": "npx packhub add lvlc233/remote-demo"
+    },
+    {
+      "name": "lvlc233/team-conventions",
+      "title": "团队约定包",
+      "description": "一份团队代码规范、一套提交信息约定、一个 EditorConfig 片段。装完即可被 Agent 引用。",
+      "latest": "0.0.1",
+      "versions": [
+        "0.0.1"
+      ],
+      "targets": [
+        "dir"
+      ],
+      "trust": "verified",
+      "verifiedAt": "2026-11-03T07:23:21.819Z",
+      "keywords": [
+        "conventions",
+        "knowledge",
+        "config"
+      ],
+      "resourceCount": 3,
+      "install": "npx packhub add lvlc233/team-conventions"
+    }
+  ]
+}

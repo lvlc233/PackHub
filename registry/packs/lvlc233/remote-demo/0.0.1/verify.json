@@ -1,0 +1,47 @@
+{
+  "apiVersion": "packhub.dev/verify/v0.1",
+  "planHash": "sha256-3BxkrUbVdk0keEk0pG2hAt4EEaCLFquV1LxqTOgtwmE=",
+  "ok": true,
+  "checks": [
+    {
+      "index": 0,
+      "type": "file-exists",
+      "status": "pass",
+      "detail": ".packhub/knowledge/README.md"
+    },
+    {
+      "index": 1,
+      "type": "file-exists",
+      "status": "pass",
+      "detail": ".packhub/skills/repo-docs/README.md"
+    }
+  ],
+  "outcomes": [
+    {
+      "actionId": "fetch#1",
+      "op": "fetch",
+      "status": "done"
+    },
+    {
+      "actionId": "unpack#1",
+      "op": "unpack",
+      "status": "done"
+    },
+    {
+      "actionId": "link.skill#1",
+      "op": "link.skill",
+      "status": "done"
+    },
+    {
+      "actionId": "fetch#2",
+      "op": "fetch",
+      "status": "done"
+    }
+  ],
+  "verifiedAt": "2026-11-03T07:23:24.266Z",
+  "env": {
+    "node": "v22.15.0",
+    "platform": "win32",
+    "arch": "x64"
+  }
+}

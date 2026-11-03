@@ -1,0 +1,36 @@
+{
+  "apiVersion": "packhub.dev/verify/v0.1",
+  "planHash": "sha256-8tOiQyJkFVu3xj9x0FCD+vre88PPbYu+pyzSptfJWzQ=",
+  "ok": true,
+  "checks": [
+    {
+      "index": 0,
+      "type": "file-exists",
+      "status": "pass",
+      "detail": ".packhub/knowledge/style-guide.md"
+    }
+  ],
+  "outcomes": [
+    {
+      "actionId": "write#1",
+      "op": "write",
+      "status": "done"
+    },
+    {
+      "actionId": "write#2",
+      "op": "write",
+      "status": "done"
+    },
+    {
+      "actionId": "merge.config#1",
+      "op": "merge.config",
+      "status": "done"
+    }
+  ],
+  "verifiedAt": "2026-11-03T07:23:21.819Z",
+  "env": {
+    "node": "v22.15.0",
+    "platform": "win32",
+    "arch": "x64"
+  }
+}
