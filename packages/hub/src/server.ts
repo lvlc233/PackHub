@@ -1,5 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildPlan, parseManifest, validateGraph, type TargetId } from '@packhub/kernel';
@@ -16,29 +16,98 @@ const MIME: Record<string, string> = {
   '.md': 'text/markdown; charset=utf-8',
 };
 
-/** web 构建产物默认位置（packages/web/dist）。 */
-export function defaultStaticDir(): string {
-  return fileURLToPath(new URL('../../web/dist/', import.meta.url));
+export interface HubAuth {
+  /** 静态 token；客户端用 Authorization: Bearer <token> 或 x-packhub-token */
+  token?: string;
+  /** 反向代理注入的身份头（例如 X-Forwarded-User）；配了就认它，不再要求 token */
+  userHeader?: string;
 }
 
 export interface HubOptions {
   /** 仓库根（registry 在它下面） */
   root: string;
   port: number;
+  /** 默认 127.0.0.1；非回环地址必须配 auth，否则拒绝启动 */
+  host?: string;
   staticDir?: string;
+  auth?: HubAuth;
+  /** 审计日志：每次请求一行 JSON（谁、何时、取了什么） */
+  auditFile?: string;
+  /** 每 IP 每分钟请求上限，默认 240；0 表示不限流 */
+  rpm?: number;
 }
+
+/** web 构建产物默认位置（packages/web/dist）。 */
+export function defaultStaticDir(): string {
+  return fileURLToPath(new URL('../../web/dist/', import.meta.url));
+}
+
+const LOOPBACK = new Set(['127.0.0.1', 'localhost', '::1']);
 
 /**
  * 只读的发布端：索引、包页数据、计划预览。
  * 这里没有 install / verify —— 执行永远发生在目标机器上。
+ * 对外监听必须带 auth，否则启动即失败（fail-closed）。
  */
 export function startHub(opts: HubOptions): Promise<Server> {
   const root = resolve(opts.root);
   const staticDir = opts.staticDir ? resolve(opts.staticDir) : undefined;
+  const host = opts.host ?? '127.0.0.1';
+  const token = opts.auth?.token ?? process.env.PACKHUB_HUB_TOKEN;
+  const userHeader = opts.auth?.userHeader;
+
+  if (!LOOPBACK.has(host) && !token && !userHeader) {
+    throw new Error(
+      `拒绝在 ${host} 上无鉴权启动：对外监听必须配 --token（或 PACKHUB_HUB_TOKEN / --user-header）`,
+    );
+  }
+
+  const limiter = new RateLimiter(opts.rpm ?? 240);
+  const startedAt = Date.now();
 
   const server = createServer(async (req, res) => {
+    const ip = req.socket.remoteAddress ?? 'unknown';
+    const url = new URL(req.url ?? '/', `http://${req.headers.host ?? '127.0.0.1'}`);
+
+    if (!limiter.take(ip)) {
+      res.writeHead(429, { 'content-type': 'application/json; charset=utf-8', 'retry-after': '60' });
+      res.end(JSON.stringify({ error: '请求太频繁' }));
+      return;
+    }
+
+    const user = userHeader ? String(req.headers[userHeader.toLowerCase()] ?? '') : '';
+    const isHealth = url.pathname === '/api/health';
+    if (!isHealth && (token || userHeader)) {
+      const ok = userHeader
+        ? Boolean(user)
+        : `${req.headers.authorization ?? ''}`.replace(/^Bearer\s+/i, '') === token ||
+          req.headers['x-packhub-token'] === token;
+      if (!ok) {
+        res.writeHead(401, { 'content-type': 'application/json; charset=utf-8' });
+        res.end(JSON.stringify({ error: '需要鉴权' }));
+        audit(opts.auditFile, { ip, user, method: req.method, path: url.pathname, status: 401 });
+        return;
+      }
+    }
+
+    res.on('finish', () => {
+      audit(opts.auditFile, {
+        ip,
+        user: user || undefined,
+        method: req.method,
+        path: url.pathname,
+        status: res.statusCode,
+      });
+    });
+
     try {
-      const url = new URL(req.url ?? '/', `http://${req.headers.host ?? '127.0.0.1'}`);
+      if (isHealth) {
+        return sendJson(res, 200, {
+          ok: true,
+          packs: countPacks(root),
+          uptimeSeconds: Math.round((Date.now() - startedAt) / 1000),
+        });
+      }
 
       if (url.pathname.startsWith('/api/')) {
         return await handleApi(url, req, res, root);
@@ -63,7 +132,7 @@ export function startHub(opts: HubOptions): Promise<Server> {
       }
 
       res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
-      res.end('404：Hub 只有只读接口（/api/registry、/api/registry/pack、/api/plan）');
+      res.end('404：Hub 只有只读接口（/api/health、/api/registry、/api/registry/pack、/api/plan）');
     } catch (err) {
       sendJson(res, 500, { error: (err as Error).message });
     }
@@ -71,8 +140,53 @@ export function startHub(opts: HubOptions): Promise<Server> {
 
   return new Promise((ok, fail) => {
     server.once('error', fail);
-    server.listen(opts.port, '127.0.0.1', () => ok(server));
+    server.listen(opts.port, host, () => {
+      log({ event: 'hub.start', host, port: (server.address() as { port: number }).port, auth: Boolean(token || userHeader) });
+      ok(server);
+    });
   });
+}
+
+class RateLimiter {
+  private readonly hits = new Map<string, { count: number; resetAt: number }>();
+
+  constructor(private readonly perMinute: number) {}
+
+  take(ip: string): boolean {
+    if (this.perMinute <= 0) return true;
+    const now = Date.now();
+    const entry = this.hits.get(ip);
+    if (!entry || entry.resetAt <= now) {
+      this.hits.set(ip, { count: 1, resetAt: now + 60_000 });
+      return true;
+    }
+    entry.count++;
+    return entry.count <= this.perMinute;
+  }
+}
+
+function countPacks(root: string): number {
+  try {
+    const idx = JSON.parse(readFileSync(join(root, 'registry/index.json'), 'utf8')) as {
+      packs?: unknown[];
+    };
+    return idx.packs?.length ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+function audit(file: string | undefined, entry: Record<string, unknown>): void {
+  if (!file) return;
+  try {
+    appendFileSync(file, JSON.stringify({ at: new Date().toISOString(), ...entry }) + '\n', 'utf8');
+  } catch {
+    /* 审计写失败不影响响应 */
+  }
+}
+
+function log(entry: Record<string, unknown>): void {
+  process.stdout.write(JSON.stringify({ at: new Date().toISOString(), ...entry }) + '\n');
 }
 
 async function handleApi(
@@ -125,7 +239,9 @@ async function handleApi(
     if (!parsed.manifest) return sendJson(res, 200, { issues: parsed.issues, plan: null });
     const { graph, issues } = validateGraph(parsed.manifest);
     const errors = [...parsed.issues, ...issues].filter((i) => i.severity === 'error');
-    if (errors.length > 0) return sendJson(res, 200, { issues: [...parsed.issues, ...issues], plan: null });
+    if (errors.length > 0) {
+      return sendJson(res, 200, { issues: [...parsed.issues, ...issues], plan: null });
+    }
     const { plan, issues: planIssues } = buildPlan(parsed.manifest, graph, {
       target: (String(body.target ?? 'dir') as TargetId) || 'dir',
       targetVars: {},

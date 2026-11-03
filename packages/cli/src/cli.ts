@@ -695,17 +695,36 @@ const hub = defineCommand({
   args: {
     dir: { type: 'positional', required: false, default: '.' },
     port: { type: 'string', default: '8788' },
+    host: { type: 'string', default: '127.0.0.1', description: '非回环地址必须配鉴权' },
+    token: { type: 'string', description: '静态 token（也可用 PACKHUB_HUB_TOKEN）' },
+    'user-header': { type: 'string', description: '反向代理注入的身份头，例如 X-Forwarded-User' },
+    audit: { type: 'string', description: '审计日志文件（每行一个 JSON）' },
+    rpm: { type: 'string', default: '240', description: '每 IP 每分钟请求上限，0 不限' },
   },
   async run({ args }) {
     const server = await startHub({
       root: resolve(String(args.dir)),
       port: Number(args.port),
+      host: String(args.host),
       staticDir: defaultStaticDir(),
+      ...(args.token ? { auth: { token: String(args.token) } } : {}),
+      ...(args['user-header'] ? { auth: { userHeader: String(args['user-header']) } } : {}),
+      ...(args.audit ? { auditFile: resolve(String(args.audit)) } : {}),
+      rpm: Number(args.rpm),
     });
     const addr = server.address();
     const port = typeof addr === 'object' && addr ? addr.port : Number(args.port);
-    console.log(`Hub（只读）→ http://127.0.0.1:${port}`);
+    console.log(`Hub（只读）→ http://${String(args.host)}:${port}  ${args.token || args['user-header'] ? '（已启用鉴权）' : '（回环，无鉴权）'}`);
     console.log('执行接口一个都没有；安装请用 packhub install / add');
+
+    // 优雅退出：收到信号先停监听，等在途请求写完再走
+    for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+      process.on(signal, () => {
+        console.log(`${signal} → 停止接收新请求`);
+        server.close(() => process.exit(0));
+        setTimeout(() => process.exit(1), 5000).unref();
+      });
+    }
   },
 });
 

@@ -245,6 +245,33 @@ packhub doctor my-pack      # 文件还在不在、托管块还在不在
 
 后续可选的更保守方案：宿主若支持 `@import`（Claude Code 的 CLAUDE.md 支持），可以只在宿主文件里写一行导入，正文放 `.packhub/PACKHUB.md`——宿主文件零污染，但依赖各家对 import 的支持，未验证前不做默认。
 
+## 九点八、Hub 的部署与运维
+
+`packhub hub` 是只读发布端，默认绑回环。对外服务必须显式给鉴权，否则**启动即失败**（fail-closed）：
+
+```bash
+# 静态 token（客户端带 Authorization: Bearer <token> 或 x-packhub-token）
+PACKHUB_HUB_TOKEN=xxx packhub hub . --host 0.0.0.0 --port 8788
+
+# 反向代理已经做过 SSO：信任它注入的身份头
+packhub hub . --host 0.0.0.0 --user-header x-forwarded-user
+
+# 审计与限流
+packhub hub . --host 0.0.0.0 --token xxx --audit logs/audit.jsonl --rpm 120
+```
+
+| 能力 | 行为 |
+|---|---|
+| 鉴权 | 配了 token / user-header 就校验；`/api/health` 不需要鉴权 |
+| 限流 | 每 IP 每分钟上限（默认 240，`--rpm 0` 关闭），超了 429 + `retry-after` |
+| 健康检查 | `GET /api/health` → `{ ok, packs, uptimeSeconds }` |
+| 审计 | 每次请求一行 JSON：时间、IP、用户、方法、路径、状态 |
+| 日志 | 启动与关键事件走 stdout JSON，交给外部收集 |
+| 优雅退出 | SIGINT/SIGTERM 先停监听，在途请求完成后退出；5 秒兜底 |
+| 镜像 | 根目录 `Dockerfile`，只装只读端，`CMD` 即 `packhub hub` |
+
+**这里刻意没有的东西**：install、verify、发布、写文件的接口。Hub 只回答"有什么包"，装不装发生在目标机器上。
+
 ## 十、下一步：先验证，再抽象
 
 拿当前仓库当试验田，写 `dsh` 与 `claude-code` 两个投影，实际验证：
