@@ -26,6 +26,9 @@ importers:
       '@packhub/kernel':
         specifier: workspace:*
         version: link:../kernel
+      '@packhub/runner':
+        specifier: workspace:*
+        version: link:../runner
       '@packhub/runtime':
         specifier: workspace:*
         version: link:../runtime
@@ -50,6 +53,12 @@ importers:
       yaml:
         specifier: ^2.6.1
         version: 2.9.1
+
+  packages/runner:
+    dependencies:
+      '@packhub/runtime':
+        specifier: workspace:*
+        version: link:../runtime
 
   packages/runtime:
     dependencies:

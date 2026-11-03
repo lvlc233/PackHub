@@ -150,7 +150,11 @@ export function startHub(opts: HubOptions): Promise<Server> {
 class RateLimiter {
   private readonly hits = new Map<string, { count: number; resetAt: number }>();
 
-  constructor(private readonly perMinute: number) {}
+  private readonly perMinute: number;
+
+  constructor(perMinute: number) {
+    this.perMinute = perMinute;
+  }
 
   take(ip: string): boolean {
     if (this.perMinute <= 0) return true;

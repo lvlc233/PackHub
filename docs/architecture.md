@@ -106,6 +106,9 @@ packages/runtime/src/      执行面：下载、写盘、进程
 ├── signature.ts  ed25519 签名与校验
 └── authoring.ts  改清单（add resource / binding / signature）
 
+packages/runner/src/       发布门禁：干净目录 install + verify → verify.json
+└── run.ts       runPack（临时目录、清 .packhub、出报告）
+
 packages/hub/src/          只读发布端：没有执行接口
 ├── server.ts     /api/registry、/api/registry/pack、/api/plan 与静态产物
 └── index.ts      startHub（监听 loopback；对外部署时前面挂反向代理与鉴权）

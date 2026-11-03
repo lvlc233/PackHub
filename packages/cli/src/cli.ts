@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { defineCommand, type CommandDef } from 'citty';
 import { defaultStaticDir, startHub } from '@packhub/hub';
+import { runPack } from '@packhub/runner';
 import { loadPack, planFor, buildLock, diffActions, describeAction, type Issue, type Plan } from '@packhub/kernel';
 import {
   addResource,
@@ -424,6 +425,29 @@ const rollback = defineCommand({
   },
 });
 
+const run = defineCommand({
+  meta: { name: 'run', description: '在干净目录里装一遍并校验（发布门禁的同一个执行者）' },
+  args: {
+    dir: { type: 'positional', required: false, default: '.' },
+    out: { type: 'string', description: '报告写到哪，默认 <dir>/verify.json' },
+    json: { type: 'boolean', default: false },
+  },
+  async run({ args }) {
+    const dir = resolve(String(args.dir));
+    try {
+      const { report } = await runPack(dir, {
+        out: args.out ? resolve(String(args.out)) : join(dir, 'verify.json'),
+        log: (line) => console.log(line),
+      });
+      if (args.json) console.log(JSON.stringify(report, null, 2));
+      process.exit(report.ok ? 0 : 1);
+    } catch (err) {
+      console.error(`x ${(err as Error).message}`);
+      process.exit(1);
+    }
+  },
+});
+
 const doctor = defineCommand({
   meta: { name: 'doctor', description: '检查已装的包有没有被外部改写（文件被删、托管块被吃）' },
   args: {
@@ -764,6 +788,7 @@ export const main: CommandDef = defineCommand({
     pack,
     hub,
     doctor,
+    run,
     probe,
     licenses,
     keygen,

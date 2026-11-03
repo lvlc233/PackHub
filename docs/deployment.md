@@ -245,6 +245,19 @@ packhub doctor my-pack      # 文件还在不在、托管块还在不在
 
 后续可选的更保守方案：宿主若支持 `@import`（Claude Code 的 CLAUDE.md 支持），可以只在宿主文件里写一行导入，正文放 `.packhub/PACKHUB.md`——宿主文件零污染，但依赖各家对 import 的支持，未验证前不做默认。
 
+## 九点七五、发布门禁：runner
+
+`packages/runner` 是"这个包在别人机器上装得起来吗"的唯一执行者：复制到临时目录 → 清掉 `.packhub` → install → verify → 出 `verify.json`。registry CI 与本地发布共用同一段代码：
+
+```bash
+packhub run my-pack                 # 干净目录里跑一遍，报告默认写 <dir>/verify.json
+packhub run my-pack --out /tmp/r.json
+```
+
+- 包目录本身不会被安装污染（报告之外的写入都在临时目录里，跑完删掉）。
+- 清单有错直接抛错、不安装；校验不过返回非零退出码。
+- `scripts/registry/verify-pack.mjs` 只是它的薄壳，CI 走同一条路。
+
 ## 九点八、Hub 的部署与运维
 
 `packhub hub` 是只读发布端，默认绑回环。对外服务必须显式给鉴权，否则**启动即失败**（fail-closed）：

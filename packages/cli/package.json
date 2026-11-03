@@ -8,6 +8,7 @@
     "@packhub/kernel": "workspace:*",
     "@packhub/runtime": "workspace:*",
     "@packhub/hub": "workspace:*",
+    "@packhub/runner": "workspace:*",
     "citty": "^0.1.6"
   }
 }
