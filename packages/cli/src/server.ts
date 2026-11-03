@@ -78,7 +78,13 @@ async function handleApi(
       const ctx = loadPack(p.dir);
       const { plan } = planFor(ctx);
       const state = loadState(p.dir);
-      const installed = Object.keys(state.packs).find((k) => k.startsWith(`${ctx.manifest?.metadata.name ?? ''}@`));
+      const key = `${ctx.manifest?.metadata.name ?? ''}@${ctx.manifest?.metadata.version ?? ''}`;
+      const record = state.packs[key];
+      // 只有每一步都落到位（done/noop）才算「已装」；有跳过就是半套
+      const complete =
+        record !== undefined &&
+        record.actions.length > 0 &&
+        record.actions.every((a) => a.status === 'done' || a.status === 'noop');
       return {
         dir: relative(root, p.dir),
         name: ctx.manifest?.metadata.name ?? p.dir,
@@ -88,7 +94,7 @@ async function handleApi(
         resourceCount: ctx.manifest?.resources.length ?? 0,
         errors: ctx.issues.filter((i) => i.severity === 'error').length,
         planHash: plan?.planHash ?? null,
-        installedHash: installed ? state.packs[installed]!.planHash : null,
+        installedHash: complete && record ? record.planHash : null,
       };
     });
     return sendJson(res, 200, { root: relative(process.cwd(), root), packs });
