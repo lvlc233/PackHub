@@ -340,6 +340,11 @@ packhub diff my-pack          # 对比锁里的计划与当前计划：多了什
 
 # 6. 不想要了就按记录删干净
 packhub uninstall my-pack     # 按 .packhub/state.json 的 written 反向删除
+
+# 7. 装进某个宿主（投影到 harness 会读的位置）
+packhub install my-pack --target claude-code   # .claude/skills + .mcp.json + CLAUDE.md 托管块
+packhub install my-pack --target dsh           # .packhub/skills + AGENTS.md 托管块
+packhub install my-pack --target dir           # 只物化到 .packhub（默认）
 ```
 
 `resource add` 做的是**结构化编辑**：追加一个资源节点、保留注释、推断 id（重名自动加 `-2`），然后立刻跑一遍清单校验和计划生成。它不做类型推断——`type` 必须由你给，因为同一个 npm 包既可能是 `mcp` 也可能是 `tool`。

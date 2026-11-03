@@ -114,7 +114,7 @@ export type PlanOp =
   | { op: 'unpack'; from: string; to: string; strip?: number }
   | { op: 'write'; to: string; from?: string; content?: string }
   | { op: 'link.skill'; from: string; to: string }
-  | { op: 'register.mcp'; spec: Record<string, unknown> }
+  | { op: 'register.mcp'; spec: Record<string, unknown>; path?: string }
   | {
       op: 'merge.config';
       path: string;
@@ -122,7 +122,8 @@ export type PlanOp =
       patch?: unknown;
       patchFrom?: string;
     }
-  | { op: 'exec'; command: string; args: string[]; cwd?: string; approval: 'required' };
+  | { op: 'exec'; command: string; args: string[]; cwd?: string; approval: 'required' }
+  | { op: 'instruction'; file: string; blockId: string; content: string };
 
 /** 把元数据分配到 union 的每个成员上（交叉类型不会自动分配，会导致 Omit 丢掉变体字段）。 */
 type WithMeta<T> = T extends unknown

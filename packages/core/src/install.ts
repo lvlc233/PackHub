@@ -35,6 +35,8 @@ export interface ActionOutcome {
   status: ActionStatus;
   message?: string;
   target?: string;
+  /** instruction 动作用的块标识，卸载时据此只摘自己的块 */
+  blockId?: string;
 }
 
 export interface ApplyResult {
@@ -166,6 +168,20 @@ export function removePack(root: string, packKey?: string): RemoveResult {
         }
         const abs = within(root, rel);
         if (!existsSync(abs)) continue;
+
+        // 指令文件是用户也会写的：只摘掉自己的托管块，不整文件删
+        const blockIds = record.actions
+          .filter((a) => a.op === 'instruction' && a.target === rel && a.blockId)
+          .map((a) => a.blockId as string);
+        if (blockIds.length > 0) {
+          let text = readFileSync(abs, 'utf8');
+          for (const id of blockIds) text = stripBlock(text, id);
+          if (text.trim() === '') rmSync(abs, { force: true });
+          else writeFileSync(abs, text, 'utf8');
+          removed.push(rel);
+          continue;
+        }
+
         rmSync(abs, { recursive: true, force: true });
         removed.push(rel);
       }
@@ -321,7 +337,7 @@ async function applyAction(
     }
 
     case 'register.mcp': {
-      const path = '.packhub/config.json';
+      const path = action.path ?? '.packhub/config.json';
       const to = within(opts.root, path);
       const current = (existsSync(to) ? readStructured(to) : {}) as Record<string, unknown>;
       const servers = { ...(current.mcpServers as Record<string, unknown> | undefined) } as Record<string, unknown>;
@@ -340,6 +356,28 @@ async function applyAction(
         if (!written.includes(path)) written.push(path);
       }
       return { actionId: action.actionId, op: action.op, status: 'done', target: path };
+    }
+
+    case 'instruction': {
+      const to = within(opts.root, action.file);
+      const before = existsSync(to) ? readFileSync(to, 'utf8') : '';
+      const next = upsertBlock(before, action.blockId, action.content);
+      if (before === next) {
+        return { actionId: action.actionId, op: action.op, status: 'noop', target: action.file };
+      }
+      if (!opts.dryRun) {
+        mkdirSync(dirname(to), { recursive: true });
+        if (before) backup(opts.root, action.file, before);
+        writeFileSync(to, next, 'utf8');
+        if (!written.includes(action.file)) written.push(action.file);
+      }
+      return {
+        actionId: action.actionId,
+        op: action.op,
+        status: 'done',
+        target: action.file,
+        blockId: action.blockId,
+      };
     }
 
     case 'unpack':
@@ -412,4 +450,34 @@ export function atomicWrite(file: string, content: string): void {
   const tmp = `${file}.tmp-${process.pid}`;
   writeFileSync(tmp, content, 'utf8');
   renameSync(tmp, file);
+}
+
+/* ---------- 托管块（AGENTS.md / CLAUDE.md） ---------- */
+
+function blockMarkers(blockId: string): { begin: string; end: string } {
+  return { begin: `<!-- packhub:begin ${blockId} -->`, end: `<!-- packhub:end ${blockId} -->` };
+}
+
+/** 只改标记之间的内容，块外一律不动；没有块就追加。 */
+function upsertBlock(text: string, blockId: string, content: string): string {
+  const { begin, end } = blockMarkers(blockId);
+  const block = `${begin}\n${content.trimEnd()}\n${end}`;
+  const re = new RegExp(
+    `${escapeRe(begin)}[\\s\\S]*?${escapeRe(end)}`,
+    'm',
+  );
+  if (re.test(text)) return text.replace(re, block);
+  const trimmed = text.trimEnd();
+  return trimmed ? `${trimmed}\n\n${block}\n` : `${block}\n`;
+}
+
+/** 卸载时只摘掉自己的块，保留用户写在块外的内容。 */
+function stripBlock(text: string, blockId: string): string {
+  const { begin, end } = blockMarkers(blockId);
+  const re = new RegExp(`\\n*${escapeRe(begin)}[\\s\\S]*?${escapeRe(end)}\\n*`, 'm');
+  return text.replace(re, '\n').replace(/\n{3,}/g, '\n\n').trim() + '\n';
+}
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

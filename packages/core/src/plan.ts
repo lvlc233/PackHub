@@ -22,7 +22,7 @@ export interface PlanOptions {
   packDir?: string;
 }
 
-/** dir adapter 的默认路径约定；v0.0.1 只有这一个 adapter。 */
+/** dir adapter 的默认路径约定：物化到 .packhub，不碰宿主的配置文件。 */
 export const DIR_TARGET_VARS: Record<string, string> = {
   root: '.packhub',
   cacheDir: '.packhub/cache',
@@ -32,13 +32,37 @@ export const DIR_TARGET_VARS: Record<string, string> = {
   configFile: '.packhub/config.json',
 };
 
+/** 各宿主的投影落点：从"物化"变成"接进 agent 会读的位置"。 */
+export const TARGET_VARS: Record<TargetId, Record<string, string>> = {
+  dir: DIR_TARGET_VARS,
+  'claude-code': {
+    root: '.packhub',
+    cacheDir: '.packhub/cache',
+    skillsDir: '.claude/skills',
+    knowledgeDir: '.packhub/knowledge',
+    promptsDir: '.packhub/prompts',
+    configFile: '.mcp.json',
+    instructionFile: 'CLAUDE.md',
+  },
+  dsh: {
+    root: '.packhub',
+    cacheDir: '.packhub/cache',
+    // DSH 的 skills 与 MCP 目前挂在 profile（全局），项目级只做"指路"
+    skillsDir: '.packhub/skills',
+    knowledgeDir: '.packhub/knowledge',
+    promptsDir: '.packhub/prompts',
+    configFile: '.packhub/config.json',
+    instructionFile: 'AGENTS.md',
+  },
+};
+
 export function buildPlan(
   manifest: Manifest,
   graph: Graph,
   opts: PlanOptions,
 ): { plan?: Plan; issues: Issue[] } {
   const issues: Issue[] = [];
-  const targetVars = { ...DIR_TARGET_VARS, ...opts.targetVars };
+  const targetVars = { ...(TARGET_VARS[opts.target] ?? DIR_TARGET_VARS), ...opts.targetVars };
   const scope: Record<string, unknown> = {
     vars: manifest.vars ?? {},
     target: targetVars,
@@ -81,6 +105,7 @@ export function buildPlan(
         push({
           op: 'register.mcp',
           spec: mcpSpec(res, interp(res.config ?? {}) as Record<string, unknown>),
+          path: targetVars.configFile ?? '.packhub/config.json',
           resource: id,
         });
         break;
@@ -228,6 +253,18 @@ export function buildPlan(
     }
   }
 
+  // 宿主的指令面：把"这个包提供什么、文件在哪"写进 AGENTS.md / CLAUDE.md 的托管块。
+  // 这不是行为编排，只是指路——真正怎么用由 skill 与 agent 决定。
+  const instructionFile = targetVars.instructionFile;
+  if (instructionFile) {
+    push({
+      op: 'instruction',
+      file: instructionFile,
+      blockId: manifest.metadata.name,
+      content: instructionBlock(manifest, graph, targetVars),
+    });
+  }
+
   for (const [i, spec] of (manifest.install?.exec ?? []).entries()) {
     push({
       op: 'exec',
@@ -273,7 +310,7 @@ function mcpSpec(res: ResourceSpec, raw: Record<string, unknown>): Record<string
   };
   if (parsed.kind === 'npm') {
     spec.command = config.command ?? 'npx';
-    spec.args = config.args ?? ['-y', res.source];
+    spec.args = config.args ?? ['-y', res.source.replace(/^npm:/, '')];
   } else if (parsed.kind === 'pypi') {
     spec.command = config.command ?? 'uvx';
     spec.args = config.args ?? [parsed.locator.replace(/^pypi:/, '')];
@@ -428,4 +465,31 @@ function detectConflicts(
 function looksLikeArchive(url: string): boolean {
   const path = url.split('?')[0] ?? url;
   return /\.(tar\.gz|tgz|tar)$/i.test(path);
+}
+
+/** 给宿主的指路块：这个包提供了什么、文件在哪。不描述步骤。 */
+function instructionBlock(
+  manifest: Manifest,
+  graph: Graph,
+  targetVars: Record<string, string>,
+): string {
+  const active = manifest.resources.filter((r) => graph.resources.has(r.id));
+  const lines: string[] = [
+    `这个项目装了一个整合包：**${manifest.metadata.title ?? manifest.metadata.name}**（${manifest.metadata.version}）。`,
+    '',
+    manifest.metadata.description ?? '',
+    '',
+    '可用的能力：',
+    ...active.map((r) => {
+      const caps = (r.provides ?? []).join('、');
+      return `- \`${r.id}\`（${r.type}）${caps ? ` → ${caps}` : ''}`;
+    }),
+    '',
+    '文件位置：',
+    `- skills：\`${targetVars.skillsDir}\``,
+    `- 知识：\`${targetVars.knowledgeDir}\``,
+    `- 提示词：\`${targetVars.promptsDir}\``,
+    `- 配置：\`${targetVars.configFile}\``,
+  ];
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd();
 }

@@ -54,7 +54,8 @@ export function planFor(ctx: PackContext, opts: Partial<PlanOptions> = {}): { pl
   if (errors.length) return { issues: errors };
   return buildPlan(ctx.manifest, ctx.graph, {
     target: opts.target ?? 'dir',
-    targetVars: { ...DIR_TARGET_VARS, ...(opts.targetVars ?? {}) },
+    // 默认落点由 buildPlan 按 target 选（TARGET_VARS）；这里只传显式覆盖
+    targetVars: { ...(opts.targetVars ?? {}) },
     packDir: ctx.dir,
   });
 }

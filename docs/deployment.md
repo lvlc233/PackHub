@@ -78,9 +78,9 @@
 
 | harness | skills | MCP | 指令 |
 |---|---|---|---|
-| Claude Code | `.claude/skills/<id>/` | `.mcp.json`（项目级） | `CLAUDE.md` 托管块 |
+| Claude Code | `.claude/skills/<id>/` ✅ 已实装 | `.mcp.json`（项目级）✅ 已实装 | `CLAUDE.md` 托管块 ✅ 已实装 |
 | Cursor | 无原生 skills | `.cursor/mcp.json` | `.cursor/rules/*.mdc` |
-| DSH | 目前看是 `~/.dsh/skills`（**项目级是否支持待验证**） | profile 里的 MCP 条目（**项目级待验证**） | 项目 `AGENTS.md`（待验） |
+| DSH | 目前看是 `~/.dsh/skills`（**项目级是否支持待验证**） | profile 里的 MCP 条目（**项目级待验证**） | 项目 `AGENTS.md` 托管块（✅ 会写；DSH 是否读待验） |
 | 通用 | 无 | `.mcp.json` | `AGENTS.md` 托管块 |
 
 三个坑：

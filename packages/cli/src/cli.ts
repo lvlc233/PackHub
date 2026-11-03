@@ -45,11 +45,12 @@ const plan = defineCommand({
   args: {
     dir: { type: 'positional', required: false, default: '.' },
     json: { type: 'boolean', default: false },
+    target: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code' },
   },
   run({ args }) {
     const ctx = loadPack(String(args.dir));
     if (reportIssues(ctx.issues)) process.exit(2);
-    const { plan: p, issues } = planFor(ctx);
+    const { plan: p, issues } = planFor(ctx, { target: String(args.target ?? 'dir') as never });
     if (!p) {
       reportIssues(issues);
       process.exit(2);
@@ -65,11 +66,12 @@ const install = defineCommand({
     dir: { type: 'positional', required: false, default: '.' },
     'dry-run': { type: 'boolean', default: false },
     'allow-exec': { type: 'boolean', default: false },
+    target: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code' },
   },
   async run({ args }) {
     const ctx = loadPack(String(args.dir));
     if (reportIssues(ctx.issues)) process.exit(2);
-    const { plan: p, issues } = planFor(ctx);
+    const { plan: p, issues } = planFor(ctx, { target: String(args.target ?? 'dir') as never });
     if (!p) {
       reportIssues(issues);
       process.exit(2);
@@ -89,11 +91,14 @@ const install = defineCommand({
 
 const verify = defineCommand({
   meta: { name: 'verify', description: '跑 manifest 的 verify 检查' },
-  args: { dir: { type: 'positional', required: false, default: '.' } },
+  args: {
+    dir: { type: 'positional', required: false, default: '.' },
+    target: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code' },
+  },
   run({ args }) {
     const ctx = loadPack(String(args.dir));
     if (reportIssues(ctx.issues)) process.exit(2);
-    const { plan: p, issues } = planFor(ctx);
+    const { plan: p, issues } = planFor(ctx, { target: String(args.target ?? 'dir') as never });
     if (!p) {
       reportIssues(issues);
       process.exit(2);
@@ -116,7 +121,7 @@ const lock = defineCommand({
   run({ args }) {
     const ctx = loadPack(String(args.dir));
     if (reportIssues(ctx.issues)) process.exit(2);
-    const { plan: p, issues } = planFor(ctx);
+    const { plan: p, issues } = planFor(ctx, { target: String(args.target ?? 'dir') as never });
     if (!p) {
       reportIssues(issues);
       process.exit(2);
@@ -219,7 +224,7 @@ const resourceAdd = defineCommand({
       console.error('\n资源已写入，但清单还有错误，先修完再安装。');
       process.exit(1);
     }
-    const { plan } = planFor(ctx);
+    const { plan } = planFor(ctx, { target: String(args.target ?? 'dir') as never });
     console.log(`计划：${plan?.actions.length ?? 0} 个动作 · planHash ${plan?.planHash.slice(0, 22)}…`);
     console.log('下一步：packhub install . --dry-run 看会发生什么');
   },
@@ -255,7 +260,7 @@ const slotSwap = defineCommand({
       for (const e of errors) console.error(`error [${e.code}] ${e.message}`);
       process.exit(1);
     }
-    const { plan, issues } = planFor(ctx);
+    const { plan, issues } = planFor(ctx, { target: String(args.target ?? 'dir') as never });
     if (!plan) {
       reportIssues(issues, 'packhub slot swap');
       process.exit(1);
@@ -320,7 +325,7 @@ const diff = defineCommand({
     }
     const ctx = loadPack(dir);
     if (reportIssues(ctx.issues)) process.exit(2);
-    const { plan, issues } = planFor(ctx);
+    const { plan, issues } = planFor(ctx, { target: String(args.target ?? 'dir') as never });
     if (!plan) {
       reportIssues(issues, 'packhub diff');
       process.exit(2);
