@@ -32,7 +32,8 @@
 - [x] Claude Code 的 MCP 投影：`claude mcp list` 里能看到并连通（实测）
 - [x] 探针封装：`packhub probe --target dsh|claude-code`（调 headless 问一句，检查回答里的标记；缺凭证会明确报出）
 - [ ] `CLAUDE.md` 托管块与 `.claude/skills` 是否被 Claude Code 采用（未验证，需要一次模型调用）
-- [ ] DSH 是否读项目级 `AGENTS.md` / skills（**未验证**；验法写在 deployment.md 九点六，需要新开一个 DSH 会话）
+- [x] DSH 读项目级 `AGENTS.md`：`packhub probe --target dsh` 实测通过（headless + opencode-go 转发）；卸载后探针报文件不存在
+- [x] 探针支持 `--patch`：headless 用 opencode-go 路由而不是默认 deepseek-official
 - [x] 签名：ed25519，签 `{pack@version, planHash}`，写独立文件 `packhub.signatures.json`（不改清单）；`keygen` / `sign` / `verify-sig`，支持信任列表；verify 报告与 index 带签名结果
 - [x] 许可证检查：`packhub licenses` 找 LICENSE/COPYING 并猜 SPDX，`--strict` 供 CI；不做法律判断
 - [x] `unlisted` 取包：`add scope/name --version x.y.z` 绕过索引直接取归档

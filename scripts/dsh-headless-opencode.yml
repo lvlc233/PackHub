@@ -1,0 +1,13 @@
+# headless 的 provider 覆盖：让它走 opencode-go 路由，而不是默认的 deepseek-official。
+# 用法（不污染 profile 配置）：
+#   $env:OPENCODE_API_KEY = "..."
+#   dsh --profile headless --patch scripts/dsh-headless-opencode.yml "任务"
+- id: llm-pi-ai
+  config:
+    providers:
+      opencode-go:
+        apiKeyEnv: OPENCODE_API_KEY
+- id: agent-default-model
+  config:
+    provider: opencode-go
+    model: deepseek-v4.1-flash

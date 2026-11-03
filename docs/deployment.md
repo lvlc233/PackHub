@@ -167,9 +167,29 @@ Claude Code 读到了项目里的 `.mcp.json`，并且把声明的 server 连上
 
 验法：装包后 `claude -p "这个项目装了哪些能力？"`，回答里出现托管块内容 = 指令面生效；再 `packhub uninstall`，重复一次，能力应该消失。
 
-**DSH**：项目级是否读 `AGENTS.md` / skills 目录尚未验证。验法：新开一个 DSH 会话（cwd 指向装了包的项目），看系统提示里是否带出 `AGENTS.md` 的托管块；如果没有，说明 DSH 只读 `~/.dsh/AGENTS.md`，那 `--target dsh` 就应该改成"写机器级配置 + 在项目里留一份说明"，这一条要等实测再定。
+**DSH**
 
-结论先记在这里：**投影的落点表是按各家公开约定写的，未经验证；`--target dsh` 的 skills/MCP 仍是"只物化 + 指路"。**
+已验（2026-11-03）：`packhub probe <dir> --target dsh` 调用 `dsh --profile headless`，让 agent 复述 `AGENTS.md` 托管块的第一行，回答里出现了标记：
+
+```
+✓ harness 读到了托管块
+  回答：这个项目装了一个整合包：**探针验证包**（0.0.1）。
+```
+
+**结论：DSH 会读项目级 `AGENTS.md`，`--target dsh` 的指令面成立。** 卸载后同一个探针报「AGENTS.md 不存在」，说明清理也是干净的。
+
+仍成立的限制：DSH 的 skills 与 MCP 条目挂在 profile（全局），项目级只做"物化 + 指路"。要在项目里真正拿到 MCP，得改 profile 或让 DSH 支持项目级配置——这一条没变。
+
+跑探针的两个前提（本机实测）：
+
+```powershell
+$env:OPENCODE_API_KEY = "<oc_sk_...>"
+packhub probe <项目> --target dsh --patch scripts/dsh-headless-opencode.yml
+```
+
+没有 `--patch` 时 headless 走默认的 `deepseek-official` 路由，会报余额不足；patch 文件把 provider 换成 `opencode-go`（就是桌面端在用的转发）。
+
+**Claude Code**：没有可用账号，`CLAUDE.md` 这一面未验证；MCP 那一面已验。
 
 ## 十、下一步：先验证，再抽象
 

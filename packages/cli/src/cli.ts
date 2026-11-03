@@ -433,12 +433,14 @@ const probe = defineCommand({
   args: {
     dir: { type: 'positional', required: false, default: '.' },
     target: { type: 'string', default: 'dsh', description: 'dsh | claude-code' },
+    patch: { type: 'string', description: 'dsh 的 --patch 层（配置 provider / 模型）' },
     json: { type: 'boolean', default: false },
   },
   run({ args }) {
     const result = probeHarness({
       target: String(args.target) as 'dsh' | 'claude-code',
       projectDir: resolve(String(args.dir)),
+      ...(args.patch ? { patchFile: resolve(String(args.patch)) } : {}),
     });
     if (args.json) {
       console.log(JSON.stringify(result, null, 2));

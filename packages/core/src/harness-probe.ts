@@ -16,6 +16,8 @@ export interface ProbeOptions {
   target: HarnessTarget;
   projectDir: string;
   timeoutMs?: number;
+  /** dsh 用的额外 patch 层（配置 provider 等），可省 */
+  patchFile?: string;
   /** 测试注入用；默认 spawnSync */
   runner?: Runner;
 }
@@ -107,12 +109,19 @@ export function probeHarness(opts: ProbeOptions): ProbeResult {
   const runner = opts.runner ?? DEFAULT_RUNNER;
   const command =
     opts.target === 'dsh'
-      ? 'dsh --profile headless --json "<question>"'
+      ? `dsh --profile headless${opts.patchFile ? ` --patch ${opts.patchFile}` : ''} --json "<question>"`
       : 'claude -p "<question>" --max-budget-usd 0.05 --no-session-persistence';
 
+  const dshArgs = [
+    '--profile',
+    'headless',
+    ...(opts.patchFile ? ['--patch', opts.patchFile] : []),
+    '--json',
+    QUESTION,
+  ];
   const res =
     opts.target === 'dsh'
-      ? runner('dsh', ['--profile', 'headless', '--json', QUESTION], opts.projectDir)
+      ? runner('dsh', dshArgs, opts.projectDir)
       : runner(
           'claude',
           ['-p', QUESTION, '--max-budget-usd', '0.05', '--no-session-persistence'],
