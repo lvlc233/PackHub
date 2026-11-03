@@ -1,4 +1,16 @@
-import { copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import {
+  closeSync,
+  copyFileSync,
+  cpSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import * as tar from 'tar';
@@ -42,8 +54,38 @@ const STATE_API = 'packhub.dev/state/v0';
 
 const STATE_DIR = '.packhub';
 const STATE_FILE = '.packhub/state.json';
+const INSTALL_LOCK = '.packhub/installing.lock';
+
+/** 同一目录同时只允许一个安装：O_EXCL 创建锁文件，天然原子。 */
+function acquireLock(root: string): () => void {
+  const file = join(root, INSTALL_LOCK);
+  mkdirSync(dirname(file), { recursive: true });
+  try {
+    const fd = openSync(file, 'wx');
+    writeFileSync(fd, String(process.pid));
+    closeSync(fd);
+  } catch {
+    let holder = '未知';
+    try {
+      holder = readFileSync(file, 'utf8').trim();
+    } catch {
+      /* 读不到就用未知 */
+    }
+    throw new Error(
+      `另一个安装正在进行（${INSTALL_LOCK}，pid=${holder}）；确认没有进程在跑后删掉该文件重试`,
+    );
+  }
+  return () => {
+    try {
+      unlinkSync(file);
+    } catch {
+      /* 已释放 */
+    }
+  };
+}
 
 export async function applyPlan(plan: Plan, opts: ApplyOptions): Promise<ApplyResult> {
+  const release = opts.dryRun ? () => {} : acquireLock(opts.root);
   const outcomes: ActionOutcome[] = [];
   const written: string[] = [];
   const key = `${plan.pack.name}@${plan.pack.version}`;
@@ -90,7 +132,56 @@ export async function applyPlan(plan: Plan, opts: ApplyOptions): Promise<ApplyRe
     mkdirSync(dirname(statePath), { recursive: true });
     writeFileSync(statePath, JSON.stringify(state, null, 2) + '\n', 'utf8');
   }
+  release();
   return { outcomes, statePath };
+}
+
+export interface RemoveResult {
+  packs: string[];
+  removed: string[];
+  kept: string[];
+}
+
+/**
+ * 按 state 反向删除这个包写过的文件。
+ * `config.json` 是多包共享的：还有别的包时保留，只有最后一个包被移除时才删。
+ */
+export function removePack(root: string, packKey?: string): RemoveResult {
+  const release = acquireLock(root);
+  try {
+    const state = loadState(root);
+    const keys = packKey ? [packKey] : Object.keys(state.packs);
+    const removed: string[] = [];
+    const kept: string[] = [];
+
+    for (const key of keys) {
+      const record = state.packs[key];
+      if (!record) continue;
+      const isLast = Object.keys(state.packs).length === 1;
+      const files = [...record.written].sort((a, b) => b.length - a.length);
+      for (const rel of files) {
+        if (rel === '.packhub/config.json' && !isLast) {
+          kept.push(rel);
+          continue;
+        }
+        const abs = within(root, rel);
+        if (!existsSync(abs)) continue;
+        rmSync(abs, { recursive: true, force: true });
+        removed.push(rel);
+      }
+      delete state.packs[key];
+    }
+
+    const statePath = join(root, STATE_FILE);
+    if (Object.keys(state.packs).length === 0) {
+      rmSync(statePath, { force: true });
+    } else {
+      writeFileSync(statePath, JSON.stringify(state, null, 2) + '\n', 'utf8');
+    }
+    return { packs: keys, removed, kept };
+  } finally {
+    release();
+  }
 }
 
 async function applyAction(

@@ -13,7 +13,17 @@ export { loadManifest, parseManifest, type LoadResult } from './manifest.ts';
 export { validateGraph, type Graph } from './graph.ts';
 export { buildPlan, DIR_TARGET_VARS, type PlanOptions } from './plan.ts';
 export { buildLock } from './lock.ts';
-export { applyPlan, loadState, atomicWrite, type ApplyOptions, type ApplyResult, type ActionOutcome, type ActionStatus } from './install.ts';
+export {
+  applyPlan,
+  loadState,
+  removePack,
+  atomicWrite,
+  type ApplyOptions,
+  type ApplyResult,
+  type RemoveResult,
+  type ActionOutcome,
+  type ActionStatus,
+} from './install.ts';
 export { download, resolveDownloadUrl, FetchError, type FetchResult } from './download.ts';
 export { addResource, setBinding, inferId, type AddResourceInput, type AddResourceResult } from './authoring.ts';
 export { diffActions, describeAction, type ActionDiff } from './diff.ts';

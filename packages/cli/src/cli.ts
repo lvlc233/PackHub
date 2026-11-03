@@ -7,6 +7,7 @@ import {
   buildLock,
   diffActions,
   describeAction,
+  removePack,
   installPack,
   loadPack,
   planFor,
@@ -284,6 +285,26 @@ const slot = defineCommand({
   subCommands: { swap: slotSwap },
 });
 
+const uninstall = defineCommand({
+  meta: { name: 'uninstall', description: '按 state 反向删除已装的文件' },
+  args: {
+    dir: { type: 'positional', required: false, default: '.' },
+    pack: { type: 'string', description: '只卸载这个包（name@version）' },
+  },
+  run({ args }) {
+    const dir = resolve(String(args.dir));
+    const key = args.pack ? String(args.pack) : undefined;
+    const res = removePack(dir, key);
+    if (res.removed.length === 0 && res.kept.length === 0) {
+      console.log('没有可卸载的记录（state 里没有这个包）');
+      return;
+    }
+    for (const r of res.removed) console.log(`  - ${r}`);
+    for (const r of res.kept) console.log(`  = 保留 ${r}（还有别的包在用）`);
+    console.log(`\n移除 ${res.removed.length} 个路径，涉及 ${res.packs.length} 个包`);
+  },
+});
+
 const diff = defineCommand({
   meta: { name: 'diff', description: '对比锁里的计划快照与当前计划' },
   args: {
@@ -355,5 +376,5 @@ const serve = defineCommand({
 
 export const main: CommandDef = defineCommand({
   meta: { name: 'packhub', version: '0.0.1', description: 'Agent 能力的整合包工具' },
-  subCommands: { plan, install, verify, lock, init, serve, search, resource, slot, diff },
+  subCommands: { plan, install, uninstall, verify, lock, init, serve, search, resource, slot, diff },
 });
