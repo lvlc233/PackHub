@@ -30,7 +30,8 @@
 - [x] 多入口：`add ./x.phub` 与 `add git+https://host/o/r@ref`（GitHub/GitLab archive）；registry 名称仍走 `--index`
 - [x] registry CI 真跑 `install + verify`：`pnpm registry:verify-all` 在干净目录逐个装并校验，已接进 workflow
 - [ ] DSH 是否读项目级 `AGENTS.md` / skills（**未验证**；验法写在 deployment.md 九点六，需要新开一个 DSH 会话）
-- [ ] 签名（minisign）与许可自动检查
+- [x] 签名：ed25519，签 `{pack@version, planHash}`；`keygen` / `sign` / `verify-sig`，支持信任列表
+- [ ] 许可自动检查（vendored 内容的上游许可是否允许再分发）
 - [x] `unlisted` 取包：`add scope/name --version x.y.z` 绕过索引直接取归档
 - [x] Hub 创作台 `/console`：以现有包为底稿编辑清单、服务端预览计划（`POST /api/plan`）、本地存草稿、下载 yaml
 - [ ] 创作台的「收藏资源池」与可视化编辑（现在是纯文本编辑 + 底稿）

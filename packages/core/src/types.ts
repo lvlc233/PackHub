@@ -97,6 +97,8 @@ export interface Manifest {
   overrides?: { resource: string; source?: string; config?: Record<string, unknown> }[];
   /** 装完之后按路径覆盖目标文件：mod 的 mod */
   overlays?: Overlay[];
+  /** 对 {pack, planHash} 的 ed25519 签名 */
+  signatures?: { key: string; sig: string; at?: string }[];
   install?: { exec?: ExecSpec[] };
   verify?: VerifyCheck[];
 }

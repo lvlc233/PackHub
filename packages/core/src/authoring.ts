@@ -77,6 +77,20 @@ export function addResource(manifestPath: string, input: AddResourceInput): AddR
  * 改槽位绑定：只动 bindings.<slot> 一个键，其它内容与注释保持原样。
  * 换实现 = 一行，这是「快速替换」的入口。
  */
+/** 追加一条签名（保留注释与格式），同一 key 覆盖旧的。 */
+export function addSignature(
+  manifestPath: string,
+  signature: { key: string; sig: string; at?: string },
+): void {
+  const text = readFileSync(manifestPath, 'utf8');
+  const doc = parseDocument(text);
+  if (doc.errors.length > 0) throw new Error(`packhub.yaml 解析失败：${doc.errors[0]?.message}`);
+  const current = doc.toJS() as Manifest;
+  const others = (current.signatures ?? []).filter((s) => s.key !== signature.key);
+  doc.set('signatures', [...others, signature]);
+  writeFileSync(manifestPath, doc.toString({ lineWidth: 100 }), 'utf8');
+}
+
 export function setBinding(manifestPath: string, slot: string, resourceId: string): AddResourceResult {
   const text = readFileSync(manifestPath, 'utf8');
   const doc = parseDocument(text);

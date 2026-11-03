@@ -3,6 +3,10 @@ import { join, resolve } from 'node:path';
 import { defineCommand, type CommandDef } from 'citty';
 import {
   addResource,
+  addSignature,
+  generateKeyPair,
+  signPlan,
+  verifySignatures,
   setBinding,
   buildLock,
   diffActions,
@@ -421,6 +425,90 @@ const rollback = defineCommand({
   },
 });
 
+const keygen = defineCommand({
+  meta: { name: 'keygen', description: '生成一对 ed25519 签名密钥' },
+  args: {
+    out: { type: 'string', default: 'packhub.key', description: '私钥输出路径' },
+  },
+  run({ args }) {
+    const { privatePem, publicKey } = generateKeyPair();
+    const out = resolve(String(args.out));
+    writeFileSync(out, privatePem, { encoding: 'utf8', mode: 0o600 });
+    console.log(`✓ 私钥：${out}（别提交进版本库）`);
+    console.log(`  公钥 id：${publicKey}`);
+    console.log('  把公钥 id 发给要信任你的人；签名用 packhub sign');
+  },
+});
+
+const sign = defineCommand({
+  meta: { name: 'sign', description: '用私钥签这个包的计划哈希' },
+  args: {
+    dir: { type: 'positional', required: false, default: '.' },
+    key: { type: 'string', required: true, description: '私钥 PEM 路径' },
+  },
+  run({ args }) {
+    const dir = resolve(String(args.dir));
+    const ctx = loadPack(dir);
+    if (reportIssues(ctx.issues)) process.exit(2);
+    const { plan, issues } = planFor(ctx, { target: 'dir' });
+    if (!plan) {
+      reportIssues(issues, 'packhub sign');
+      process.exit(2);
+    }
+    const pack = `${ctx.manifest.metadata.name}@${ctx.manifest.metadata.version}`;
+    const pem = readFileSync(String(args.key), 'utf8');
+    const signature = signPlan(pem, pack, plan.planHash);
+    addSignature(join(dir, 'packhub.yaml'), signature);
+    console.log(`✓ 已签名 ${pack}`);
+    console.log(`  公钥 id：${signature.key}`);
+    console.log(`  planHash：${plan.planHash.slice(0, 22)}…`);
+  },
+});
+
+const verifySig = defineCommand({
+  meta: { name: 'verify-sig', description: '校验包上的签名' },
+  args: {
+    dir: { type: 'positional', required: false, default: '.' },
+    trusted: { type: 'string', description: '信任的公钥 id 列表文件（每行一个）' },
+  },
+  run({ args }) {
+    const dir = resolve(String(args.dir));
+    const ctx = loadPack(dir);
+    if (reportIssues(ctx.issues)) process.exit(2);
+    const { plan, issues } = planFor(ctx, { target: 'dir' });
+    if (!plan) {
+      reportIssues(issues, 'packhub verify-sig');
+      process.exit(2);
+    }
+    const sigs = ctx.manifest.signatures ?? [];
+    if (sigs.length === 0) {
+      console.error('这个包没有签名');
+      process.exit(1);
+    }
+    const pack = `${ctx.manifest.metadata.name}@${ctx.manifest.metadata.version}`;
+    const results = verifySignatures(sigs, pack, plan.planHash);
+
+    const trustedFile = args.trusted ? String(args.trusted) : undefined;
+    const trusted = trustedFile
+      ? readFileSync(trustedFile, 'utf8').split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
+      : undefined;
+
+    let good = 0;
+    for (const r of results) {
+      const isTrusted = !trusted || trusted.includes(r.key);
+      const ok = r.ok && isTrusted;
+      if (ok) good++;
+      console.log(
+        `${ok ? '✓' : 'x'} ${r.key.slice(0, 16)}… ${r.ok ? '签名有效' : '签名不符'}${
+          trusted && !isTrusted ? '（不在信任列表）' : ''
+        }`,
+      );
+    }
+    if (good === 0) process.exit(1);
+    console.log(`\n${good}/${results.length} 个签名通过`);
+  },
+});
+
 const pack = defineCommand({
   meta: { name: 'pack', description: '打成 .phub 归档（tar.gz）' },
   args: {
@@ -530,5 +618,5 @@ const serve = defineCommand({
 
 export const main: CommandDef = defineCommand({
   meta: { name: 'packhub', version: '0.0.1', description: 'Agent 能力的整合包工具' },
-  subCommands: { plan, install, uninstall, rollback, update, verify, lock, init, serve, search, add, resource, slot, diff, pack },
+  subCommands: { plan, install, uninstall, rollback, update, verify, lock, init, serve, search, add, resource, slot, diff, pack, keygen, sign, 'verify-sig': verifySig },
 });

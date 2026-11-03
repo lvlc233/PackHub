@@ -27,10 +27,26 @@ export {
   type ActionStatus,
 } from './install.ts';
 export { download, resolveDownloadUrl, FetchError, type FetchResult } from './download.ts';
-export { addResource, setBinding, inferId, type AddResourceInput, type AddResourceResult } from './authoring.ts';
+export {
+  addResource,
+  addSignature,
+  setBinding,
+  inferId,
+  type AddResourceInput,
+  type AddResourceResult,
+} from './authoring.ts';
 export { diffActions, describeAction, type ActionDiff } from './diff.ts';
 export { updatePack, type UpdateOptions, type UpdateResult } from './update.ts';
 export { resolveAddSource, gitArchiveUrl, type ResolvedSource } from './source.ts';
+export {
+  generateKeyPair,
+  signPlan,
+  verifySignatures,
+  keyIdFromPem,
+  signablePayload,
+  type KeyPair,
+  type SignatureCheck,
+} from './signature.ts';
 export { packArchive, unpackArchive, type PackArchiveOptions, type PackArchiveResult } from './pack.ts';
 export {
   readIndex,

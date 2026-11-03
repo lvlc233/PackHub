@@ -106,6 +106,20 @@
       }
     },
     "overrides": { "$ref": "#/definitions/overrides" },
+    "signatures": {
+      "type": "array",
+      "description": "对 {pack, planHash} 的 ed25519 签名；key 是 32 字节公钥 base64",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "sig"],
+        "properties": {
+          "key": { "type": "string" },
+          "sig": { "type": "string" },
+          "at": { "type": "string" }
+        }
+      }
+    },
     "overlays": {
       "type": "array",
       "description": "装完之后按路径覆盖目标文件：mod 的 mod，用来改上游组件而不动它本身",

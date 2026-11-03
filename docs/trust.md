@@ -74,15 +74,22 @@ Hub **不内置 runner**。验证交给一次性容器（CI 或临时 job）：�
 
 Hub 也**不自建账号**：身份来自部署层（反向代理、SSO、静态 token 白名单），Hub 只消费身份头或 bearer token。真正的执行面（验证 runner、目标机器上的同步 agent）都在 hub-runtime 里，见 [deployment.md](deployment.md)。
 
-## 五、信任：verified 之外再加 signature（未实装）
+## 五、信任：签名（已实装，ed25519）
 
-`verified` 只证明「在干净环境装得上、校验过」，不证明「这是谁发的」。内网场景需要后者：
+`verified` 只证明「在干净环境装得上、校验过」，不证明「这是谁发的」。
 
-- `packhub publish` 用 minisign 签 manifest 的哈希；
-- registry 配置里列允许的签名公钥；
-- `install` 时校验签名，签名者不在允许列表就拒绝（或降级为需要 `--allow-unverified`）。
+签名覆盖的是 `{pack@version, planHash}`——**改清单里任何影响安装的东西都会让签名失效**，只改注释不会（这是有意的：签名保护行为，不保护文件字节）。
 
-不在 0.x 范围内，但 schema 里预留 `signatures` 字段，避免以后破坏格式。
+```bash
+packhub keygen --out packhub.key           # 生成 ed25519 私钥，打印公钥 id
+packhub sign my-pack --key packhub.key     # 把签名写进 packhub.yaml
+packhub verify-sig my-pack                 # 校验
+packhub verify-sig my-pack --trusted keys.txt   # 只信任列表里的公钥 id（每行一个）
+```
+
+- 私钥不进版本库（keygen 以 0600 写入）；公钥 id 是 32 字节公钥的 base64，短、可贴进配置。
+- 签名只是 `signatures[]` 的一个条目，同一公钥重复签名会覆盖旧的。
+- `verified` 与签名是两件事：前者是「装得上、验过」，后者是「谁背的书」。两者都要，但不要混成一个徽章。
 
 ## 六、配置放哪
 
