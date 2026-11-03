@@ -1,0 +1,11 @@
+{
+  "name": "@packhub/cli",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "bin": { "packhub": "./src/bin.ts" },
+  "dependencies": {
+    "@packhub/core": "workspace:*",
+    "citty": "^0.1.6"
+  }
+}

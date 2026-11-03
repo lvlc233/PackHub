@@ -1,0 +1,23 @@
+{
+  "name": "packhub",
+  "private": true,
+  "version": "0.0.1",
+  "packageManager": "pnpm@11.22.0",
+  "type": "module",
+  "engines": { "node": ">=22.6" },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit --pretty false",
+    "packhub": "node --experimental-strip-types packages/cli/src/bin.ts",
+    "serve": "node --experimental-strip-types packages/cli/src/bin.ts serve .",
+    "web:dev": "pnpm --filter @packhub/web dev",
+    "web:build": "pnpm --filter @packhub/web build",
+    "check": "pnpm typecheck && pnpm test"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

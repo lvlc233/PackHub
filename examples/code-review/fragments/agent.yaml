@@ -1,0 +1,7 @@
+# Agent 配置片段（示例）
+review:
+  strict: true
+  maxFiles: 50
+  ignore:
+    - "**/node_modules/**"
+    - "**/dist/**"

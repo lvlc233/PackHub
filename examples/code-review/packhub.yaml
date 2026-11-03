@@ -1,0 +1,78 @@
+# 示例：一个真正「接起来」的 Pack —— 代码审查
+# 演示：MCP + Skill + Knowledge + Config 四类资源、能力图、env 插值、可验证。
+apiVersion: packhub.dev/v0.0.1
+kind: Pack
+
+metadata:
+  name: lvlc233/code-review
+  version: 0.0.1
+  title: 代码审查整合包
+  description: 组合代码检索 MCP、审查规范 Skill、团队规范知识与 Agent 配置片段，形成一套装完即用的审查工作流。
+  license: MIT
+  homepage: https://github.com/lvlc233/PackHub
+  keywords: [code-review, mcp, skill, workflow]
+  authors:
+    - name: lvlc233
+      url: https://github.com/lvlc233
+  targets: [dir, dsh]
+
+requires:
+  packhub: ">=0.0.1 <0.1"
+  agent: ">=0.0.1"
+
+vars:
+  projectRoot: "."
+  strict: true
+
+resources:
+  - id: repo-search
+    type: mcp
+    source: npm:@modelcontextprotocol/server-everything@0.6.2
+    transport: stdio
+    config:
+      command: npx
+      args: ["-y", "@modelcontextprotocol/server-everything@0.6.2"]
+      env:
+        ROOT: ${vars.projectRoot}
+    provides: [tool:repo_search, tool:read_file]
+
+  - id: review-rules
+    type: skill
+    source: github:lvlc233/skill-hub/skills/code-review@9f2c1ab
+    dependsOn: [repo-search]
+    provides: [skill:code_review]
+    needs: [tool:repo_search]
+
+  - id: house-style
+    type: knowledge
+    source: https://raw.githubusercontent.com/lvlc233/PackHub/main/README.md
+    # 占位值：真实哈希由 `packhub add` 计算写入；示例不锁定内容
+    integrity: sha256-PLACEHOLDERcomputedByPackhubAdd
+    provides: [knowledge:house_style]
+
+  - id: agent-config
+    type: config
+    source: ./fragments/agent.yaml
+
+composition:
+  env:
+    REVIEW_ROOT: ${vars.projectRoot}
+    REVIEW_STRICT: "${vars.strict}"
+  order: [agent-config, repo-search, review-rules]
+  needs:
+    - capability: skill:code_review
+      requires: [tool:repo_search, knowledge:house_style]
+      bind: review-rules
+
+verify:
+  - type: mcp-ready
+    resource: repo-search
+    timeout: 30
+  - type: file-exists
+    path: "${target.skillsDir}/review-rules/SKILL.md"
+  - type: config-key
+    path: "${target.configFile}"
+    key: "mcpServers.repo-search.command"
+    equals: npx
+  - type: knowledge-integrity
+    resource: house-style
