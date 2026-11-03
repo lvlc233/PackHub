@@ -26,7 +26,7 @@
 
 - [x] 版本与回滚：每次安装存 generation 快照（`existed`/`created` + 当时 state），`packhub rollback` 回退一步，保留最近 5 个
 - [x] `update`：取新版本、按 state 里的计划快照算差异、装上（可用 rollback 退回）
-- [ ] 跨包冲突检测（项目级所有权表；现在只有包内 output-conflict）
+- [x] 跨包所有权：同一路径被两个包占用时拒绝安装，`--overwrite` 显式放行；配置与根目录指令文件按共享处理
 - [ ] 多入口：`git+https://` 直连、`./x.phub` 本地归档
 - [ ] registry CI 真跑 `install + verify`（现在 verify 只在本地跑，CI 做门禁）
 - [ ] DSH 是否读项目级 `AGENTS.md` / skills，实测后再决定投影策略

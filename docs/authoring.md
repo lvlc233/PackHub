@@ -347,6 +347,10 @@ packhub rollback my-pack      # 用安装前的快照恢复被改写的文件、
 # 6.6 别人装了你发的包，升级
 packhub update lvlc233/team-conventions --index <registry/index.json>
 
+# 6.7 两个包抢同一个文件时
+packhub install my-pack --overwrite   # 默认会拒绝并指出占用者，确认要覆盖才加
+
+
 # 7. 装进某个宿主（投影到 harness 会读的位置）
 packhub install my-pack --target claude-code   # .claude/skills + .mcp.json + CLAUDE.md 托管块
 packhub install my-pack --target dsh           # .packhub/skills + AGENTS.md 托管块

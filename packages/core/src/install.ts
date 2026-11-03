@@ -28,6 +28,8 @@ export interface ApplyOptions {
   allowExec?: boolean;
   /** 只计算不落盘 */
   dryRun?: boolean;
+  /** 允许覆盖别的包已经写过的普通文件（默认拒绝） */
+  overwrite?: boolean;
 }
 
 export type ActionStatus = 'done' | 'noop' | 'failed' | 'skipped' | 'needs-approval';
@@ -163,9 +165,19 @@ function prepareGeneration(root: string, plan: Plan): Generation {
 
 export async function applyPlan(plan: Plan, opts: ApplyOptions): Promise<ApplyResult> {
   const release = opts.dryRun ? () => {} : acquireLock(opts.root);
+  try {
   const outcomes: ActionOutcome[] = [];
   const written: string[] = [];
   const key = `${plan.pack.name}@${plan.pack.version}`;
+
+  // 项目级所有权：同一路径不许被两个包各写一份（配置文件是指路的共享物，例外）
+  const conflicts = findOwnershipConflicts(plan, key, opts.root);
+  if (conflicts.length > 0 && !opts.overwrite) {
+    throw new Error(
+      `这些路径已被别的包占用：${conflicts.join('、')}；确认要覆盖就加 --overwrite`,
+    );
+  }
+
   const gen = opts.dryRun ? undefined : prepareGeneration(opts.root, plan);
 
   for (const action of plan.actions) {
@@ -216,8 +228,10 @@ export async function applyPlan(plan: Plan, opts: ApplyOptions): Promise<ApplyRe
     mkdirSync(dirname(statePath), { recursive: true });
     writeFileSync(statePath, JSON.stringify(state, null, 2) + '\n', 'utf8');
   }
-  release();
   return { outcomes, statePath };
+  } finally {
+    release();
+  }
 }
 
 function pruneSnapshots(root: string, keep: Generation[]): void {
@@ -661,4 +675,29 @@ function stripBlock(text: string, blockId: string): string {
 
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** 共享路径：配置文件（多个包合并）与根目录的指令文件（托管块各写各的）。 */
+function isSharedPath(rel: string): boolean {
+  if (/\.(json|jsonc)$/i.test(rel)) return true;
+  return !rel.includes('/') && /\.md$/i.test(rel);
+}
+
+/** 这次安装要写的路径里，哪些已经被别的包占了。 */
+function findOwnershipConflicts(plan: Plan, key: string, root: string): string[] {
+  const state = loadState(root);
+  const owners = new Map<string, string>();
+  const selfName = key.split('@')[0] ?? '';
+  for (const [packKey, record] of Object.entries(state.packs)) {
+    if (packKey === key) continue;
+    // 同一个包的旧版本不算冲突：升级本来就该覆盖自己
+    if ((packKey.split('@')[0] ?? '') === selfName) continue;
+    for (const rel of record.written) owners.set(rel, packKey);
+  }
+  const out: string[] = [];
+  for (const rel of touchedPaths(plan)) {
+    const owner = owners.get(rel);
+    if (owner && !isSharedPath(rel)) out.push(`${rel}（${owner}）`);
+  }
+  return out;
 }

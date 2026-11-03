@@ -70,6 +70,7 @@ const install = defineCommand({
     dir: { type: 'positional', required: false, default: '.' },
     'dry-run': { type: 'boolean', default: false },
     'allow-exec': { type: 'boolean', default: false },
+    overwrite: { type: 'boolean', default: false, description: '允许覆盖别的包写过的文件' },
     target: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code' },
   },
   async run({ args }) {
@@ -83,6 +84,7 @@ const install = defineCommand({
     const result = await installPack(ctx, p, {
       dryRun: Boolean(args['dry-run']),
       allowExec: Boolean(args['allow-exec']),
+      overwrite: Boolean(args.overwrite),
     });
     for (const o of result.outcomes) {
       const mark = o.status === 'failed' ? 'x' : o.status === 'skipped' ? '-' : '✓';
@@ -303,6 +305,7 @@ const add = defineCommand({
     dir: { type: 'string', default: '.', description: '项目目录' },
     target: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code' },
     'dry-run': { type: 'boolean', default: false },
+    overwrite: { type: 'boolean', default: false },
   },
   async run({ args }) {
     const projectDir = resolve(String(args.dir));
@@ -334,6 +337,7 @@ const add = defineCommand({
     const result = await installPack(ctx, plan, {
       root: projectDir,
       packRoot: dest,
+      overwrite: Boolean(args.overwrite),
     });
     for (const o of result.outcomes) {
       const mark = o.status === 'failed' ? 'x' : o.status === 'skipped' ? '-' : '✓';
@@ -352,6 +356,7 @@ const update = defineCommand({
     dir: { type: 'string', default: '.' },
     version: { type: 'string' },
     target: { type: 'string', default: 'dir' },
+    overwrite: { type: 'boolean', default: false },
   },
   async run({ args }) {
     const res = await updatePack({
@@ -359,6 +364,7 @@ const update = defineCommand({
       index: String(args.index),
       projectDir: resolve(String(args.dir)),
       target: String(args.target),
+      overwrite: Boolean(args.overwrite),
       ...(args.version ? { version: String(args.version) } : {}),
     });
     if (!res.changed) {

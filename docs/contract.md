@@ -124,7 +124,8 @@
 3. `planHash` 与当前 plan 不一致时，状态显示「计划已变化」，提示 `update`。
 4. **并发**：同一目录同时只允许一个安装，靠 `.packhub/installing.lock`（`O_EXCL` 原子创建，内容为 pid）。进程崩溃留下的锁需要人工确认后删除，报错信息会给出 pid。
 5. **卸载**按 `written` 逆序（先深后浅）删除；`.packhub/config.json` 是多包共享的，还有别的包时保留，只有最后一个包被移除时才删。删完 state 里没有包了就删掉 state 文件。
-6. `plan` 是该次安装的计划快照，`update` 靠它算差异；不参与任何哈希。`r`n7. **generation 与回退**：每次安装前把会被改写的文件快照到 `.packhub/snapshots/<gen>/`（含当时的 `state.json`），并记 `existed` / `created`。`packhub rollback` 把 `existed` 放回去、删掉 `created`、state 回到当时。只保留最近 5 个 generation，更早的快照会被清掉（回退会报「快照已不在」）。
+6. `plan` 是该次安装的计划快照，`update` 靠它算差异；不参与任何哈希。
+7. **项目级所有权**：同一个路径不允许被两个包各写一份（配置文件与根目录的 `.md` 指令文件例外——它们是合并/托管块）。冲突时安装直接拒绝并列出占用者；确认要覆盖用 `--overwrite`。同一个包的不同版本不算冲突（升级覆盖自己）。`r`n8. **generation 与回退**：每次安装前把会被改写的文件快照到 `.packhub/snapshots/<gen>/`（含当时的 `state.json`），并记 `existed` / `created`。`packhub rollback` 把 `existed` 放回去、删掉 `created`、state 回到当时。只保留最近 5 个 generation，更早的快照会被清掉（回退会报「快照已不在」）。
 
 > 已知限制：卸载不还原被合并过的配置内容（只删整个文件或保留），备份在 `.packhub/backups/` 里可人工取回。
 

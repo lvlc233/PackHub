@@ -10,6 +10,8 @@ export interface UpdateOptions {
   projectDir: string;
   version?: string;
   target?: string;
+  /** 允许覆盖别的包写过的普通文件 */
+  overwrite?: boolean;
 }
 
 export interface UpdateResult {
@@ -52,7 +54,11 @@ export async function updatePack(opts: UpdateOptions): Promise<UpdateResult> {
   const changed = !previous || previous.planHash !== plan.planHash;
 
   if (changed) {
-    await installPack(ctx, plan, { root: opts.projectDir, packRoot: dest });
+    await installPack(ctx, plan, {
+      root: opts.projectDir,
+      packRoot: dest,
+      overwrite: opts.overwrite === true,
+    });
   }
 
   return {
