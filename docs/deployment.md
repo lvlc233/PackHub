@@ -140,7 +140,18 @@ Hub **不内置 runner**：验证交给一次性容器（CI 或临时 job），H
 
 投影写出来了，但"harness 真的会读"还没验。验法要固定，不然每次都是猜：
 
-**Claude Code**
+### 探针命令（封装好了，不用手工问）
+
+```bash
+packhub probe <项目目录> --target dsh          # 调用 dsh --profile headless，问一句，看回答里有没有包的标记
+packhub probe <项目目录> --target claude-code  # 调用 claude -p，带 --max-budget-usd 0.05 限额
+```
+
+它做的事：从 `AGENTS.md` / `CLAUDE.md` 的托管块里取一个标记（块内第一行的标题），让 harness 复述块内第一行，回答里出现标记才算通过。缺凭证、没登录、没装包都会给出具体原因。
+
+**DSH 的 headless 入口需要 `DEEPSEEK_API_KEY` 在环境变量里**（桌面应用里存的加密凭证 headless 读不到）。没有它时探针会直接报「缺少凭证」，不会假装通过。
+
+已验证的：Claude Code 的 MCP 投影。
 
 已验（2026-11-03）：
 

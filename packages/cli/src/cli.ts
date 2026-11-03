@@ -6,6 +6,7 @@ import {
   readSignatures,
   writeSignature,
   inspectLicenses,
+  probeHarness,
   generateKeyPair,
   signPlan,
   verifySignatures,
@@ -427,6 +428,32 @@ const rollback = defineCommand({
   },
 });
 
+const probe = defineCommand({
+  meta: { name: 'probe', description: '真机探针：跑一次 harness，看它有没有读到包写进去的指令' },
+  args: {
+    dir: { type: 'positional', required: false, default: '.' },
+    target: { type: 'string', default: 'dsh', description: 'dsh | claude-code' },
+    json: { type: 'boolean', default: false },
+  },
+  run({ args }) {
+    const result = probeHarness({
+      target: String(args.target) as 'dsh' | 'claude-code',
+      projectDir: resolve(String(args.dir)),
+    });
+    if (args.json) {
+      console.log(JSON.stringify(result, null, 2));
+      if (!result.ok) process.exit(1);
+      return;
+    }
+    console.log(result.ok ? '✓ harness 读到了托管块' : 'x 没读到');
+    console.log(`  命令：${result.command}`);
+    if (result.marker) console.log(`  期望标记：${result.marker}`);
+    if (result.answer) console.log(`  回答：${result.answer.replace(/\s+/g, ' ').slice(0, 200)}`);
+    if (result.reason) console.log(`  原因：${result.reason}`);
+    if (!result.ok) process.exit(1);
+  },
+});
+
 const licenses = defineCommand({
   meta: { name: 'licenses', description: '列出每个资源的许可证情况（只查 vendored 的本地内容）' },
   args: {
@@ -667,6 +694,7 @@ export const main: CommandDef = defineCommand({
     slot,
     diff,
     pack,
+    probe,
     licenses,
     keygen,
     sign,

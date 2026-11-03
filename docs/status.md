@@ -30,6 +30,7 @@
 - [x] 多入口：`add ./x.phub` 与 `add git+https://host/o/r@ref`（GitHub/GitLab archive）；registry 名称仍走 `--index`
 - [x] registry CI 真跑 `install + verify`：`pnpm registry:verify-all` 在干净目录逐个装并校验，已接进 workflow
 - [x] Claude Code 的 MCP 投影：`claude mcp list` 里能看到并连通（实测）
+- [x] 探针封装：`packhub probe --target dsh|claude-code`（调 headless 问一句，检查回答里的标记；缺凭证会明确报出）
 - [ ] `CLAUDE.md` 托管块与 `.claude/skills` 是否被 Claude Code 采用（未验证，需要一次模型调用）
 - [ ] DSH 是否读项目级 `AGENTS.md` / skills（**未验证**；验法写在 deployment.md 九点六，需要新开一个 DSH 会话）
 - [x] 签名：ed25519，签 `{pack@version, planHash}`，写独立文件 `packhub.signatures.json`（不改清单）；`keygen` / `sign` / `verify-sig`，支持信任列表；verify 报告与 index 带签名结果

@@ -40,6 +40,15 @@ export { updatePack, type UpdateOptions, type UpdateResult } from './update.ts';
 export { resolveAddSource, gitArchiveUrl, type ResolvedSource } from './source.ts';
 export { inspectLicenses, type LicenseFinding } from './license.ts';
 export {
+  probeHarness,
+  extractMarker,
+  type ProbeOptions,
+  type ProbeResult,
+  type HarnessTarget,
+  type Runner,
+  type RunnerResult,
+} from './harness-probe.ts';
+export {
   readSignatures,
   writeSignature,
   SIGNATURE_FILE,
