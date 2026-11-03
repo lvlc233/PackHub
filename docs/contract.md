@@ -1,10 +1,33 @@
-# PackHub 契约 v0.0.2
+# PackHub 契约（格式 v0）
 
-四份 JSON 是内核与所有外壳之间唯一的东西。改这里的字段 = 破坏性变更，必须升 `apiVersion` 主版本。
+六份带版本号的 JSON 是内核与所有外壳之间唯一的东西。它们的代际由下面的版本总表统一管理。
 
 ---
 
-## 1. Plan（`packhub.dev/plan/v0.1`）
+## 0. 版本总表：全都叫 v0
+
+格式版本与产品版本是两件事。产品还在 0.0.x，格式先统一到一个代际：
+
+| 契约 | 版本号 | 位置 |
+|---|---|---|
+| manifest | `packhub.dev/v0` | `packhub.yaml` |
+| plan | `packhub.dev/plan/v0` | 运行时 |
+| lock | `packhub.dev/lock/v0` | `packhub.lock.json` |
+| state | `packhub.dev/state/v0` | `.packhub/state.json` |
+| index | `packhub.dev/index/v0` | `registry/index.json` |
+| verify 报告 | `packhub.dev/verify/v0` | `verify.json` |
+
+**v0 期间没有兼容承诺**：字段可以增、可以改语义、可以删。读方遇到不认识的主版本（`v1`、`v2`）必须拒绝，不得猜测；遇到不认识的字段同样报错，不做静默忽略。
+
+**升 v1 的判据**（三条都满足才升，届时提供 `packhub migrate`，内核同时读 v0/v1 一段时间）：
+
+1. 资源类型集合固定，不再增删；
+2. `composition`（env / order / needs / bind）语义固定；
+3. `lock` 里每个引用都有 integrity，不再出现 `null`。
+
+---
+
+## 1. Plan（`packhub.dev/plan/v0`）
 
 内核算出的动作清单。**唯一的副作用描述**，`install` 只是执行它。
 
