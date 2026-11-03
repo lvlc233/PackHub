@@ -7,23 +7,68 @@
       "type": "knowledge",
       "source": "./resources/style-guide.md",
       "integrity": null,
-      "resolvedAt": "2026-11-03T12:34:41.640Z"
+      "resolvedAt": "2026-11-03T12:39:27.895Z"
     },
     {
       "id": "commit-rules",
       "type": "prompt",
       "source": "./resources/commit-rules.md",
       "integrity": null,
-      "resolvedAt": "2026-11-03T12:34:41.640Z"
+      "resolvedAt": "2026-11-03T12:39:27.895Z"
     },
     {
       "id": "editor-config",
       "type": "config",
       "source": "./fragments/editorconfig.yaml",
       "integrity": null,
-      "resolvedAt": "2026-11-03T12:34:41.640Z"
+      "resolvedAt": "2026-11-03T12:39:27.895Z"
     }
   ],
   "planHash": "sha256-Ziroi+N/p2MnsX+2wGX9yoPZrL/m8m+KQmpTOhNgdDs=",
-  "generatedBy": "packhub/0.0.1"
+  "generatedBy": "packhub/0.0.1",
+  "plan": {
+    "target": "dir",
+    "actions": [
+      {
+        "op": "merge.config",
+        "path": ".packhub/config.json",
+        "strategy": "json-merge",
+        "patch": {
+          "env": {
+            "CONVENTIONS_DIR": ".packhub/conventions"
+          }
+        },
+        "actionId": "merge.config#1"
+      },
+      {
+        "op": "write",
+        "from": "./resources/style-guide.md",
+        "to": ".packhub/knowledge/style-guide.md",
+        "resource": "style-guide",
+        "actionId": "write#1"
+      },
+      {
+        "op": "write",
+        "from": "./resources/commit-rules.md",
+        "to": ".packhub/prompts/commit-rules.md",
+        "resource": "commit-rules",
+        "actionId": "write#2"
+      },
+      {
+        "op": "merge.config",
+        "path": ".packhub/config.json",
+        "strategy": "yaml-merge",
+        "patchFrom": "./fragments/editorconfig.yaml",
+        "resource": "editor-config",
+        "actionId": "merge.config#2"
+      }
+    ],
+    "verify": [
+      {
+        "type": "file-exists",
+        "path": ".packhub/knowledge/style-guide.md"
+      }
+    ],
+    "excluded": []
+  }
 }

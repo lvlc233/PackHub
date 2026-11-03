@@ -1,10 +1,12 @@
-import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { defineCommand, type CommandDef } from 'citty';
 import {
   addResource,
   setBinding,
   buildLock,
+  diffActions,
+  describeAction,
   installPack,
   loadPack,
   planFor,
@@ -252,7 +254,11 @@ const slotSwap = defineCommand({
       for (const e of errors) console.error(`error [${e.code}] ${e.message}`);
       process.exit(1);
     }
-    const { plan } = planFor(ctx);
+    const { plan, issues } = planFor(ctx);
+    if (!plan) {
+      reportIssues(issues, 'packhub slot swap');
+      process.exit(1);
+    }
     const after = plan;
     // 换绑时 actionId（fetch#1）不变，必须按内容比，否则看不出换了什么
     const fp = (a: { op: string } & Record<string, unknown>): string =>
@@ -276,6 +282,50 @@ const slotSwap = defineCommand({
 const slot = defineCommand({
   meta: { name: 'slot', description: '槽位操作（可替换的实现）' },
   subCommands: { swap: slotSwap },
+});
+
+const diff = defineCommand({
+  meta: { name: 'diff', description: '对比锁里的计划快照与当前计划' },
+  args: {
+    dir: { type: 'positional', required: false, default: '.' },
+    check: { type: 'boolean', default: false, description: '有差异就以非零码退出（CI 用）' },
+  },
+  run({ args }) {
+    const dir = resolve(String(args.dir));
+    const lockPath = join(dir, 'packhub.lock.json');
+    if (!existsSync(lockPath)) {
+      console.error('没有 packhub.lock.json：先跑 packhub lock');
+      process.exit(2);
+    }
+    const ctx = loadPack(dir);
+    if (reportIssues(ctx.issues)) process.exit(2);
+    const { plan, issues } = planFor(ctx);
+    if (!plan) {
+      reportIssues(issues, 'packhub diff');
+      process.exit(2);
+    }
+    const lock = JSON.parse(readFileSync(lockPath, 'utf8')) as {
+      planHash: string;
+      plan?: { actions: typeof plan.actions };
+    };
+    if (!lock.plan) {
+      console.error('锁里没有计划快照（旧版锁），重跑 packhub lock');
+      process.exit(2);
+    }
+
+    const { added, removed } = diffActions(lock.plan.actions, plan.actions);
+    const unchanged = added.length === 0 && removed.length === 0 && lock.planHash === plan.planHash;
+    if (unchanged) {
+      console.log('计划无变化');
+      return;
+    }
+
+    console.log(`planHash ${lock.planHash.slice(0, 22)}… → ${plan.planHash.slice(0, 22)}…`);
+    for (const a of removed) console.log(`  - ${describeAction(a)}`);
+    for (const a of added) console.log(`  + ${describeAction(a)}`);
+    console.log(`\n${added.length} 条新增 / ${removed.length} 条移除；确认后重跑 packhub lock`);
+    if (args.check) process.exit(1);
+  },
 });
 
 const search = defineCommand({
@@ -305,5 +355,5 @@ const serve = defineCommand({
 
 export const main: CommandDef = defineCommand({
   meta: { name: 'packhub', version: '0.0.1', description: 'Agent 能力的整合包工具' },
-  subCommands: { plan, install, verify, lock, init, serve, search, resource, slot },
+  subCommands: { plan, install, verify, lock, init, serve, search, resource, slot, diff },
 });

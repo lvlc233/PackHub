@@ -16,6 +16,7 @@ export { buildLock } from './lock.ts';
 export { applyPlan, loadState, atomicWrite, type ApplyOptions, type ApplyResult, type ActionOutcome, type ActionStatus } from './install.ts';
 export { download, resolveDownloadUrl, FetchError, type FetchResult } from './download.ts';
 export { addResource, setBinding, inferId, type AddResourceInput, type AddResourceResult } from './authoring.ts';
+export { diffActions, describeAction, type ActionDiff } from './diff.ts';
 export { runChecks, type CheckResult, type CheckStatus, type VerifyOptions } from './verify.ts';
 export { canonicalize, sha256, interpolate, deepMerge, isPlainObject } from './util.ts';
 

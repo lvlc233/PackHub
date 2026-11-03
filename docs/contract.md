@@ -58,27 +58,34 @@
 
 ---
 
-## 2. Lock（`packhub.dev/lock/v0.1`）
+## 2. Lock（`packhub.dev/lock/v0`）
 
 把一个 Pack 的引用钉死，供复现与审查。
 
 ```jsonc
 {
-  "apiVersion": "packhub.dev/lock/v0.1",
+  "apiVersion": "packhub.dev/lock/v0",
   "pack": "lvlc233/team-conventions@0.0.1",
   "resolved": [
     { "id": "style-guide", "type": "knowledge", "source": "./resources/style-guide.md", "integrity": null, "resolvedAt": "2026-11-03T…" }
   ],
   "planHash": "sha256-…",
-  "generatedBy": "packhub/0.0.1"
+  "generatedBy": "packhub/0.0.1",
+  "plan": {                      // 计划快照：diff / update 靠它算「改了什么」
+    "target": "dir",
+    "actions": [],
+    "verify": [],
+    "excluded": []
+  }
 }
 ```
 
 不变量：
 
-1. `planHash` 必须与当前 manifest 生成的 plan 一致；不一致 = 锁过期，CI 拒绝。
+1. `planHash` 必须与当前 manifest 生成的 plan 一致；不一致 = 锁过期，`registry:check` 拒绝。
 2. `resolved[].source` 是**解析后**的引用（github tag 已换成 commit）。
-3. `integrity` 为 `null` 表示未联网解析，发布版必须补全（https 与 npm 由下载时补齐）。
+3. `integrity` 为 `null` 表示未联网解析，发布版应补全（https 与 npm 由下载时补齐）。
+4. `plan` 是快照，不参与 `planHash` 计算；没有它就无法做差异对比（`packhub diff` 会提示重跑 `lock`）。
 
 ---
 

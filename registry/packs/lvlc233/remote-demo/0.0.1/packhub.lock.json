@@ -7,16 +7,68 @@
       "type": "skill",
       "source": "github:lvlc233/PackHub@533147315257260f9054947f1ece2ba20588bc93",
       "integrity": null,
-      "resolvedAt": "2026-11-03T12:34:42.744Z"
+      "resolvedAt": "2026-11-03T12:39:28.444Z"
     },
     {
       "id": "readme",
       "type": "knowledge",
       "source": "https://raw.githubusercontent.com/lvlc233/PackHub/533147315257260f9054947f1ece2ba20588bc93/README.md",
       "integrity": "sha256-CtMPyOdCbw/DtVRSFoKxJ4FbnhiPq2f92mvzzF5MR5Q=",
-      "resolvedAt": "2026-11-03T12:34:42.744Z"
+      "resolvedAt": "2026-11-03T12:39:28.444Z"
     }
   ],
   "planHash": "sha256-59Ydxb7MO6PZZVuXSo5SA0CrfQ14I1gR5J/zhuztAlQ=",
-  "generatedBy": "packhub/0.0.1"
+  "generatedBy": "packhub/0.0.1",
+  "plan": {
+    "target": "dir",
+    "actions": [
+      {
+        "op": "fetch",
+        "uri": "github:lvlc233/PackHub@533147315257260f9054947f1ece2ba20588bc93",
+        "dest": ".packhub/cache/repo-docs.tar.gz",
+        "resource": "repo-docs",
+        "actionId": "fetch#1"
+      },
+      {
+        "op": "unpack",
+        "from": ".packhub/cache/repo-docs.tar.gz",
+        "to": ".packhub/cache/skills/repo-docs",
+        "strip": 1,
+        "resource": "repo-docs",
+        "dependsOn": [
+          "fetch#1"
+        ],
+        "actionId": "unpack#1"
+      },
+      {
+        "op": "link.skill",
+        "from": ".packhub/cache/skills/repo-docs",
+        "to": ".packhub/skills/repo-docs",
+        "resource": "repo-docs",
+        "dependsOn": [
+          "unpack#1"
+        ],
+        "actionId": "link.skill#1"
+      },
+      {
+        "op": "fetch",
+        "uri": "https://raw.githubusercontent.com/lvlc233/PackHub/533147315257260f9054947f1ece2ba20588bc93/README.md",
+        "dest": ".packhub/knowledge/README.md",
+        "integrity": "sha256-CtMPyOdCbw/DtVRSFoKxJ4FbnhiPq2f92mvzzF5MR5Q=",
+        "resource": "readme",
+        "actionId": "fetch#2"
+      }
+    ],
+    "verify": [
+      {
+        "type": "file-exists",
+        "path": ".packhub/knowledge/README.md"
+      },
+      {
+        "type": "file-exists",
+        "path": ".packhub/skills/repo-docs/README.md"
+      }
+    ],
+    "excluded": []
+  }
 }

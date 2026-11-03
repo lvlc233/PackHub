@@ -333,7 +333,10 @@ packhub plan my-pack
 
 # 4. 真装一遍再校验（装进临时目录，不污染仓库）
 cp -r my-pack /tmp/try && packhub install /tmp/try && packhub verify /tmp/try
-packhub lock my-pack          # 成功后把解析结果钉死
+packhub lock my-pack          # 成功后把解析结果（含计划快照）钉死
+
+# 5. 之后改了清单，先看差异再重新锁
+packhub diff my-pack          # 对比锁里的计划与当前计划：多了什么、少了什么
 ```
 
 `resource add` 做的是**结构化编辑**：追加一个资源节点、保留注释、推断 id（重名自动加 `-2`），然后立刻跑一遍清单校验和计划生成。它不做类型推断——`type` 必须由你给，因为同一个 npm 包既可能是 `mcp` 也可能是 `tool`。

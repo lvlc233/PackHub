@@ -20,5 +20,12 @@ export function buildLock(
     resolved,
     planHash: plan.planHash,
     generatedBy: 'packhub/0.0.1',
+    // 计划快照：没有它就算不出「改了什么」，diff / update 都靠这一份
+    plan: {
+      target: plan.target,
+      actions: plan.actions,
+      verify: plan.verify,
+      excluded: plan.excluded,
+    },
   };
 }

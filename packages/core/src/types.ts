@@ -155,6 +155,13 @@ export interface LockFile {
   resolved: ResolvedRef[];
   planHash: string;
   generatedBy: string;
+  /** 计划快照：diff / update 靠它算「改了什么」 */
+  plan?: {
+    target: TargetId;
+    actions: PlanAction[];
+    verify: VerifyCheck[];
+    excluded: Plan['excluded'];
+  };
 }
 
 export interface ResolvedRef {
