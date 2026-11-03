@@ -39,12 +39,12 @@ describe('示例 Pack', () => {
 });
 
 describe('install + verify 闭环（本地资源，离线）', () => {
-  it('装完通过 verify，重复安装为 noop', () => {
+  it('装完通过 verify，重复安装为 noop', async () => {
     const ctx = loadPack(work);
     const { plan } = planFor(ctx);
     expect(plan).toBeDefined();
 
-    const first = installPack(ctx, plan!);
+    const first = await installPack(ctx, plan!);
     expect(first.outcomes.filter((o) => o.status === 'failed')).toEqual([]);
     expect(existsSync(join(work, '.packhub/config.json'))).toBe(true);
     expect(existsSync(join(work, '.packhub/knowledge/style-guide.md'))).toBe(true);
@@ -52,7 +52,7 @@ describe('install + verify 闭环（本地资源，离线）', () => {
     const results = verifyPack(ctx.dir, plan!);
     expect(results.filter((r) => r.status === 'fail')).toEqual([]);
 
-    const second = installPack(ctx, plan!);
+    const second = await installPack(ctx, plan!);
     expect(second.outcomes.some((o) => o.status === 'noop')).toBe(true);
   });
 

@@ -59,15 +59,7 @@ export function buildPlan(
 
     switch (res.type) {
       case 'mcp': {
-        if (parsed.kind === 'npm' || parsed.kind === 'pypi') {
-          push({
-            op: 'fetch',
-            uri: res.source,
-            dest: `${targetVars.cacheDir}/mcp/${id}`,
-            ...(res.integrity ? { integrity: res.integrity } : {}),
-            resource: id,
-          });
-        }
+        // MCP 由目标环境自己用 npx/uvx 拉起，安装期只登记，不预先下载包体
         push({
           op: 'register.mcp',
           spec: mcpSpec(res),
@@ -82,16 +74,24 @@ export function buildPlan(
           const fetched = push({
             op: 'fetch',
             uri: res.source,
-            dest: `${targetVars.cacheDir}/skills/${id}`,
+            dest: `${targetVars.cacheDir}/${id}.tar.gz`,
             ...(res.integrity ? { integrity: res.integrity } : {}),
             resource: id,
+          });
+          const unpacked = push({
+            op: 'unpack',
+            from: `${targetVars.cacheDir}/${id}.tar.gz`,
+            to: `${targetVars.cacheDir}/skills/${id}`,
+            strip: 1,
+            resource: id,
+            dependsOn: [fetched.actionId],
           });
           push({
             op: 'link.skill',
             from: `${targetVars.cacheDir}/skills/${id}`,
             to: `${targetVars.skillsDir}/${id}`,
             resource: id,
-            dependsOn: [fetched.actionId],
+            dependsOn: [unpacked.actionId],
           });
         }
         break;
@@ -124,12 +124,20 @@ export function buildPlan(
         break;
       }
       case 'tool': {
-        push({
+        const fetched = push({
           op: 'fetch',
           uri: res.source,
-          dest: `${targetVars.cacheDir}/tools/${id}`,
+          dest: `${targetVars.cacheDir}/${id}.tar.gz`,
           ...(res.integrity ? { integrity: res.integrity } : {}),
           resource: id,
+        });
+        push({
+          op: 'unpack',
+          from: `${targetVars.cacheDir}/${id}.tar.gz`,
+          to: `${targetVars.cacheDir}/tools/${id}`,
+          strip: 1,
+          resource: id,
+          dependsOn: [fetched.actionId],
         });
         break;
       }

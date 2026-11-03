@@ -117,8 +117,8 @@ async function handleApi(
     const ctx = loadPack(dir);
     const { plan, issues } = planFor(ctx);
     if (!plan) return sendJson(res, 422, { error: '计划生成失败', issues });
-    const result = installPack(ctx, plan, { allowExec: body.allowExec === true });
-    return sendJson(res, 200, { outcomes: result.outcomes, planHash: plan.planHash });
+    const result = await installPack(ctx, plan, { allowExec: body.allowExec === true });
+    return sendJson(res, 200, { outcomes: result.outcomes, planHash: plan.planHash, statePath: result.statePath });
   }
 
   if (url.pathname === '/api/verify' && req.method === 'POST') {

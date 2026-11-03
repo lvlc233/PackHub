@@ -1,0 +1,747 @@
+/* 形态对比 demo：四种产品形态，共用面板的设计 token。 */
+
+.fd {
+  min-height: 100vh;
+  background: var(--bg);
+}
+
+.fd-bar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 12px 24px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line);
+}
+
+.fd-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 600 14px/1 var(--font-ui);
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.fd-switch {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.fd-tab {
+  padding: 8px 14px;
+  border-radius: 99px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-2);
+  font: 600 12.5px/1 var(--font-ui);
+  cursor: pointer;
+}
+
+.fd-tab:hover {
+  background: var(--surface-2);
+}
+
+.fd-tab.is-active {
+  background: var(--accent-soft);
+  border-color: var(--accent-line);
+  color: var(--accent-ink);
+}
+
+.fd-note {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.fd-caption {
+  margin: 18px 24px 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.fd-caption strong {
+  color: var(--ink);
+}
+
+.fd-stage {
+  padding: 16px 24px 44px;
+}
+
+/* ---------- A. 命令行 ---------- */
+
+.fd-cli {
+  max-width: 860px;
+  margin: 0 auto;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #0d1117;
+  box-shadow: 0 30px 70px -40px rgba(16, 24, 40, 0.55);
+}
+
+.fd-cli-chrome {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  padding: 11px 14px;
+  background: #161b22;
+  border-bottom: 1px solid #21262d;
+}
+
+.fd-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #30363d;
+}
+
+.fd-dot-r {
+  background: #ff5f57;
+}
+.fd-dot-y {
+  background: #febc2e;
+}
+.fd-dot-g {
+  background: #28c840;
+}
+
+.fd-cli-title {
+  margin-left: 10px;
+  font: 11.5px/1 var(--font-mono);
+  color: #8b949e;
+}
+
+.fd-cli-body {
+  padding: 18px 20px 26px;
+  font: 12.5px/1.75 var(--font-mono);
+  color: #c9d1d9;
+}
+
+.fd-cli-block {
+  margin-bottom: 14px;
+}
+
+.fd-cmd {
+  margin: 0 0 2px;
+  color: #e6edf3;
+}
+
+.fd-prompt {
+  color: #7ee787;
+}
+
+.fd-caret {
+  color: #7ee787;
+}
+
+.fd-out {
+  margin: 0;
+  color: #8b949e;
+  white-space: pre-wrap;
+}
+
+.fd-ok {
+  color: #7ee787;
+}
+
+.fd-accent {
+  color: #d2a8ff;
+}
+
+/* ---------- B. 目录站 ---------- */
+
+.fd-site {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+}
+
+.fd-site-nav {
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  padding: 14px 26px;
+  border-bottom: 1px solid var(--line);
+}
+
+.fd-site-logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 600 14px/1 var(--font-ui);
+}
+
+.fd-site-link {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.fd-site-link.is-active {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.fd-site-search {
+  margin-left: auto;
+  min-width: 220px;
+  padding: 8px 14px;
+  border-radius: 99px;
+  background: var(--neutral-bg);
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.fd-site-hero {
+  padding: 40px 26px 6px;
+}
+
+.fd-site-hero h2 {
+  margin: 0 0 10px;
+  max-width: 26ch;
+  font: 600 28px/1.25 var(--font-ui);
+  letter-spacing: -0.02em;
+}
+
+.fd-site-hero p {
+  margin: 0;
+  max-width: 62ch;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+.fd-site-list {
+  display: grid;
+  gap: 12px;
+  padding: 24px 26px;
+}
+
+.fd-pack {
+  display: flex;
+  gap: 18px;
+  justify-content: space-between;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.fd-pack:hover {
+  border-color: var(--line-strong);
+  box-shadow: var(--shadow-sm);
+}
+
+.fd-pack-head {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.fd-pack-head h3 {
+  margin: 0;
+  font: 600 15px/1.3 var(--font-mono);
+}
+
+.fd-version {
+  padding: 3px 8px;
+  border-radius: 99px;
+  background: var(--neutral-bg);
+  color: var(--muted);
+  font: 11px/1 var(--font-mono);
+}
+
+.fd-badge {
+  padding: 2px 8px;
+  border-radius: 99px;
+  background: var(--neutral-bg);
+  color: var(--muted);
+  font: 500 11px/1.6 var(--font-ui);
+  white-space: nowrap;
+}
+
+.fd-badge-ok {
+  background: var(--ok-bg);
+  color: var(--ok);
+  border: 1px solid var(--ok-line);
+}
+
+.fd-pack-solves {
+  margin: 8px 0 10px;
+  max-width: 62ch;
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+
+.fd-pack-stats {
+  display: flex;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.fd-copy {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  align-self: center;
+  flex: none;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2);
+  cursor: pointer;
+}
+
+.fd-copy code {
+  font: 11.5px/1 var(--font-mono);
+  color: var(--ink-2);
+}
+
+.fd-copy span {
+  font-size: 11.5px;
+  color: var(--accent-ink);
+}
+
+.fd-site-foot {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  padding: 16px 26px 22px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ---------- C. 桌面启动器 ---------- */
+
+.fd-app {
+  display: flex;
+  justify-content: center;
+}
+
+.fd-window {
+  width: 960px;
+  max-width: 100%;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid var(--line);
+  box-shadow: 0 30px 80px -45px rgba(16, 24, 40, 0.45);
+}
+
+.fd-window-bar {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  padding: 11px 14px;
+  background: #f2f4f8;
+  border-bottom: 1px solid var(--line);
+}
+
+.fd-window-title {
+  margin-left: auto;
+  font: 600 11.5px/1 var(--font-ui);
+  color: var(--muted);
+}
+
+.fd-window-body {
+  display: grid;
+  grid-template-columns: 236px minmax(0, 1fr);
+  min-height: 520px;
+}
+
+.fd-app-side {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+  padding: 14px;
+  background: var(--surface-2);
+  border-right: 1px solid var(--line);
+}
+
+.fd-app-side-title {
+  margin: 12px 6px 4px;
+  font: 600 10.5px/1 var(--font-ui);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.fd-project {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  border-color: transparent;
+}
+
+.fd-project.is-active {
+  background: #fff;
+  border-color: var(--accent-line);
+}
+
+.fd-project-name {
+  font: 600 13px/1.3 var(--font-ui);
+}
+
+.fd-project-meta {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.fd-app-entry {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 9px 12px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+
+.fd-app-main {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+  padding: 22px 24px;
+}
+
+.fd-app-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.fd-app-head h3 {
+  margin: 0 0 4px;
+  font: 600 19px/1.25 var(--font-ui);
+}
+
+.fd-app-head p {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.fd-app-btn {
+  padding: 10px 16px;
+  border-radius: 10px;
+  border: 0;
+  background: var(--accent);
+  color: #fff;
+  font: 600 13px/1 var(--font-ui);
+  cursor: pointer;
+}
+
+.fd-app-btn-ghost {
+  background: #fff;
+  border: 1px solid var(--line);
+  color: var(--ink-2);
+}
+
+.fd-app-card {
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.fd-app-card-title {
+  margin: 0 0 10px;
+  font: 600 11px/1 var(--font-ui);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.fd-progress {
+  height: 6px;
+  border-radius: 99px;
+  background: var(--neutral-bg);
+  overflow: hidden;
+}
+
+.fd-progress span {
+  display: block;
+  height: 100%;
+  border-radius: 99px;
+  background: var(--accent);
+}
+
+.fd-app-step {
+  margin: 10px 0 0;
+  font: 11.5px/1.4 var(--font-mono);
+  color: var(--muted);
+}
+
+.fd-app-files {
+  margin: 0;
+  padding-left: 16px;
+  font: 11.5px/1.9 var(--font-mono);
+  color: var(--ink-2);
+}
+
+.fd-app-actions {
+  display: flex;
+  gap: 10px;
+}
+
+/* ---------- D. 可视化编辑器 ---------- */
+
+.fd-editor {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.fd-editor-bar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.fd-editor-bar .fd-app-btn:first-of-type {
+  margin-left: auto;
+}
+
+.fd-editor-name {
+  font: 600 13px/1 var(--font-mono);
+}
+
+.fd-editor-hint {
+  padding: 3px 8px;
+  border-radius: 99px;
+  background: var(--warn-bg);
+  color: var(--warn);
+  font-size: 11.5px;
+}
+
+.fd-editor-body {
+  display: grid;
+  grid-template-columns: 176px minmax(0, 1fr) 264px;
+  min-height: 520px;
+}
+
+.fd-palette {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  padding: 14px;
+  background: var(--surface-2);
+  border-right: 1px solid var(--line);
+}
+
+.fd-palette-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.fd-type {
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: var(--neutral-bg);
+  color: var(--muted);
+  font: 10px/1 var(--font-mono);
+  text-transform: uppercase;
+}
+
+.fd-type-mcp {
+  background: #eef0ff;
+  color: #4f46e5;
+}
+.fd-type-skill {
+  background: #f4ecff;
+  color: #7a3fd0;
+}
+.fd-type-prompt {
+  background: #fff4e6;
+  color: #b54708;
+}
+.fd-type-knowledge {
+  background: #e8f7f4;
+  color: #0b7285;
+}
+.fd-type-config {
+  background: #eef2f6;
+  color: #475467;
+}
+.fd-type-tool {
+  background: #fdf0f0;
+  color: #b42318;
+}
+
+.fd-canvas {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 520px;
+  overflow: auto;
+  background: radial-gradient(circle at 1px 1px, #e6e8ef 1px, transparent 0) 0 0 / 18px 18px;
+}
+
+.fd-board {
+  position: relative;
+  width: 900px;
+  height: 500px;
+}
+
+.fd-wires {
+  position: absolute;
+  inset: 0;
+  width: 900px;
+  height: 500px;
+}
+
+.fd-wires path {
+  fill: none;
+  stroke: #b9c0d4;
+  stroke-width: 1.6;
+}
+
+.fd-node {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: var(--shadow-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.fd-node.is-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.fd-node-main {
+  display: grid;
+  gap: 2px;
+}
+
+.fd-node-main strong {
+  font: 600 12.5px/1.2 var(--font-mono);
+}
+
+.fd-node-main small {
+  font: 10.5px/1.2 var(--font-mono);
+  color: var(--muted);
+}
+
+.fd-canvas-hint {
+  position: absolute;
+  left: 16px;
+  bottom: 14px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.fd-inspector {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  padding: 16px;
+  border-left: 1px solid var(--line);
+}
+
+.fd-field {
+  display: grid;
+  gap: 4px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.fd-field input {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--ink-2);
+  font: 11.5px/1 var(--font-mono);
+}
+
+.fd-inspector-note {
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+/* ---------- 窄屏 ---------- */
+
+@media (max-width: 1080px) {
+  .fd-bar {
+    flex-wrap: wrap;
+    padding: 12px 16px;
+  }
+
+  .fd-note {
+    display: none;
+  }
+
+  .fd-caption,
+  .fd-stage {
+    padding-left: 16px;
+    padding-right: 16px;
+    margin-left: 0;
+  }
+
+  .fd-site-nav {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .fd-site-search {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .fd-pack {
+    flex-direction: column;
+  }
+
+  .fd-copy {
+    align-self: flex-start;
+  }
+
+  .fd-window-body,
+  .fd-editor-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .fd-app-side,
+  .fd-palette {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .fd-inspector {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .fd-canvas {
+    min-height: 380px;
+  }
+}

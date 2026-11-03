@@ -14,6 +14,7 @@ export { validateGraph, type Graph } from './graph.ts';
 export { buildPlan, DIR_TARGET_VARS, type PlanOptions } from './plan.ts';
 export { buildLock } from './lock.ts';
 export { applyPlan, loadState, atomicWrite, type ApplyOptions, type ApplyResult, type ActionOutcome, type ActionStatus } from './install.ts';
+export { download, resolveDownloadUrl, FetchError, type FetchResult } from './download.ts';
 export { runChecks, type CheckResult, type CheckStatus, type VerifyOptions } from './verify.ts';
 export { canonicalize, sha256, interpolate, deepMerge, isPlainObject } from './util.ts';
 
@@ -46,7 +47,11 @@ export function planFor(ctx: PackContext, opts: Partial<PlanOptions> = {}): { pl
   });
 }
 
-export function installPack(ctx: PackContext, plan: Plan, opts: Omit<ApplyOptions, 'root'> = {}): ApplyResult {
+export function installPack(
+  ctx: PackContext,
+  plan: Plan,
+  opts: Omit<ApplyOptions, 'root'> = {},
+): Promise<ApplyResult> {
   return applyPlan(plan, { ...opts, root: ctx.dir });
 }
 

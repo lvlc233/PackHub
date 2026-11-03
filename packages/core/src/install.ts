@@ -1,8 +1,10 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
+import * as tar from 'tar';
 import type { Plan, PlanAction } from './types.ts';
 import { canonicalize, deepMerge, sha256 } from './util.ts';
+import { download } from './download.ts';
 
 export interface ApplyOptions {
   /** Pack 目录（plan 里的相对路径都相对它） */
@@ -38,7 +40,7 @@ interface State {
 const STATE_DIR = '.packhub';
 const STATE_FILE = '.packhub/state.json';
 
-export function applyPlan(plan: Plan, opts: ApplyOptions): ApplyResult {
+export async function applyPlan(plan: Plan, opts: ApplyOptions): Promise<ApplyResult> {
   const outcomes: ActionOutcome[] = [];
   const written: string[] = [];
   const key = `${plan.pack.name}@${plan.pack.version}`;
@@ -58,7 +60,7 @@ export function applyPlan(plan: Plan, opts: ApplyOptions): ApplyResult {
       continue;
     }
     try {
-      outcomes.push(applyAction(action, plan, opts, written));
+      outcomes.push(await applyAction(action, plan, opts, written));
     } catch (err) {
       outcomes.push({
         actionId: action.actionId,
@@ -87,22 +89,48 @@ export function applyPlan(plan: Plan, opts: ApplyOptions): ApplyResult {
   return { outcomes, statePath };
 }
 
-function applyAction(
+async function applyAction(
   action: PlanAction,
   plan: Plan,
   opts: ApplyOptions,
   written: string[],
-): ActionOutcome {
+): Promise<ActionOutcome> {
   switch (action.op) {
-    case 'fetch':
+    case 'fetch': {
+      const dest = within(opts.root, action.dest);
+      if (opts.dryRun) {
+        return { actionId: action.actionId, op: action.op, status: 'done', target: action.dest };
+      }
+      const res = await download(action.uri, dest, action.integrity);
+      written.push(action.dest);
       return {
         actionId: action.actionId,
         op: action.op,
-        status: 'skipped',
-        message: 'v0.0.1 的 dir adapter 不联网：远程资源留给 v0.0.2（本地资源可完整闭环）',
+        status: 'done',
+        target: action.dest,
+        message: `${Math.max(1, Math.round(res.bytes / 1024))} KB · ${res.integrity.slice(0, 14)}…`,
       };
+    }
 
-    case 'exec':
+    case 'unpack': {
+      const from = within(opts.root, action.from);
+      const to = within(opts.root, action.to);
+      if (!existsSync(from)) throw new Error(`待解包文件不存在：${action.from}`);
+      if (!opts.dryRun) {
+        mkdirSync(to, { recursive: true });
+        await tar.x({
+          file: from,
+          cwd: to,
+          strip: action.strip ?? 0,
+          // 归档内部路径不得逃出 to
+          filter: (path) => !path.split('/').includes('..'),
+        });
+      }
+      written.push(action.to);
+      return { actionId: action.actionId, op: action.op, status: 'done', target: action.to };
+    }
+
+    case 'exec': {
       if (!opts.allowExec) {
         return {
           actionId: action.actionId,
@@ -115,9 +143,9 @@ function applyAction(
         actionId: action.actionId,
         op: action.op,
         status: 'skipped',
-        message: 'v0.0.1 先不实装 exec 执行，仅保留审批语义',
+        message: 'exec 执行还没有实装，只保留审批语义',
       };
-
+    }
     case 'link.skill': {
       const from = within(opts.root, action.from);
       const to = within(opts.root, action.to);
@@ -194,7 +222,7 @@ function applyAction(
         actionId: action.actionId,
         op: action.op,
         status: 'skipped',
-        message: 'v0.0.1 不解包归档（依赖 fetch）',
+        message: '这条 unpack 缺少来源',
       };
 
     default: {

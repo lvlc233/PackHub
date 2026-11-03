@@ -61,7 +61,7 @@ const install = defineCommand({
     'dry-run': { type: 'boolean', default: false },
     'allow-exec': { type: 'boolean', default: false },
   },
-  run({ args }) {
+  async run({ args }) {
     const ctx = loadPack(String(args.dir));
     if (reportIssues(ctx.issues)) process.exit(2);
     const { plan: p, issues } = planFor(ctx);
@@ -69,7 +69,7 @@ const install = defineCommand({
       reportIssues(issues);
       process.exit(2);
     }
-    const result = installPack(ctx, p, {
+    const result = await installPack(ctx, p, {
       dryRun: Boolean(args['dry-run']),
       allowExec: Boolean(args['allow-exec']),
     });
