@@ -130,6 +130,21 @@ Hub **不内置 runner**：验证交给一次性容器（CI 或临时 job），H
 
 `/packs` 列表与 `/packs/<scope>/<name>` 详情页，只读 `registry/index.json` 与版本目录里的 manifest / lock / verify.json；`/api/registry` 与 `/api/registry/pack` 是它们的唯一数据源。页面上只给命令，不给在线安装。
 
+## 九点六、DSH 与 Claude Code 的实测方法（待执行）
+
+投影写出来了，但"harness 真的会读"还没验。验法要固定，不然每次都是猜：
+
+**Claude Code**（能离线验一半）：
+
+1. 在空目录里 `packhub add <包> --target claude-code`；
+2. 打开 Claude Code，问它"这个项目装了哪些能力"——回答里出现 `CLAUDE.md` 托管块的内容 = 指令面生效；
+3. 让它调用包里声明的 MCP 工具，能调 = `.mcp.json` 生效；
+4. `packhub uninstall`，再问一次，能力应该消失。
+
+**DSH**：项目级是否读 `AGENTS.md` / skills 目录尚未验证。验法：新开一个 DSH 会话（cwd 指向装了包的项目），看系统提示里是否带出 `AGENTS.md` 的托管块；如果没有，说明 DSH 只读 `~/.dsh/AGENTS.md`，那 `--target dsh` 就应该改成"写机器级配置 + 在项目里留一份说明"，这一条要等实测再定。
+
+结论先记在这里：**投影的落点表是按各家公开约定写的，未经验证；`--target dsh` 的 skills/MCP 仍是"只物化 + 指路"。**
+
 ## 十、下一步：先验证，再抽象
 
 拿当前仓库当试验田，写 `dsh` 与 `claude-code` 两个投影，实际验证：

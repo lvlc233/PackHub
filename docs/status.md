@@ -29,7 +29,7 @@
 - [x] 跨包所有权：同一路径被两个包占用时拒绝安装，`--overwrite` 显式放行；配置与根目录指令文件按共享处理
 - [x] 多入口：`add ./x.phub` 与 `add git+https://host/o/r@ref`（GitHub/GitLab archive）；registry 名称仍走 `--index`
 - [x] registry CI 真跑 `install + verify`：`pnpm registry:verify-all` 在干净目录逐个装并校验，已接进 workflow
-- [ ] DSH 是否读项目级 `AGENTS.md` / skills，实测后再决定投影策略
+- [ ] DSH 是否读项目级 `AGENTS.md` / skills（**未验证**；验法写在 deployment.md 九点六，需要新开一个 DSH 会话）
 - [ ] 签名（minisign）与许可自动检查
 - [ ] `unlisted` 的取包路径（不进索引也能按名装）
 - [ ] Hub 创作台（收藏、草稿、diff 预览）——前端已有公开页，管理面未做
