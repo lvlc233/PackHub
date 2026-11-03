@@ -12,6 +12,8 @@ export interface ResourceSpec {
   type: ResourceType;
   source: string;
   integrity?: string;
+  /** 只声明需要哪个凭证（变量名），值永远不进清单 */
+  auth?: { env: string; scheme?: 'bearer' | 'token' | 'basic' };
   transport?: 'stdio' | 'http';
   config?: Record<string, unknown>;
   provides?: string[];
@@ -71,6 +73,8 @@ export interface Manifest {
     keywords?: string[];
     authors?: { name: string; url?: string }[];
     targets: TargetId[];
+    /** 默认 private：要进公共索引必须显式写 public */
+    visibility?: 'public' | 'internal' | 'private';
   };
   requires: { packhub: string; agent?: string };
   vars?: Record<string, string | number | boolean>;
@@ -86,7 +90,13 @@ export interface Manifest {
 /* ---------- 计划（Plan） ---------- */
 
 export type PlanOp =
-  | { op: 'fetch'; uri: string; dest: string; integrity?: string }
+  | {
+      op: 'fetch';
+      uri: string;
+      dest: string;
+      integrity?: string;
+      auth?: { env: string; scheme?: 'bearer' | 'token' | 'basic' };
+    }
   | { op: 'unpack'; from: string; to: string; strip?: number }
   | { op: 'write'; to: string; from?: string; content?: string }
   | { op: 'link.skill'; from: string; to: string }

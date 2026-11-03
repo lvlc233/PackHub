@@ -9,6 +9,7 @@ metadata:
   license: MIT
   keywords: [demo, remote, github]
   targets: [dir]
+  visibility: public
 
 requires:
   packhub: ">=0.0.1 <0.1"

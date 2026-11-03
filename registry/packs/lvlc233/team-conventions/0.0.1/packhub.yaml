@@ -11,6 +11,7 @@ metadata:
   license: CC-BY-4.0
   keywords: [conventions, knowledge, config]
   targets: [dir]
+  visibility: public
 
 requires:
   packhub: ">=0.0.1 <0.1"

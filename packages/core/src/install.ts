@@ -105,7 +105,21 @@ async function applyAction(
       if (opts.dryRun) {
         return { actionId: action.actionId, op: action.op, status: 'done', target: action.dest };
       }
-      const res = await download(action.uri, dest, action.integrity);
+      const headers: Record<string, string> = {};
+      const auth = 'auth' in action ? action.auth : undefined;
+      if (auth) {
+        const token = process.env[auth.env];
+        if (!token) {
+          throw new Error(`需要 ${auth.env} 才能下载 ${hostOf(action.uri)}（未设置该环境变量）`);
+        }
+        const scheme = auth.scheme ?? 'bearer';
+        headers.Authorization =
+          scheme === 'basic' ? `Basic ${token}` : scheme === 'token' ? `token ${token}` : `Bearer ${token}`;
+      }
+      const res = await download(action.uri, dest, action.integrity, {
+        ...(Object.keys(headers).length ? { headers } : {}),
+        ...(auth ? { authHint: auth.env } : {}),
+      });
       written.push(action.dest);
       return {
         actionId: action.actionId,
@@ -254,6 +268,16 @@ async function applyAction(
         message: '未知动作',
       };
     }
+  }
+}
+
+/** 报错只留 host + path，不把可能带凭证的查询串打出来。 */
+function hostOf(uri: string): string {
+  try {
+    const u = new URL(uri);
+    return `${u.host}${u.pathname}`;
+  } catch {
+    return uri.split('?')[0] ?? uri;
   }
 }
 

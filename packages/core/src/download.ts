@@ -84,11 +84,28 @@ async function npmTarball(source: string): Promise<{ url: string; integrity?: st
   return { url: meta.dist.tarball, integrity: meta.dist.integrity };
 }
 
+export interface DownloadOptions {
+  headers?: Record<string, string>;
+  /** 缺凭证时报错要指名的环境变量 */
+  authHint?: string;
+}
+
+/** 只保留 host + path：URL 的查询串可能带凭证，不能进日志与报错。 */
+function safeUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.host}${u.pathname}`;
+  } catch {
+    return url.split('?')[0] ?? url;
+  }
+}
+
 /** 下载到指定文件，边下边算哈希；expected 给了就必须匹配。 */
 export async function download(
   source: string,
   dest: string,
   expectedIntegrity?: string,
+  opts: DownloadOptions = {},
 ): Promise<FetchResult> {
   let url: string;
   let expected = expectedIntegrity;
@@ -103,9 +120,13 @@ export async function download(
   }
 
   ensureProxy();
-  const res = await undiciFetch(url, { redirect: 'follow' });
+  const res = await undiciFetch(url, { redirect: 'follow', ...(opts.headers ? { headers: opts.headers } : {}) });
   if (!res.ok || !res.body) {
-    throw new FetchError(`下载失败 ${res.status}：${url}`, 'http-status');
+    const hint =
+      res.status === 401 || res.status === 403
+        ? `（鉴权失败${opts.authHint ? `：检查 ${opts.authHint} 是否有效` : '：该来源需要凭证'}）`
+        : '';
+    throw new FetchError(`下载失败 ${res.status}：${safeUrl(url)}${hint}`, 'http-status');
   }
 
   mkdirSync(dirname(dest), { recursive: true });

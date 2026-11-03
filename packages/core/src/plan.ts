@@ -102,6 +102,7 @@ export function buildPlan(
             uri: res.source,
             dest: `${targetVars.cacheDir}/${id}.tar.gz`,
             ...(res.integrity ? { integrity: res.integrity } : {}),
+            ...(res.auth ? { auth: res.auth } : {}),
             resource: id,
           });
           const unpacked = push({
@@ -138,6 +139,7 @@ export function buildPlan(
             uri: res.source,
             dest: `${dir}/${name}`,
             ...(res.integrity ? { integrity: res.integrity } : {}),
+            ...(res.auth ? { auth: res.auth } : {}),
             resource: id,
           });
         }
@@ -168,6 +170,7 @@ export function buildPlan(
           uri: res.source,
           dest: `${targetVars.cacheDir}/${id}.tar.gz`,
           ...(res.integrity ? { integrity: res.integrity } : {}),
+          ...(res.auth ? { auth: res.auth } : {}),
           resource: id,
         });
         push({

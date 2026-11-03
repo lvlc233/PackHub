@@ -43,6 +43,11 @@
           "minItems": 1,
           "uniqueItems": true,
           "items": { "enum": ["dir", "dsh", "claude-code"] }
+        },
+        "visibility": {
+          "enum": ["public", "internal", "private"],
+          "default": "private",
+          "description": "public 才会进公共索引；internal 走内网 registry；private 不发布"
         }
       }
     },
@@ -103,6 +108,16 @@
           "pattern": "^(npm|pypi|github|packhub|https?):.+|^\\./.*$"
         },
         "integrity": { "type": "string", "pattern": "^sha256-[A-Za-z0-9+/=]+$" },
+        "auth": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "只声明需要哪个凭证，绝不写值",
+          "required": ["env"],
+          "properties": {
+            "env": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
+            "scheme": { "enum": ["bearer", "token", "basic"], "default": "bearer" }
+          }
+        },
         "transport": { "enum": ["stdio", "http"] },
         "config": { "type": "object" },
         "provides": { "$ref": "#/definitions/capabilities" },

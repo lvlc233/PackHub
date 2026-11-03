@@ -327,6 +327,21 @@ https://…/note.md                         # 任意 https 单文件（knowledge
 **公司 GitLab / Gitea 怎么用**：拿它的 archive 下载链接（形如 `https://gitlab.example.com/g/p/-/archive/<sha>/p-<sha>.tar.gz`），配 `integrity`，`type` 用 `skill` 或 `tool`。私有仓库的鉴权目前没有支持（不带 token），内网场景建议直接把内容 vendored 进包。
 
 规则：**发布版必须落到不可变的东西上**。`@main`、`@latest`、无 integrity 的 https 都会在 `plan` 阶段被拒；integrity 由 `packhub lock` 或安装时自动补齐。
+**私有来源**：manifest 里只写「需要哪个凭证」，值从环境变量取：
+
+```yaml
+  - id: internal-rules
+    type: skill
+    source: https://gitlab.corp.example/g/agent/rules/-/archive/abc123/rules-abc123.tar.gz
+    integrity: sha256-9pQw3k2XmB7dLr0yTn5vZc8aS1eF4gH6jK0mN2oP4q=
+    auth:
+      env: CORP_GITLAB_TOKEN
+      scheme: bearer
+```
+
+缺变量时安装会直接报 `需要 CORP_GITLAB_TOKEN…`；token 不写进清单、锁、state 或日志。完整策略见 [trust.md](trust.md)。
+
+**可见性**：`metadata.visibility` 三档 `public` / `internal` / `private`，**默认 private**。要进公共 registry 必须显式写 `visibility: public`，否则 `registry:check` 会拒绝——默认公开迟早泄露一次。
 
 ### `provides` / `needs`：只在有依赖时写
 

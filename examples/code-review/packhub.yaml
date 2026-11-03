@@ -15,6 +15,7 @@ metadata:
     - name: lvlc233
       url: https://github.com/lvlc233
   targets: [dir, dsh]
+  visibility: public
 
 requires:
   packhub: ">=0.0.1 <0.1"

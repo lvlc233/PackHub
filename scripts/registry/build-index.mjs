@@ -77,6 +77,12 @@ for (const scope of dirs(PACKS)) {
       for (const e of errs) errors.push(`${packName}@${version}: [${e.code}] ${e.message}`);
       if (!ctx.manifest) continue;
 
+      // 这是公共 registry：默认 private 的包不允许进来（防误发布）
+      const visibility = ctx.manifest.metadata.visibility ?? 'private';
+      if (visibility !== 'public') {
+        errors.push(`${packName}@${version}: visibility=${visibility}，公共 registry 只收 visibility: public`);
+      }
+
       const lockPath = join(dir, 'packhub.lock.json');
       if (!existsSync(lockPath)) {
         errors.push(`${packName}@${version}: 缺少 packhub.lock.json（发布必须带锁）`);
