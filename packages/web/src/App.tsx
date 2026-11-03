@@ -85,7 +85,7 @@ export function App() {
       .pack(selected)
       .then((d) => {
         setDetail(d);
-        // 上次安装的结果从 state 里回填：面板打开时运行单就该反映磁盘上的事实
+        // 上次安装的结果从 state 回填：面板打开时运行单就该反映磁盘上的事实
         const key = d.manifest
           ? `${d.manifest.metadata.name}@${d.manifest.metadata.version}`
           : '';
@@ -103,7 +103,7 @@ export function App() {
       const res = await api.install(selected);
       setOutcomes(res.outcomes);
       setStamped(true);
-      window.setTimeout(() => setStamped(false), 1600);
+      window.setTimeout(() => setStamped(false), 1700);
       await refreshPacks();
       setDetail(await api.pack(selected));
     } catch (err) {
@@ -157,9 +157,9 @@ export function App() {
         </p>
 
         <nav className="pack-list" aria-label="整合包">
-          {packs.map((p) => {
+          {packs.map((p, i) => {
             const active = p.dir === selected;
-            const installed = p.installedHash && p.installedHash === p.planHash;
+            const isInstalled = p.installedHash && p.installedHash === p.planHash;
             return (
               <button
                 key={p.dir}
@@ -167,12 +167,15 @@ export function App() {
                 aria-current={active ? 'true' : undefined}
                 onClick={() => setSelected(p.dir)}
               >
-                <span className="pack-name">{p.title || p.name}</span>
-                <span className="pack-meta">{p.name}</span>
-                <span className="pack-stats">
-                  v{p.version} · {p.resourceCount} 资源
-                  {installed ? ' · 已装' : ''}
-                  {p.errors > 0 ? ` · ${p.errors} 错误` : ''}
+                <span className="pack-index">{String(i + 1).padStart(2, '0')}</span>
+                <span className="pack-body">
+                  <span className="pack-name">{p.title || p.name}</span>
+                  <span className="pack-meta">{p.name}</span>
+                  <span className="pack-stats">
+                    v{p.version} · {p.resourceCount} 资源
+                    {isInstalled ? ' · 已装' : ''}
+                    {p.errors > 0 ? ` · ${p.errors} 错误` : ''}
+                  </span>
                 </span>
               </button>
             );
@@ -193,43 +196,42 @@ export function App() {
           </p>
         )}
 
-        {!detail && loading && <p className="muted">读取仓库…</p>}
+        {!detail && loading && <p className="loading">读取仓库…</p>}
 
         {detail && manifest && (
           <>
-            <header className={stamped ? 'head is-stamped' : 'head'}>
-              <div className="head-main">
+            <header className={stamped ? 'ticket is-stamped' : 'ticket'}>
+              <div className="ticket-main">
                 <h1>{manifest.metadata.title || manifest.metadata.name}</h1>
-                <p className="head-sub">{manifest.metadata.description}</p>
-              </div>
-              <div className="head-side">
+                <p className="ticket-sub">{manifest.metadata.description}</p>
                 <div className="chips">
-                  <span className="chip">{manifest.metadata.name}</span>
-                  <span className="chip">v{manifest.metadata.version}</span>
+                  <span className="chip chip-strong">{manifest.metadata.name}</span>
+                  <span className="chip chip-accent">v{manifest.metadata.version}</span>
                   {manifest.metadata.targets.map((t) => (
-                    <span className="chip chip-quiet" key={t}>
+                    <span className="chip" key={t}>
                       {t}
                     </span>
                   ))}
                 </div>
-                <div className="actions">
-                  <button className="btn btn-solid" onClick={runInstall} disabled={busy !== null}>
-                    {busy === 'install' ? '安装中…' : '安装到目录'}
-                  </button>
-                  <button className="btn" onClick={runVerify} disabled={busy !== null}>
-                    {busy === 'verify' ? '校验中…' : '运行校验'}
-                  </button>
-                </div>
               </div>
-            </header>
 
-            <p className="serial">
-              <span className="serial-key">planHash</span>
-              <code>{plan?.planHash ?? '—'}</code>
-              <span className="serial-note">
-                {plan?.actions.length ?? 0} 个动作 · {plan?.verify.length ?? 0} 项校验
-              </span>
-            </p>
+              <div className="ticket-act">
+                <button className="btn btn-accent" onClick={runInstall} disabled={busy !== null}>
+                  {busy === 'install' ? '安装中…' : '安装到目录'}
+                </button>
+                <button className="btn btn-ghost" onClick={runVerify} disabled={busy !== null}>
+                  {busy === 'verify' ? '校验中…' : '运行校验'}
+                </button>
+              </div>
+
+              <p className="ticket-serial">
+                <span className="serial-label">planHash</span>
+                <code>{plan?.planHash ?? '—'}</code>
+                <span className="serial-count">
+                  {plan?.actions.length ?? 0} 个动作 · {plan?.verify.length ?? 0} 项校验
+                </span>
+              </p>
+            </header>
 
             {errors.length > 0 && (
               <section className="issues" aria-label="问题">
@@ -245,165 +247,162 @@ export function App() {
               </section>
             )}
 
-            <div className="grid">
-              <div className="col">
-                <section className="panel bom" aria-label="物料清单">
-                  <h2>
-                    物料清单 <span className="count">{manifest.resources.length} 项</span>
-                  </h2>
-                  <table>
-                    <thead>
-                      <tr>
-                        <th scope="col" className="col-type">
-                          类型
-                        </th>
-                        <th scope="col" className="col-id">
-                          id
-                        </th>
-                        <th scope="col">来源 · 能力</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {manifest.resources.map((r) => {
-                        const [head, pin] = splitSource(r.source);
-                        return (
-                          <tr key={r.id}>
-                            <td className="col-type">
-                              <span className="type">{r.type}</span>
-                            </td>
-                            <td className="col-id mono">{r.id}</td>
-                            <td>
-                              <span className="src" title={`${head}${pin ?? ''}`}>
-                                {head}
-                              </span>
-                              {pin && <span className="pin">{pin}</span>}
-                              {((r.provides ?? []).length > 0 || (r.needs ?? []).length > 0) && (
-                                <span className="caps">
-                                  {(r.provides ?? []).map((c) => (
-                                    <span className="cap" key={c}>
-                                      {c}
-                                    </span>
-                                  ))}
-                                  {(r.needs ?? []).map((c) => (
-                                    <span className="cap cap-need" key={c}>
-                                      ⇠ {c}
-                                    </span>
-                                  ))}
-                                </span>
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </section>
-
-                <section className="panel checks" aria-label="校验">
-                  <h2>
-                    校验 <span className="count">{checks?.length ?? plan?.verify.length ?? 0} 项</span>
-                  </h2>
-                  <ul>
-                    {(checks ?? plan?.verify ?? []).map((c, i) => {
-                      const r = checks?.[i];
-                      const status = r?.status;
+            <div className="bench">
+              <section className="bom" aria-label="物料清单">
+                <h2>
+                  物料清单 <span className="count">{manifest.resources.length} 项</span>
+                </h2>
+                <table>
+                  <thead>
+                    <tr>
+                      <th scope="col" className="col-type">
+                        类型
+                      </th>
+                      <th scope="col" className="col-id">
+                        id
+                      </th>
+                      <th scope="col">来源 · 能力</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {manifest.resources.map((r) => {
+                      const [head, pin] = splitSource(r.source);
                       return (
-                        <li key={i} className={status ? `is-${status}` : undefined}>
-                          <span className="idx">{String(i + 1).padStart(2, '0')}</span>
-                          <div className="body">
-                            <span className="op">{c.type}</span>
-                            {r?.detail && <span className="tgt mono">{r.detail}</span>}
-                          </div>
-                          <span className="st">{status ? STATUS_LABEL[status] : '未运行'}</span>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                  {checks === null && <p className="panel-note">校验只读：不写文件、不联网。</p>}
-                </section>
-
-                <section className="panel bench" aria-label="本机状态">
-                  <h2>本机状态</h2>
-                  <dl>
-                    <dt>安装</dt>
-                    <dd>{installed ? (installedFresh ? '已装 · 与当前计划一致' : '已装 · 计划已变化') : '未安装'}</dd>
-                    <dt>时间</dt>
-                    <dd className="mono">
-                      {installed ? localTime(installed.installedAt) : '—'}
-                    </dd>
-                    <dt>写入</dt>
-                    <dd className="mono">{installed?.written?.length ?? 0} 个文件</dd>
-                  </dl>
-                  {installed?.written && installed.written.length > 0 && (
-                    <ul className="written">
-                      {installed.written.slice(0, 6).map((w) => (
-                        <li key={w} className="mono" title={w}>
-                          {w}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  {!installed && <p className="panel-note">安装后这里会列出实际落盘的文件。</p>}
-                </section>
-              </div>
-
-              <div className="col">
-                <section className="panel runsheet" aria-label="运行单">
-                  <h2>
-                    运行单 <span className="count">{plan?.actions.length ?? 0} 步</span>
-                  </h2>
-                  <ol>
-                    {(plan?.actions ?? []).map((a, i) => {
-                      const o = statusOf.get(a.actionId);
-                      return (
-                        <li key={a.actionId} className={o ? `is-${o.status}` : undefined}>
-                          <span className="idx">{String(i + 1).padStart(2, '0')}</span>
-                          <div className="body">
-                            <span className="op">{OP_LABEL[a.op] ?? a.op}</span>
-                            <span className="tgt mono" title={targetOf(a)}>
-                              {targetOf(a) || a.resource || ''}
+                        <tr key={r.id}>
+                          <td className="col-type">
+                            <span className="type">{r.type}</span>
+                          </td>
+                          <td className="col-id mono">{r.id}</td>
+                          <td>
+                            <span className="src" title={`${head}${pin ?? ''}`}>
+                              {head}
                             </span>
-                            <span className="act mono">{a.actionId}</span>
-                          </div>
-                          <span className="st">{o ? STATUS_LABEL[o.status] : '待执行'}</span>
-                        </li>
+                            {pin && <span className="pin">{pin}</span>}
+                            {((r.provides ?? []).length > 0 || (r.needs ?? []).length > 0) && (
+                              <span className="caps">
+                                {(r.provides ?? []).map((c) => (
+                                  <span className="cap" key={c}>
+                                    {c}
+                                  </span>
+                                ))}
+                                {(r.needs ?? []).map((c) => (
+                                  <span className="cap cap-need" key={c}>
+                                    ⇠ {c}
+                                  </span>
+                                ))}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
                       );
                     })}
-                  </ol>
-                  {outcomes === null && (
-                    <p className="panel-note">点击「安装到目录」后，这里逐条落下执行结果。</p>
-                  )}
-                </section>
+                  </tbody>
+                </table>
+              </section>
 
-                <section className="panel wiring" aria-label="接线与环境">
-                  <h2>接线与环境</h2>
-                  <dl>
-                    <dt>target</dt>
-                    <dd className="mono">{plan?.target ?? '—'}</dd>
-                    {vars.map(([k, v]) => (
-                      <Fragment key={`v-${k}`}>
-                        <dt>var · {k}</dt>
-                        <dd className="mono">{String(v)}</dd>
-                      </Fragment>
-                    ))}
-                    {env.map(([k, v]) => (
-                      <Fragment key={`e-${k}`}>
-                        <dt>env · {k}</dt>
-                        <dd className="mono" title={String(v)}>
-                          {resolveVars(String(v), manifest.vars)}
-                        </dd>
-                      </Fragment>
-                    ))}
-                    {order.length > 0 && (
-                      <>
-                        <dt>顺序</dt>
-                        <dd className="mono">{order.join(' → ')}</dd>
-                      </>
-                    )}
-                  </dl>
-                </section>
-              </div>
+              <section className="checks" aria-label="校验">
+                <h2>
+                  校验 <span className="count">{checks?.length ?? plan?.verify.length ?? 0} 项</span>
+                </h2>
+                <ul>
+                  {(checks ?? plan?.verify ?? []).map((c, i) => {
+                    const r = checks?.[i];
+                    const status = r?.status;
+                    return (
+                      <li key={i} className={status ? `is-${status}` : undefined}>
+                        <span className="idx">{String(i + 1).padStart(2, '0')}</span>
+                        <span className="body">
+                          <span className="op">{c.type}</span>
+                          {r?.detail && <span className="tgt mono">{r.detail}</span>}
+                        </span>
+                        <span className="st">{status ? STATUS_LABEL[status] : '未运行'}</span>
+                      </li>
+                    );
+                  })}
+                </ul>
+                {checks === null && <p className="note">校验只读：不写文件、不联网。</p>}
+              </section>
+
+              <aside className="execute" aria-label="运行单">
+                <h2>
+                  运行单 <span className="count">{plan?.actions.length ?? 0} 步</span>
+                </h2>
+                <ol>
+                  {(plan?.actions ?? []).map((a, i) => {
+                    const o = statusOf.get(a.actionId);
+                    return (
+                      <li key={a.actionId} className={o ? `is-${o.status}` : undefined}>
+                        <span className="idx">{String(i + 1).padStart(2, '0')}</span>
+                        <span className="body">
+                          <span className="op">{OP_LABEL[a.op] ?? a.op}</span>
+                          <span className="tgt mono" title={targetOf(a)}>
+                            {targetOf(a) || a.resource || ''}
+                          </span>
+                          <span className="act mono">{a.actionId}</span>
+                        </span>
+                        <span className="st">{o ? STATUS_LABEL[o.status] : '待执行'}</span>
+                      </li>
+                    );
+                  })}
+                </ol>
+                {outcomes === null && (
+                  <p className="exec-note">点「安装到目录」后，这里逐条落下执行结果。</p>
+                )}
+              </aside>
             </div>
+
+            <footer className="status">
+              <div className="footer-block wiring" aria-label="接线与环境">
+                <h3>接线与环境</h3>
+                <dl>
+                  <dt>target</dt>
+                  <dd>{plan?.target ?? '—'}</dd>
+                  {vars.map(([k, v]) => (
+                    <Fragment key={`v-${k}`}>
+                      <dt>var · {k}</dt>
+                      <dd>{String(v)}</dd>
+                    </Fragment>
+                  ))}
+                  {env.map(([k, v]) => (
+                    <Fragment key={`e-${k}`}>
+                      <dt>env · {k}</dt>
+                      <dd title={String(v)}>{resolveVars(String(v), manifest.vars)}</dd>
+                    </Fragment>
+                  ))}
+                  {order.length > 0 && (
+                    <>
+                      <dt>顺序</dt>
+                      <dd>{order.join(' → ')}</dd>
+                    </>
+                  )}
+                </dl>
+              </div>
+
+              <div className="footer-block" aria-label="本机状态">
+                <h3>本机状态</h3>
+                <p className="state-line">
+                  {installed
+                    ? installedFresh
+                      ? '已装，且与当前计划一致'
+                      : '已装，但计划已变化'
+                    : '尚未安装'}
+                  {installed && (
+                    <span className="state-time mono">{localTime(installed.installedAt)}</span>
+                  )}
+                </p>
+                {installed?.written && installed.written.length > 0 ? (
+                  <ul className="written">
+                    {installed.written.slice(0, 8).map((w) => (
+                      <li key={w} className="mono" title={w}>
+                        {w}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="note">安装后这里会列出实际落盘的文件。</p>
+                )}
+              </div>
+            </footer>
           </>
         )}
       </main>
