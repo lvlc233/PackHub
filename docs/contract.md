@@ -81,13 +81,13 @@
 
 ---
 
-## 4. Index（`packhub.dev/index/v0.1`）
+## 4. Index（`packhub.dev/index/v0`）
 
 registry 的静态清单，站点与 `search` 只读它。
 
 ```jsonc
 {
-  "apiVersion": "packhub.dev/index/v0.1",
+  "apiVersion": "packhub.dev/index/v0",
   "generatedAt": "2026-11-03T…",
   "packs": [
     {

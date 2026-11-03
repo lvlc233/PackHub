@@ -51,7 +51,7 @@ describe('文档示例', () => {
   it('每种资源示例单独塞进清单后都能生成计划', () => {
     const types = new Set<string>();
     for (const snippet of resourceSnippets) {
-      const yaml = `apiVersion: packhub.dev/v0.0.1
+      const yaml = `apiVersion: packhub.dev/v0
 kind: Pack
 metadata:
   name: doc/example

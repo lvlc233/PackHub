@@ -1,6 +1,6 @@
 # 示例：不含 MCP / Skill 的 Pack（README 4.2 的要求）
 # 只由知识与配置组成，验证「Pack 不要求必须包含 MCP 或 Skill」。
-apiVersion: packhub.dev/v0.0.1
+apiVersion: packhub.dev/v0
 kind: Pack
 
 metadata:

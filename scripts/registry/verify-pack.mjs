@@ -56,7 +56,7 @@ try {
   const ok = failedActions === 0 && checks.every((c) => c.status !== 'fail');
 
   const report = {
-    apiVersion: 'packhub.dev/verify/v0.1',
+    apiVersion: 'packhub.dev/verify/v0',
     planHash: plan.planHash,
     ok,
     checks,

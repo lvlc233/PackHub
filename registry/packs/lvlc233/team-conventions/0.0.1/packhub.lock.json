@@ -1,5 +1,5 @@
 {
-  "apiVersion": "packhub.dev/lock/v0.0.1",
+  "apiVersion": "packhub.dev/lock/v0",
   "pack": "lvlc233/team-conventions@0.0.1",
   "resolved": [
     {
@@ -7,23 +7,23 @@
       "type": "knowledge",
       "source": "./resources/style-guide.md",
       "integrity": null,
-      "resolvedAt": "2026-11-03T09:26:04.490Z"
+      "resolvedAt": "2026-11-03T10:02:38.574Z"
     },
     {
       "id": "commit-rules",
       "type": "prompt",
       "source": "./resources/commit-rules.md",
       "integrity": null,
-      "resolvedAt": "2026-11-03T09:26:04.490Z"
+      "resolvedAt": "2026-11-03T10:02:38.574Z"
     },
     {
       "id": "editor-config",
       "type": "config",
       "source": "./fragments/editorconfig.yaml",
       "integrity": null,
-      "resolvedAt": "2026-11-03T09:26:04.490Z"
+      "resolvedAt": "2026-11-03T10:02:38.574Z"
     }
   ],
-  "planHash": "sha256-q7awCcxoAeJ70JkgO31KPAR0Q1WrRqRm/LMlnAUnlNQ=",
+  "planHash": "sha256-Z+/yOpunEsavNUdeHqVdxRl+8QUO5LYXPhYqild0Dso=",
   "generatedBy": "packhub/0.0.1"
 }

@@ -119,7 +119,7 @@ code-review/
 
 | 字段 | 必填 | 说明 |
 |---|---|---|
-| `apiVersion` | 是 | `packhub.dev/v0.0.1`，升级时按主版本做迁移 |
+| `apiVersion` | 是 | `packhub.dev/v0`，升级时按主版本做迁移 |
 | `kind` | 是 | `Pack` |
 | `metadata.name` | 是 | `scope/name`，小写、连字符，全局唯一（scope 用 GitHub 用户名） |
 | `metadata.version` | 是 | 语义化版本 |
@@ -179,7 +179,7 @@ overrides:                      # 覆盖父 Pack 的某个资源 pin 或配置
 
 ```json
 {
-  "apiVersion": "packhub.dev/plan/v0.0.1",
+  "apiVersion": "packhub.dev/plan/v0",
   "pack": { "name": "lvlc233/code-review", "version": "0.0.1" },
   "target": "dsh",
   "actions": [
@@ -244,7 +244,7 @@ interface TargetAdapter {
 
 ```json
 {
-  "apiVersion": "packhub.dev/lock/v0.0.1",
+  "apiVersion": "packhub.dev/lock/v0",
   "pack": "lvlc233/code-review@0.0.1",
   "resolved": [
     { "id": "repo-search", "type": "mcp", "source": "npm:@modelcontextprotocol/server-everything@0.6.2",

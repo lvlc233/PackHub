@@ -4,7 +4,7 @@ import Ajv, { type ValidateFunction } from 'ajv';
 import addFormats from 'ajv-formats';
 import type { Issue, Manifest } from './types.ts';
 
-const SCHEMA_URL = new URL('../../../schema/packhub.v0.0.1.schema.json', import.meta.url);
+const SCHEMA_URL = new URL('../../../schema/packhub.v0.schema.json', import.meta.url);
 
 let cachedValidator: ValidateFunction | undefined;
 

@@ -1,4 +1,4 @@
-﻿apiVersion: packhub.dev/v0.0.1
+apiVersion: packhub.dev/v0
 kind: Pack
 
 metadata:

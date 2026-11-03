@@ -2,7 +2,7 @@ import json, sys, glob
 import yaml
 from jsonschema import Draft7Validator
 
-schema = json.load(open('schema/packhub.v0.0.1.schema.json', encoding='utf-8'))
+schema = json.load(open('schema/packhub.v0.schema.json', encoding='utf-8'))
 Draft7Validator.check_schema(schema)
 v = Draft7Validator(schema)
 

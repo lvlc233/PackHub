@@ -138,8 +138,8 @@ const init = defineCommand({
       process.exit(1);
     }
     mkdirSync(join(dir, 'resources'), { recursive: true });
-    const template = `# yaml-language-server: $schema=https://raw.githubusercontent.com/lvlc233/PackHub/main/schema/packhub.v0.0.1.schema.json
-apiVersion: packhub.dev/v0.0.1
+    const template = `# yaml-language-server: $schema=https://raw.githubusercontent.com/lvlc233/PackHub/main/schema/packhub.v0.schema.json
+apiVersion: packhub.dev/v0
 kind: Pack
 
 metadata:

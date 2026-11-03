@@ -5,7 +5,7 @@ import type { Manifest } from '../src/types.ts';
 
 const base = (patch: Partial<Manifest> = {}): string =>
   JSON.stringify({
-    apiVersion: 'packhub.dev/v0.0.1',
+    apiVersion: 'packhub.dev/v0',
     kind: 'Pack',
     metadata: { name: 'a/b', version: '0.0.1', targets: ['dir'] },
     requires: { packhub: '>=0.0.1 <0.1' },

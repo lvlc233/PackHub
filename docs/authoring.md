@@ -15,7 +15,7 @@
 ### 最小可用（13 行）
 
 ```yaml
-apiVersion: packhub.dev/v0.0.1   # 清单格式版本；目前只有这一个合法值
+apiVersion: packhub.dev/v0   # 清单格式版本；目前只有这一个合法值
 kind: Pack                        # 固定 Pack，给以后别的类型留位
 
 metadata:
@@ -49,10 +49,6 @@ resources:                    # ← 唯一的列表
     type: skill
     source: github:owner/repo/skills/code-review@<40 位 commit>
 ```
-
-缩进规则：`- id:` 比 `resources:` 多两格，`type` / `source` 比 `- id:` 再多两格。用 `packhub resource add` 追加就不用手工对齐。
-
-每种资源的 `source` 形态、安装期动作、装完落在哪都不同。下面六段各自都能作为唯一一项跑通（本文件所有示例由 `docs-examples.test.ts` 校验）。
 
 #### 1. `mcp` —— 只写配置，不下载包体
 
@@ -149,8 +145,8 @@ resources:                    # ← 唯一的列表
 ### 完整的（每条批注都是真实现状）
 
 ```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/lvlc233/PackHub/main/schema/packhub.v0.0.1.schema.json
-apiVersion: packhub.dev/v0.0.1
+# yaml-language-server: $schema=https://raw.githubusercontent.com/lvlc233/PackHub/main/schema/packhub.v0.schema.json
+apiVersion: packhub.dev/v0
 kind: Pack
 
 metadata:
@@ -217,14 +213,6 @@ verify:                              # 发布时必须有；本地可先留一�
   - { type: file-exists, path: "${target.skillsDir}/review-rules/SKILL.md" }
   - { type: config-key, path: "${target.configFile}", key: "mcpServers.repo-search.command", equals: npx }
 ```
-
-### 字段分三层
-
-| 层 | 字段 | 什么时候写 |
-|---|---|---|
-| **必写** | `apiVersion` · `kind` · `metadata.name/version/targets` · `requires.packhub` · `resources[].id/type/source` | 每个 Pack |
-| **按需** | `vars` · `composition` · `provides` / `needs` / `dependsOn` · `install.exec` · `overrides` | 有变量、有接线、有依赖时 |
-| **发布时** | `verify` · `integrity`（https 必填）· `metadata.license/authors/keywords` | 要进 registry 之前 |
 
 ### 生成物不要手写
 

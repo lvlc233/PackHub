@@ -45,7 +45,7 @@ describe('计划细节', () => {
     const { buildPlan } = await import('../src/plan.ts');
     const { DIR_TARGET_VARS } = await import('../src/plan.ts');
 
-    const manifest = parseManifest(`apiVersion: packhub.dev/v0.0.1
+    const manifest = parseManifest(`apiVersion: packhub.dev/v0
 kind: Pack
 metadata:
   name: t/sub
@@ -69,7 +69,7 @@ resources:
     const { validateGraph } = await import('../src/graph.ts');
     const { buildPlan, DIR_TARGET_VARS } = await import('../src/plan.ts');
 
-    const manifest = parseManifest(`apiVersion: packhub.dev/v0.0.1
+    const manifest = parseManifest(`apiVersion: packhub.dev/v0
 kind: Pack
 metadata:
   name: t/env

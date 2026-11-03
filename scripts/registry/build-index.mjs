@@ -139,7 +139,7 @@ for (const scope of dirs(PACKS)) {
 }
 
 const index = {
-  apiVersion: 'packhub.dev/index/v0.1',
+  apiVersion: 'packhub.dev/index/v0',
   generatedAt: new Date().toISOString(),
   packs,
 };

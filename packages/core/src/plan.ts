@@ -192,7 +192,7 @@ export function buildPlan(
   if (issues.some((i) => i.severity === 'error')) return { issues };
 
   const plan: Omit<Plan, 'planHash'> = {
-    apiVersion: 'packhub.dev/plan/v0.0.1',
+    apiVersion: 'packhub.dev/plan/v0',
     pack: { name: manifest.metadata.name, version: manifest.metadata.version },
     target: opts.target,
     actions,

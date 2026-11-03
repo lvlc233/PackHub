@@ -31,11 +31,14 @@ export interface ApplyResult {
 }
 
 interface State {
+  apiVersion: 'packhub.dev/state/v0';
   packs: Record<
     string,
     { planHash: string; installedAt: string; actions: ActionOutcome[]; written: string[] }
   >;
 }
+
+const STATE_API = 'packhub.dev/state/v0';
 
 const STATE_DIR = '.packhub';
 const STATE_FILE = '.packhub/state.json';
@@ -75,6 +78,7 @@ export async function applyPlan(plan: Plan, opts: ApplyOptions): Promise<ApplyRe
   const statePath = join(opts.root, STATE_FILE);
   if (!opts.dryRun && outcomes.every((o) => o.status !== 'failed')) {
     const state = loadState(opts.root);
+    state.apiVersion = 'packhub.dev/state/v0';
     const previous = state.packs[key]?.written ?? [];
     state.packs[key] = {
       planHash: plan.planHash,
@@ -265,8 +269,10 @@ function within(root: string, relPath: string): string {
 
 export function loadState(root: string): State {
   const file = join(root, STATE_FILE);
-  if (!existsSync(file)) return { packs: {} };
-  return JSON.parse(readFileSync(file, 'utf8')) as State;
+  if (!existsSync(file)) return { apiVersion: STATE_API, packs: {} };
+  const parsed = JSON.parse(readFileSync(file, 'utf8')) as Partial<State>;
+  // 早期 state 没有 apiVersion：补上而不是拒绝——它是本机缓存，不是发布契约
+  return { apiVersion: STATE_API, packs: parsed.packs ?? {} };
 }
 
 /** 原子替换，供后续 adapter 复用。 */

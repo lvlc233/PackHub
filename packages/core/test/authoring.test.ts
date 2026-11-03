@@ -6,7 +6,7 @@ import { addResource, inferId } from '../src/authoring.ts';
 import { loadPack, planFor } from '../src/index.ts';
 
 const MANIFEST = `# 注释要被保留
-apiVersion: packhub.dev/v0.0.1
+apiVersion: packhub.dev/v0
 kind: Pack
 
 metadata:

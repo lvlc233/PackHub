@@ -1,6 +1,6 @@
 /** PackHub v0.0.1 数据模型。
  *
- * 权威定义在 `schema/packhub.v0.0.1.schema.json`；这里的类型是它的人工镜像，
+ * 权威定义在 `schema/packhub.v0.schema.json`；这里的类型是它的人工镜像，
  * 由 `tests/schema.test.ts` 用 examples/ 做一致性兜底。改 Schema 时必须同步改这里。
  */
 
@@ -48,7 +48,7 @@ export type VerifyCheck =
   | { type: 'knowledge-integrity'; resource: string };
 
 export interface Manifest {
-  apiVersion: 'packhub.dev/v0.0.1';
+  apiVersion: 'packhub.dev/v0';
   kind: 'Pack';
   extends?: string;
   metadata: {
@@ -102,7 +102,7 @@ export type PlanActionInput = PlanOp & {
 };
 
 export interface Plan {
-  apiVersion: 'packhub.dev/plan/v0.0.1';
+  apiVersion: 'packhub.dev/plan/v0';
   pack: { name: string; version: string };
   target: TargetId;
   actions: PlanAction[];
@@ -112,7 +112,7 @@ export interface Plan {
 }
 
 export interface LockFile {
-  apiVersion: 'packhub.dev/lock/v0.0.1';
+  apiVersion: 'packhub.dev/lock/v0';
   pack: string;
   resolved: ResolvedRef[];
   planHash: string;

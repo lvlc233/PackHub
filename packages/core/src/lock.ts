@@ -15,7 +15,7 @@ export function buildLock(
   }));
 
   return {
-    apiVersion: 'packhub.dev/lock/v0.0.1',
+    apiVersion: 'packhub.dev/lock/v0',
     pack: `${manifest.metadata.name}@${manifest.metadata.version}`,
     resolved,
     planHash: plan.planHash,

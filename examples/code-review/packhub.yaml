@@ -1,6 +1,6 @@
 # 示例：一个真正「接起来」的 Pack —— 代码审查
 # 演示：MCP + Skill + Knowledge + Config 四类资源、能力图、env 插值、可验证。
-apiVersion: packhub.dev/v0.0.1
+apiVersion: packhub.dev/v0
 kind: Pack
 
 metadata:
