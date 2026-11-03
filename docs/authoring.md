@@ -34,28 +34,25 @@ resources:                        # 至少一项
 
 四个必填块：`apiVersion` + `kind`、`metadata`（name / version / targets）、`requires.packhub`、`resources[]`。`resources` 里至少一项，每项要 `id` / `type` / `source`。
 
-### 逐项解释这 13 行
-
-| 字段 | 必填 | 含义 | 写错的后果 |
-|---|---|---|---|
-| `apiVersion` | 是 | 清单格式版本，目前只能是 `packhub.dev/v0.0.1` | schema 直接拒；主版本不认识就不读，不做猜测 |
-| `kind` | 是 | 固定 `Pack`（给未来别的类型留位） | schema 拒 |
-| `metadata.name` | 是 | `scope/name`，scope 用 GitHub 用户名；全局唯一，也是 index 里的主键 | 格式不符（大写、下划线）→ 拒；重名 → 后发的版本无法进 registry |
-| `metadata.version` | 是 | 语义化版本；**发布后不可改**，改动必须发新版本 | registry 的不可变检查会拦下来 |
-| `metadata.targets` | 是 | 这份清单打算装到哪些环境：`dir`（中性目录）/ `dsh` / `claude-code` | 声明了但没实现的 adapter 会给了明确报错；`dir` 是永远可用的兜底 |
-| `requires.packhub` | 是 | 需要的平台版本范围，例：`">=0.0.1 <0.1"` | 范围外直接拒绝执行，避免用旧内核跑新清单 |
-| `resources` | 是 | 至少一项；每项要 `id` / `type` / `source` 三个键 | 空数组 → schema 拒 |
-| `resources[].id` | 是 | Pack 内唯一，小写字母开头，只含 `a-z0-9-` | 重复 → `duplicate-resource-id`；大写 → schema 拒 |
-| `resources[].type` | 是 | 六选一：`mcp` / `skill` / `prompt` / `knowledge` / `config` / `tool` | 未知类型 → `unknown-resource-type` |
-| `resources[].source` | 是 | 从哪来。形态决定可复现性：`npm:` `pypi:` `github:` `https://` `./` | 无 pin → `unpinned-source`；https 无 integrity → `http-missing-integrity` |
-
-最小清单里没写 `verify`、`title`、`license`——它们不是必填，但**要进 registry 就得补**（见第〇节的字段分层）。
-
 ---
 
 ### 六种资源各长什么样
 
-每种资源的 `source` 形态、安装期动作、装完落在哪都不同。下面六段都可以单独塞进 `resources:` 就跑通（本文件所有示例由 `docs-examples.test.ts` 校验）。
+先澄清一件事：**下面六段都不是单独的文件**。它们全都是同一个 `packhub.yaml` 里 `resources:` 列表中的一项，彼此并列。一个 Pack 只有一个 `packhub.yaml`。
+
+```yaml
+resources:                    # ← 唯一的列表
+  - id: repo-search           # ← 第 1 项（下面第 1 段的 mcp）
+    type: mcp
+    source: npm:@modelcontextprotocol/server-everything@0.6.2
+  - id: review-rules          # ← 第 2 项（第 2 段的 skill），与上面平级
+    type: skill
+    source: github:owner/repo/skills/code-review@<40 位 commit>
+```
+
+缩进规则：`- id:` 比 `resources:` 多两格，`type` / `source` 比 `- id:` 再多两格。用 `packhub resource add` 追加就不用手工对齐。
+
+每种资源的 `source` 形态、安装期动作、装完落在哪都不同。下面六段各自都能作为唯一一项跑通（本文件所有示例由 `docs-examples.test.ts` 校验）。
 
 #### 1. `mcp` —— 只写配置，不下载包体
 
