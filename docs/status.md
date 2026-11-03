@@ -30,7 +30,8 @@
 - [x] 多入口：`add ./x.phub` 与 `add git+https://host/o/r@ref`（GitHub/GitLab archive）；registry 名称仍走 `--index`
 - [x] registry CI 真跑 `install + verify`：`pnpm registry:verify-all` 在干净目录逐个装并校验，已接进 workflow
 - [x] Claude Code 的 MCP 投影：`claude mcp list` 里能看到并连通（实测）
-- [x] 探针封装：`packhub probe --target dsh|claude-code`（调 headless 问一句，检查回答里的标记；缺凭证会明确报出）
+- [x] 探针封装：`packhub probe --target dsh|claude-code|opencode|codex`（调各家 headless 问一句，检查回答里的标记；缺凭证会明确报出）
+- [x] 与宿主指令文件共存：只写托管块、不整文件覆盖；`packhub doctor` 检测块被外部改写/文件被删
 - [ ] `CLAUDE.md` 托管块与 `.claude/skills` 是否被 Claude Code 采用（未验证，需要一次模型调用）
 - [x] DSH 读项目级 `AGENTS.md`：`packhub probe --target dsh` 实测通过（headless + opencode-go 转发）；卸载后探针报文件不存在
 - [x] OpenCode 读 `AGENTS.md`：`packhub probe --target opencode` 实测通过（日志里自己写 `Read AGENTS.md`）

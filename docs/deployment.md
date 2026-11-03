@@ -213,6 +213,38 @@ $ packhub probe <dir> --target codex
 
 **Claude Code**：没有可用账号，`CLAUDE.md` 这一面未验证；MCP 那一面已验（`claude mcp list` 显示 ✓ Connected）。用户明确表示不使用 CC，这一面按"环境不具备"记录。
 
+## 九点七、和宿主自己的指令文件共存
+
+宿主（Claude Code / DSH / OpenCode / Codex）自己也读 `CLAUDE.md` / `AGENTS.md`，项目里通常已经有用户或别的工具写的内容。PackHub 只做一件事：**在文件里放一个带标记的块，只改块内，永不整文件覆盖。**
+
+```
+用户的规则……
+<!-- packhub:begin lvlc233/team-conventions -->
+这个项目装了一个整合包：……
+<!-- packhub:end lvlc233/team-conventions -->
+```
+
+现在的保证（都有测试）：
+
+1. 块外内容一个字不动；重复安装只替换自己那块；多个包各占一个块（块 id 是包名）。
+2. 卸载只摘自己的块；摘完文件空了才删文件。
+3. 安装前会把指令文件快照进 generation，`packhub rollback` 能恢复被改之前的内容。
+
+真实风险与对策：
+
+| 风险 | 现状 |
+|---|---|
+| 宿主工具重新生成整个文件，把我们的块吃掉（静默失效） | `packhub doctor` 检测：块不见了会点名文件与包，退出码非零 |
+| 我们的块在文件末尾，语义上可能压过用户前面的规则 | 块内容只写"装了什么、文件在哪"，不写"你必须…"；真要更强约束应写进 Pack 的知识文件，由 agent 主动读 |
+| 两个包抢同一份指令文件 | 块 id 不同，互不覆盖；卸载互不影响 |
+| 用户手改了块内内容 | 卸载时整块删除（块是原子单元），这一点写在这里，不假装能合并 |
+
+```bash
+packhub doctor my-pack      # 文件还在不在、托管块还在不在
+```
+
+后续可选的更保守方案：宿主若支持 `@import`（Claude Code 的 CLAUDE.md 支持），可以只在宿主文件里写一行导入，正文放 `.packhub/PACKHUB.md`——宿主文件零污染，但依赖各家对 import 的支持，未验证前不做默认。
+
 ## 十、下一步：先验证，再抽象
 
 拿当前仓库当试验田，写 `dsh` 与 `claude-code` 两个投影，实际验证：

@@ -6,6 +6,7 @@ import {
   readSignatures,
   writeSignature,
   inspectLicenses,
+  doctorPack,
   probeHarness,
   generateKeyPair,
   signPlan,
@@ -428,6 +429,38 @@ const rollback = defineCommand({
   },
 });
 
+const doctor = defineCommand({
+  meta: { name: 'doctor', description: '检查已装的包有没有被外部改写（文件被删、托管块被吃）' },
+  args: {
+    dir: { type: 'positional', required: false, default: '.' },
+    json: { type: 'boolean', default: false },
+  },
+  run({ args }) {
+    const report = doctorPack(resolve(String(args.dir)));
+    if (args.json) {
+      console.log(JSON.stringify(report, null, 2));
+      if (!report.ok) process.exit(1);
+      return;
+    }
+    if (report.packs.length === 0) {
+      console.log('这个目录没有装任何包');
+      return;
+    }
+    console.log(`检查 ${report.packs.length} 个包`);
+    for (const f of report.findings) {
+      console.log(`x ${f.pack}`);
+      for (const b of f.blocksMissing) console.log(`    托管块不见了：${b}（可能被宿主工具重新生成覆盖）`);
+      for (const m of f.filesMissing) console.log(`    文件不见了：${m}`);
+    }
+    if (report.ok) {
+      console.log('✓ 全部在位');
+    } else {
+      console.log('\n重新 install 可以补回缺失的块；如果宿主会自动重写指令文件，把 PackHub 的块当成"会被覆盖"的内容对待。');
+      process.exit(1);
+    }
+  },
+});
+
 const probe = defineCommand({
   meta: { name: 'probe', description: '真机探针：跑一次 harness，看它有没有读到包写进去的指令' },
   args: {
@@ -696,6 +729,7 @@ export const main: CommandDef = defineCommand({
     slot,
     diff,
     pack,
+    doctor,
     probe,
     licenses,
     keygen,
