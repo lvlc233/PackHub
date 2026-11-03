@@ -29,6 +29,7 @@ interface PackDetail {
     ok: boolean;
     planHash: string;
     verifiedAt: string;
+    signatures?: { key: string; ok: boolean }[];
     checks: { index: number; type: string; status: string; detail: string }[];
     outcomes: { actionId: string; op: string; status: string }[];
   } | null;
@@ -72,6 +73,9 @@ function PackListPage() {
         </a>
         <a className="pk-link is-active" href="/packs">
           发现
+        </a>
+        <a className="pk-link" href="/console">
+          创作台
         </a>
         <a className="pk-link" href="/docs/authoring.md">
           怎么写一个 Pack
@@ -200,6 +204,14 @@ function PackDetailPage({ name }: { name: string }) {
                       </li>
                     ))}
                   </ul>
+                  {detail.verify.signatures && detail.verify.signatures.length > 0 && (
+                    <p className="pk-hint">
+                      签名：
+                      {detail.verify.signatures
+                        .map((s) => `${s.ok ? '✓' : 'x'} ${String(s.key).slice(0, 12)}…`)
+                        .join('、')}
+                    </p>
+                  )}
                   <p className="pk-hint">
                     装完后跑 <code>packhub verify</code>，应得到同一份 planHash。
                   </p>
