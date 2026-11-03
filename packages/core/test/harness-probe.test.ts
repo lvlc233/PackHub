@@ -100,3 +100,19 @@ describe('opencode 目标', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 });
+describe('codex 目标', () => {
+  it('默认用原生 gpt-5.6-sol，命令里带 sandbox read-only', () => {
+    const dir = project();
+    const runner: Runner = () => ({
+      status: 0,
+      stdout: 'codex\n这个项目装了一个整合包：**测试包标题**（0.0.1）。\ntokens used\n6,973\n',
+      stderr: '',
+    });
+    const res = probeHarness({ target: 'codex', projectDir: dir, runner });
+    expect(res.ok).toBe(true);
+    expect(res.command).toContain('codex exec');
+    expect(res.command).toContain('gpt-5.6-sol');
+    expect(res.command).toContain('--sandbox read-only');
+    rmSync(dir, { recursive: true, force: true });
+  });
+});

@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-export type HarnessTarget = 'dsh' | 'claude-code' | 'opencode';
+export type HarnessTarget = 'dsh' | 'claude-code' | 'opencode' | 'codex';
 
 export interface RunnerResult {
   status: number | null;
@@ -18,7 +18,7 @@ export interface ProbeOptions {
   timeoutMs?: number;
   /** dsh 用的额外 patch 层（配置 provider 等），可省 */
   patchFile?: string;
-  /** opencode 用的模型，默认走 opencode-go 的免费档路线 */
+  /** opencode / codex 用的模型；默认 opencode-go 免费档 / codex 原生 gpt-5.6-sol */
   model?: string;
   /** 测试注入用；默认 spawnSync */
   runner?: Runner;
@@ -36,12 +36,22 @@ export interface ProbeResult {
   reason?: string;
 }
 
+/** Windows 上 harness 都是 .cmd 垫片，必须过 shell；过 shell 就得自己加引号，否则带空格的问题会被拆成多个 argv。 */
+function quoteArg(arg: string): string {
+  if (!/[\s"]/.test(arg)) return arg;
+  return '"' + arg.replace(/"/g, '\\"') + '"';
+}
+
 const DEFAULT_RUNNER: Runner = (command, args, cwd) => {
-  const res = spawnSync(command, args, {
+  const isWin = process.platform === 'win32';
+  const [file, argv] = isWin
+    ? [command + ' ' + args.map(quoteArg).join(' '), []]
+    : [command, args];
+  const res = spawnSync(file, argv, {
     cwd,
     encoding: 'utf8',
     timeout: Number(process.env.PACKHUB_PROBE_TIMEOUT ?? 180_000),
-    shell: process.platform === 'win32',
+    shell: isWin,
   });
   return {
     status: res.status,
@@ -109,13 +119,17 @@ export function probeHarness(opts: ProbeOptions): ProbeResult {
   }
 
   const runner = opts.runner ?? DEFAULT_RUNNER;
-  const model = opts.model ?? 'opencode-go/deepseek-v4.1-flash';
+  const model =
+    opts.model ??
+    (opts.target === 'codex' ? 'gpt-5.6-sol' : 'opencode-go/deepseek-v4.1-flash');
   const command =
     opts.target === 'dsh'
       ? `dsh --profile headless${opts.patchFile ? ` --patch ${opts.patchFile}` : ''} --json "<question>"`
       : opts.target === 'opencode'
         ? `opencode run --model ${model} "<question>"`
-        : 'claude -p "<question>" --max-budget-usd 0.05 --no-session-persistence';
+        : opts.target === 'codex'
+          ? `codex exec --skip-git-repo-check --sandbox read-only -m ${model} "<question>"`
+          : 'claude -p "<question>" --max-budget-usd 0.05 --no-session-persistence';
 
   const dshArgs = [
     '--profile',
@@ -129,7 +143,21 @@ export function probeHarness(opts: ProbeOptions): ProbeResult {
       ? runner('dsh', dshArgs, opts.projectDir)
       : opts.target === 'opencode'
         ? runner('opencode', ['run', '--model', model, QUESTION], opts.projectDir)
-        : runner(
+        : opts.target === 'codex'
+          ? runner(
+              'codex',
+              [
+                'exec',
+                '--skip-git-repo-check',
+                '--sandbox',
+                'read-only',
+                '-m',
+                model,
+                QUESTION,
+              ],
+              opts.projectDir,
+            )
+          : runner(
             'claude',
             ['-p', QUESTION, '--max-budget-usd', '0.05', '--no-session-persistence'],
             opts.projectDir,
@@ -141,7 +169,7 @@ export function probeHarness(opts: ProbeOptions): ProbeResult {
       ? parseDshFinal(res.stdout)
       : opts.target === 'opencode'
         ? stripAnsi(res.stdout).trim()
-        : res.stdout.trim();
+        : stripAnsi(res.stdout).trim();
   const combined = `${res.stdout}\n${res.stderr}`;
 
   if (/MISSING_CREDENTIAL|no API key/i.test(combined)) {

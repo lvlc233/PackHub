@@ -432,13 +432,13 @@ const probe = defineCommand({
   meta: { name: 'probe', description: '真机探针：跑一次 harness，看它有没有读到包写进去的指令' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
-    target: { type: 'string', default: 'dsh', description: 'dsh | claude-code | opencode' },
+    target: { type: 'string', default: 'dsh', description: 'dsh | claude-code | opencode | codex' },
     patch: { type: 'string', description: 'dsh 的 --patch 层（配置 provider / 模型）' },
     json: { type: 'boolean', default: false },
   },
   run({ args }) {
     const result = probeHarness({
-      target: String(args.target) as 'dsh' | 'claude-code' | 'opencode',
+      target: String(args.target) as 'dsh' | 'claude-code' | 'opencode' | 'codex',
       projectDir: resolve(String(args.dir)),
       ...(args.patch ? { patchFile: resolve(String(args.patch)) } : {}),
     });

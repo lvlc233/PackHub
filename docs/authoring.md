@@ -338,6 +338,7 @@ packhub sign my-pack --key packhub.key   # 可选：给计划哈希签名（别�
 packhub licenses my-pack --strict        # vendored 资源必须有许可证文件才能发布
 packhub probe my-pack --target dsh       # 真机探针：harness 有没有读到写进去的指令（需要模型凭证）
 packhub probe my-pack --target opencode  # 同上，OpenCode：opencode run --model opencode-go/…
+packhub probe my-pack --target codex     # 同上，Codex：codex exec -m gpt-5.6-sol（原生账号）
 
 # 5. 之后改了清单，先看差异再重新锁
 packhub diff my-pack          # 对比锁里的计划与当前计划：多了什么、少了什么

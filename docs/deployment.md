@@ -195,7 +195,21 @@ packhub probe <项目> --target dsh --patch scripts/dsh-headless-opencode.yml
 
 所以 **AGENTS.md 这条约定不是 DSH 特有的**：DSH（headless）、OpenCode 都读。项目里放 `AGENTS.md` 是跨 harness 可移植的。
 
-**Codex**：能装上、能读到 `AGENTS.md`（它的默认指令文件也是 `AGENTS.md`），但这台机器上跑不通——Codex 只支持 `wire_api = "responses"`，打 `https://opencode.ai/zen/v1/responses` 返回 402 Insufficient account funds；换成它自带模型又提示该 ChatGPT 账号不支持任何试过的模型。**结论：Codex 的探针跑不起来，原因是账号/通道，不是投影有问题。**
+**Codex**
+
+已验（2026-11-04）：用原生账号、不换 provider，模型指定 `gpt-5.6-sol`：
+
+```
+$ packhub probe <dir> --target codex
+✓ harness 读到了托管块
+  命令：codex exec --skip-git-repo-check --sandbox read-only -m gpt-5.6-sol "<question>"
+  回答：这个项目装了一个整合包：**Codex 验证包**（0.0.1）。
+```
+
+两个坑记一下：
+
+- 本机 `~/.codex/config.toml` 里写着 `model = "gpt-6.1-sol"`，这个 id 该账号不支持（`model_not_found`），要显式 `-m gpt-5.6-sol`。
+- 不要把 Codex 的 provider 换成 opencode-go：它只支持 `wire_api = "responses"`，打 `/zen/v1/responses` 是 402，走原生账号才对。
 
 **Claude Code**：没有可用账号，`CLAUDE.md` 这一面未验证；MCP 那一面已验（`claude mcp list` 显示 ✓ Connected）。用户明确表示不使用 CC，这一面按"环境不具备"记录。
 
