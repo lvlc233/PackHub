@@ -100,6 +100,43 @@ async function handleApi(
     return sendJson(res, 200, { root: relative(process.cwd(), root), packs });
   }
 
+  if (url.pathname === '/api/registry' && req.method === 'GET') {
+    const file = join(root, 'registry/index.json');
+    if (!existsSync(file)) return sendJson(res, 404, { error: '这个仓库还没有 registry/index.json' });
+    return sendJson(res, 200, JSON.parse(readFileSync(file, 'utf8')));
+  }
+
+  if (url.pathname === '/api/registry/pack' && req.method === 'GET') {
+    const name = url.searchParams.get('name') ?? '';
+    let version = url.searchParams.get('version') ?? '';
+    if (!/^[a-z0-9-]+\/[a-z0-9-]+$/.test(name)) {
+      return sendJson(res, 400, { error: 'name 不合法' });
+    }
+    if (!version) {
+      const idxPath = join(root, 'registry/index.json');
+      if (!existsSync(idxPath)) return sendJson(res, 404, { error: '没有索引' });
+      const idx = JSON.parse(readFileSync(idxPath, 'utf8')) as {
+        packs?: { name: string; latest: string }[];
+      };
+      version = idx.packs?.find((x) => x.name === name)?.latest ?? '';
+    }
+    if (!/^\d+\.\d+\.\d+/.test(version)) {
+      return sendJson(res, 404, { error: '没有这个版本' });
+    }
+    const dir = join(root, 'registry/packs', name, version);
+    const manifestPath = join(dir, 'packhub.yaml');
+    if (!existsSync(manifestPath)) return sendJson(res, 404, { error: '没有这个版本' });
+    const reportPath = join(dir, 'verify.json');
+    const lockPath = join(dir, 'packhub.lock.json');
+    return sendJson(res, 200, {
+      name,
+      version,
+      manifest: readFileSync(manifestPath, 'utf8'),
+      lock: existsSync(lockPath) ? JSON.parse(readFileSync(lockPath, 'utf8')) : null,
+      verify: existsSync(reportPath) ? JSON.parse(readFileSync(reportPath, 'utf8')) : null,
+    });
+  }
+
   if (url.pathname === '/api/pack' && req.method === 'GET') {
     const ctx = loadPack(dir);
     const { plan, issues } = planFor(ctx);

@@ -126,6 +126,10 @@ Hub **不内置 runner**：验证交给一次性容器（CI 或临时 job），H
 5. 项目级所有权表：跨包冲突检测。
 6. `unlisted` 档位：可见性目前是 public / internal / private，缺"不进索引但可凭名称安装"。
 
+## 九点五、公开页（已实装）
+
+`/packs` 列表与 `/packs/<scope>/<name>` 详情页，只读 `registry/index.json` 与版本目录里的 manifest / lock / verify.json；`/api/registry` 与 `/api/registry/pack` 是它们的唯一数据源。页面上只给命令，不给在线安装。
+
 ## 十、下一步：先验证，再抽象
 
 拿当前仓库当试验田，写 `dsh` 与 `claude-code` 两个投影，实际验证：
