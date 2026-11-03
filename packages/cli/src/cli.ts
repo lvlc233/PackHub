@@ -3,7 +3,8 @@ import { join, resolve } from 'node:path';
 import { defineCommand, type CommandDef } from 'citty';
 import {
   addResource,
-  addSignature,
+  readSignatures,
+  writeSignature,
   inspectLicenses,
   generateKeyPair,
   signPlan,
@@ -490,7 +491,7 @@ const sign = defineCommand({
     const pack = `${ctx.manifest.metadata.name}@${ctx.manifest.metadata.version}`;
     const pem = readFileSync(String(args.key), 'utf8');
     const signature = signPlan(pem, pack, plan.planHash);
-    addSignature(join(dir, 'packhub.yaml'), signature);
+    writeSignature(dir, signature);
     console.log(`✓ 已签名 ${pack}`);
     console.log(`  公钥 id：${signature.key}`);
     console.log(`  planHash：${plan.planHash.slice(0, 22)}…`);
@@ -512,7 +513,7 @@ const verifySig = defineCommand({
       reportIssues(issues, 'packhub verify-sig');
       process.exit(2);
     }
-    const sigs = ctx.manifest.signatures ?? [];
+    const sigs = [...readSignatures(dir), ...(ctx.manifest.signatures ?? [])];
     if (sigs.length === 0) {
       console.error('这个包没有签名');
       process.exit(1);

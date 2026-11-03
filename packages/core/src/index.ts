@@ -40,6 +40,13 @@ export { updatePack, type UpdateOptions, type UpdateResult } from './update.ts';
 export { resolveAddSource, gitArchiveUrl, type ResolvedSource } from './source.ts';
 export { inspectLicenses, type LicenseFinding } from './license.ts';
 export {
+  readSignatures,
+  writeSignature,
+  SIGNATURE_FILE,
+  type SignatureEntry,
+  type SignatureFile,
+} from './signfile.ts';
+export {
   generateKeyPair,
   signPlan,
   verifySignatures,

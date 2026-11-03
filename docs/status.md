@@ -30,7 +30,7 @@
 - [x] 多入口：`add ./x.phub` 与 `add git+https://host/o/r@ref`（GitHub/GitLab archive）；registry 名称仍走 `--index`
 - [x] registry CI 真跑 `install + verify`：`pnpm registry:verify-all` 在干净目录逐个装并校验，已接进 workflow
 - [ ] DSH 是否读项目级 `AGENTS.md` / skills（**未验证**；验法写在 deployment.md 九点六，需要新开一个 DSH 会话）
-- [x] 签名：ed25519，签 `{pack@version, planHash}`；`keygen` / `sign` / `verify-sig`，支持信任列表
+- [x] 签名：ed25519，签 `{pack@version, planHash}`，写独立文件 `packhub.signatures.json`（不改清单）；`keygen` / `sign` / `verify-sig`，支持信任列表；verify 报告与 index 带签名结果
 - [x] 许可证检查：`packhub licenses` 找 LICENSE/COPYING 并猜 SPDX，`--strict` 供 CI；不做法律判断
 - [x] `unlisted` 取包：`add scope/name --version x.y.z` 绕过索引直接取归档
 - [x] Hub 创作台 `/console`：以现有包为底稿编辑清单、服务端预览计划（`POST /api/plan`）、本地存草稿、下载 yaml

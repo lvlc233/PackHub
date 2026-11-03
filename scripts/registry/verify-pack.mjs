@@ -10,6 +10,7 @@ import {
   planFor,
   verifyPack,
   verifySignatures,
+  readSignatures,
 } from '../../packages/core/src/index.ts';
 
 const arg = process.argv[2];
@@ -61,7 +62,8 @@ try {
   const failedActions = result.outcomes.filter((o) => o.status === 'failed').length;
   const ok = failedActions === 0 && checks.every((c) => c.status !== 'fail');
 
-  const signatures = (ctx.manifest.signatures ?? []).map((s) => ({
+  const allSigs = [...readSignatures(dir), ...(ctx.manifest.signatures ?? [])];
+  const signatures = allSigs.map((s) => ({
     key: s.key,
     ...(verifySignatures([s], `${ctx.manifest.metadata.name}@${ctx.manifest.metadata.version}`, plan.planHash)[0] ?? {
       ok: false,

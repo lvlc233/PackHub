@@ -1,5 +1,15 @@
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { generateKeyPair, signPlan, verifySignatures } from '../src/index.ts';
+import {
+  generateKeyPair,
+  readSignatures,
+  signPlan,
+  verifySignatures,
+  writeSignature,
+} from '../src/index.ts';
+
 
 describe('签名', () => {
   it('签出的签名能验过', () => {
@@ -34,5 +44,20 @@ describe('签名', () => {
   it('坏签名不抛错，只返回 false', () => {
     const { publicKey } = generateKeyPair();
     expect(verifySignatures([{ key: publicKey, sig: 'not-base64!!' }], 'x', 'y')[0]!.ok).toBe(false);
+  });
+});
+describe('签名旁挂文件', () => {
+  it('写进 packhub.signatures.json，不改清单', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'packhub-sigfile-'));
+    const { privatePem } = generateKeyPair();
+    const sig = signPlan(privatePem, 'demo/x@0.0.1', 'sha256-abc');
+    writeSignature(dir, sig);
+    const read = readSignatures(dir);
+    expect(read).toHaveLength(1);
+    expect(read[0]!.key).toBe(sig.key);
+    // 同一个 key 再签一次是覆盖，不是追加
+    writeSignature(dir, { ...sig, sig: sig.sig + 'x' });
+    expect(readSignatures(dir)).toHaveLength(1);
+    rmSync(dir, { recursive: true, force: true });
   });
 });

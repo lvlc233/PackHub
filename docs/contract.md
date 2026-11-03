@@ -212,7 +212,20 @@ registry/packs/<scope>/<name>/
 
 ---
 
-## 8. 归档与 registry 布局
+## 8. 签名旁挂文件（`packhub.signatures.json`）
+
+```jsonc
+{
+  "apiVersion": "packhub.dev/signatures/v0",
+  "signatures": [{ "key": "<32 字节公钥 base64>", "sig": "<ed25519 base64>", "at": "…" }]
+}
+```
+
+- 签的是 `{pack@version, planHash}`：清单里任何影响安装的改动都会让签名失效；改注释不影响。
+- 放独立文件而不是写进 `packhub.yaml`：版本目录的清单哈希不能因为"补一个签名"而变化。
+- `.phub` 归档会带上这个文件；`verify.json` 里记录每个签名的校验结果。
+
+## 9. 归档与 registry 布局
 
 `.phub` = tar.gz，解包后就是 Pack 根目录（`packhub.yaml` + 可选资源）。
 

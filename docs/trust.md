@@ -96,6 +96,7 @@ packhub verify-sig my-pack                 # 校验
 packhub verify-sig my-pack --trusted keys.txt   # 只信任列表里的公钥 id（每行一个）
 ```
 
+- 签名写在**独立文件** `packhub.signatures.json`，不动 `packhub.yaml`——版本目录的清单要保持不变，签名只是给它加背书。
 - 私钥不进版本库（keygen 以 0600 写入）；公钥 id 是 32 字节公钥的 base64，短、可贴进配置。
 - 签名只是 `signatures[]` 的一个条目，同一公钥重复签名会覆盖旧的。
 - `verified` 与签名是两件事：前者是「装得上、验过」，后者是「谁背的书」。两者都要，但不要混成一个徽章。

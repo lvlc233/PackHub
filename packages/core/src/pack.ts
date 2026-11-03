@@ -29,7 +29,9 @@ export async function packArchive(
   const manifest = join(root, 'packhub.yaml');
   if (!existsSync(manifest)) throw new Error(`没有 packhub.yaml：${root}`);
 
-  const entries = ['packhub.yaml', 'packhub.lock.json'].filter((f) => existsSync(join(root, f)));
+  const entries = ['packhub.yaml', 'packhub.lock.json', 'packhub.signatures.json'].filter((f) =>
+    existsSync(join(root, f)),
+  );
   if (opts.vendored) {
     // vendored：把本地引用到的东西都带上。不按固定目录列，避免漏掉根目录下的文件
     const skip = new Set(['.packhub', 'node_modules', '.git', 'dist']);
