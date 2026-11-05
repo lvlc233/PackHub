@@ -1,0 +1,84 @@
+{
+  "apiVersion": "packhub.dev/verify/v0",
+  "planHash": "sha256-XNfyonXFbb58Xn7u2B4SFWtBH8HOn9aMZH3UEbDHItM=",
+  "ok": true,
+  "signatures": [],
+  "checks": [
+    {
+      "index": 0,
+      "type": "file-exists",
+      "status": "pass",
+      "detail": ".packhub/skills/doc-review/SKILL.md"
+    },
+    {
+      "index": 1,
+      "type": "file-exists",
+      "status": "pass",
+      "detail": ".packhub/skills/doc-review/scripts/check-structure.mjs"
+    },
+    {
+      "index": 2,
+      "type": "file-exists",
+      "status": "pass",
+      "detail": ".packhub/skills/doc-review/scripts/check-links.mjs"
+    },
+    {
+      "index": 3,
+      "type": "file-exists",
+      "status": "pass",
+      "detail": ".packhub/knowledge/review-rubric.md"
+    },
+    {
+      "index": 4,
+      "type": "file-exists",
+      "status": "pass",
+      "detail": ".packhub/prompts/reader-brief.md"
+    },
+    {
+      "index": 5,
+      "type": "config-key",
+      "status": "pass",
+      "detail": "mcpServers.markdownlint.command = \"npx\""
+    },
+    {
+      "index": 6,
+      "type": "command",
+      "status": "pass",
+      "detail": "退出码 0 · self-test ok"
+    },
+    {
+      "index": 7,
+      "type": "command",
+      "status": "pass",
+      "detail": "退出码 0 · self-test ok"
+    }
+  ],
+  "outcomes": [
+    {
+      "actionId": "register.mcp#1",
+      "op": "register.mcp",
+      "status": "done"
+    },
+    {
+      "actionId": "write#1",
+      "op": "write",
+      "status": "done"
+    },
+    {
+      "actionId": "write#2",
+      "op": "write",
+      "status": "done"
+    },
+    {
+      "actionId": "link.skill#1",
+      "op": "link.skill",
+      "status": "done"
+    }
+  ],
+  "verifiedAt": "2026-11-05T06:03:37.226Z",
+  "env": {
+    "node": "v22.15.0",
+    "platform": "win32",
+    "arch": "x64"
+  }
+}

@@ -1,7 +1,32 @@
 {
   "apiVersion": "packhub.dev/index/v0",
-  "generatedAt": "2026-11-03T13:39:22.862Z",
+  "generatedAt": "2026-11-05T06:03:38.496Z",
   "packs": [
+    {
+      "name": "lvlc233/doc-review",
+      "title": "文档验收：先机械检查，再冷读",
+      "description": "文档写完后先跑结构、链接和 Markdown 格式检查，再让独立读者按“目的内是否答得出、路径是否走得通”做一次冷读，最后只修阻断项。",
+      "latest": "0.1.0",
+      "versions": [
+        "0.1.0"
+      ],
+      "targets": [
+        "dir",
+        "dsh",
+        "claude-code"
+      ],
+      "trust": "verified",
+      "verifiedAt": "2026-11-05T06:03:37.226Z",
+      "signers": [],
+      "keywords": [
+        "documentation",
+        "review",
+        "markdown",
+        "cold-read"
+      ],
+      "resourceCount": 4,
+      "install": "npx packhub add lvlc233/doc-review"
+    },
     {
       "name": "lvlc233/remote-demo",
       "title": "远程资源示例",
@@ -14,7 +39,7 @@
         "dir"
       ],
       "trust": "verified",
-      "verifiedAt": "2026-11-03T13:39:21.041Z",
+      "verifiedAt": "2026-11-03T17:17:15.349Z",
       "signers": [],
       "keywords": [
         "demo",
@@ -36,7 +61,7 @@
         "dir"
       ],
       "trust": "verified",
-      "verifiedAt": "2026-11-03T13:39:21.549Z",
+      "verifiedAt": "2026-11-03T17:17:15.919Z",
       "signers": [],
       "keywords": [
         "conventions",
