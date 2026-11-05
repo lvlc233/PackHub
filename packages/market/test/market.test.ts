@@ -140,6 +140,42 @@ describe('市场写端', () => {
     rmSync(packDir, { recursive: true, force: true });
   });
 
+  it('人工审核：上传进 staging，批准后才进索引', async () => {
+    const reg = mkdtempSync(join(tmpdir(), 'packhub-market-review-'));
+    const m = await startMarket({ root: reg, port: 0, requireReview: true, adminToken: 'secret' });
+    try {
+      const session = await register(m.url, 'Reviewer');
+      const packDir = mkdtempSync(join(tmpdir(), 'packhub-market-review-pack-'));
+      writeFileSync(join(packDir, 'packhub.yaml'), PACK.replace('demo-market/rules', 'reviewer/rules'), 'utf8');
+      writeFileSync(join(packDir, 'rules.md'), '# rules\n', 'utf8');
+
+      const res = await publishToMarket(packDir, { url: m.url, token: session.token });
+      expect(res.status).toBe('pending');
+      expect((await searchMarket(m.url, '规范')).length).toBe(0);
+
+      const queue = await fetch(`${m.url}/api/admin/queue`, {
+        headers: { 'x-market-admin': 'secret' },
+      });
+      const queued = (await queue.json()) as { pending: { name: string }[] };
+      expect(queued.pending[0]?.name).toBe('reviewer/rules');
+
+      const approved = await fetch(`${m.url}/api/admin/review`, {
+        method: 'POST',
+        headers: { 'x-market-admin': 'secret', 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'reviewer/rules', version: '0.1.0', action: 'approve' }),
+      });
+      expect(approved.status).toBe(200);
+      expect((await searchMarket(m.url, '规范')).length).toBe(1);
+
+      const download = await fetch(`${m.url}/download?name=reviewer/rules&version=0.1.0`);
+      expect(download.status).toBe(200);
+      await download.arrayBuffer();
+      rmSync(packDir, { recursive: true, force: true });
+    } finally {
+      await m.close();
+      rmSync(reg, { recursive: true, force: true });
+    }
+  });
   it('未登录不能发布或下架', async () => {
     const res = await fetch(`${market.url}/api/publish`, { method: 'POST', body: 'x' });
     expect(res.status).toBe(401);

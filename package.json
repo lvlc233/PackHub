@@ -28,7 +28,9 @@
     "check": "pnpm typecheck && pnpm test",
     "bench": "node --experimental-strip-types scripts/bench.ts",
     "bench:check": "node --experimental-strip-types scripts/bench.ts 200 --check",
-    "bench:install": "node --experimental-strip-types scripts/bench.ts 200 --install"
+    "bench:install": "node --experimental-strip-types scripts/bench.ts 200 --install",
+    "bench:overlay": "node --experimental-strip-types scripts/bench.ts 200 --overlay --check",
+    "bench:large": "node --experimental-strip-types scripts/bench.ts 1000 --overlay --install"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

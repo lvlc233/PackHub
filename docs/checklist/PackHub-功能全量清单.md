@@ -1,6 +1,6 @@
 # PackHub 功能全量清单
 
-> 版本：2026-11-05 ／ 口径：本仓库当前代码、CLI 实测、测试套件（55 个文件 / 211 项）与 registry 现状。
+> 版本：2026-11-05 ／ 口径：本仓库当前代码、CLI 实测、测试套件（56 个文件 / 215 项）与 registry 现状。
 > 用途：实现 checklist、选型对照、漏项审计。**不是**产品介绍。
 
 ## 怎么读
@@ -160,7 +160,7 @@
 | REG-09 | vendored 目录入版本目录 | `resources/skills/...` 一起复制 | [done] | `publish.ts` |
 | REG-10 | Pages 带归档 | CI 复制 `packs/**/*.phub` | [done] | `registry.yml` |
 | REG-11 | 多 registry 配置 | `--index` 接受配置里的 registry 名；`search --all` 合并所有索引 | [done] | `resolveRegistry`、`registryIndexes` |
-| REG-12 | 市场元数据 | 下载量、评分/评论（一账号一票）、审核状态、下架原因 | [part] | 单机 JSON，无多实例/审核工作流 |
+| REG-12 | 市场元数据 | 下载量、趋势、评分/评论、审核队列（staging→批准/拒绝）、下架原因 | [done] | `@packhub/market`、`market.test`；存储仍是单机 JSON |
 | REG-13 | 下架/可见性变更 | `market yank` 移入 quarantine、索引移除、下载 410 | [done] | `market/server.ts`、`market.test` |
 
 ## 7 HUB ｜只读发布端
@@ -178,7 +178,7 @@
 | HUB-09 | 镜像 | Dockerfile 只读端 | [done] | `Dockerfile` |
 | HUB-10 | 写接口 | Hub 保持只读；写端在独立 `@packhub/market`（上传/发布） | [done] | `market/server.ts` |
 | HUB-11 | 账号/组织 | 市场账号即 scope；token 只显示一次，本机 0600 保存 | [done] | `market/store.ts`、`client.ts` |
-| HUB-12 | 搜索/统计 | 市场 `/api/search` 带下载量与均分/评论 | [part] | 没有趋势统计与审核队列 |
+| HUB-12 | 搜索/统计 | `/api/search` 带下载量、7 日趋势、均分/评论；`/api/admin/queue` 审核队列 | [done] | `market/server.ts` |
 
 ## 8 SYN ｜全局 harness 同步
 
@@ -230,8 +230,8 @@
 | UI-06 | 安装/校验按钮 | 面板内执行并回填结果 | [done] | `api.install/verify` |
 | UI-07 | 窄屏 | 单列顺序与移动截图 | [part] | 有截图，未做系统验证 |
 | UI-08 | 可访问性 | 焦点可见、跳过导航、reduced-motion；没有 axe/键盘全流程审计 | [part] | `styles.css`、`App.tsx` |
-| UI-09 | 错误态 | 面板有 error/actionError；部分静默 | [part] | — |
-| UI-10 | 路由 | 无 router，按 pathname 分支 | [part] | `main.tsx` |
+| UI-09 | 错误态 | 顶部错误与同步错误是 `role=alert` + `aria-live`；安装/校验按钮带 `aria-busy` | [done] | `App.tsx` |
+| UI-10 | 路由 | history 路由：站内链接 pushState、popstate 后退；`routeFor` 有单测 | [done] | `router.ts`、`router.test` |
 
 ## 11 TRU ｜安全与信任
 
@@ -253,7 +253,7 @@
 
 | 编号 | 功能点 | 能观察到的事实 | 现状 | 证据/缺口 |
 |---|---|---|---|---|
-| OPS-01 | 测试套件 | 55 个文件 / 211 项通过 | [done] | `pnpm check` |
+| OPS-01 | 测试套件 | 56 个文件 / 215 项通过 | [done] | `pnpm check` |
 | OPS-02 | 类型检查 | `tsc --noEmit` 通过 | [done] | `pnpm typecheck` |
 | OPS-03 | registry 门禁 | `registry:check` 通过 | [done] | CI |
 | OPS-04 | 干净安装 CI | `registry:verify-all`（需网络） | [done] | workflow |
@@ -261,7 +261,7 @@
 | OPS-06 | Hub 镜像 | 多阶段构建，构建末尾 `pnpm prune --prod` 去掉开发依赖 | [done] | `Dockerfile` |
 | OPS-07 | 文档 | README + authoring + contract + ui | [done] | — |
 | OPS-08 | 版本策略 | 0.0.1 / v0 无兼容承诺 | [done] | contract |
-| OPS-09 | 性能基准 | `bench` 量 200 资源的计划与安装（约 300ms 量级）；CI 卡预算；overlay 全树遍历仍无基准 | [part] | `scripts/bench.ts` |
+| OPS-09 | 性能基准 | `bench` 量 200 资源、200 overlay、1000 资源安装（约 3.3s）；CI 卡预算 | [done] | `scripts/bench.ts` |
 | OPS-10 | Windows 矩阵 | CI 加 `test-windows` 全量跑一遍 | [done] | `.github/workflows/registry.yml` |
 | OPS-11 | 依赖安全 | CI 跑 `pnpm audit --audit-level high` | [done] | `.github/workflows/registry.yml` |
 
@@ -272,9 +272,9 @@
 | X-01 | Windows 路径 | `join/resolve` + `..` 拒绝；同步盘符路径实测 | [done] | `within`、sync 测试 |
 | X-02 | 编码/BOM | YAML/UTF-8；SKILL frontmatter 兼容 BOM | [done] | `sync.ts` |
 | X-03 | 代理 | 下载/索引走 `HTTPS_PROXY` | [done] | `download.ts` |
-| X-04 | 并发 | 安装锁；多实例端口未统一 | [part] | — |
+| X-04 | 并发 | 安装锁；`serve --port 0` 由系统分配并打印实际端口，占用时报下一步 | [done] | `cli serve` |
 | X-05 | tar 安全 | `..` 与符号/硬链接条目都拒绝落地；单测覆盖过滤规则 | [done] | `isSafeArchiveEntry`、`guards.test` |
-| X-06 | 大仓库性能 | 计划层有 200 资源基准；overlays 全树遍历与真装仍无基准 | [part] | `scripts/bench.ts` |
+| X-06 | 大仓库性能 | 1000 资源 + 1000 overlay 计划与安装有基准 | [done] | `bench:large` |
 | X-07 | 平台兼容 | 开发在 Windows；CI 同时跑 Linux 与 Windows | [done] | `.github/workflows/registry.yml` |
 | X-08 | 格式版本 | v0 未知主版本拒绝 | [done] | contract |
 | X-09 | i18n | 中文文档/提示，无多语言 | [na] | — |

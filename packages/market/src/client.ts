@@ -98,6 +98,8 @@ export interface PublishResponse {
   version: string;
   trust?: string;
   planHash?: string;
+  status?: 'pending';
+  note?: string;
 }
 
 export async function publishToMarket(

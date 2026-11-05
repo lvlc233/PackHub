@@ -209,7 +209,11 @@ export function App() {
       </aside>
 
       <main className="main" id="main">
-        {(error || actionError) && <p className="alert">{actionError ?? error}</p>}
+        {(error || actionError) && (
+          <p className="alert" role="alert" aria-live="assertive">
+            {actionError ?? error}
+          </p>
+        )}
 
         {!detail && loading && <div className="skeleton" />}
 
@@ -230,11 +234,11 @@ export function App() {
                 </div>
               </div>
               <div className="hero-actions">
-                <button className="btn btn-primary" onClick={runInstall} disabled={busy !== null}>
+                <button className="btn btn-primary" onClick={runInstall} disabled={busy !== null} aria-busy={busy === 'install'}>
                   <Icon name="download" size={16} />
                   {busy === 'install' ? '安装中…' : '安装到目录'}
                 </button>
-                <button className="btn btn-soft" onClick={runVerify} disabled={busy !== null}>
+                <button className="btn btn-soft" onClick={runVerify} disabled={busy !== null} aria-busy={busy === 'verify'}>
                   <Icon name="check" size={16} />
                   {busy === 'verify' ? '校验中…' : '运行校验'}
                 </button>
@@ -254,7 +258,7 @@ export function App() {
             </div>
 
             {issues.length > 0 && (
-              <section className="card card-alert" aria-label="问题">
+              <section className="card card-alert" aria-label="问题" aria-live="polite">
                 <h2 className="card-title">
                   <Icon name="alert" size={16} /> 拦住安装的问题
                 </h2>
@@ -484,7 +488,11 @@ export function App() {
                           移除
                         </button>
                       </div>
-                      {syncError && <p className="alert">{syncError}</p>}
+                      {syncError && (
+              <p className="alert" role="alert" aria-live="assertive">
+                {syncError}
+              </p>
+            )}
                       {syncLog && (
                         <div className="harness-result">
                           <p className="hint mono">{syncLog.pack}</p>

@@ -183,6 +183,36 @@ resources:
     rmSync(project, { recursive: true, force: true });
   });
 
+  it('退出码：缺清单/坏参数是 2，校验失败是 1，提示可执行', () => {
+    const missing = run(['plan', join(tmpdir(), 'packhub-no-such-pack')]);
+    expect(missing.status).toBe(2);
+    expect(missing.out).toContain('manifest-missing');
+    expect(missing.out).toContain('packhub init');
+
+    const pack = mkdtempSync(join(tmpdir(), 'packhub-cli-exit-'));
+    writeFileSync(
+      join(pack, 'packhub.yaml'),
+      `apiVersion: packhub.dev/v0
+kind: Pack
+metadata: { name: demo/exit, version: 0.0.1, targets: [dir] }
+requires: { packhub: ">=0.0.1 <0.1" }
+resources:
+  - id: rules
+    type: knowledge
+    source: ./rules.md
+verify:
+  - type: file-exists
+    path: "\${target.knowledgeDir}/rules.md"
+`,
+      'utf8',
+    );
+    writeFileSync(join(pack, 'rules.md'), '# rules\n', 'utf8');
+    const failed = run(['verify', pack]);
+    expect(failed.status).toBe(1);
+    expect(failed.out).toContain('fail');
+    rmSync(pack, { recursive: true, force: true });
+  });
+
   it('discover 能按关键词列候选并写进清单', () => {
     const base = mkdtempSync(join(tmpdir(), 'packhub-cli-discover-'));
     const pack = join(base, 'pack');

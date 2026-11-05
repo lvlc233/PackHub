@@ -1030,12 +1030,16 @@ const marketServe = defineCommand({
     dir: { type: 'positional', required: false, default: '.', description: 'registry 根目录' },
     port: { type: 'string', default: '8789' },
     host: { type: 'string', default: '127.0.0.1' },
+    'require-review': { type: 'boolean', default: false, description: '上传先进 staging，管理员批准后才进索引' },
+    'admin-token': { type: 'string', description: '管理 token（也可用 PACKHUB_MARKET_ADMIN）' },
   },
   async run({ args }) {
     const market = await startMarket({
       root: resolve(String(args.dir)),
       port: Number(args.port),
       host: String(args.host),
+      requireReview: Boolean(args['require-review']),
+      ...(args['admin-token'] ? { adminToken: String(args['admin-token']) } : {}),
     });
     console.log(`PackHub 市场（写端）→ ${market.url}`);
     console.log('上传走 POST /api/publish；包仍由 Hub 只读分发');
@@ -1885,9 +1889,21 @@ const serve = defineCommand({
     const { startServer, defaultStaticDir } = await import('./server.ts');
     const root = resolve(String(args.dir));
     const port = Number(args.port);
-    const server = await startServer({ root, port, staticDir: defaultStaticDir() });
-    console.log(`PackHub 面板：http://127.0.0.1:${port}  (root=${root})`);
-    void server;
+    try {
+      const server = await startServer({ root, port, staticDir: defaultStaticDir() });
+      const addr = server.address();
+      const actual = typeof addr === 'object' && addr ? addr.port : port;
+      console.log(`PackHub 面板：http://127.0.0.1:${actual}  (root=${root})`);
+      console.log('port 传 0 由系统分配，适合同时起多个面板；关闭用 Ctrl+C');
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'EADDRINUSE') {
+        console.error(`端口 ${port} 已被占用：换 --port <n>，或 --port 0 让系统分配`);
+      } else {
+        console.error(`x ${(err as Error).message}`);
+      }
+      process.exit(1);
+    }
   },
 });
 

@@ -3,7 +3,7 @@
  * 用法：pnpm bench [资源数] [--check]
  * --check 时超过预算（默认 1500ms/次）返回 1，给 CI 用。
  */
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadPack, planFor } from '../packages/kernel/src/index.ts';
@@ -11,6 +11,7 @@ import { loadPack, planFor } from '../packages/kernel/src/index.ts';
 const args = process.argv.slice(2);
 const check = args.includes('--check');
 const withInstall = args.includes('--install');
+const withOverlay = args.includes('--overlay');
 const count = Number(args.find((a) => /^\d+$/.test(a)) ?? 200);
 const budgetMs = Number(process.env.PACKHUB_BENCH_BUDGET_MS ?? 1500);
 const rounds = 10;
@@ -21,6 +22,15 @@ for (let i = 0; i < count; i++) {
   writeFileSync(join(dir, `r${i}.md`), `# resource ${i}\n`, 'utf8');
   lines.push(`  - id: r${i}\n    type: knowledge\n    source: ./r${i}.md`);
 }
+
+const overlayCount = withOverlay ? count : 0;
+if (overlayCount > 0) {
+  mkdirSync(join(dir, 'overlays'), { recursive: true });
+  for (let i = 0; i < overlayCount; i++) {
+    writeFileSync(join(dir, `overlays/o${i}.md`), `# overlay ${i}\n`, 'utf8');
+  }
+}
+
 writeFileSync(
   join(dir, 'packhub.yaml'),
   `apiVersion: packhub.dev/v0
@@ -29,7 +39,7 @@ metadata: { name: demo/bench, version: 0.0.1, targets: [dir] }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
 ${lines.join('\n')}
-`,
+${overlayCount > 0 ? 'overlays:\n  - from: ./overlays\n    to: .packhub/overlay\n' : ''}`,
   'utf8',
 );
 

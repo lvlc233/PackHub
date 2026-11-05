@@ -26,7 +26,25 @@ export interface LoadResult {
 }
 
 export function loadManifest(file: string): LoadResult {
-  const text = readFileSync(file, 'utf8');
+  let text: string;
+  try {
+    text = readFileSync(file, 'utf8');
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    return {
+      issues: [
+        {
+          code: code === 'ENOENT' ? 'manifest-missing' : 'manifest-unreadable',
+          severity: 'error',
+          message:
+            code === 'ENOENT'
+              ? `没有这个 Pack 清单：${file}（确认目录，或先跑 packhub init）`
+              : `读不了清单：${file}（${(err as Error).message}）`,
+        },
+      ],
+      text: '',
+    };
+  }
   return parseManifest(text, file);
 }
 

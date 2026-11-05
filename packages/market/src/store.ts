@@ -15,7 +15,7 @@ export interface MarketDb {
   apiVersion: 'packhub.dev/market/v0';
   accounts: Record<string, MarketAccount>;
   /** name@version → 下载次数 */
-  stats: Record<string, { downloads: number; updatedAt: string }>;
+  stats: Record<string, { downloads: number; updatedAt: string; daily?: Record<string, number> }>;
   /** name@version → 审核状态；上传即自动审核（因为已跑过干净安装） */
   reviews: Record<string, { status: 'approved' | 'pending' | 'rejected'; note?: string; at: string }>;
   /** name@version → 下架原因；下架后版本目录移到 quarantine */
@@ -101,7 +101,7 @@ export function accountForToken(root: string, token: string): MarketAccount | un
   return Object.values(loadDb(root).accounts).find((a) => a.tokenHash === hash);
 }
 
-export function recordReview(root: string, pack: string, version: string, status: 'approved' | 'rejected', note?: string): void {
+export function recordReview(root: string, pack: string, version: string, status: 'approved' | 'rejected' | 'pending', note?: string): void {
   const db = loadDb(root);
   db.reviews[`${pack}@${version}`] = {
     status,
@@ -151,12 +151,35 @@ export function ratingSummary(root: string, pack: string, version: string): Rati
       })),
   };
 }
+export interface DailyDownloads {
+  day: string;
+  downloads: number;
+}
+
+/** 最近 N 天的下载趋势（没有记录的日期补 0）。 */
+export function downloadTrend(
+  root: string,
+  pack: string,
+  version: string,
+  days = 7,
+): DailyDownloads[] {
+  const entry = loadDb(root).stats[`${pack}@${version}`];
+  const out: DailyDownloads[] = [];
+  for (let i = days - 1; i >= 0; i--) {
+    const day = new Date(Date.now() - i * 86_400_000).toISOString().slice(0, 10);
+    out.push({ day, downloads: entry?.daily?.[day] ?? 0 });
+  }
+  return out;
+}
 export function bumpDownload(root: string, pack: string, version: string): number {
   const db = loadDb(root);
   const key = `${pack}@${version}`;
   const entry = db.stats[key] ?? { downloads: 0, updatedAt: '' };
   entry.downloads += 1;
   entry.updatedAt = new Date().toISOString();
+  const day = new Date().toISOString().slice(0, 10);
+  entry.daily = { ...(entry.daily ?? {}) };
+  entry.daily[day] = (entry.daily[day] ?? 0) + 1;
   db.stats[key] = entry;
   saveDb(root, db);
   return entry.downloads;

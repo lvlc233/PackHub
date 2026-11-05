@@ -12,7 +12,7 @@ import {
 } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { loadPack } from '@packhub/kernel';
 import { writeIndex } from '@packhub/registry';
 import { publishPack } from '@packhub/registry';
@@ -21,6 +21,7 @@ import {
   accountForToken,
   bumpDownload,
   createAccount,
+  downloadTrend,
   loadDb,
   ratePack,
   ratingSummary,
@@ -35,6 +36,10 @@ export interface MarketOptions {
   port?: number;
   /** 上传上限，默认 25 MB */
   maxUploadBytes?: number;
+  /** 需要人工审核：上传进 staging，管理员批准后才进索引 */
+  requireReview?: boolean;
+  /** 管理 token；缺省用 PACKHUB_MARKET_ADMIN */
+  adminToken?: string;
 }
 
 export interface RunningMarket {
@@ -83,8 +88,15 @@ const EXECUTABLE_CHECKS = new Set(['command', 'scenario', 'mcp-ready']);
 export async function startMarket(opts: MarketOptions): Promise<RunningMarket> {
   const root = resolve(opts.root);
   const maxUpload = opts.maxUploadBytes ?? 25 * 1024 * 1024;
+  const requireReview = opts.requireReview ?? process.env.PACKHUB_MARKET_REVIEW === '1';
+  const adminToken = opts.adminToken ?? process.env.PACKHUB_MARKET_ADMIN;
+  if (requireReview && !adminToken) {
+    throw new Error('requireReview 需要 adminToken（或 PACKHUB_MARKET_ADMIN），否则没人能批准上传');
+  }
+  const stagingRoot = join(root, '.market', 'staging');
   mkdirSync(join(root, 'packs'), { recursive: true });
   mkdirSync(join(root, '.market'), { recursive: true });
+  mkdirSync(stagingRoot, { recursive: true });
 
   const server = createServer((req, res) => {
     void handle(req, res).catch((err) => {
@@ -141,6 +153,7 @@ export async function startMarket(opts: MarketOptions): Promise<RunningMarket> {
           return {
             ...p,
             downloads: db.stats[key]?.downloads ?? 0,
+            trend: downloadTrend(root, String(p.name), latest),
             rating: ratingSummary(root, String(p.name), latest),
           };
         });
@@ -172,6 +185,7 @@ export async function startMarket(opts: MarketOptions): Promise<RunningMarket> {
           : null,
         review: db.reviews[`${name}@${version}`] ?? null,
         downloads: db.stats[`${name}@${version}`]?.downloads ?? 0,
+        trend: downloadTrend(root, name, version),
         rating: ratingSummary(root, name, version),
       });
     }
@@ -234,7 +248,18 @@ export async function startMarket(opts: MarketOptions): Promise<RunningMarket> {
         }
 
         try {
-          const published = await publishPack(packDir, { registry: root, allowExec: false });
+          // 人工审核模式下先写 staging：批准前不进索引、不能下载
+          const target = requireReview ? stagingRoot : root;
+          const published = await publishPack(packDir, { registry: target, allowExec: false });
+          if (requireReview) {
+            recordReview(root, name, version, 'pending', 'waiting for admin review');
+            return sendJson(res, 202, {
+              name,
+              version,
+              status: 'pending',
+              note: '已通过干净安装与只读校验，等待管理员批准后进索引',
+            });
+          }
           recordReview(root, name, version, 'approved', 'clean install passed');
           const indexed = writeIndex(root);
           if (!indexed.ok) {
@@ -279,6 +304,62 @@ export async function startMarket(opts: MarketOptions): Promise<RunningMarket> {
         return sendJson(res, 422, { error: (err as Error).message });
       }
       return sendJson(res, 200, { name, version, rating: ratingSummary(root, name, version) });
+    }
+
+    if (url.pathname === '/api/admin/queue' && req.method === 'GET') {
+      if (!adminToken || req.headers['x-market-admin'] !== adminToken) {
+        return sendJson(res, 401, { error: '需要 x-market-admin 管理 token' });
+      }
+      const db = loadDb(root);
+      return sendJson(res, 200, {
+        pending: Object.entries(db.reviews)
+          .filter(([, r]) => r.status === 'pending')
+          .map(([key, r]) => {
+            const [name, version] = key.split('@');
+            return { name, version, ...r };
+          }),
+      });
+    }
+
+    if (url.pathname === '/api/admin/review' && req.method === 'POST') {
+      if (!adminToken || req.headers['x-market-admin'] !== adminToken) {
+        return sendJson(res, 401, { error: '需要 x-market-admin 管理 token' });
+      }
+      const body = JSON.parse((await readBody(req, 64 * 1024)).toString('utf8') || '{}') as {
+        name?: string;
+        version?: string;
+        action?: 'approve' | 'reject';
+        note?: string;
+      };
+      const name = body.name ?? '';
+      const version = body.version ?? '';
+      if (!/^[a-z0-9-]+\/[a-z0-9-]+$/.test(name) || !/^\d+\.\d+\.\d+/.test(version)) {
+        return sendJson(res, 400, { error: 'name / version 不合法' });
+      }
+      if (body.action !== 'approve' && body.action !== 'reject') {
+        return sendJson(res, 400, { error: 'action 只能是 approve / reject' });
+      }
+      const stagedDir = join(stagingRoot, 'packs', name, version);
+      if (!existsSync(stagedDir)) return sendJson(res, 404, { error: 'staging 里没有这个版本' });
+
+      if (body.action === 'reject') {
+        rmSync(join(stagingRoot, 'packs', name), { recursive: true, force: true });
+        recordReview(root, name, version, 'rejected', body.note ?? 'rejected by admin');
+        return sendJson(res, 200, { name, version, status: 'rejected' });
+      }
+
+      const destDir = join(root, 'packs', name, version);
+      mkdirSync(dirname(destDir), { recursive: true });
+      renameSync(stagedDir, destDir);
+      const stagedArchive = join(stagingRoot, 'packs', name, `${version}.phub`);
+      if (existsSync(stagedArchive)) {
+        mkdirSync(dirname(join(root, 'packs', name, `${version}.phub`)), { recursive: true });
+        renameSync(stagedArchive, join(root, 'packs', name, `${version}.phub`));
+      }
+      recordReview(root, name, version, 'approved', body.note ?? 'approved by admin');
+      const indexed = writeIndex(root);
+      if (!indexed.ok) return sendJson(res, 500, { error: '批准后重建索引失败' });
+      return sendJson(res, 200, { name, version, status: 'approved' });
     }
 
     if (url.pathname === '/api/yank' && req.method === 'POST') {
