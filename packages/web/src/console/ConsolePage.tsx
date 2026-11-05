@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import './console.css';
 
 interface PackEntry {
@@ -16,6 +16,11 @@ interface ResourceInfo {
   source: string;
   slot?: string;
   provides?: string[];
+  needs?: string[];
+  dependsOn?: string[];
+  transport?: string;
+  /** 原样写进 YAML 的 JSON 对象，例如 {"ROOT":"."} */
+  config?: string;
 }
 
 interface PackResources {
@@ -38,6 +43,7 @@ interface Issue {
   code: string;
   severity: string;
   message: string;
+  path?: string;
 }
 
 interface Plan {
@@ -56,6 +62,9 @@ const EMPTY_FORM = {
   version: '0.1.0',
   title: '未命名整合包',
   description: '一句话说清这个包替使用者完成了哪些整合工作。',
+  keywords: '',
+  license: '',
+  homepage: '',
   targets: ['dir'] as string[],
   visibility: 'public',
 };
@@ -64,21 +73,52 @@ const RES_TYPES = ['knowledge', 'prompt', 'skill', 'tool', 'mcp', 'config'];
 
 const uid = (): string => Math.random().toString(36).slice(2, 8);
 
-/** 只支持我们生成的这批字段：结构化表单 → YAML（不引第三方 YAML 库）。 */
-function toYaml(form: typeof EMPTY_FORM, resources: Draft[]): string {
+/** 粗判 source 类型；只用于面板提示，最终判定仍在 kernel。 */
+function sourceKind(source: string): { kind: string; pinned: boolean } {
+  if (source.startsWith('npm:')) {
+    const body = source.slice(4);
+    const at = body.lastIndexOf('@');
+    return { kind: 'npm', pinned: at > 0 && !/^(latest|next)$/i.test(body.slice(at + 1)) };
+  }
+  if (source.startsWith('github:')) {
+    const body = source.slice(7);
+    const at = body.lastIndexOf('@');
+    return { kind: 'github', pinned: at > 0 && /^[0-9a-f]{40}$/i.test(body.slice(at + 1)) };
+  }
+  if (source.startsWith('pypi:')) return { kind: 'pypi', pinned: source.includes('@') };
+  if (source.startsWith('packhub://')) return { kind: 'packhub', pinned: true };
+  if (source.startsWith('https://') || source.startsWith('http://')) return { kind: 'https', pinned: true };
+  if (source.startsWith('./') || source.startsWith('../')) return { kind: 'local', pinned: true };
+  return { kind: 'unknown', pinned: false };
+}
+
+/** 只生成受支持的字段：结构化表单 → YAML（不引第三方 YAML 库）。 */
+function toYaml(
+  form: typeof EMPTY_FORM,
+  resources: Draft[],
+  nameOverride?: string,
+): string {
   const q = (s: string): string => JSON.stringify(s);
+  const list = (items: string[]): string => `[${items.map((x) => q(x)).join(', ')}]`;
   const lines: string[] = [
     'apiVersion: packhub.dev/v0',
     'kind: Pack',
     'metadata:',
-    `  name: ${form.name}`,
+    `  name: ${nameOverride ?? form.name}`,
     `  version: ${form.version}`,
     `  title: ${q(form.title)}`,
     `  description: ${q(form.description)}`,
     `  targets: [${form.targets.join(', ')}]`,
-    'requires:',
-    '  packhub: ">=0.0.1 <0.1"',
+    `  visibility: ${form.visibility}`,
   ];
+  const keywords = form.keywords
+    .split(',')
+    .map((k) => k.trim())
+    .filter(Boolean);
+  if (keywords.length > 0) lines.push(`  keywords: ${list(keywords)}`);
+  if (form.license.trim()) lines.push(`  license: ${q(form.license.trim())}`);
+  if (form.homepage.trim()) lines.push(`  homepage: ${q(form.homepage.trim())}`);
+  lines.push('requires:', '  packhub: ">=0.0.1 <0.1"');
   if (resources.length === 0) {
     lines.push('resources: []');
   } else {
@@ -88,11 +128,17 @@ function toYaml(form: typeof EMPTY_FORM, resources: Draft[]): string {
       lines.push(`    type: ${r.type}`);
       lines.push(`    source: ${q(r.source)}`);
       if (r.slot) lines.push(`    slot: ${r.slot}`);
+      if (r.transport) lines.push(`    transport: ${r.transport}`);
+      if (r.provides && r.provides.length > 0) lines.push(`    provides: ${list(r.provides)}`);
+      if (r.needs && r.needs.length > 0) lines.push(`    needs: ${list(r.needs)}`);
+      if (r.dependsOn && r.dependsOn.length > 0) lines.push(`    dependsOn: ${list(r.dependsOn)}`);
+      if (r.config && r.config.trim()) lines.push(`    config: ${r.config.trim()}`);
     }
+    // 行顺序就是安装顺序：写进 composition.order，预览与保存都按这个顺序
+    lines.push('composition:', `  order: [${resources.map((r) => r.id).join(', ')}]`);
   }
   return lines.join('\n') + '\n';
 }
-
 export function ConsolePage() {
   const [packs, setPacks] = useState<PackEntry[]>([]);
   const [activePack, setActivePack] = useState<string | null>(null);
@@ -136,12 +182,21 @@ export function ConsolePage() {
   const [registryPath, setRegistryPath] = useState('registry');
   const [conflict, setConflict] = useState<string | null>(null);
   const [copiedHash, setCopiedHash] = useState(false);
+  const [expandedRes, setExpandedRes] = useState<Set<string>>(new Set());
+  const fileRef = useRef<HTMLInputElement | null>(null);
 
   const yaml = useMemo(() => toYaml(form, resources), [form, resources]);
 
   const nameOk = /^[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9-]*$/.test(form.name);
   const versionOk = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(form.version);
   const targetsOk = form.targets.length > 0;
+  const gate = [
+    { ok: nameOk && versionOk && targetsOk, text: '表单字段' },
+    { ok: form.visibility === 'public' || form.visibility === 'unlisted', text: 'visibility 可发布' },
+    { ok: resources.length > 0, text: '至少一个资源' },
+    { ok: !issues.some((i) => i.severity === 'error'), text: '预览无错误' },
+    { ok: plan !== null, text: '计划可生成' },
+  ];
   const dupIds = new Set(
     resources.map((r) => r.id).filter((id, i, arr) => arr.indexOf(id) !== i),
   );
@@ -211,10 +266,12 @@ export function ConsolePage() {
   const useAsBase = (): void => {
     if (!browser) return;
     setForm({
+      ...EMPTY_FORM,
       name: `${browser.name.split('/')[0]}/my-${uid()}`,
       version: '0.1.0',
       title: browser.meta.title ?? '未命名整合包',
       description: browser.meta.description ?? '',
+      keywords: (browser.meta.keywords ?? []).join(', '),
       targets: browser.meta.targets.length > 0 ? browser.meta.targets : ['dir'],
       visibility: 'public',
     });
@@ -274,14 +331,14 @@ export function ConsolePage() {
     }
   };
 
-  const doInstall = async (): Promise<void> => {
+  const doInstall = async (dryRun = false): Promise<void> => {
     if (!savedDir) return;
-    setDelivery({ kind: 'busy', text: '安装中…' });
+    setDelivery({ kind: 'busy', text: dryRun ? '预演安装…' : '安装中…' });
     try {
       const res = await fetch(`/api/install?dir=${encodeURIComponent(savedDir)}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ into: installInto.trim() || undefined }),
+        body: JSON.stringify({ into: installInto.trim() || undefined, dryRun }),
       });
       const data = (await res.json()) as {
         outcomes?: { status: string }[];
@@ -328,6 +385,67 @@ export function ConsolePage() {
     }
   };
 
+  const doSaveCopy = async (): Promise<void> => {
+    const base = saveDir.trim() || `packs/${form.name}`;
+    const dir = `${base}-copy`;
+    setDelivery({ kind: 'busy', text: '保存副本…' });
+    try {
+      const res = await fetch('/api/packs/create', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ dir, manifest: toYaml(form, resources, `${form.name}-copy`) }),
+      });
+      const data = (await res.json()) as { dir?: string; error?: string; issues?: { message: string }[] };
+      if (!res.ok) {
+        setDelivery({ kind: 'error', text: data.error ?? data.issues?.map((i) => i.message).join('; ') ?? '保存副本失败' });
+        return;
+      }
+      setSavedDir(data.dir ?? dir);
+      setDelivery({ kind: 'ok', text: `副本已保存到 ${data.dir ?? dir}（包名加了 -copy）` });
+    } catch (err) {
+      setDelivery({ kind: 'error', text: (err as Error).message });
+    }
+  };
+
+  const uploadFiles = async (files: FileList | null): Promise<void> => {
+    if (!files || files.length === 0) return;
+    const dir = saveDir.trim() || `packs/${form.name}`;
+    setDelivery({ kind: 'busy', text: `上传 ${files.length} 个文件…` });
+    try {
+      const added: Draft[] = [];
+      for (const file of Array.from(files)) {
+        const dataBase64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(file);
+        });
+        const res = await fetch('/api/packs/upload', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ dir, path: `resources/${file.name}`, dataBase64 }),
+        });
+        const data = (await res.json()) as { error?: string };
+        if (!res.ok) throw new Error(data.error ?? `上传失败：${file.name}`);
+        const idBase = file.name
+          .replace(/\.[^.]+$/, '')
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '');
+        added.push({
+          key: uid(),
+          id: idBase || `file-${uid()}`,
+          type: 'knowledge',
+          source: `./resources/${file.name}`,
+        });
+      }
+      setResources((prev) => [...prev, ...added]);
+      setSaveDir(dir);
+      setDelivery({ kind: 'ok', text: `已上传 ${added.length} 个文件并加入资源` });
+    } catch (err) {
+      setDelivery({ kind: 'error', text: (err as Error).message });
+    }
+  };
   const resetDraft = (): void => {
     setForm({ ...EMPTY_FORM, targets: [...EMPTY_FORM.targets] });
     setResources([]);
@@ -513,7 +631,32 @@ export function ConsolePage() {
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
               />
             </label>
-            <div className="cs-row">
+            <div className="cs-row three">
+              <label>
+                keywords
+                <input
+                  value={form.keywords}
+                  placeholder="逗号分隔"
+                  onChange={(e) => setForm({ ...form, keywords: e.target.value })}
+                />
+              </label>
+              <label>
+                license
+                <input
+                  value={form.license}
+                  placeholder="MIT / Apache-2.0"
+                  onChange={(e) => setForm({ ...form, license: e.target.value })}
+                />
+              </label>
+              <label>
+                homepage
+                <input
+                  value={form.homepage}
+                  placeholder="https://…"
+                  onChange={(e) => setForm({ ...form, homepage: e.target.value })}
+                />
+              </label>
+            </div>            <div className="cs-row">
               <span className="cs-label">visibility</span>
               <select
                 className="cs-visibility"
@@ -554,9 +697,24 @@ export function ConsolePage() {
           <div className="cs-reslist">
             <div className="cs-reslist-head">
               <span>资源 {resources.length} 个</span>
-              <button className="cs-link" onClick={addBlankResource}>
-                + 新增资源
-              </button>
+              <span className="cs-reslist-actions">
+                <button className="cs-link" onClick={addBlankResource}>
+                  + 新增资源
+                </button>
+                <button className="cs-link" onClick={() => fileRef.current?.click()}>
+                  上传文件
+                </button>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  multiple
+                  className="cs-file"
+                  onChange={(e) => {
+                    void uploadFiles(e.target.files);
+                    e.target.value = '';
+                  }}
+                />
+              </span>
             </div>
             {resources.length === 0 && <p className="cs-hint">从左边收藏或包资源里点 + 添加。</p>}
             {resources.map((r, i) => (

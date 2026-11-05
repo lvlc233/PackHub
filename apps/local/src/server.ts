@@ -124,6 +124,28 @@ async function handleApi(
     return sendJson(res, 200, { issues: planIssues, plan: plan ?? null });
   }
 
+  // 创作台上传单个文件到 Pack 目录（路径限定在目标 Pack 内）
+  if (url.pathname === '/api/packs/upload' && req.method === 'POST') {
+    const parsed = (await readBody(req)) as {
+      dir?: string;
+      path?: string;
+      dataBase64?: string;
+    };
+    const rel = String(parsed.dir ?? '').trim();
+    const filePath = String(parsed.path ?? '').trim();
+    if (!rel || !filePath) return sendJson(res, 400, { error: '要提供 dir 与 path' });
+    const packDir = safeDir(root, rel);
+    const target = safeDir(packDir, filePath);
+    const data = Buffer.from(String(parsed.dataBase64 ?? ''), 'base64');
+    if (data.length === 0) return sendJson(res, 400, { error: '文件是空的' });
+    mkdirSync(join(target, '..'), { recursive: true });
+    writeFileSync(target, data);
+    return sendJson(res, 201, {
+      dir: relative(root, packDir).split(sep).join('/'),
+      path: relative(packDir, target).split(sep).join('/'),
+      bytes: data.length,
+    });
+  }
   // 创作台保存：把预览用的 manifest 写成真实 Pack 目录（只写清单，不落资源文件）
   if (url.pathname === '/api/packs/create' && req.method === 'POST') {
     const body = await readBody(req);
