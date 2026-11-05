@@ -26,11 +26,11 @@
 
 ## 压包
 
-- `.phub` 是 tar.gz；解包 `filter` 拒绝包含 `..` 的路径。
-- 归档内绝对路径/符号链接的对抗测试还没做；tar 库默认会去掉绝对路径前缀，但没有在 Windows 上验证过符号链接逃逸。
+- `.phub` 是 tar.gz；解包 `filter` 拒绝 `..`、绝对路径（含 Windows 盘符）、符号链接与硬链接条目，`guards.test` 直接覆盖这些规则。
+- CI 已有 Windows 全量测试；Windows 上的 UI 视觉基线单独按 `win32` 存放。
 
 ## 已知差异
 
-- CI 是 Linux；Windows 只在开发机实测，没有矩阵。
+- CI 同时跑 Linux 与 Windows 全量测试；UI 视觉基线按平台分开，不跨平台比像素。
 - 行尾：git 会把部分文件写成 CRLF；YAML/JSON 解析不受影响，但版本不可变检查对 `packhub.yaml` 做了 CRLF 归一。
 - 本机 `pwsh` 是本机权限版（非沙箱），错误不是 ACL 引起的；写盘是真写盘。

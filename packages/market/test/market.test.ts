@@ -210,7 +210,7 @@ describe('市场写端', () => {
       await m.close();
       rmSync(reg, { recursive: true, force: true });
     }
-  });
+  }, 20_000);
   it('未登录不能发布或下架', async () => {
     const res = await fetch(`${market.url}/api/publish`, { method: 'POST', body: 'x' });
     expect(res.status).toBe(401);

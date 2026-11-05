@@ -1425,7 +1425,20 @@ function viaTemp(file: string): string {
 function writeFileAtomic(file: string, data: string | Uint8Array): void {
   mkdirSync(dirname(file), { recursive: true });
   const tmp = viaTemp(file);
+  let mode: number | undefined;
+  try {
+    mode = statSync(file).mode;
+  } catch {
+    /* 新文件用默认权限 */
+  }
   writeFileSync(tmp, data);
+  if (mode !== undefined) {
+    try {
+      chmodSync(tmp, mode);
+    } catch {
+      /* Windows 上权限位有限 */
+    }
+  }
   renameSync(tmp, file);
 }
 
@@ -1433,6 +1446,11 @@ function copyFileAtomic(from: string, to: string): void {
   mkdirSync(dirname(to), { recursive: true });
   const tmp = viaTemp(to);
   copyFileSync(from, tmp);
+  try {
+    chmodSync(tmp, statSync(from).mode);
+  } catch {
+    /* Windows 上权限位有限 */
+  }
   renameSync(tmp, to);
 }
 

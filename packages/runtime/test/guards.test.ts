@@ -81,10 +81,13 @@ describe('安装锁与所有权', () => {
 });
 
 describe('归档条目过滤', () => {
-  it('拒绝 .. 路径与符号/硬链接，普通文件放行', () => {
+  it('拒绝 ..、绝对路径与符号/硬链接，普通文件放行', () => {
     expect(isSafeArchiveEntry('skills/x/SKILL.md', { type: 'File' })).toBe(true);
     expect(isSafeArchiveEntry('../escape', { type: 'File' })).toBe(false);
     expect(isSafeArchiveEntry('a/../../escape', { type: 'File' })).toBe(false);
+    expect(isSafeArchiveEntry('/etc/passwd', { type: 'File' })).toBe(false);
+    expect(isSafeArchiveEntry('C:/Windows/System32/x', { type: 'File' })).toBe(false);
+    expect(isSafeArchiveEntry('..\\escape', { type: 'File' })).toBe(false);
     expect(isSafeArchiveEntry('link', { type: 'SymbolicLink' })).toBe(false);
     expect(isSafeArchiveEntry('hard', { type: 'Link' })).toBe(false);
   });

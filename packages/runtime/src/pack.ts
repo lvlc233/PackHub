@@ -52,7 +52,9 @@ export async function packArchive(
 /** 拒绝逃出目标目录的路径与链接条目；解包与测试共用同一条规则。 */
 export function isSafeArchiveEntry(path: string, entry?: unknown): boolean {
   const type = (entry as { type?: string } | undefined)?.type;
-  return !path.split('/').includes('..') && type !== 'SymbolicLink' && type !== 'Link';
+  const normalized = path.replace(/\\/g, '/');
+  const absolute = normalized.startsWith('/') || /^[a-zA-Z]:\//.test(normalized);
+  return !absolute && !normalized.split('/').includes('..') && type !== 'SymbolicLink' && type !== 'Link';
 }
 
 /** 解包 `.phub` 到目录（strip 0：归档内就是 Pack 根）。 */

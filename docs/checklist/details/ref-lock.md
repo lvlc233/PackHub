@@ -19,4 +19,4 @@
 
 ## 结论
 
-引用的“定位 + pin + integrity”链路完整；最大空缺是 `packhub://` 与缓存回收。`integrity` 在 github 上为 null 是事实，不应在文档里说“全部锁住字节”。
+引用的“定位 + pin + integrity”链路完整，`packhub://` 与缓存回收都已落地；`integrity` 在拿不到上游哈希时仍为 null，这是事实，不应在文档里说“全部锁住字节”。
