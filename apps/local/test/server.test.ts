@@ -102,6 +102,48 @@ resources:
       rmSync(join(process.cwd(), regRel), { recursive: true, force: true });
     }
   });
+
+  it('安装可以指定项目目录；重复保存需要 force', async () => {
+    const rel = `tmp/api-pack2-${Math.random().toString(36).slice(2, 8)}`;
+    const into = `tmp/api-proj-${Math.random().toString(36).slice(2, 8)}`;
+    const manifest = `apiVersion: packhub.dev/v0
+kind: Pack
+metadata: { name: demo/into, version: 0.1.0, targets: [dir], visibility: public }
+requires: { packhub: ">=0.0.1 <0.1" }
+resources:
+  - id: rules
+    type: knowledge
+    source: ./rules.md
+`;
+    try {
+      const created = await fetch(`${base}/api/packs/create`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ dir: rel, manifest }),
+      });
+      expect(created.status).toBe(201);
+      writeFileSync(join(process.cwd(), rel, 'rules.md'), '# rules\n', 'utf8');
+
+      const forced = await fetch(`${base}/api/packs/create`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ dir: rel, manifest, force: true }),
+      });
+      expect(forced.status).toBe(201);
+
+      const installed = await fetch(`${base}/api/install?dir=${encodeURIComponent(rel)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ into }),
+      });
+      expect(installed.status).toBe(200);
+      expect(existsSync(join(process.cwd(), into, '.packhub/state.json'))).toBe(true);
+      expect(existsSync(join(process.cwd(), into, '.packhub/knowledge/rules.md'))).toBe(true);
+    } finally {
+      rmSync(join(process.cwd(), rel), { recursive: true, force: true });
+      rmSync(join(process.cwd(), into), { recursive: true, force: true });
+    }
+  });
   it('registry 索引可读', async () => {
     const res = await fetch(`${base}/api/registry`);
     expect(res.status).toBe(200);

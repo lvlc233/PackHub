@@ -132,8 +132,19 @@ export function ConsolePage() {
   const [saveDir, setSaveDir] = useState('');
   const [savedDir, setSavedDir] = useState<string | null>(null);
   const [delivery, setDelivery] = useState<{ kind: 'ok' | 'error' | 'busy'; text: string } | null>(null);
+  const [installInto, setInstallInto] = useState('');
+  const [registryPath, setRegistryPath] = useState('registry');
+  const [conflict, setConflict] = useState<string | null>(null);
+  const [copiedHash, setCopiedHash] = useState(false);
 
   const yaml = useMemo(() => toYaml(form, resources), [form, resources]);
+
+  const nameOk = /^[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9-]*$/.test(form.name);
+  const versionOk = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(form.version);
+  const targetsOk = form.targets.length > 0;
+  const dupIds = new Set(
+    resources.map((r) => r.id).filter((id, i, arr) => arr.indexOf(id) !== i),
+  );
 
   useEffect(() => {
     fetch('/api/registry')
@@ -149,6 +160,16 @@ export function ConsolePage() {
   useEffect(() => {
     localStorage.setItem(DRAFT_KEY, JSON.stringify({ form, resources }));
   }, [form, resources]);
+
+  useEffect(() => {
+    const guard = (event: BeforeUnloadEvent): void => {
+      if (resources.length === 0) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', guard);
+    return () => window.removeEventListener('beforeunload', guard);
+  }, [resources.length]);
 
   // 结构化表单改动 → 自动预览（不写盘）
   useEffect(() => {
@@ -222,16 +243,26 @@ export function ConsolePage() {
   };
 
 
-  const doSave = async (): Promise<void> => {
+  const doSave = async (force = false): Promise<void> => {
+    if (!nameOk || !versionOk || !targetsOk) {
+      setDelivery({ kind: 'error', text: '包名 / 版本 / targets 不合法，先修表单' });
+      return;
+    }
     const dir = saveDir.trim() || `packs/${form.name}`;
     setDelivery({ kind: 'busy', text: '保存中…' });
+    setConflict(null);
     try {
       const res = await fetch('/api/packs/create', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ dir, manifest: yaml }),
+        body: JSON.stringify({ dir, manifest: yaml, force }),
       });
       const data = (await res.json()) as { dir?: string; error?: string; issues?: { message: string }[] };
+      if (res.status === 409) {
+        setConflict(dir);
+        setDelivery({ kind: 'error', text: data.error ?? '目录里已经有 packhub.yaml' });
+        return;
+      }
       if (!res.ok) {
         setDelivery({ kind: 'error', text: data.error ?? data.issues?.map((i) => i.message).join('; ') ?? '保存失败' });
         return;
@@ -250,10 +281,11 @@ export function ConsolePage() {
       const res = await fetch(`/api/install?dir=${encodeURIComponent(savedDir)}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: '{}',
+        body: JSON.stringify({ into: installInto.trim() || undefined }),
       });
       const data = (await res.json()) as {
         outcomes?: { status: string }[];
+        root?: string;
         error?: string;
         issues?: { message: string }[];
       };
@@ -264,7 +296,7 @@ export function ConsolePage() {
       const bad = (data.outcomes ?? []).filter((o) => o.status !== 'done' && o.status !== 'noop');
       setDelivery(
         bad.length === 0
-          ? { kind: 'ok', text: `安装完成：${(data.outcomes ?? []).length} 个动作` }
+          ? { kind: 'ok', text: `安装完成：${(data.outcomes ?? []).length} 个动作 → ${data.root ?? 'Pack 目录'}` }
           : { kind: 'error', text: `安装未完成：${bad.length} 个动作失败/跳过` },
       );
     } catch (err) {
@@ -274,12 +306,16 @@ export function ConsolePage() {
 
   const doPublish = async (): Promise<void> => {
     if (!savedDir) return;
+    if (form.visibility === 'private' || form.visibility === 'internal') {
+      setDelivery({ kind: 'error', text: `${form.visibility} 不能进公共索引；改成 public/unlisted 再发` });
+      return;
+    }
     setDelivery({ kind: 'busy', text: '发布中（会跑干净安装+校验）…' });
     try {
       const res = await fetch('/api/publish', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ dir: savedDir }),
+        body: JSON.stringify({ dir: savedDir, registry: registryPath.trim() || 'registry' }),
       });
       const data = (await res.json()) as { name?: string; version?: string; error?: string };
       if (!res.ok) {
@@ -290,6 +326,44 @@ export function ConsolePage() {
     } catch (err) {
       setDelivery({ kind: 'error', text: (err as Error).message });
     }
+  };
+
+  const resetDraft = (): void => {
+    setForm({ ...EMPTY_FORM, targets: [...EMPTY_FORM.targets] });
+    setResources([]);
+    setPlan(null);
+    setIssues([]);
+    setSavedDir(null);
+    setConflict(null);
+    setDelivery({ kind: 'ok', text: '已清空草稿' });
+  };
+
+  const duplicateResource = (index: number): void => {
+    setResources((prev) => {
+      const src = prev[index];
+      if (!src) return prev;
+      const next = [...prev];
+      next.splice(index + 1, 0, { ...src, key: uid(), id: `${src.id}-copy` });
+      return next;
+    });
+  };
+
+  const moveResource = (index: number, by: number): void => {
+    setResources((prev) => {
+      const target = index + by;
+      if (target < 0 || target >= prev.length) return prev;
+      const next = [...prev];
+      const [row] = next.splice(index, 1);
+      if (row) next.splice(target, 0, row);
+      return next;
+    });
+  };
+
+  const copyHash = (): void => {
+    if (!plan) return;
+    void navigator.clipboard?.writeText(plan.planHash);
+    setCopiedHash(true);
+    window.setTimeout(() => setCopiedHash(false), 1200);
   };
   const addBlankResource = (): void => {
     setResources((prev) => [
@@ -326,6 +400,9 @@ export function ConsolePage() {
             <option value="codex">codex</option>
           </select>
         </label>
+        <button className="cs-btn ghost" onClick={resetDraft}>
+          清空草稿
+        </button>
         <button className="cs-btn ghost" onClick={download}>
           下载 yaml
         </button>
@@ -407,17 +484,21 @@ export function ConsolePage() {
                 包名
                 <input
                   value={form.name}
+                  aria-invalid={!nameOk}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                   spellCheck={false}
                 />
+                {!nameOk && <span className="cs-field-error">要 scope/name（小写字母、数字、连字符）</span>}
               </label>
               <label>
                 版本
                 <input
                   value={form.version}
+                  aria-invalid={!versionOk}
                   onChange={(e) => setForm({ ...form, version: e.target.value })}
                   spellCheck={false}
                 />
+                {!versionOk && <span className="cs-field-error">要 x.y.z</span>}
               </label>
             </div>
             <label>
@@ -447,6 +528,7 @@ export function ConsolePage() {
                 ))}
               </select>
             </div>
+            {!targetsOk && <span className="cs-field-error">至少选一个 target</span>}
             <div className="cs-row">
               <span className="cs-label">targets</span>
               {['dir', 'claude-code', 'dsh', 'codex'].map((t) => (
@@ -513,13 +595,24 @@ export function ConsolePage() {
                     )
                   }
                 />
+                <button className="cs-rowbtn" onClick={() => moveResource(i, -1)} title="上移" aria-label={`上移 ${r.id}`}>
+                  ↑
+                </button>
+                <button className="cs-rowbtn" onClick={() => moveResource(i, 1)} title="下移" aria-label={`下移 ${r.id}`}>
+                  ↓
+                </button>
+                <button className="cs-rowbtn" onClick={() => duplicateResource(i)} title="复制" aria-label={`复制 ${r.id}`}>
+                  ⧉
+                </button>
                 <button
                   className="cs-del"
                   onClick={() => setResources(resources.filter((_, j) => j !== i))}
                   title="移除"
+                  aria-label={`移除 ${r.id}`}
                 >
                   ×
                 </button>
+                {dupIds.has(r.id) && <span className="cs-field-error">id 重复：{r.id}</span>}
               </div>
             ))}
           </div>
@@ -547,6 +640,9 @@ export function ConsolePage() {
               <p className="cs-hash">
                 {plan.target} · {plan.actions.length} 个动作 · {plan.verify.length} 项校验
                 <br />
+                <button className="cs-hash-copy" onClick={copyHash}>
+                  {copiedHash ? '已复制' : '复制 planHash'}
+                </button>
                 <code>{plan.planHash}</code>
               </p>
               <ol className="cs-actions">
@@ -577,6 +673,24 @@ export function ConsolePage() {
                 spellCheck={false}
               />
             </label>
+            <label className="cs-deliver-row">
+              安装到
+              <input
+                value={installInto}
+                placeholder="留空=装在 Pack 目录；或填项目目录"
+                onChange={(e) => setInstallInto(e.target.value)}
+                spellCheck={false}
+              />
+            </label>
+            <label className="cs-deliver-row">
+              registry
+              <input
+                value={registryPath}
+                placeholder="registry 目录（默认 registry）"
+                onChange={(e) => setRegistryPath(e.target.value)}
+                spellCheck={false}
+              />
+            </label>
             <div className="cs-deliver-actions">
               <button className="cs-btn" onClick={() => void doSave()}>
                 保存到目录
@@ -587,6 +701,11 @@ export function ConsolePage() {
               <button className="cs-btn ghost" onClick={() => void doPublish()} disabled={!savedDir}>
                 发布到 registry
               </button>
+              {conflict && (
+                <button className="cs-btn ghost" onClick={() => void doSave(true)}>
+                  覆盖 {conflict}
+                </button>
+              )}
             </div>
             {delivery && (
               <p

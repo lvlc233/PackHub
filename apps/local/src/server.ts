@@ -234,8 +234,19 @@ async function handleApi(
     const ctx = loadPack(dir);
     const { plan, issues } = planFor(ctx);
     if (!plan) return sendJson(res, 422, { error: '计划生成失败', issues });
-    const result = await installPack(ctx, plan, { allowExec: body.allowExec === true });
-    return sendJson(res, 200, { outcomes: result.outcomes, planHash: plan.planHash, statePath: result.statePath });
+    // into：可把包装到另一个项目目录；不传则装进 Pack 自己
+    const into = body.into ? safeDir(root, String(body.into)) : ctx.dir;
+    const result = await installPack(ctx, plan, {
+      allowExec: body.allowExec === true,
+      root: into,
+      packRoot: ctx.dir,
+    });
+    return sendJson(res, 200, {
+      outcomes: result.outcomes,
+      planHash: plan.planHash,
+      statePath: result.statePath,
+      root: relative(root, into).split(sep).join('/'),
+    });
   }
 
   if (url.pathname === '/api/verify' && req.method === 'POST') {

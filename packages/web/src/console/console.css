@@ -525,3 +525,64 @@
 .cs-deliver-msg.bad {
   color: #b42318;
 }
+.cs-field-error {
+  display: block;
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: #b42318;
+}
+
+.cs-rowbtn {
+  border: 1px solid #d0d5dd;
+  background: #fff;
+  color: #475467;
+  border-radius: 7px;
+  width: 26px;
+  height: 26px;
+  cursor: pointer;
+}
+
+.cs-rowbtn:hover {
+  border-color: #b9c0cc;
+  color: #101828;
+}
+
+.cs-hash-copy {
+  border: 1px solid #dfe2ff;
+  background: #eef0ff;
+  color: #3b3bb0;
+  border-radius: 999px;
+  font-size: 11px;
+  padding: 3px 9px;
+  cursor: pointer;
+  margin-bottom: 6px;
+}
+/* 390px：资源行改两列，避免固定列宽把页面撑出横向滚动 */
+@media (max-width: 720px) {
+  .cs-restable-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .cs-restable-row input,
+  .cs-restable-row select {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .cs-nav {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  .cs-spacer {
+    display: none;
+  }
+
+  .cs-deliver-row {
+    flex-wrap: wrap;
+  }
+
+  .cs-deliver-row input {
+    flex: 1 1 100%;
+  }
+}

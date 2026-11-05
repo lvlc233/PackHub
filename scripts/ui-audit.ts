@@ -59,7 +59,7 @@ try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     await page.goto(`${base}/console`, { waitUntil: 'networkidle' });
     await page.getByRole('button', { name: '+ 新增资源' }).click();
-    await page.locator('.cs-deliver-row input').fill(testDir);
+    await page.getByRole('textbox', { name: '目录', exact: false }).fill(testDir);
     await page.getByRole('button', { name: '保存到目录' }).click();
     await page.getByRole('status').filter({ hasText: '已保存到' }).waitFor({ timeout: 10_000 });
     if (!existsSync(join(root, testDir, 'packhub.yaml'))) {
