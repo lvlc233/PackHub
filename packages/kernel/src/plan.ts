@@ -29,6 +29,7 @@ export const DIR_TARGET_VARS: Record<string, string> = {
   skillsDir: '.packhub/skills',
   knowledgeDir: '.packhub/knowledge',
   promptsDir: '.packhub/prompts',
+  binDir: '.packhub/bin',
   configFile: '.packhub/config.json',
 };
 
@@ -41,6 +42,7 @@ export const TARGET_VARS: Record<TargetId, Record<string, string>> = {
     skillsDir: '.claude/skills',
     knowledgeDir: '.packhub/knowledge',
     promptsDir: '.packhub/prompts',
+    binDir: '.packhub/bin',
     configFile: '.mcp.json',
     instructionFile: 'CLAUDE.md',
   },
@@ -51,6 +53,7 @@ export const TARGET_VARS: Record<TargetId, Record<string, string>> = {
     skillsDir: '.packhub/skills',
     knowledgeDir: '.packhub/knowledge',
     promptsDir: '.packhub/prompts',
+    binDir: '.packhub/bin',
     configFile: '.packhub/config.json',
     instructionFile: 'AGENTS.md',
   },
@@ -60,6 +63,7 @@ export const TARGET_VARS: Record<TargetId, Record<string, string>> = {
     skillsDir: '.codex/skills',
     knowledgeDir: '.packhub/knowledge',
     promptsDir: '.packhub/prompts',
+    binDir: '.packhub/bin',
     configFile: '.packhub/config.json',
     instructionFile: 'AGENTS.md',
   },
@@ -201,6 +205,15 @@ export function buildPlan(
         break;
       }
       case 'tool': {
+        if (parsed.kind === 'local') {
+          issues.push({
+            code: 'tool-source-unsupported',
+            severity: 'error',
+            message: `tool 只支持 npm: / github: / .tar.gz 归档（现在是本地路径）：${res.source}`,
+            path: at,
+          });
+          break;
+        }
         if (parsed.kind === 'http' && !looksLikeArchive(res.source)) {
           issues.push({
             code: 'source-not-archive',
@@ -218,7 +231,7 @@ export function buildPlan(
           ...(res.auth ? { auth: res.auth } : {}),
           resource: id,
         });
-        push({
+        const unpacked = push({
           op: 'unpack',
           from: `${targetVars.cacheDir}/${id}.tar.gz`,
           to: `${targetVars.cacheDir}/tools/${id}`,
@@ -226,6 +239,19 @@ export function buildPlan(
           resource: id,
           dependsOn: [fetched.actionId],
         });
+        // tool 的价值在“能执行”：解包完在 binDir 下生成一个能直接跑的 wrapper
+        {
+          const configured = res.config?.bin;
+          const command = typeof configured === 'string' ? configured : id;
+          push({
+            op: 'link.bin',
+            from: `${targetVars.cacheDir}/tools/${id}`,
+            to: `${targetVars.binDir}/${command}`,
+            command,
+            resource: id,
+            dependsOn: [unpacked.actionId],
+          });
+        }
         break;
       }
       default:
@@ -433,7 +459,7 @@ function detectConflicts(
 
   for (const a of actions) {
     const isOverlay = (a.resource ?? '').startsWith('overlay#');
-    if (a.op === 'write' || a.op === 'link.skill' || a.op === 'unpack') {
+    if (a.op === 'write' || a.op === 'link.skill' || a.op === 'unpack' || a.op === 'link.bin') {
       const list = fsPaths.get(a.to) ?? [];
       list.push({ id: a.actionId, overlay: isOverlay });
       fsPaths.set(a.to, list);
@@ -530,6 +556,7 @@ function instructionBlock(
     `- skills：\`${targetVars.skillsDir}\``,
     `- 知识：\`${targetVars.knowledgeDir}\``,
     `- 提示词：\`${targetVars.promptsDir}\``,
+    `- 工具入口：\`${targetVars.binDir}\``,
     `- 配置：\`${targetVars.configFile}\``,
   ];
   return lines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd();
