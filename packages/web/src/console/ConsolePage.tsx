@@ -1,4 +1,5 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { parse as parseYaml } from 'yaml';
 import './console.css';
 
 interface PackEntry {
@@ -21,6 +22,10 @@ interface ResourceInfo {
   transport?: string;
   /** 原样写进 YAML 的 JSON 对象，例如 {"ROOT":"."} */
   config?: string;
+  integrity?: string;
+  auth?: { env: string; scheme?: string };
+  targets?: string[];
+  optional?: boolean;
 }
 
 interface PackResources {
@@ -35,7 +40,7 @@ interface Favorite extends ResourceInfo {
   version: string;
 }
 
-interface Draft extends ResourceInfo {
+interface DraftRes extends ResourceInfo {
   key: string;
 }
 
@@ -49,15 +54,55 @@ interface Issue {
 interface Plan {
   actions: { actionId: string; op: string; to?: string; dest?: string; path?: string; uri?: string; resource?: string }[];
   verify: { type: string }[];
-  excluded: { resource: string; slot: string }[];
+  excluded: { resource: string; slot: string; reason?: string }[];
   planHash: string;
   target: string;
 }
 
-const FAV_KEY = 'packhub.favorites.v1';
-const DRAFT_KEY = 'packhub.draft.v2';
+interface FormState {
+  name: string;
+  version: string;
+  title: string;
+  description: string;
+  keywords: string;
+  license: string;
+  homepage: string;
+  authors: string;
+  extends: string;
+  agent: string;
+  targets: string[];
+  visibility: string;
+}
 
-const EMPTY_FORM = {
+interface AdvancedState {
+  compositionEnv: string;
+  compositionNeeds: string;
+  slots: string;
+  bindings: string;
+  overrides: string;
+  overlays: string;
+  verify: string;
+  exec: string;
+  paths: string;
+  vars: string;
+}
+
+interface DraftRecord {
+  id: string;
+  label: string;
+  updatedAt: string;
+  form: FormState;
+  resources: DraftRes[];
+  advanced: AdvancedState;
+  docs: { readme: string; changelog: string };
+}
+
+const FAV_KEY = 'packhub.favorites.v1';
+const LEGACY_DRAFT_KEY = 'packhub.draft.v2';
+const DRAFTS_KEY = 'packhub.drafts.v2';
+const ACTIVE_KEY = 'packhub.activeDraft.v2';
+
+const EMPTY_FORM: FormState = {
   name: 'me/my-pack',
   version: '0.1.0',
   title: '未命名整合包',
@@ -65,60 +110,195 @@ const EMPTY_FORM = {
   keywords: '',
   license: '',
   homepage: '',
-  targets: ['dir'] as string[],
+  authors: '',
+  extends: '',
+  agent: '',
+  targets: ['dir'],
   visibility: 'public',
 };
 
+const EMPTY_ADVANCED: AdvancedState = {
+  compositionEnv: '',
+  compositionNeeds: '',
+  slots: '',
+  bindings: '',
+  overrides: '',
+  overlays: '',
+  verify: '',
+  exec: '',
+  paths: '',
+  vars: '',
+};
+
 const RES_TYPES = ['knowledge', 'prompt', 'skill', 'tool', 'mcp', 'config'];
+const TARGETS = ['dir', 'claude-code', 'dsh', 'codex', 'server'];
 
 const uid = (): string => Math.random().toString(36).slice(2, 8);
 
 /** 粗判 source 类型；只用于面板提示，最终判定仍在 kernel。 */
-function sourceKind(source: string): { kind: string; pinned: boolean } {
+function sourceKind(source: string): { kind: string; pinned: boolean; hint: string } {
   if (source.startsWith('npm:')) {
     const body = source.slice(4);
     const at = body.lastIndexOf('@');
-    return { kind: 'npm', pinned: at > 0 && !/^(latest|next)$/i.test(body.slice(at + 1)) };
+    const pin = at > 0 ? body.slice(at + 1) : '';
+    return { kind: 'npm', pinned: Boolean(pin) && !/^(latest|next)$/i.test(pin), hint: 'npm 包，@版本 必须写死' };
   }
   if (source.startsWith('github:')) {
     const body = source.slice(7);
     const at = body.lastIndexOf('@');
-    return { kind: 'github', pinned: at > 0 && /^[0-9a-f]{40}$/i.test(body.slice(at + 1)) };
+    const pin = at > 0 ? body.slice(at + 1) : '';
+    return { kind: 'github', pinned: /^[0-9a-f]{40}$/i.test(pin), hint: 'github 仓库，@commit 必须 40 位' };
   }
-  if (source.startsWith('pypi:')) return { kind: 'pypi', pinned: source.includes('@') };
-  if (source.startsWith('packhub://')) return { kind: 'packhub', pinned: true };
-  if (source.startsWith('https://') || source.startsWith('http://')) return { kind: 'https', pinned: true };
-  if (source.startsWith('./') || source.startsWith('../')) return { kind: 'local', pinned: true };
-  return { kind: 'unknown', pinned: false };
+  if (source.startsWith('pypi:')) return { kind: 'pypi', pinned: source.includes('@'), hint: 'PyPI sdist，@版本 必须写死' };
+  if (source.startsWith('packhub://')) return { kind: 'packhub', pinned: true, hint: 'registry 包内路径，发布时会扁平化' };
+  if (source.startsWith('https://') || source.startsWith('http://')) return { kind: 'https', pinned: true, hint: 'https 直链，要有 integrity' };
+  if (source.startsWith('./') || source.startsWith('../')) return { kind: 'local', pinned: true, hint: '包内相对路径' };
+  return { kind: 'unknown', pinned: false, hint: '要 npm: / pypi: / github: / https:// / ./' };
+}
+
+function splitList(text: string): string[] {
+  return text
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean);
+}
+
+function readJson<T>(text: string, fallback: T): T {
+  if (!text.trim()) return fallback;
+  return JSON.parse(text) as T;
+}
+
+/** 生成 YAML 时用：非法 JSON 不炸整个面板，留给 advancedErrors 报。 */
+function safeJson<T>(text: string, fallback: T): T {
+  try {
+    return readJson(text, fallback);
+  } catch {
+    return fallback;
+  }
+}
+
+function envLines(env: unknown): string {
+  if (!env || typeof env !== 'object') return '';
+  return Object.entries(env as Record<string, unknown>)
+    .map(([k, v]) => `${k}=${String(v)}`)
+    .join('\n');
+}
+
+function linesToEnv(text: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#')) continue;
+    const at = line.indexOf('=');
+    if (at <= 0) throw new Error(`composition.env 行要 KEY=value：${line}`);
+    out[line.slice(0, at).trim()] = line.slice(at + 1).trim();
+  }
+  return out;
+}
+
+function bumpVersion(version: string): string {
+  const m = /^(\d+)\.(\d+)\.(\d+)/.exec(version);
+  if (!m) return version;
+  return `${m[1]}.${m[2]}.${Number(m[3]) + 1}`;
+}
+
+function emptyDraft(index: number): DraftRecord {
+  return {
+    id: uid(),
+    label: `草稿 ${index}`,
+    updatedAt: new Date().toISOString(),
+    form: { ...EMPTY_FORM, targets: [...EMPTY_FORM.targets] },
+    resources: [],
+    advanced: { ...EMPTY_ADVANCED },
+    docs: { readme: '', changelog: '' },
+  };
+}
+
+function loadDrafts(): DraftRecord[] {
+  try {
+    const saved = JSON.parse(localStorage.getItem(DRAFTS_KEY) ?? 'null') as DraftRecord[] | null;
+    if (Array.isArray(saved) && saved.length > 0) {
+      return saved.map((d) => ({
+        ...d,
+        form: { ...EMPTY_FORM, ...(d.form ?? {}) },
+        resources: Array.isArray(d.resources) ? d.resources : [],
+        advanced: { ...EMPTY_ADVANCED, ...(d.advanced ?? {}) },
+        docs: d.docs ?? { readme: '', changelog: '' },
+      }));
+    }
+  } catch {
+    /* 坏数据就走迁移 */
+  }
+  try {
+    const legacy = JSON.parse(localStorage.getItem(LEGACY_DRAFT_KEY) ?? 'null') as {
+      form?: Partial<FormState>;
+      resources?: DraftRes[];
+    } | null;
+    if (legacy) {
+      return [
+        {
+          ...emptyDraft(1),
+          form: { ...EMPTY_FORM, ...(legacy.form ?? {}) },
+          resources: legacy.resources ?? [],
+        },
+      ];
+    }
+  } catch {
+    /* 忽略 */
+  }
+  return [emptyDraft(1)];
 }
 
 /** 只生成受支持的字段：结构化表单 → YAML（不引第三方 YAML 库）。 */
 function toYaml(
-  form: typeof EMPTY_FORM,
-  resources: Draft[],
-  nameOverride?: string,
+  form: FormState,
+  resources: DraftRes[],
+  advanced: AdvancedState,
+  overrides: { name?: string; version?: string } = {},
 ): string {
   const q = (s: string): string => JSON.stringify(s);
   const list = (items: string[]): string => `[${items.map((x) => q(x)).join(', ')}]`;
-  const lines: string[] = [
-    'apiVersion: packhub.dev/v0',
-    'kind: Pack',
+  const lines: string[] = ['apiVersion: packhub.dev/v0', 'kind: Pack'];
+  if (form.extends.trim()) lines.push(`extends: ${q(form.extends.trim())}`);
+  lines.push(
     'metadata:',
-    `  name: ${nameOverride ?? form.name}`,
-    `  version: ${form.version}`,
+    `  name: ${overrides.name ?? form.name}`,
+    `  version: ${overrides.version ?? form.version}`,
     `  title: ${q(form.title)}`,
     `  description: ${q(form.description)}`,
     `  targets: [${form.targets.join(', ')}]`,
     `  visibility: ${form.visibility}`,
-  ];
-  const keywords = form.keywords
-    .split(',')
-    .map((k) => k.trim())
-    .filter(Boolean);
+  );
+  const keywords = splitList(form.keywords);
   if (keywords.length > 0) lines.push(`  keywords: ${list(keywords)}`);
   if (form.license.trim()) lines.push(`  license: ${q(form.license.trim())}`);
   if (form.homepage.trim()) lines.push(`  homepage: ${q(form.homepage.trim())}`);
+  if (form.authors.trim()) {
+    try {
+      const parsed = form.authors.trim().startsWith('[')
+        ? (JSON.parse(form.authors) as unknown)
+        : splitList(form.authors).map((name) => ({ name }));
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        lines.push(`  authors: ${JSON.stringify(parsed)}`);
+      }
+    } catch {
+      /* 高级错误单独提示，这里不写 */
+    }
+  }
   lines.push('requires:', '  packhub: ">=0.0.1 <0.1"');
+  if (form.agent.trim()) lines.push(`  agent: ${q(form.agent.trim())}`);
+
+  const paths = safeJson<Record<string, string>>(advanced.paths, {});
+  if (Object.keys(paths).length > 0) {
+    lines.push('paths:');
+    for (const [k, v] of Object.entries(paths)) lines.push(`  ${k}: ${q(String(v))}`);
+  }
+  const vars = safeJson<Record<string, unknown>>(advanced.vars, {});
+  if (Object.keys(vars).length > 0) {
+    lines.push('vars:');
+    for (const [k, v] of Object.entries(vars)) lines.push(`  ${k}: ${JSON.stringify(v)}`);
+  }
+
   if (resources.length === 0) {
     lines.push('resources: []');
   } else {
@@ -127,18 +307,52 @@ function toYaml(
       lines.push(`  - id: ${r.id}`);
       lines.push(`    type: ${r.type}`);
       lines.push(`    source: ${q(r.source)}`);
+      if (r.integrity?.trim()) lines.push(`    integrity: ${q(r.integrity.trim())}`);
       if (r.slot) lines.push(`    slot: ${r.slot}`);
       if (r.transport) lines.push(`    transport: ${r.transport}`);
       if (r.provides && r.provides.length > 0) lines.push(`    provides: ${list(r.provides)}`);
       if (r.needs && r.needs.length > 0) lines.push(`    needs: ${list(r.needs)}`);
       if (r.dependsOn && r.dependsOn.length > 0) lines.push(`    dependsOn: ${list(r.dependsOn)}`);
+      if (r.targets && r.targets.length > 0) lines.push(`    targets: [${r.targets.join(', ')}]`);
+      if (r.optional) lines.push('    optional: true');
+      if (r.auth?.env) {
+        lines.push(`    auth: { env: ${r.auth.env}${r.auth.scheme ? `, scheme: ${r.auth.scheme}` : ''} }`);
+      }
       if (r.config && r.config.trim()) lines.push(`    config: ${r.config.trim()}`);
     }
-    // 行顺序就是安装顺序：写进 composition.order，预览与保存都按这个顺序
-    lines.push('composition:', `  order: [${resources.map((r) => r.id).join(', ')}]`);
   }
+
+  const composition: string[] = [];
+  const order = resources.map((r) => r.id);
+  if (order.length > 0) composition.push(`  order: [${order.join(', ')}]`);
+  if (advanced.compositionEnv.trim()) {
+    try {
+      const env = linesToEnv(advanced.compositionEnv);
+      const rows = Object.entries(env).map(([k, v]) => `    ${k}: ${q(v)}`);
+      if (rows.length > 0) composition.push('  env:', ...rows);
+    } catch {
+      /* 格式错误由 advancedErrors 提示，这里不写半截 */
+    }
+  }
+  const needs = safeJson<unknown[]>(advanced.compositionNeeds, []);
+  if (needs.length > 0) composition.push(`  needs: ${JSON.stringify(needs)}`);
+  if (composition.length > 0) lines.push('composition:', ...composition);
+
+  const slots = safeJson<Record<string, unknown>>(advanced.slots, {});
+  if (Object.keys(slots).length > 0) lines.push(`slots: ${JSON.stringify(slots)}`);
+  const bindings = safeJson<Record<string, unknown>>(advanced.bindings, {});
+  if (Object.keys(bindings).length > 0) lines.push(`bindings: ${JSON.stringify(bindings)}`);
+  const overridesList = safeJson<unknown[]>(advanced.overrides, []);
+  if (overridesList.length > 0) lines.push(`overrides: ${JSON.stringify(overridesList)}`);
+  const overlays = safeJson<unknown[]>(advanced.overlays, []);
+  if (overlays.length > 0) lines.push(`overlays: ${JSON.stringify(overlays)}`);
+  const verify = safeJson<unknown[]>(advanced.verify, []);
+  if (verify.length > 0) lines.push(`verify: ${JSON.stringify(verify)}`);
+  const exec = safeJson<unknown[]>(advanced.exec, []);
+  if (exec.length > 0) lines.push(`install:\n  exec: ${JSON.stringify(exec)}`);
   return lines.join('\n') + '\n';
 }
+
 export function ConsolePage() {
   const [packs, setPacks] = useState<PackEntry[]>([]);
   const [activePack, setActivePack] = useState<string | null>(null);
@@ -150,27 +364,13 @@ export function ConsolePage() {
       return [];
     }
   });
-  const [form, setForm] = useState<typeof EMPTY_FORM>(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(DRAFT_KEY) ?? 'null') as {
-        form?: typeof EMPTY_FORM;
-        resources?: Draft[];
-      } | null;
-      return { ...EMPTY_FORM, ...(saved?.form ?? {}) };
-    } catch {
-      return EMPTY_FORM;
-    }
-  });
-  const [resources, setResources] = useState<Draft[]>(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(DRAFT_KEY) ?? 'null') as {
-        resources?: Draft[];
-      } | null;
-      return saved?.resources ?? [];
-    } catch {
-      return [];
-    }
-  });
+  const [drafts, setDrafts] = useState<DraftRecord[]>(loadDrafts);
+  const [activeId, setActiveId] = useState<string>(() => localStorage.getItem(ACTIVE_KEY) ?? '');
+  const initial = drafts.find((d) => d.id === activeId) ?? drafts[0]!;
+  const [form, setForm] = useState<FormState>(initial.form);
+  const [resources, setResources] = useState<DraftRes[]>(initial.resources);
+  const [advanced, setAdvanced] = useState<AdvancedState>(initial.advanced);
+  const [docs, setDocs] = useState(initial.docs);
   const [plan, setPlan] = useState<Plan | null>(null);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [busy, setBusy] = useState(false);
@@ -183,23 +383,76 @@ export function ConsolePage() {
   const [conflict, setConflict] = useState<string | null>(null);
   const [copiedHash, setCopiedHash] = useState(false);
   const [expandedRes, setExpandedRes] = useState<Set<string>>(new Set());
+  const [outcomes, setOutcomes] = useState<{ actionId: string; op: string; status: string; message?: string }[]>([]);
+  const [yamlEditing, setYamlEditing] = useState(false);
+  const [yamlText, setYamlText] = useState('');
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const importRef = useRef<HTMLInputElement | null>(null);
 
-  const yaml = useMemo(() => toYaml(form, resources), [form, resources]);
+  const generated = useMemo(() => toYaml(form, resources, advanced), [form, resources, advanced]);
+  const yaml = yamlEditing ? yamlText : generated;
+
+  const advancedErrors = useMemo(() => {
+    const errors: Record<string, string> = {};
+    const check = (key: string, text: string, kind: 'array' | 'object'): void => {
+      if (!text.trim()) return;
+      try {
+        const value = JSON.parse(text) as unknown;
+        if (kind === 'array' && !Array.isArray(value)) errors[key] = '要 JSON 数组';
+        if (kind === 'object' && (Array.isArray(value) || typeof value !== 'object' || value === null)) {
+          errors[key] = '要 JSON 对象';
+        }
+      } catch (err) {
+        errors[key] = (err as Error).message;
+      }
+    };
+    check('compositionNeeds', advanced.compositionNeeds, 'array');
+    check('slots', advanced.slots, 'object');
+    check('bindings', advanced.bindings, 'object');
+    check('overrides', advanced.overrides, 'array');
+    check('overlays', advanced.overlays, 'array');
+    check('verify', advanced.verify, 'array');
+    check('exec', advanced.exec, 'array');
+    check('paths', advanced.paths, 'object');
+    check('vars', advanced.vars, 'object');
+    if (advanced.compositionEnv.trim()) {
+      try {
+        linesToEnv(advanced.compositionEnv);
+      } catch (err) {
+        errors.compositionEnv = (err as Error).message;
+      }
+    }
+    return errors;
+  }, [advanced]);
 
   const nameOk = /^[a-z0-9][a-z0-9-]*\/[a-z0-9][a-z0-9-]*$/.test(form.name);
   const versionOk = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(form.version);
   const targetsOk = form.targets.length > 0;
+  const configErrors = useMemo(() => {
+    const errors: Record<string, string> = {};
+    for (const r of resources) {
+      if (!r.config?.trim()) continue;
+      try {
+        const value = JSON.parse(r.config) as unknown;
+        if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+          errors[r.key] = 'config 要 JSON 对象';
+        }
+      } catch (err) {
+        errors[r.key] = (err as Error).message;
+      }
+    }
+    return errors;
+  }, [resources]);
+  const hasErrors = Object.keys(advancedErrors).length > 0 || Object.keys(configErrors).length > 0;
   const gate = [
     { ok: nameOk && versionOk && targetsOk, text: '表单字段' },
     { ok: form.visibility === 'public' || form.visibility === 'unlisted', text: 'visibility 可发布' },
     { ok: resources.length > 0, text: '至少一个资源' },
+    { ok: !hasErrors, text: '高级 JSON 可解析' },
     { ok: !issues.some((i) => i.severity === 'error'), text: '预览无错误' },
     { ok: plan !== null, text: '计划可生成' },
   ];
-  const dupIds = new Set(
-    resources.map((r) => r.id).filter((id, i, arr) => arr.indexOf(id) !== i),
-  );
+  const dupIds = new Set(resources.map((r) => r.id).filter((id, i, arr) => arr.indexOf(id) !== i));
 
   useEffect(() => {
     fetch('/api/registry')
@@ -212,9 +465,32 @@ export function ConsolePage() {
     localStorage.setItem(FAV_KEY, JSON.stringify(favorites));
   }, [favorites]);
 
+  // 草稿持久化：每次改动写回当前草稿；切草稿不丢内容
   useEffect(() => {
-    localStorage.setItem(DRAFT_KEY, JSON.stringify({ form, resources }));
-  }, [form, resources]);
+    if (!drafts.some((d) => d.id === activeId)) setActiveId(drafts[0]!.id);
+  }, [activeId, drafts]);
+
+  useEffect(() => {
+    setDrafts((prev) =>
+      prev.map((d) =>
+        d.id === activeId
+          ? { ...d, form, resources, advanced, docs, updatedAt: new Date().toISOString() }
+          : d,
+      ),
+    );
+  }, [activeId, form, resources, advanced, docs]);
+
+  useEffect(() => {
+    localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
+  }, [drafts]);
+
+  useEffect(() => {
+    localStorage.setItem(ACTIVE_KEY, activeId);
+  }, [activeId]);
+
+  useEffect(() => {
+    if (!yamlEditing) setYamlText(generated);
+  }, [generated, yamlEditing]);
 
   useEffect(() => {
     const guard = (event: BeforeUnloadEvent): void => {
@@ -234,9 +510,9 @@ export function ConsolePage() {
   }, [yaml, target]);
 
   const preview = async (): Promise<void> => {
-    if (resources.length === 0) {
+    if (!yaml.trim()) {
       setPlan(null);
-      setIssues([{ code: 'empty', severity: 'warn', message: '还没有资源：从左边点 + 加一个，再预览。' }]);
+      setIssues([{ code: 'empty', severity: 'warn', message: '还没有内容：填清单或从左边加资源。' }]);
       return;
     }
     setBusy(true);
@@ -276,6 +552,7 @@ export function ConsolePage() {
       visibility: 'public',
     });
     setResources(browser.resources.map((r) => ({ ...r, key: uid() })));
+    setYamlEditing(false);
   };
 
   const addResource = (r: ResourceInfo): void => {
@@ -299,10 +576,142 @@ export function ConsolePage() {
     URL.revokeObjectURL(url);
   };
 
+  const switchDraft = (id: string): void => {
+    const next = drafts.find((d) => d.id === id);
+    if (!next) return;
+    setActiveId(id);
+    setForm(next.form);
+    setResources(next.resources);
+    setAdvanced(next.advanced);
+    setDocs(next.docs);
+    setPlan(null);
+    setIssues([]);
+    setSavedDir(null);
+    setYamlEditing(false);
+    setDelivery({ kind: 'ok', text: `已切到「${next.label}」` });
+  };
+
+  const newDraft = (): void => {
+    const record = emptyDraft(drafts.length + 1);
+    setDrafts((prev) => [...prev, record]);
+    setActiveId(record.id);
+    setForm(record.form);
+    setResources(record.resources);
+    setAdvanced(record.advanced);
+    setDocs(record.docs);
+    setSavedDir(null);
+    setYamlEditing(false);
+    setDelivery({ kind: 'ok', text: `已新建「${record.label}」` });
+  };
+
+  const renameDraft = (): void => {
+    const current = drafts.find((d) => d.id === activeId);
+    const label = window.prompt('草稿名', current?.label ?? '草稿');
+    if (!label?.trim()) return;
+    setDrafts((prev) => prev.map((d) => (d.id === activeId ? { ...d, label: label.trim() } : d)));
+  };
+
+  const deleteDraft = (): void => {
+    if (drafts.length <= 1) {
+      setDelivery({ kind: 'error', text: '至少保留一个草稿' });
+      return;
+    }
+    const next = drafts.filter((d) => d.id !== activeId);
+    setDrafts(next);
+    switchDraft(next[0]!.id);
+  };
+
+  const exportDraft = (): void => {
+    const payload = { apiVersion: 'packhub.dev/draft/v0', form, resources, advanced, docs };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'packhub-draft.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const importDraft = async (file: File | null): Promise<void> => {
+    if (!file) return;
+    try {
+      const data = JSON.parse(await file.text()) as Partial<DraftRecord>;
+      const record: DraftRecord = {
+        ...emptyDraft(drafts.length + 1),
+        label: `导入 ${new Date().toLocaleTimeString('zh-CN')}`,
+        form: { ...EMPTY_FORM, ...(data.form ?? {}) },
+        resources: Array.isArray(data.resources) ? data.resources : [],
+        advanced: { ...EMPTY_ADVANCED, ...(data.advanced ?? {}) },
+        docs: { readme: '', changelog: '', ...(data.docs ?? {}) },
+      };
+      setDrafts((prev) => [...prev, record]);
+      setActiveId(record.id);
+      setForm(record.form);
+      setResources(record.resources);
+      setAdvanced(record.advanced);
+      setDocs(record.docs);
+      setSavedDir(null);
+      setYamlEditing(false);
+      setDelivery({ kind: 'ok', text: '草稿已导入' });
+    } catch (err) {
+      setDelivery({ kind: 'error', text: `导入失败：${(err as Error).message}` });
+    }
+  };
+
+  const applyYaml = (): void => {
+    try {
+      const data = parseYaml(yamlText) as Record<string, unknown>;
+      if (!data || typeof data !== 'object') throw new Error('YAML 不是对象');
+      const meta = (data.metadata ?? {}) as Record<string, unknown>;
+      const requires = (data.requires ?? {}) as Record<string, unknown>;
+      setForm({
+        ...EMPTY_FORM,
+        name: String(meta.name ?? ''),
+        version: String(meta.version ?? ''),
+        title: String(meta.title ?? ''),
+        description: String(meta.description ?? ''),
+        keywords: Array.isArray(meta.keywords) ? meta.keywords.join(', ') : '',
+        license: String(meta.license ?? ''),
+        homepage: String(meta.homepage ?? ''),
+        authors: meta.authors ? JSON.stringify(meta.authors, null, 2) : '',
+        extends: String(data.extends ?? ''),
+        agent: String(requires.agent ?? ''),
+        targets: Array.isArray(meta.targets) ? meta.targets.map(String) : ['dir'],
+        visibility: String(meta.visibility ?? 'private'),
+      });
+      setResources(
+        Array.isArray(data.resources)
+          ? (data.resources as ResourceInfo[]).map((r) => ({
+              ...r,
+              key: uid(),
+              config: r.config ? JSON.stringify(r.config, null, 2) : undefined,
+            }))
+          : [],
+      );
+      const composition = (data.composition ?? {}) as Record<string, unknown>;
+      const install = (data.install ?? {}) as Record<string, unknown>;
+      setAdvanced({
+        compositionEnv: envLines(composition.env),
+        compositionNeeds: composition.needs ? JSON.stringify(composition.needs, null, 2) : '',
+        slots: data.slots ? JSON.stringify(data.slots, null, 2) : '',
+        bindings: data.bindings ? JSON.stringify(data.bindings, null, 2) : '',
+        overrides: data.overrides ? JSON.stringify(data.overrides, null, 2) : '',
+        overlays: data.overlays ? JSON.stringify(data.overlays, null, 2) : '',
+        verify: data.verify ? JSON.stringify(data.verify, null, 2) : '',
+        exec: install.exec ? JSON.stringify(install.exec, null, 2) : '',
+        paths: data.paths ? JSON.stringify(data.paths, null, 2) : '',
+        vars: data.vars ? JSON.stringify(data.vars, null, 2) : '',
+      });
+      setYamlEditing(false);
+      setDelivery({ kind: 'ok', text: '已把 YAML 应用回表单' });
+    } catch (err) {
+      setDelivery({ kind: 'error', text: `YAML 解析失败：${(err as Error).message}` });
+    }
+  };
 
   const doSave = async (force = false): Promise<void> => {
-    if (!nameOk || !versionOk || !targetsOk) {
-      setDelivery({ kind: 'error', text: '包名 / 版本 / targets 不合法，先修表单' });
+    if (!nameOk || !versionOk || !targetsOk || hasErrors) {
+      setDelivery({ kind: 'error', text: '表单 / 高级 JSON 不合法，先修' });
       return;
     }
     const dir = saveDir.trim() || `packs/${form.name}`;
@@ -312,7 +721,7 @@ export function ConsolePage() {
       const res = await fetch('/api/packs/create', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ dir, manifest: yaml, force }),
+        body: JSON.stringify({ dir, manifest: yaml, docs, force }),
       });
       const data = (await res.json()) as { dir?: string; error?: string; issues?: { message: string }[] };
       if (res.status === 409) {
@@ -325,7 +734,7 @@ export function ConsolePage() {
         return;
       }
       setSavedDir(data.dir ?? dir);
-      setDelivery({ kind: 'ok', text: `已保存到 ${data.dir ?? dir}（只写了 packhub.yaml）` });
+      setDelivery({ kind: 'ok', text: `已保存到 ${data.dir ?? dir}（清单 + PACK.md / CHANGELOG）` });
     } catch (err) {
       setDelivery({ kind: 'error', text: (err as Error).message });
     }
@@ -341,7 +750,7 @@ export function ConsolePage() {
         body: JSON.stringify({ into: installInto.trim() || undefined, dryRun }),
       });
       const data = (await res.json()) as {
-        outcomes?: { status: string }[];
+        outcomes?: { actionId: string; op: string; status: string; message?: string }[];
         root?: string;
         error?: string;
         issues?: { message: string }[];
@@ -350,10 +759,11 @@ export function ConsolePage() {
         setDelivery({ kind: 'error', text: data.error ?? data.issues?.map((i) => i.message).join('; ') ?? '安装失败' });
         return;
       }
+      setOutcomes(data.outcomes ?? []);
       const bad = (data.outcomes ?? []).filter((o) => o.status !== 'done' && o.status !== 'noop');
       setDelivery(
         bad.length === 0
-          ? { kind: 'ok', text: `安装完成：${(data.outcomes ?? []).length} 个动作 → ${data.root ?? 'Pack 目录'}` }
+          ? { kind: 'ok', text: `${dryRun ? '预演完成' : '安装完成'}：${(data.outcomes ?? []).length} 个动作 → ${data.root ?? 'Pack 目录'}` }
           : { kind: 'error', text: `安装未完成：${bad.length} 个动作失败/跳过` },
       );
     } catch (err) {
@@ -388,12 +798,18 @@ export function ConsolePage() {
   const doSaveCopy = async (): Promise<void> => {
     const base = saveDir.trim() || `packs/${form.name}`;
     const dir = `${base}-copy`;
+    const copyName = `${form.name}-copy`;
+    const copyVersion = bumpVersion(form.version);
     setDelivery({ kind: 'busy', text: '保存副本…' });
     try {
       const res = await fetch('/api/packs/create', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ dir, manifest: toYaml(form, resources, `${form.name}-copy`) }),
+        body: JSON.stringify({
+          dir,
+          manifest: toYaml(form, resources, advanced, { name: copyName, version: copyVersion }),
+          docs,
+        }),
       });
       const data = (await res.json()) as { dir?: string; error?: string; issues?: { message: string }[] };
       if (!res.ok) {
@@ -401,7 +817,7 @@ export function ConsolePage() {
         return;
       }
       setSavedDir(data.dir ?? dir);
-      setDelivery({ kind: 'ok', text: `副本已保存到 ${data.dir ?? dir}（包名加了 -copy）` });
+      setDelivery({ kind: 'ok', text: `副本已保存到 ${data.dir ?? dir}（${copyName}@${copyVersion}）` });
     } catch (err) {
       setDelivery({ kind: 'error', text: (err as Error).message });
     }
@@ -412,7 +828,7 @@ export function ConsolePage() {
     const dir = saveDir.trim() || `packs/${form.name}`;
     setDelivery({ kind: 'busy', text: `上传 ${files.length} 个文件…` });
     try {
-      const added: Draft[] = [];
+      const added: DraftRes[] = [];
       for (const file of Array.from(files)) {
         const dataBase64 = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
@@ -446,14 +862,19 @@ export function ConsolePage() {
       setDelivery({ kind: 'error', text: (err as Error).message });
     }
   };
+
   const resetDraft = (): void => {
     setForm({ ...EMPTY_FORM, targets: [...EMPTY_FORM.targets] });
     setResources([]);
+    setAdvanced({ ...EMPTY_ADVANCED });
+    setDocs({ readme: '', changelog: '' });
     setPlan(null);
     setIssues([]);
     setSavedDir(null);
     setConflict(null);
-    setDelivery({ kind: 'ok', text: '已清空草稿' });
+    setOutcomes([]);
+    setYamlEditing(false);
+    setDelivery({ kind: 'ok', text: '已清空当前草稿' });
   };
 
   const duplicateResource = (index: number): void => {
@@ -477,6 +898,19 @@ export function ConsolePage() {
     });
   };
 
+  const updateResource = (index: number, patch: Partial<DraftRes>): void => {
+    setResources((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+  };
+
+  const toggleExpanded = (key: string): void => {
+    setExpandedRes((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
   const copyHash = (): void => {
     if (!plan) return;
     void navigator.clipboard?.writeText(plan.planHash);
@@ -495,8 +929,221 @@ export function ConsolePage() {
     ]);
   };
 
+  const jumpToIssue = (path?: string): void => {
+    if (!path) return;
+    const numeric = /resources\/(\d+)|resources\[(\d+)\]/.exec(path);
+    if (numeric) {
+      const index = Number(numeric[1] ?? numeric[2]);
+      const el = document.getElementById(`res-${index}`);
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el?.querySelector<HTMLInputElement>('input')?.focus();
+      return;
+    }
+    const byId = /resources\.([a-z][a-z0-9-]*)/.exec(path);
+    if (byId) {
+      const index = resources.findIndex((r) => r.id === byId[1]);
+      if (index >= 0) {
+        const el = document.getElementById(`res-${index}`);
+        el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el?.querySelector<HTMLInputElement>('input')?.focus();
+        return;
+      }
+    }
+    const field =
+      path.includes('metadata.name') ? 'f-name'
+      : path.includes('metadata.version') ? 'f-version'
+      : path.includes('metadata.targets') ? 'f-targets'
+      : path.includes('composition') ? 'adv-composition'
+      : path.includes('verify') ? 'adv-verify'
+      : path.includes('install') ? 'adv-exec'
+      : path.includes('overlays') ? 'adv-overlays'
+      : path.includes('overrides') ? 'adv-overrides'
+      : path.includes('slots') ? 'adv-slots'
+      : path.includes('bindings') ? 'adv-bindings'
+      : path.includes('paths') ? 'adv-paths'
+      : path.includes('vars') ? 'adv-vars'
+      : '';
+    if (!field) return;
+    const el = document.getElementById(field);
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el?.querySelector<HTMLInputElement | HTMLTextAreaElement>('input, textarea')?.focus();
+  };
+
   const errors = issues.filter((i) => i.severity === 'error');
   const favByKey = new Set(favorites.map((f) => `${f.pack}#${f.id}`));
+
+  const renderResource = (r: DraftRes, i: number) => {
+    const idOk = /^[a-z][a-z0-9-]*$/.test(r.id);
+    const kind = sourceKind(r.source);
+    const expanded = expandedRes.has(r.key);
+    return (
+      <div className="cs-resblock" key={r.key} id={`res-${i}`}>
+        <div className="cs-restable-row">
+          <input
+            aria-label={`资源 ${i + 1} id`}
+            value={r.id}
+            aria-invalid={!idOk}
+            onChange={(e) => updateResource(i, { id: e.target.value })}
+          />
+          <select
+            aria-label={`资源 ${r.id} 类型`}
+            value={r.type}
+            onChange={(e) => updateResource(i, { type: e.target.value })}
+          >
+            {RES_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+          <input
+            aria-label={`资源 ${r.id} source`}
+            value={r.source}
+            aria-invalid={kind.kind === 'unknown'}
+            onChange={(e) => updateResource(i, { source: e.target.value })}
+          />
+          <input
+            className="cs-slot"
+            aria-label={`资源 ${r.id} 槽位`}
+            placeholder="slot"
+            value={r.slot ?? ''}
+            onChange={(e) => updateResource(i, { slot: e.target.value || undefined })}
+          />
+          <div className="cs-row-actions">
+            <button className="cs-rowbtn" onClick={() => moveResource(i, -1)} title="上移" aria-label={`上移 ${r.id}`}>
+              ↑
+            </button>
+            <button className="cs-rowbtn" onClick={() => moveResource(i, 1)} title="下移" aria-label={`下移 ${r.id}`}>
+              ↓
+            </button>
+            <button className="cs-rowbtn" onClick={() => duplicateResource(i)} title="复制" aria-label={`复制 ${r.id}`}>
+              ⧉
+            </button>
+            <button
+              className="cs-rowbtn"
+              onClick={() => toggleExpanded(r.key)}
+              title="高级字段"
+              aria-label={`${expanded ? '收起' : '展开'} ${r.id} 高级字段`}
+            >
+              {expanded ? '−' : '+'}
+            </button>
+            <button
+              className="cs-del"
+              onClick={() => setResources(resources.filter((_, j) => j !== i))}
+              title="移除"
+              aria-label={`移除 ${r.id}`}
+            >
+              ×
+            </button>
+          </div>
+        </div>
+        <div className="cs-resmeta">
+          <span className={kind.kind === 'unknown' ? 'cs-field-error' : 'cs-hint-inline'}>
+            {kind.kind} · {kind.hint}
+          </span>
+          {kind.kind !== 'local' && kind.kind !== 'unknown' && (
+            <span className={kind.pinned ? 'cs-hint-inline' : 'cs-field-error'}>
+              {kind.pinned ? 'pin 已锁' : 'pin 未锁，发布前会被拒'}
+            </span>
+          )}
+          {!idOk && <span className="cs-field-error">id 要小写字母开头，只含小写字母/数字/连字符</span>}
+          {dupIds.has(r.id) && <span className="cs-field-error">id 重复：{r.id}</span>}
+          {configErrors[r.key] && <span className="cs-field-error">config：{configErrors[r.key]}</span>}
+        </div>
+        {expanded && (
+          <div className="cs-resadv">
+            <label>
+              provides（逗号）
+              <input
+                value={(r.provides ?? []).join(', ')}
+                onChange={(e) => updateResource(i, { provides: splitList(e.target.value) })}
+              />
+            </label>
+            <label>
+              needs（逗号）
+              <input
+                value={(r.needs ?? []).join(', ')}
+                onChange={(e) => updateResource(i, { needs: splitList(e.target.value) })}
+              />
+            </label>
+            <label>
+              dependsOn（逗号）
+              <input
+                value={(r.dependsOn ?? []).join(', ')}
+                onChange={(e) => updateResource(i, { dependsOn: splitList(e.target.value) })}
+              />
+            </label>
+            <label>
+              transport
+              <select
+                value={r.transport ?? ''}
+                onChange={(e) => updateResource(i, { transport: e.target.value || undefined })}
+              >
+                <option value="">默认</option>
+                <option value="stdio">stdio</option>
+                <option value="http">http</option>
+              </select>
+            </label>
+            <label>
+              integrity
+              <input
+                value={r.integrity ?? ''}
+                placeholder="sha256-…"
+                onChange={(e) => updateResource(i, { integrity: e.target.value || undefined })}
+              />
+            </label>
+            <label>
+              auth.env
+              <input
+                value={r.auth?.env ?? ''}
+                placeholder="NPM_TOKEN"
+                onChange={(e) =>
+                  updateResource(i, {
+                    auth: e.target.value ? { env: e.target.value, scheme: r.auth?.scheme ?? 'bearer' } : undefined,
+                  })
+                }
+              />
+            </label>
+            <label className="cs-check">
+              <input
+                type="checkbox"
+                checked={r.optional === true}
+                onChange={(e) => updateResource(i, { optional: e.target.checked })}
+              />
+              optional（缺能力时跳过）
+            </label>
+            <div className="cs-targetchecks">
+              <span className="cs-label">targets</span>
+              {TARGETS.map((t) => (
+                <label key={t} className="cs-check">
+                  <input
+                    type="checkbox"
+                    checked={(r.targets ?? []).includes(t)}
+                    onChange={(e) =>
+                      updateResource(i, {
+                        targets: e.target.checked
+                          ? [...(r.targets ?? []), t]
+                          : (r.targets ?? []).filter((x) => x !== t),
+                      })
+                    }
+                  />
+                  {t}
+                </label>
+              ))}
+            </div>
+            <label className="cs-span">
+              config（JSON 对象）
+              <textarea
+                rows={3}
+                value={r.config ?? ''}
+                onChange={(e) => updateResource(i, { config: e.target.value || undefined })}
+              />
+            </label>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="cs">
@@ -508,6 +1155,42 @@ export function ConsolePage() {
           全部整合包
         </a>
         <span className="cs-tag">创作台</span>
+        <label className="cs-draft">
+          草稿
+          <select value={activeId} onChange={(e) => switchDraft(e.target.value)} aria-label="切换草稿">
+            {drafts.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <button className="cs-btn ghost" onClick={newDraft}>
+          新建
+        </button>
+        <button className="cs-btn ghost" onClick={renameDraft}>
+          重命名
+        </button>
+        <button className="cs-btn ghost" onClick={deleteDraft}>
+          删除
+        </button>
+        <button className="cs-btn ghost" onClick={exportDraft}>
+          导出
+        </button>
+        <button className="cs-btn ghost" onClick={() => importRef.current?.click()}>
+          导入
+        </button>
+        <input
+          ref={importRef}
+          type="file"
+          accept="application/json"
+          aria-label="导入草稿"
+          className="cs-file"
+          onChange={(e) => {
+            void importDraft(e.target.files?.[0] ?? null);
+            e.target.value = '';
+          }}
+        />
         <span className="cs-spacer" />
         <label className="cs-target">
           target
@@ -542,7 +1225,7 @@ export function ConsolePage() {
                     {f.type} · {f.pack}
                   </span>
                 </div>
-                <button onClick={() => addResource(f)} title="加入当前草稿">
+                <button onClick={() => addResource(f)} title="加入当前草稿" aria-label={`加入 ${f.id}`}>
                   +
                 </button>
               </div>
@@ -582,10 +1265,11 @@ export function ConsolePage() {
                       className={favByKey.has(`${browser.name}#${r.id}`) ? 'is-on' : ''}
                       onClick={() => favorite(r)}
                       title="收藏"
+                      aria-label={`收藏 ${r.id}`}
                     >
                       ☆
                     </button>
-                    <button onClick={() => addResource(r)} title="加入草稿">
+                    <button onClick={() => addResource(r)} title="加入草稿" aria-label={`加入 ${r.id}`}>
                       +
                     </button>
                   </div>
@@ -601,6 +1285,7 @@ export function ConsolePage() {
               <label>
                 包名
                 <input
+                  id="f-name"
                   value={form.name}
                   aria-invalid={!nameOk}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -611,6 +1296,7 @@ export function ConsolePage() {
               <label>
                 版本
                 <input
+                  id="f-version"
                   value={form.version}
                   aria-invalid={!versionOk}
                   onChange={(e) => setForm({ ...form, version: e.target.value })}
@@ -656,7 +1342,35 @@ export function ConsolePage() {
                   onChange={(e) => setForm({ ...form, homepage: e.target.value })}
                 />
               </label>
-            </div>            <div className="cs-row">
+            </div>
+            <div className="cs-row three">
+              <label>
+                authors
+                <input
+                  value={form.authors}
+                  placeholder="名字，或 JSON 数组"
+                  onChange={(e) => setForm({ ...form, authors: e.target.value })}
+                />
+              </label>
+              <label>
+                extends
+                <input
+                  value={form.extends}
+                  placeholder="../base 或 packhub://scope/name@1.0.0"
+                  onChange={(e) => setForm({ ...form, extends: e.target.value })}
+                  spellCheck={false}
+                />
+              </label>
+              <label>
+                requires.agent
+                <input
+                  value={form.agent}
+                  placeholder="dsh / claude-code / codex / opencode"
+                  onChange={(e) => setForm({ ...form, agent: e.target.value })}
+                />
+              </label>
+            </div>
+            <div className="cs-row">
               <span className="cs-label">visibility</span>
               <select
                 className="cs-visibility"
@@ -672,9 +1386,9 @@ export function ConsolePage() {
               </select>
             </div>
             {!targetsOk && <span className="cs-field-error">至少选一个 target</span>}
-            <div className="cs-row">
+            <div className="cs-row" id="f-targets">
               <span className="cs-label">targets</span>
-              {['dir', 'claude-code', 'dsh', 'codex', 'server'].map((t) => (
+              {TARGETS.map((t) => (
                 <label key={t} className="cs-check">
                   <input
                     type="checkbox"
@@ -718,69 +1432,172 @@ export function ConsolePage() {
               </span>
             </div>
             {resources.length === 0 && <p className="cs-hint">从左边收藏或包资源里点 + 添加。</p>}
-            {resources.map((r, i) => (
-              <div className="cs-restable-row" key={r.key}>
-                <input
-                  value={r.id}
-                  onChange={(e) =>
-                    setResources(resources.map((x, j) => (j === i ? { ...x, id: e.target.value } : x)))
-                  }
-                />
-                <select
-                  value={r.type}
-                  onChange={(e) =>
-                    setResources(resources.map((x, j) => (j === i ? { ...x, type: e.target.value } : x)))
-                  }
-                >
-                  {RES_TYPES.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  value={r.source}
-                  onChange={(e) =>
-                    setResources(resources.map((x, j) => (j === i ? { ...x, source: e.target.value } : x)))
-                  }
-                />
-                <input
-                  className="cs-slot"
-                  placeholder="slot"
-                  value={r.slot ?? ''}
-                  onChange={(e) =>
-                    setResources(
-                      resources.map((x, j) => (j === i ? { ...x, slot: e.target.value || undefined } : x)),
-                    )
-                  }
-                />
-                <div className="cs-row-actions">
-                  <button className="cs-rowbtn" onClick={() => moveResource(i, -1)} title="上移" aria-label={`上移 ${r.id}`}>
-                    ↑
-                  </button>
-                  <button className="cs-rowbtn" onClick={() => moveResource(i, 1)} title="下移" aria-label={`下移 ${r.id}`}>
-                    ↓
-                  </button>
-                  <button className="cs-rowbtn" onClick={() => duplicateResource(i)} title="复制" aria-label={`复制 ${r.id}`}>
-                    ⧉
-                  </button>
-                  <button
-                    className="cs-del"
-                    onClick={() => setResources(resources.filter((_, j) => j !== i))}
-                    title="移除"
-                    aria-label={`移除 ${r.id}`}
-                  >
-                    ×
-                  </button>
-                </div>
-                {dupIds.has(r.id) && <span className="cs-field-error">id 重复：{r.id}</span>}
-              </div>
-            ))}
+            {resources.map(renderResource)}
           </div>
 
+          <details className="cs-adv" id="adv-composition">
+            <summary>composition（env / needs）</summary>
+            <div className="cs-advgrid">
+              <label className="cs-span">
+                env（每行 KEY=value）
+                <textarea
+                  rows={3}
+                  value={advanced.compositionEnv}
+                  onChange={(e) => setAdvanced({ ...advanced, compositionEnv: e.target.value })}
+                />
+                {advancedErrors.compositionEnv && <span className="cs-field-error">{advancedErrors.compositionEnv}</span>}
+              </label>
+              <label className="cs-span">
+                needs（JSON 数组）
+                <textarea
+                  rows={3}
+                  value={advanced.compositionNeeds}
+                  onChange={(e) => setAdvanced({ ...advanced, compositionNeeds: e.target.value })}
+                />
+                {advancedErrors.compositionNeeds && <span className="cs-field-error">{advancedErrors.compositionNeeds}</span>}
+              </label>
+            </div>
+          </details>
+
+          <details className="cs-adv" id="adv-slots">
+            <summary>slots / bindings（槽位与绑定）</summary>
+            <div className="cs-advgrid">
+              <label>
+                slots（JSON 对象）
+                <textarea
+                  rows={3}
+                  value={advanced.slots}
+                  onChange={(e) => setAdvanced({ ...advanced, slots: e.target.value })}
+                />
+                {advancedErrors.slots && <span className="cs-field-error">{advancedErrors.slots}</span>}
+              </label>
+              <label id="adv-bindings">
+                bindings（JSON 对象）
+                <textarea
+                  rows={3}
+                  value={advanced.bindings}
+                  onChange={(e) => setAdvanced({ ...advanced, bindings: e.target.value })}
+                />
+                {advancedErrors.bindings && <span className="cs-field-error">{advancedErrors.bindings}</span>}
+              </label>
+            </div>
+          </details>
+
+          <details className="cs-adv" id="adv-overrides">
+            <summary>overrides / overlays（覆盖）</summary>
+            <div className="cs-advgrid">
+              <label>
+                overrides（JSON 数组）
+                <textarea
+                  rows={3}
+                  value={advanced.overrides}
+                  onChange={(e) => setAdvanced({ ...advanced, overrides: e.target.value })}
+                />
+                {advancedErrors.overrides && <span className="cs-field-error">{advancedErrors.overrides}</span>}
+              </label>
+              <label id="adv-overlays">
+                overlays（JSON 数组）
+                <textarea
+                  rows={3}
+                  value={advanced.overlays}
+                  onChange={(e) => setAdvanced({ ...advanced, overlays: e.target.value })}
+                />
+                {advancedErrors.overlays && <span className="cs-field-error">{advancedErrors.overlays}</span>}
+              </label>
+            </div>
+          </details>
+
+          <details className="cs-adv" id="adv-verify">
+            <summary>verify / install.exec（校验与安装命令）</summary>
+            <div className="cs-advgrid">
+              <label>
+                verify（JSON 数组）
+                <textarea
+                  rows={4}
+                  value={advanced.verify}
+                  onChange={(e) => setAdvanced({ ...advanced, verify: e.target.value })}
+                />
+                {advancedErrors.verify && <span className="cs-field-error">{advancedErrors.verify}</span>}
+              </label>
+              <label id="adv-exec">
+                install.exec（JSON 数组；默认不执行，需 --allow-exec）
+                <textarea
+                  rows={4}
+                  value={advanced.exec}
+                  onChange={(e) => setAdvanced({ ...advanced, exec: e.target.value })}
+                />
+                {advancedErrors.exec && <span className="cs-field-error">{advancedErrors.exec}</span>}
+              </label>
+            </div>
+          </details>
+
+          <details className="cs-adv" id="adv-paths">
+            <summary>paths / vars（路径与变量）</summary>
+            <div className="cs-advgrid">
+              <label>
+                paths（JSON 对象）
+                <textarea
+                  rows={3}
+                  value={advanced.paths}
+                  onChange={(e) => setAdvanced({ ...advanced, paths: e.target.value })}
+                />
+                {advancedErrors.paths && <span className="cs-field-error">{advancedErrors.paths}</span>}
+              </label>
+              <label id="adv-vars">
+                vars（JSON 对象）
+                <textarea
+                  rows={3}
+                  value={advanced.vars}
+                  onChange={(e) => setAdvanced({ ...advanced, vars: e.target.value })}
+                />
+                {advancedErrors.vars && <span className="cs-field-error">{advancedErrors.vars}</span>}
+              </label>
+            </div>
+          </details>
+
+          <details className="cs-adv">
+            <summary>PACK.md / CHANGELOG（随保存写入）</summary>
+            <div className="cs-advgrid">
+              <label>
+                PACK.md
+                <textarea
+                  rows={5}
+                  value={docs.readme}
+                  onChange={(e) => setDocs({ ...docs, readme: e.target.value })}
+                />
+              </label>
+              <label>
+                CHANGELOG.md
+                <textarea
+                  rows={5}
+                  value={docs.changelog}
+                  onChange={(e) => setDocs({ ...docs, changelog: e.target.value })}
+                />
+              </label>
+            </div>
+          </details>
+
           <details className="cs-yaml">
-            <summary>看生成的 yaml</summary>
-            <pre>{yaml}</pre>
+            <summary>直接编辑 yaml（可应用回表单）</summary>
+            <textarea
+              className="cs-yaml-edit"
+              rows={18}
+              value={yamlText}
+              spellCheck={false}
+              onChange={(e) => {
+                setYamlEditing(true);
+                setYamlText(e.target.value);
+              }}
+            />
+            <div className="cs-yaml-actions">
+              <button className="cs-btn ghost" onClick={() => setYamlEditing(false)}>
+                从表单刷新
+              </button>
+              <button className="cs-btn" onClick={applyYaml}>
+                应用 YAML
+              </button>
+              {yamlEditing && <span className="cs-hint-inline">正在编辑 YAML；表单改动不会覆盖它</span>}
+            </div>
           </details>
         </section>
 
@@ -790,8 +1607,10 @@ export function ConsolePage() {
             <ul className="cs-issues">
               {issues.map((i2, idx) => (
                 <li key={idx} className={i2.severity === 'error' ? 'bad' : 'warn'}>
-                  <code>{i2.code}</code>
-                  {i2.message}
+                  <button className="cs-issue" onClick={() => jumpToIssue(i2.path)} title="跳到对应字段">
+                    <code>{i2.code}</code>
+                    {i2.message}
+                  </button>
                 </li>
               ))}
             </ul>
@@ -818,13 +1637,23 @@ export function ConsolePage() {
               </ol>
               {plan.excluded.length > 0 && (
                 <p className="cs-hint">
-                  跳过：{plan.excluded.map((e) => `${e.resource}（槽位 ${e.slot} 未绑定）`).join('、')}
+                  跳过：
+                  {plan.excluded
+                    .map((e) => `${e.resource}（${e.reason === 'target-mismatch' ? 'target 不匹配' : e.reason === 'optional-unmet' ? 'optional 能力缺失' : `槽位 ${e.slot} 未绑定`}）`)
+                    .join('、')}
                 </p>
               )}
             </>
           )}
           <section className="cs-deliver">
             <h3>保存与发布</h3>
+            <ul className="cs-gates">
+              {gate.map((g) => (
+                <li key={g.text} className={g.ok ? 'ok' : 'bad'}>
+                  {g.ok ? '✓' : 'x'} {g.text}
+                </li>
+              ))}
+            </ul>
             <label className="cs-deliver-row">
               目录
               <input
@@ -853,8 +1682,14 @@ export function ConsolePage() {
               />
             </label>
             <div className="cs-deliver-actions">
-              <button className="cs-btn" onClick={() => void doSave()}>
+              <button className="cs-btn" onClick={() => void doSave()} disabled={hasErrors}>
                 保存到目录
+              </button>
+              <button className="cs-btn ghost" onClick={() => void doSaveCopy()} disabled={hasErrors}>
+                保存为副本
+              </button>
+              <button className="cs-btn ghost" onClick={() => void doInstall(true)} disabled={!savedDir}>
+                预演安装
               </button>
               <button className="cs-btn ghost" onClick={() => void doInstall()} disabled={!savedDir}>
                 安装
@@ -876,8 +1711,18 @@ export function ConsolePage() {
                 {delivery.text}
               </p>
             )}
+            {outcomes.length > 0 && (
+              <ul className="cs-outcomes">
+                {outcomes.map((o) => (
+                  <li key={o.actionId} className={o.status === 'failed' ? 'bad' : ''}>
+                    <code>{o.actionId}</code> {o.op} · {o.status}
+                    {o.message ? ` · ${o.message}` : ''}
+                  </li>
+                ))}
+              </ul>
+            )}
             <p className="cs-hint">
-              保存只写 packhub.yaml；本地 source 指向的文件仍需放进该目录。发布前会跑干净安装与校验。
+              保存写清单与两份文档；本地 source 指向的文件仍需放进该目录。发布前会跑干净安装与校验。
             </p>
           </section>
           {!plan && issues.length === 0 && <p className="cs-hint">改动会自动预览；点「预览计划」强制重算。</p>}

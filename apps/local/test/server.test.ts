@@ -57,6 +57,18 @@ describe('HTTP API', () => {
   });
 
 
+  it('请求体超过上限时回 413，不把整块读进内存', async () => {
+    const res = await fetch(`${base}/api/plan`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ manifest: 'x'.repeat(9 * 1024 * 1024) }),
+    });
+    expect(res.status).toBe(413);
+    const data = (await res.json()) as { error: string };
+    expect(data.error).toContain('请求体超过');
+  });
+
+
   it('创作台保存：写 packhub.yaml，已存在时拒绝；发布到临时 registry', async () => {
     const rel = `tmp/api-pack-${Math.random().toString(36).slice(2, 8)}`;
     const regRel = `tmp/api-reg-${Math.random().toString(36).slice(2, 8)}`;
@@ -73,10 +85,16 @@ resources:
       const created = await fetch(`${base}/api/packs/create`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ dir: rel, manifest }),
+        body: JSON.stringify({
+          dir: rel,
+          manifest,
+          docs: { readme: '# 说明\n', changelog: '# 变更\n' },
+        }),
       });
       expect(created.status).toBe(201);
       expect(existsSync(join(process.cwd(), rel, 'packhub.yaml'))).toBe(true);
+      expect(readFileSync(join(process.cwd(), rel, 'PACK.md'), 'utf8')).toContain('# 说明');
+      expect(readFileSync(join(process.cwd(), rel, 'CHANGELOG.md'), 'utf8')).toContain('# 变更');
 
       const again = await fetch(`${base}/api/packs/create`, {
         method: 'POST',
@@ -139,9 +157,20 @@ resources:
       expect(installed.status).toBe(200);
       expect(existsSync(join(process.cwd(), into, '.packhub/state.json'))).toBe(true);
       expect(existsSync(join(process.cwd(), into, '.packhub/knowledge/rules.md'))).toBe(true);
+
+      // dry-run 只回动作，不落 state / 文件
+      const dryInto = `${into}-dry`;
+      const dry = await fetch(`${base}/api/install?dir=${encodeURIComponent(rel)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ into: dryInto, dryRun: true }),
+      });
+      expect(dry.status).toBe(200);
+      expect(existsSync(join(process.cwd(), dryInto, '.packhub/state.json'))).toBe(false);
     } finally {
       rmSync(join(process.cwd(), rel), { recursive: true, force: true });
       rmSync(join(process.cwd(), into), { recursive: true, force: true });
+      rmSync(join(process.cwd(), `${into}-dry`), { recursive: true, force: true });
     }
   });
   it('registry 索引可读', async () => {

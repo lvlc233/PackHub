@@ -1,5 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { appendFileSync, existsSync, readFileSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildPlan, parseManifest, validateGraph, type TargetId } from '@packhub/kernel';
@@ -103,7 +104,7 @@ export function startHub(opts: HubOptions): Promise<Server> {
 
     try {
       if (isHealth) {
-        return sendJson(res, 200, {
+        return sendJson(req, res, 200, {
           ok: true,
           packs: countPacks(root),
           uptimeSeconds: Math.round((Date.now() - startedAt) / 1000),
@@ -119,14 +120,12 @@ export function startHub(opts: HubOptions): Promise<Server> {
         const file = resolve(staticDir, rel);
         if (file === staticDir || file.startsWith(staticDir + sep)) {
           if (existsSync(file) && statSync(file).isFile()) {
-            res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream' });
-            res.end(readFileSync(file));
+            sendFile(req, res, file);
             return;
           }
           const index = join(staticDir, 'index.html');
           if (existsSync(index)) {
-            res.writeHead(200, { 'content-type': MIME['.html']! });
-            res.end(readFileSync(index));
+            sendFile(req, res, index);
             return;
           }
         }
@@ -136,7 +135,7 @@ export function startHub(opts: HubOptions): Promise<Server> {
       res.end('404：Hub 只有只读接口（/api/health、/api/registry、/api/registry/pack、/api/plan）');
     } catch (err) {
       const message = (err as Error).message;
-      sendJson(res, message.includes('超过 1 MB') ? 413 : 500, { error: message });
+      sendJson(req, res, message.includes('超过 1 MB') ? 413 : 500, { error: message });
     }
   });
 
@@ -203,73 +202,98 @@ async function handleApi(
 ): Promise<void> {
   if (url.pathname === '/api/registry' && req.method === 'GET') {
     const file = join(root, 'registry/index.json');
-    if (!existsSync(file)) return sendJson(res, 404, { error: '这个仓库还没有 registry/index.json' });
-    return sendJson(res, 200, JSON.parse(readFileSync(file, 'utf8')));
+    if (!existsSync(file)) return sendJson(req, res, 404, { error: '这个仓库还没有 registry/index.json' });
+    return sendJson(req, res, 200, JSON.parse(readFileSync(file, 'utf8')), 'public, max-age=30, must-revalidate');
   }
 
   if (url.pathname === '/api/registry/pack' && req.method === 'GET') {
     const name = url.searchParams.get('name') ?? '';
     let version = url.searchParams.get('version') ?? '';
     if (!/^[a-z0-9-]+\/[a-z0-9-]+$/.test(name)) {
-      return sendJson(res, 400, { error: 'name 不合法' });
+      return sendJson(req, res, 400, { error: 'name 不合法' });
     }
     if (!version) {
       const idxPath = join(root, 'registry/index.json');
-      if (!existsSync(idxPath)) return sendJson(res, 404, { error: '没有索引' });
+      if (!existsSync(idxPath)) return sendJson(req, res, 404, { error: '没有索引' });
       const idx = JSON.parse(readFileSync(idxPath, 'utf8')) as {
         packs?: { name: string; latest: string }[];
       };
       version = idx.packs?.find((x) => x.name === name)?.latest ?? '';
     }
     if (!/^\d+\.\d+\.\d+/.test(version)) {
-      return sendJson(res, 404, { error: '没有这个版本' });
+      return sendJson(req, res, 404, { error: '没有这个版本' });
     }
     const dir = join(root, 'registry/packs', name, version);
     if (!existsSync(join(dir, 'packhub.yaml'))) {
-      return sendJson(res, 404, { error: '没有这个版本' });
+      return sendJson(req, res, 404, { error: '没有这个版本' });
     }
-    return sendJson(res, 200, {
-      name,
-      version,
-      manifest: readFileSync(join(dir, 'packhub.yaml'), 'utf8'),
-      lock: readJson(join(dir, 'packhub.lock.json')),
-      verify: readJson(join(dir, 'verify.json')),
-      // 包说明与变更记录：原文返回，页面自己排
-      readme: existsSync(join(dir, 'PACK.md')) ? readFileSync(join(dir, 'PACK.md'), 'utf8') : null,
-      changelog: existsSync(join(dir, 'CHANGELOG.md'))
-        ? readFileSync(join(dir, 'CHANGELOG.md'), 'utf8')
-        : null,
-    });
+    const manifestText = readFileSync(join(dir, 'packhub.yaml'), 'utf8');
+    const parsed = parseManifest(manifestText, join(dir, 'packhub.yaml'));
+    const m = parsed.manifest?.metadata;
+    return sendJson(
+      req,
+      res,
+      200,
+      {
+        name,
+        version,
+        manifest: manifestText,
+        // 解析后的元数据：页面不用在浏览器里再引一个 YAML 库
+        metadata: m
+          ? {
+              name: m.name,
+              version: m.version,
+              title: m.title ?? m.name,
+              description: m.description ?? '',
+              license: m.license ?? null,
+              homepage: m.homepage ?? null,
+              authors: m.authors ?? [],
+              keywords: m.keywords ?? [],
+              targets: m.targets,
+              visibility: m.visibility ?? 'private',
+              requiresAgent: parsed.manifest?.requires?.agent ?? null,
+            }
+          : null,
+        lock: readJson(join(dir, 'packhub.lock.json')),
+        verify: readJson(join(dir, 'verify.json')),
+        // 包说明与变更记录：原文返回，页面自己排
+        readme: existsSync(join(dir, 'PACK.md')) ? readFileSync(join(dir, 'PACK.md'), 'utf8') : null,
+        changelog: existsSync(join(dir, 'CHANGELOG.md'))
+          ? readFileSync(join(dir, 'CHANGELOG.md'), 'utf8')
+          : null,
+      },
+      'public, max-age=300, must-revalidate',
+    );
   }
 
   if (url.pathname === '/api/registry/resources' && req.method === 'GET') {
     const name = url.searchParams.get('name') ?? '';
     const version = url.searchParams.get('version') ?? undefined;
     const result = collectPackResources(root, name, version);
-    if (!result) return sendJson(res, 404, { error: '没有这个包或版本' });
-    return sendJson(res, 200, result);
+    if (!result) return sendJson(req, res, 404, { error: '没有这个包或版本' });
+    return sendJson(req, res, 200, result);
   }
 
   if (url.pathname === '/api/plan' && req.method === 'POST') {
     const body = await readBody(req);
     const text = String(body.manifest ?? '');
-    if (!text.trim()) return sendJson(res, 400, { error: 'manifest 为空' });
+    if (!text.trim()) return sendJson(req, res, 400, { error: 'manifest 为空' });
     const parsed = parseManifest(text, '<draft>');
-    if (!parsed.manifest) return sendJson(res, 200, { issues: parsed.issues, plan: null });
+    if (!parsed.manifest) return sendJson(req, res, 200, { issues: parsed.issues, plan: null });
     const { graph, issues } = validateGraph(parsed.manifest);
     const errors = [...parsed.issues, ...issues].filter((i) => i.severity === 'error');
     if (errors.length > 0) {
-      return sendJson(res, 200, { issues: [...parsed.issues, ...issues], plan: null });
+      return sendJson(req, res, 200, { issues: [...parsed.issues, ...issues], plan: null });
     }
     const { plan, issues: planIssues } = buildPlan(parsed.manifest, graph, {
       target: (String(body.target ?? 'dir') as TargetId) || 'dir',
       targetVars: {},
       packDir: root,
     });
-    return sendJson(res, 200, { issues: planIssues, plan: plan ?? null });
+    return sendJson(req, res, 200, { issues: planIssues, plan: plan ?? null });
   }
 
-  return sendJson(res, 404, { error: `未知接口：${url.pathname}` });
+  return sendJson(req, res, 404, { error: `未知接口：${url.pathname}` });
 }
 
 function readJson(file: string): unknown {
@@ -293,7 +317,45 @@ async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> 
   }
 }
 
-function sendJson(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
-  res.end(JSON.stringify(body));
+function sendFile(req: IncomingMessage, res: ServerResponse, file: string): void {
+  const stat = statSync(file);
+  const etag = `"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`;
+  const isHtml = extname(file).toLowerCase() === '.html';
+  const cache = isHtml ? 'no-cache' : 'public, max-age=300, must-revalidate';
+  const headers = {
+    'content-type': MIME[extname(file)] ?? 'application/octet-stream',
+    'cache-control': cache,
+    etag,
+  };
+  if (req.headers['if-none-match'] === etag) {
+    res.writeHead(304, headers);
+    res.end();
+    return;
+  }
+  res.writeHead(200, { ...headers, 'content-length': stat.size });
+  res.end(readFileSync(file));
+}
+
+function sendJson(
+  req: IncomingMessage,
+  res: ServerResponse,
+  status: number,
+  body: unknown,
+  cacheControl = 'no-store',
+): void {
+  const text = JSON.stringify(body);
+  const etag = `"${createHash('sha1').update(text).digest('hex')}"`;
+  const headers = {
+    'content-type': 'application/json; charset=utf-8',
+    'cache-control': cacheControl,
+    etag,
+  };
+  // 条件请求：读方带 If-None-Match 且内容没变时回 304，不重复传索引
+  if (status === 200 && req.headers['if-none-match'] === etag) {
+    res.writeHead(304, headers);
+    res.end();
+    return;
+  }
+  res.writeHead(status, headers);
+  res.end(text);
 }

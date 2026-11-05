@@ -13,6 +13,10 @@ interface IndexEntry {
   keywords: string[];
   resourceCount: number;
   install: string;
+  license: string | null;
+  homepage: string | null;
+  authors: { name: string; url?: string }[];
+  requiresAgent: string | null;
 }
 
 interface Index {
@@ -25,6 +29,19 @@ interface PackDetail {
   name: string;
   version: string;
   manifest: string;
+  metadata: {
+    name: string;
+    version: string;
+    title: string;
+    description: string;
+    license: string | null;
+    homepage: string | null;
+    authors: { name: string; url?: string }[];
+    keywords: string[];
+    targets: string[];
+    visibility: string;
+    requiresAgent: string | null;
+  } | null;
   readme?: string | null;
   changelog?: string | null;
   verify: {
@@ -116,6 +133,9 @@ function PackListPage() {
               <div className="pk-stats">
                 <span>{p.resourceCount} 个资源</span>
                 <span>{p.targets.join(' · ')}</span>
+                {p.license && <span>{p.license}</span>}
+                {p.authors.length > 0 && <span>{p.authors.map((a) => a.name).join('、')}</span>}
+                {p.requiresAgent && <span>agent: {p.requiresAgent}</span>}
                 {p.keywords.slice(0, 3).map((k) => (
                   <span key={k}>#{k}</span>
                 ))}
@@ -178,6 +198,24 @@ function PackDetailPage({ name }: { name: string }) {
               v{detail.version}
               {detail.verify?.ok ? ` · verified ${date(detail.verify.verifiedAt)}` : ' · community'}
             </p>
+            {detail.metadata && (
+              <p className="pk-hint">
+                {detail.metadata.title}
+                {detail.metadata.license ? ` · ${detail.metadata.license}` : ''}
+                {detail.metadata.authors.length > 0
+                  ? ` · ${detail.metadata.authors.map((a) => a.name).join('、')}`
+                  : ''}
+                {detail.metadata.requiresAgent ? ` · agent: ${detail.metadata.requiresAgent}` : ''}
+                {detail.metadata.homepage ? (
+                  <>
+                    {' · '}
+                    <a href={detail.metadata.homepage} rel="noreferrer">
+                      主页
+                    </a>
+                  </>
+                ) : null}
+              </p>
+            )}
             <button className="pk-install" onClick={copy}>
               <code>{install}</code>
               <span>{copied ? '已复制' : '复制命令'}</span>

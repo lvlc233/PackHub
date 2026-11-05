@@ -30,6 +30,28 @@ describe('Hub（只读发布端）', () => {
   });
 
 
+  it('索引与包页带 ETag / Cache-Control，条件请求回 304', async () => {
+    const first = await fetch(`${base}/api/registry`);
+    const etag = first.headers.get('etag');
+    expect(etag).toMatch(/^"/);
+    expect(first.headers.get('cache-control')).toContain('max-age');
+    const second = await fetch(`${base}/api/registry`, { headers: { 'if-none-match': etag! } });
+    expect(second.status).toBe(304);
+    expect(await second.text()).toBe('');
+  });
+
+  it('包页返回解析后的元数据（license / authors / requires.agent）', async () => {
+    const idx = (await (await fetch(`${base}/api/registry`)).json()) as { packs: { name: string }[] };
+    const name = idx.packs[0]?.name;
+    if (!name) return;
+    const detail = (await (
+      await fetch(`${base}/api/registry/pack?name=${encodeURIComponent(name)}`)
+    ).json()) as { metadata: { name: string; license: string | null } | null };
+    expect(detail.metadata?.name).toBe(name);
+    expect(detail.metadata).toHaveProperty('license');
+  });
+
+
   it('请求体超过上限返回 413，而不是把内存吃满', async () => {
     const res = await fetch(`${base}/api/plan`, {
       method: 'POST',

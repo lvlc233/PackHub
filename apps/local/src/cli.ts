@@ -134,7 +134,10 @@ const plan = defineCommand({
 });
 
 const install = defineCommand({
-  meta: { name: 'install', description: '执行计划（--target 决定落点：dir / claude-code / dsh）' },
+  meta: {
+    name: 'install',
+    description: '执行计划（--target：dir / dsh / claude-code / codex / server）',
+  },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
     'dry-run': { type: 'boolean', default: false },
@@ -782,6 +785,7 @@ const update = defineCommand({
     'allow-stale-lock': { type: 'boolean', default: false },
     'no-verify': { type: 'boolean', default: false, description: '更新后不跑 verify 检查' },
     'deep-verify': { type: 'boolean', default: false, description: '更新后也跑 command / mcp-ready（会执行包里的命令）' },
+    json: { type: 'boolean', default: false, description: '输出结构化结果（脚本用）' },
   },
   async run({ args }) {
     const indexRef = resolveRegistry(args.index ? String(args.index) : undefined);
@@ -789,6 +793,7 @@ const update = defineCommand({
       console.error('没有索引：加 --index <路径|URL|registry 名>，或设 PACKHUB_INDEX');
       process.exit(2);
     }
+    const say = args.json ? (_line: string): void => {} : (line: string): void => console.log(line);
     const res = await updatePack({
       name: String(args.name),
       index: indexRef,
@@ -799,15 +804,16 @@ const update = defineCommand({
       ...(args.version ? { version: String(args.version) } : {}),
     });
     if (!res.changed) {
-      console.log(`${res.name} 已是最新（planHash ${res.planHash.slice(0, 22)}…）`);
+      if (args.json) console.log(JSON.stringify(res, null, 2));
+      else console.log(`${res.name} 已是最新（planHash ${res.planHash.slice(0, 22)}…）`);
       return;
     }
-    console.log(`更新 ${res.from ?? '(未装)'} → ${res.to}`);
-    for (const a of res.removed) console.log(`  - ${a}（计划里移除）`);
-    for (const a of res.added) console.log(`  + ${a}`);
-    for (const p of res.pruned) console.log(`  × ${p}（已从磁盘清掉）`);
+    say(`更新 ${res.from ?? '(未装)'} → ${res.to}`);
+    for (const a of res.removed) say(`  - ${a}（计划里移除）`);
+    for (const a of res.added) say(`  + ${a}`);
+    for (const p of res.pruned) say(`  × ${p}（已从磁盘清掉）`);
     for (const w of res.warnings) console.warn(`warn  ${w}`);
-    console.log(`\nplanHash ${res.planHash.slice(0, 22)}…（可用 packhub rollback 退回）`);
+    say(`\nplanHash ${res.planHash.slice(0, 22)}…（可用 packhub rollback 退回）`);
     try {
       appendAudit({
         action: 'update',
@@ -821,23 +827,26 @@ const update = defineCommand({
       console.warn(`warn  审计写入失败：${(err as Error).message}`);
     }
 
+    let reports: Awaited<ReturnType<typeof verifyInstalled>> | undefined;
     if (res.changed && !args['no-verify']) {
-      const reports = await verifyInstalled(resolve(String(args.dir)), {
+      reports = await verifyInstalled(resolve(String(args.dir)), {
         pack: res.to,
         ...(args['deep-verify'] ? {} : { types: [...SAFE_CHECKS] }),
       });
       for (const r of reports) {
-        console.log(`\n校验 ${r.pack}：${r.ok ? '通过' : '未通过'}`);
+        say(`\n校验 ${r.pack}：${r.ok ? '通过' : '未通过'}`);
         for (const c of r.results) {
           const mark = c.status === 'pass' ? '✓' : c.status === 'fail' ? 'x' : '-';
-          console.log(`  ${mark} [${c.index}] ${c.type.padEnd(18)} ${c.status.padEnd(8)} ${c.detail}`);
+          say(`  ${mark} [${c.index}] ${c.type.padEnd(18)} ${c.status.padEnd(8)} ${c.detail}`);
         }
       }
       if (!reports.every((r) => r.ok)) {
+        if (args.json) console.log(JSON.stringify({ ...res, verify: reports }, null, 2));
         console.error('更新完成，但有校验没过；可用 rollback 退回上一版。');
         process.exit(1);
       }
     }
+    if (args.json) console.log(JSON.stringify({ ...res, ...(reports ? { verify: reports } : {}) }, null, 2));
   },
 });
 
@@ -881,7 +890,10 @@ const versions = defineCommand({
     }
     for (const v of list) {
       const mark = v.active ? '●' : '○';
-      console.log(`${mark} ${`${v.pack}@${v.version}`.padEnd(40)} ${v.target.padEnd(12)} ${v.installedAt.slice(0, 19)}`);
+      const health = v.failed > 0 ? ` · ${v.failed} 个失败动作` : '';
+      console.log(
+        `${mark} ${`${v.pack}@${v.version}`.padEnd(40)} ${v.target.padEnd(12)} ${String(v.files).padStart(3)} 文件 · ${v.actions} 动作${health}  ${v.installedAt.slice(0, 19)}`,
+      );
     }
     console.log('\n● 表示当前激活；用 packhub activate <name>@<version> 切换');
   },
@@ -892,6 +904,8 @@ const activate = defineCommand({
   args: {
     ref: { type: 'positional', required: true, description: 'name@version' },
     dir: { type: 'positional', required: false, default: '.' },
+    json: { type: 'boolean', default: false },
+    'no-verify': { type: 'boolean', default: false, description: '切换后不跑 doctor / verify' },
   },
   async run({ args }) {
     const ref = String(args.ref);
@@ -902,11 +916,43 @@ const activate = defineCommand({
     }
     const pack = ref.slice(0, at);
     const version = ref.slice(at + 1);
+    const dir = resolve(String(args.dir));
     try {
-      const res = await activatePack(resolve(String(args.dir)), pack, version);
-      console.log(`激活 ${res.to}${res.from ? `（原 ${res.from}）` : ''}`);
-      for (const r of res.removed) console.log(`  × ${r}`);
-      console.log(`\n铺开 ${res.written.length} 个路径；配置与指令块已按这个版本重放`);
+      const res = await activatePack(dir, pack, version);
+      if (!args.json) {
+        console.log(`激活 ${res.to}${res.from ? `（原 ${res.from}）` : ''}`);
+        for (const r of res.removed) console.log(`  × ${r}`);
+        console.log(`\n铺开 ${res.written.length} 个路径；配置与指令块已按这个版本重放`);
+      }
+
+      // 切换完立刻复核：state/active/文件是否一致，只读校验有没有失败
+      let doctor: ReturnType<typeof doctorPack> | undefined;
+      let reports: Awaited<ReturnType<typeof verifyInstalled>> = [];
+      if (!args['no-verify']) {
+        doctor = doctorPack(dir);
+        reports = await verifyInstalled(dir, {
+          pack: `${pack}@${version}`,
+          types: [...SAFE_CHECKS],
+        });
+        const bad = reports.filter((r) => !r.ok);
+        if (!args.json) {
+          console.log(`\n检查：${doctor.ok ? '✓ 文件与激活指针一致' : `x ${doctor.findings.length} 个漂移`}`);
+          for (const r of reports) {
+            const fails = r.results.filter((x) => x.status === 'fail').length;
+            console.log(`校验 ${r.pack}：${r.ok ? '通过' : `${fails} 项失败`}`);
+          }
+        }
+        if (!doctor.ok || bad.length > 0) {
+          if (args.json) console.log(JSON.stringify({ ...res, doctor, verify: reports }, null, 2));
+          console.error('切换完成，但检查没过；可用 packhub rollback 退回，或修完再试。');
+          process.exit(1);
+        }
+      }
+      if (args.json) {
+        console.log(
+          JSON.stringify(doctor ? { ...res, doctor, verify: reports } : res, null, 2),
+        );
+      }
     } catch (err) {
       console.error(`x ${(err as Error).message}`);
       process.exit(1);
@@ -951,6 +997,7 @@ const publish = defineCommand({
     'allow-exec': { type: 'boolean', default: false, description: '允许 runner 执行清单里的 install.exec' },
     index: { type: 'string', description: '扁平化远程 extends / packhub:// 用的 registry 索引' },
     'allow-non-public': { type: 'boolean', default: false, description: '允许发布 unlisted/internal（公共索引仍只收 public）' },
+    json: { type: 'boolean', default: false, description: '输出结构化结果（脚本用）' },
   },
   async run({ args }) {
     const registry = resolve(String(args.registry));
@@ -969,20 +1016,40 @@ const publish = defineCommand({
         offline: Boolean(args.offline),
         allowExec: Boolean(args['allow-exec']),
         allowNonPublic: Boolean(args['allow-non-public']),
-        log: (line) => console.log(line),
+        log: args.json ? () => {} : (line) => console.log(line),
       });
       if (args['dry-run']) {
-        console.log(`\n[dry-run] 将发布 ${res.name}@${res.version}，未写盘`);
+        if (args.json) console.log(JSON.stringify({ ...res, dryRun: true }, null, 2));
+        else console.log(`\n[dry-run] 将发布 ${res.name}@${res.version}，未写盘`);
         return;
       }
       if (!args.out) {
         const idx = writeIndex(registry);
-        console.log(idx.ok ? `\n索引已更新：${idx.packs} 个包` : '\n索引有错误，未写入（看上面）');
-        if (!idx.ok) process.exit(1);
+        if (!idx.ok) {
+          // 索引门禁失败：把刚写的版本目录/归档撤掉，别留下「版本在、索引没有」的半套
+          res.rollback();
+          if (args.json) {
+            console.log(JSON.stringify({ ok: false, name: res.name, version: res.version, error: '索引门禁没过，已撤回版本目录' }, null, 2));
+          } else {
+            console.error('\n索引有错误，未写入；本次版本目录与归档已撤回。');
+          }
+          process.exit(1);
+        }
+        res.finalize();
+        if (args.json) {
+          console.log(JSON.stringify({ ok: true, ...res, indexed: true, packs: idx.packs }, null, 2));
+        } else {
+          console.log(`\n索引已更新：${idx.packs} 个包`);
+          console.log(`发布完成：${res.name}@${res.version}`);
+        }
       } else {
-        console.log(`\n已写到 ${res.dir}；把${args.out} 下改动提交成 PR 即可`);
+        res.finalize();
+        if (args.json) console.log(JSON.stringify({ ok: true, ...res, indexed: false }, null, 2));
+        else {
+          console.log(`\n已写到 ${res.dir}；把${args.out} 下改动提交成 PR 即可`);
+          console.log(`发布完成：${res.name}@${res.version}`);
+        }
       }
-      console.log(`发布完成：${res.name}@${res.version}`);
     } catch (err) {
       console.error(`x ${(err as Error).message}`);
       process.exit(1);
@@ -991,13 +1058,14 @@ const publish = defineCommand({
 });
 
 const sync = defineCommand({
-  meta: { name: 'sync', description: '把 skill-only Pack 同步到 harness 的全局 skills/（dsh / codex）' },
+  meta: { name: 'sync', description: '把 skill-only Pack 同步到 dsh / codex / claude-code 的全局 skills/' },
   args: {
     dir: { type: 'positional', required: true, description: 'Pack 目录' },
     to: { type: 'string', required: true, description: '目标，逗号分隔：dsh,codex,claude-code' },
     'dry-run': { type: 'boolean', default: false },
     remove: { type: 'boolean', default: false, description: '从目标 harness 移除这个包' },
     overwrite: { type: 'boolean', default: false, description: '允许覆盖别的包占用的 skill 目录' },
+    json: { type: 'boolean', default: false, description: '输出结构化结果（脚本用）' },
   },
   async run({ args }) {
     const targets = String(args.to)
@@ -1005,12 +1073,17 @@ const sync = defineCommand({
       .map((s) => s.trim())
       .filter(Boolean);
     if (targets.length === 0 || targets.some((t) => t !== 'dsh' && t !== 'codex' && t !== 'claude-code')) {
-      console.error(`--to 只接受 dsh / codex：${targets.join(',')}`);
+      console.error(`--to 只接受 dsh / codex / claude-code：${targets.join(',')}`);
       process.exit(2);
     }
     try {
       if (args.remove) {
-        for (const res of removeSynced(String(args.dir), targets as SyncTarget[])) {
+        const results = removeSynced(String(args.dir), targets as SyncTarget[]);
+        if (args.json) {
+          console.log(JSON.stringify({ removed: results }, null, 2));
+          return;
+        }
+        for (const res of results) {
           console.log(`${res.target} ${res.root}：移除 ${res.packs.length} 个包，${res.removed.length} 个路径`);
           for (const p of res.removed) console.log(`  - ${p}`);
         }
@@ -1021,6 +1094,10 @@ const sync = defineCommand({
         dryRun: Boolean(args['dry-run']),
         overwrite: Boolean(args.overwrite),
       });
+      if (args.json) {
+        console.log(JSON.stringify({ pack, dryRun: Boolean(args['dry-run']), results }, null, 2));
+        return;
+      }
       console.log(`${pack}（${args['dry-run'] ? 'dry-run' : '同步'}）`);
       for (const res of results) {
         console.log(`  ${res.target} → ${res.root}`);
@@ -1361,8 +1438,12 @@ const doctor = defineCommand({
   args: {
     dir: { type: 'positional', required: false, default: '.' },
     json: { type: 'boolean', default: false },
-    global: { type: 'boolean', default: false, description: '检查全局 harness（dsh / codex）' },
-    targets: { type: 'string', default: 'dsh,codex', description: '全局检查目标，逗号分隔' },
+    global: { type: 'boolean', default: false, description: '检查全局 harness（dsh / codex / claude-code）' },
+    targets: {
+      type: 'string',
+      default: 'dsh,codex,claude-code',
+      description: '全局检查目标，逗号分隔（dsh / codex / claude-code）',
+    },
   },
   run({ args }) {
     if (args.global) {
@@ -1371,13 +1452,18 @@ const doctor = defineCommand({
         .map((s) => s.trim())
         .filter((t) => t === 'dsh' || t === 'codex' || t === 'claude-code') as SyncTarget[];
       const results = doctorGlobal(targets);
+      const failed = results.some((r) => (r.error && !r.skipped) || !r.report?.ok);
       if (args.json) {
         console.log(JSON.stringify(results, null, 2));
-        if (results.some((r) => r.error || !r.report?.ok)) process.exit(1);
+        if (failed) process.exit(1);
         return;
       }
       for (const r of results) {
         console.log(`\n${r.target} ${r.root}`);
+        if (r.skipped) {
+          console.log('  - 跳过：没有这个 harness 的 home');
+          continue;
+        }
         if (r.error) {
           console.log(`  x ${r.error}`);
           continue;
@@ -1394,9 +1480,11 @@ const doctor = defineCommand({
           console.log(`  x ${f.pack}`);
           for (const m of f.filesMissing) console.log(`      文件不见了：${m}`);
           for (const b of f.blocksMissing) console.log(`      托管块不见了：${b}`);
+          for (const c of f.configDrift) console.log(`      配置被改：${c}`);
+          for (const a of f.activeDrift) console.log(`      激活指针不一致：${a}`);
         }
       }
-      if (results.some((r) => r.error || !r.report?.ok)) process.exit(1);
+      if (failed) process.exit(1);
       return;
     }
     const report = doctorPack(resolve(String(args.dir)));
@@ -1414,6 +1502,8 @@ const doctor = defineCommand({
       console.log(`x ${f.pack}`);
       for (const b of f.blocksMissing) console.log(`    托管块不见了：${b}（可能被宿主工具重新生成覆盖）`);
       for (const m of f.filesMissing) console.log(`    文件不见了：${m}`);
+      for (const c of f.configDrift) console.log(`    配置被改：${c}`);
+      for (const a of f.activeDrift) console.log(`    激活指针不一致：${a}`);
     }
     if (report.ok) {
       console.log('✓ 全部在位');
@@ -1464,6 +1554,7 @@ const licenses = defineCommand({
     deny: { type: 'string', description: '拒绝的 SPDX 列表（逗号分隔），命中就失败' },
     online: { type: 'boolean', default: false, description: '远程 npm 资源也查 registry 的 license 字段' },
     policy: { type: 'string', description: '许可策略 JSON：{allow,deny,allowCopyleft,allowNC,allowND,requireSpdx}' },
+    json: { type: 'boolean', default: false, description: '输出结构化结果（脚本用）' },
   },
   async run({ args }) {
     const dir = resolve(String(args.dir));
@@ -1504,9 +1595,26 @@ const licenses = defineCommand({
 
     let missing = 0;
     let blocked = 0;
+    const rows: {
+      resource: string;
+      source: string;
+      vendored: boolean;
+      spdx: string | undefined;
+      file: string | undefined;
+      ok: boolean;
+      reason?: string;
+    }[] = [];
     for (const f of findings) {
       if (!f.vendored && !f.spdx) {
-        console.log(`- ${f.resource.padEnd(20)} 远程（加 --online 可查 npm license）`);
+        rows.push({
+          resource: f.resource,
+          source: f.source,
+          vendored: f.vendored,
+          spdx: f.spdx,
+          file: f.file,
+          ok: true,
+          reason: '远程来源，加 --online 可查 npm license',
+        });
         continue;
       }
       const verdict = policy
@@ -1519,23 +1627,46 @@ const licenses = defineCommand({
           });
       if (f.vendored && !f.file) {
         missing++;
-        console.log(`x ${f.resource.padEnd(20)} 没有 LICENSE/COPYING`);
+        rows.push({
+          resource: f.resource,
+          source: f.source,
+          vendored: f.vendored,
+          spdx: f.spdx,
+          file: f.file,
+          ok: false,
+          reason: '没有 LICENSE/COPYING',
+        });
         continue;
       }
-      if (!verdict.ok) {
-        blocked++;
-        console.log(`x ${f.resource.padEnd(20)} ${f.spdx ?? '未知'} · ${f.file ?? f.source}（${verdict.reason}）`);
-      } else {
-        console.log(`✓ ${f.resource.padEnd(20)} ${f.spdx ?? '未知'} · ${f.file ?? f.source}`);
+      if (!verdict.ok) blocked++;
+      rows.push({
+        resource: f.resource,
+        source: f.source,
+        vendored: f.vendored,
+        spdx: f.spdx,
+        file: f.file,
+        ok: verdict.ok,
+        ...(verdict.ok ? {} : { reason: verdict.reason }),
+      });
+    }
+    if (args.json) {
+      console.log(JSON.stringify({ findings: rows, missing, blocked, ok: blocked === 0 }, null, 2));
+    } else {
+      for (const f of rows) {
+        if (!f.vendored && !f.spdx) {
+          console.log(`- ${f.resource.padEnd(20)} 远程（加 --online 可查 npm license）`);
+        } else if (!f.ok) {
+          console.log(`x ${f.resource.padEnd(20)} ${f.spdx ?? '未知'} · ${f.file ?? f.source}（${f.reason ?? ''}）`);
+        } else {
+          console.log(`✓ ${f.resource.padEnd(20)} ${f.spdx ?? '未知'} · ${f.file ?? f.source}`);
+        }
       }
+      if (missing > 0) {
+        console.log(`\n${missing} 个 vendored 资源缺少许可证文件；不确定能不能再分发时先去上游确认`);
+      }
+      if (blocked > 0) console.log(`\n${blocked} 个资源未通过许可策略`);
     }
-    if (missing > 0) {
-      console.log(`\n${missing} 个 vendored 资源缺少许可证文件；不确定能不能再分发时先去上游确认`);
-    }
-    if (blocked > 0) {
-      console.log(`\n${blocked} 个资源未通过许可策略`);
-      process.exit(1);
-    }
+    if (blocked > 0) process.exit(1);
     if (missing > 0 && args.strict) process.exit(1);
   },
 });
@@ -1555,71 +1686,103 @@ const keygen = defineCommand({
 });
 
 const sign = defineCommand({
-  meta: { name: 'sign', description: '用私钥签这个包的计划哈希' },
+  meta: { name: 'sign', description: '用私钥签这个包的计划哈希（远程引用会先按发布时的扁平化计划签）' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
     key: { type: 'string', required: true, description: '私钥 PEM 路径' },
+    index: { type: 'string', description: '远程 extends / packhub:// 用的 registry 索引' },
   },
   async run({ args }) {
     const dir = resolve(String(args.dir));
-    const ctx = loadPack(dir);
-    if (reportIssues(ctx.issues)) process.exit(2);
-    const { plan, issues } = planFor(ctx, { target: 'dir' });
-    if (!plan) {
-      reportIssues(issues, 'packhub sign');
-      process.exit(2);
+    const flat = await flattenPack(dir, {
+      index: resolveRegistry(args.index ? String(args.index) : undefined),
+    });
+    try {
+      for (const w of flat.warnings) console.warn(`warn  ${w}`);
+      const ctx = loadPack(flat.dir);
+      if (reportIssues(ctx.issues)) process.exit(2);
+      const { plan, issues } = planFor(ctx, { target: 'dir' });
+      if (!plan) {
+        reportIssues(issues, 'packhub sign');
+        process.exit(2);
+      }
+      const pack = `${ctx.manifest.metadata.name}@${ctx.manifest.metadata.version}`;
+      const pem = readFileSync(String(args.key), 'utf8');
+      const signature = signPlan(pem, pack, plan.planHash);
+      // 签的是扁平化后的计划；签名文件写回原包，publish 时会再验证并保留
+      writeSignature(dir, signature);
+      console.log(`✓ 已签名 ${pack}`);
+      console.log(`  公钥 id：${signature.key}`);
+      console.log(`  planHash：${plan.planHash.slice(0, 22)}…`);
+      if (flat.dir !== dir) console.log('  这个包含远程引用；签名按扁平化后的计划生成，publish 会保留它');
+    } finally {
+      flat.cleanup();
     }
-    const pack = `${ctx.manifest.metadata.name}@${ctx.manifest.metadata.version}`;
-    const pem = readFileSync(String(args.key), 'utf8');
-    const signature = signPlan(pem, pack, plan.planHash);
-    writeSignature(dir, signature);
-    console.log(`✓ 已签名 ${pack}`);
-    console.log(`  公钥 id：${signature.key}`);
-    console.log(`  planHash：${plan.planHash.slice(0, 22)}…`);
   },
 });
 
 const verifySig = defineCommand({
-  meta: { name: 'verify-sig', description: '校验包上的签名' },
+  meta: { name: 'verify-sig', description: '校验包上的签名（远程引用按发布时的扁平化计划校验）' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
     trusted: { type: 'string', description: '信任的公钥 id 列表文件（每行一个）' },
+    index: { type: 'string', description: '远程 extends / packhub:// 用的 registry 索引' },
+    json: { type: 'boolean', default: false },
   },
   async run({ args }) {
     const dir = resolve(String(args.dir));
-    const ctx = loadPack(dir);
-    if (reportIssues(ctx.issues)) process.exit(2);
-    const { plan, issues } = planFor(ctx, { target: 'dir' });
-    if (!plan) {
-      reportIssues(issues, 'packhub verify-sig');
-      process.exit(2);
-    }
-    const sigs = [...readSignatures(dir), ...(ctx.manifest.signatures ?? [])];
-    if (sigs.length === 0) {
-      console.error('这个包没有签名');
-      process.exit(1);
-    }
-    const pack = `${ctx.manifest.metadata.name}@${ctx.manifest.metadata.version}`;
-    const results = verifySignatures(sigs, pack, plan.planHash);
+    const flat = await flattenPack(dir, {
+      index: resolveRegistry(args.index ? String(args.index) : undefined),
+    });
+    try {
+      const ctx = loadPack(flat.dir);
+      if (reportIssues(ctx.issues)) process.exit(2);
+      const { plan, issues } = planFor(ctx, { target: 'dir' });
+      if (!plan) {
+        reportIssues(issues, 'packhub verify-sig');
+        process.exit(2);
+      }
+      const sigs = [...readSignatures(dir), ...(flat.manifest.signatures ?? [])];
+      if (sigs.length === 0) {
+        if (args.json) console.log(JSON.stringify({ ok: false, error: '这个包没有签名', signatures: [] }, null, 2));
+        else console.error('这个包没有签名');
+        process.exit(1);
+      }
+      const pack = `${ctx.manifest.metadata.name}@${ctx.manifest.metadata.version}`;
+      const results = verifySignatures(sigs, pack, plan.planHash);
 
-    const trustedFile = args.trusted ? String(args.trusted) : undefined;
-    const trusted = trustedFile
-      ? readFileSync(trustedFile, 'utf8').split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
-      : undefined;
+      const trustedFile = args.trusted ? String(args.trusted) : undefined;
+      const trusted = trustedFile
+        ? readFileSync(trustedFile, 'utf8').split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
+        : undefined;
 
-    let good = 0;
-    for (const r of results) {
-      const isTrusted = !trusted || trusted.includes(r.key);
-      const ok = r.ok && isTrusted;
-      if (ok) good++;
-      console.log(
-        `${ok ? '✓' : 'x'} ${r.key.slice(0, 16)}… ${r.ok ? '签名有效' : '签名不符'}${
-          trusted && !isTrusted ? '（不在信任列表）' : ''
-        }`,
-      );
+      const rows = results.map((r) => {
+        const isTrusted = !trusted || trusted.includes(r.key);
+        return { ...r, trusted: isTrusted, accepted: r.ok && isTrusted };
+      });
+      const good = rows.filter((r) => r.accepted).length;
+      if (args.json) {
+        console.log(
+          JSON.stringify(
+            { ok: good > 0, planHash: plan.planHash, signatures: rows, flattened: flat.dir !== dir },
+            null,
+            2,
+          ),
+        );
+      } else {
+        for (const r of rows) {
+          console.log(
+            `${r.accepted ? '✓' : 'x'} ${r.key.slice(0, 16)}… ${r.ok ? '签名有效' : '签名不符'}${
+              trusted && !r.trusted ? '（不在信任列表）' : ''
+            }`,
+          );
+        }
+        console.log(`\n${good}/${results.length} 个签名通过`);
+      }
+      if (good === 0) process.exit(1);
+    } finally {
+      flat.cleanup();
     }
-    if (good === 0) process.exit(1);
-    console.log(`\n${good}/${results.length} 个签名通过`);
   },
 });
 
@@ -1629,6 +1792,7 @@ const pack = defineCommand({
     dir: { type: 'positional', required: false, default: '.' },
     out: { type: 'string', description: '输出路径，默认 <dir>/pack.phub' },
     vendored: { type: 'boolean', default: false, description: '把本地资源一起打进去（离线可装）' },
+    json: { type: 'boolean', default: false, description: '输出结构化结果（脚本用）' },
   },
   async run({ args }) {
     const dir = resolve(String(args.dir));
@@ -1636,6 +1800,10 @@ const pack = defineCommand({
       vendored: Boolean(args.vendored),
       ...(args.out ? { out: resolve(String(args.out)) } : {}),
     });
+    if (args.json) {
+      console.log(JSON.stringify({ ...res, vendored: Boolean(args.vendored) }, null, 2));
+      return;
+    }
     console.log(`✓ ${res.file}（${Math.max(1, Math.round(res.bytes / 1024))} KB）`);
     console.log(`包含：${res.entries.join('、')}${args.vendored ? '' : '（reference 模式，装的时候要联网取资源）'}`);
   },
@@ -1749,6 +1917,7 @@ const search = defineCommand({
     for (const p of hits) {
       const trust = p.trust === 'verified' ? '✓ verified' : 'community';
       console.log(`${p.name}@${p.latest}  ${trust}`);
+      if (p.registry) console.log(`  来源：${p.registry}`);
       if (p.title) console.log(`  ${p.title}`);
       if (p.description) console.log(`  ${p.description}`);
       if (p.install) console.log(`  ${p.install}`);
@@ -1955,29 +2124,82 @@ const serve = defineCommand({
 });
 
 const completion = defineCommand({
-  meta: { name: 'completion', description: '输出 shell 补全脚本（bash / zsh / pwsh）' },
+  meta: { name: 'completion', description: '输出 shell 补全脚本（bash / zsh / pwsh，含子命令与参数）' },
   args: {
     shell: { type: 'positional', required: true, description: 'bash | zsh | pwsh' },
   },
   run({ args }) {
-    const names = Object.keys((main.subCommands ?? {}) as Record<string, unknown>)
-      .filter((n) => n !== 'completion')
-      .sort();
+    type Cmd = { args?: Record<string, unknown>; subCommands?: Record<string, Cmd> };
+    const commands = Object.entries((main.subCommands ?? {}) as Record<string, Cmd>)
+      .filter(([n]) => n !== 'completion')
+      .sort(([a], [b]) => a.localeCompare(b));
+    const names = commands.map(([n]) => n);
+    // 每个命令的可补内容：自己的参数 + 子命令名
+    const optionsOf = (cmd: Cmd): string[] => [
+      ...Object.keys(cmd.args ?? {})
+        .filter((k) => k !== 'help' && k !== 'version')
+        .map((k) => `--${k}`),
+      ...Object.keys(cmd.subCommands ?? {}),
+    ];
     const shell = String(args.shell);
     if (shell === 'bash') {
-      console.log(`# packhub bash completion\ncomplete -W "${names.join(' ')}" packhub`);
+      const cases = commands
+        .map(([n, cmd]) => `    ${n}) opts="${optionsOf(cmd).join(' ')}" ;;`)
+        .join('\n');
+      console.log(`# packhub bash completion
+_packhub() {
+  local cur opts
+  cur="\${COMP_WORDS[COMP_CWORD]}"
+  if [ "\$COMP_CWORD" -eq 1 ]; then
+    COMPREPLY=( \$(compgen -W "${names.join(' ')}" -- "\$cur") )
+    return
+  fi
+  case "\${COMP_WORDS[1]}" in
+${cases}
+    *) opts="" ;;
+  esac
+  COMPREPLY=( \$(compgen -W "\$opts" -- "\$cur") )
+}
+complete -F _packhub packhub`);
       return;
     }
     if (shell === 'zsh') {
-      console.log(
-        `# packhub zsh completion\n_packhub() { local -a cmds; cmds=(${names.map((n) => `'${n}'`).join(' ')}); _describe 'command' cmds }\ncompdef _packhub packhub`,
-      );
+      const cases = commands
+        .map(([n, cmd]) => `    ${n}) opts=(${optionsOf(cmd).join(' ')}) ;;`)
+        .join('\n');
+      console.log(`# packhub zsh completion
+_packhub() {
+  local -a cmds opts
+  if (( CURRENT == 2 )); then
+    cmds=(${names.map((n) => `'${n}'`).join(' ')})
+    _describe 'command' cmds
+    return
+  fi
+  case \$words[2] in
+${cases}
+    *) opts=() ;;
+  esac
+  _describe 'option' opts
+}
+compdef _packhub packhub`);
       return;
     }
     if (shell === 'pwsh' || shell === 'powershell') {
-      console.log(
-        `# packhub PowerShell completion\nRegister-ArgumentCompleter -Native -CommandName packhub -ScriptBlock {\n  param($wordToComplete, $commandAst, $cursorPosition)\n  $cmds = @(${names.map((n) => `'${n}'`).join(', ')})\n  $cmds | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {\n    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)\n  }\n}`,
-      );
+      const map = commands
+        .map(([n, cmd]) => `  '${n}' = @(${optionsOf(cmd).map((o) => `'${o}'`).join(', ')})`)
+        .join('\n');
+      console.log(`# packhub PowerShell completion
+Register-ArgumentCompleter -Native -CommandName packhub -ScriptBlock {
+  param($wordToComplete, $commandAst, $cursorPosition)
+  $opts = @{
+${map}
+  }
+  $first = $commandAst.CommandElements | Select-Object -Skip 1 -First 1
+  $words = if ($first -and $opts.ContainsKey([string]$first.Value)) { $opts[[string]$first.Value] } else { @(${names.map((n) => `'${n}'`).join(', ')}) }
+  $words | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {
+    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
+  }
+}`);
       return;
     }
     console.error(`不支持的 shell：${shell}（bash / zsh / pwsh）`);

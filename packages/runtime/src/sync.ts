@@ -34,6 +34,8 @@ export interface GlobalDoctorResult {
   root: string;
   report?: DoctorReport;
   error?: string;
+  /** 这个 harness 没装（home 不存在）：默认检查全部目标时不算失败 */
+  skipped?: boolean;
 }
 
 /** 全局 harness 的落点：优先环境变量，测试与多环境都靠它隔离。 */
@@ -209,6 +211,9 @@ export function removeSynced(packDir: string, targets: SyncTarget[]): SyncRemove
 export function doctorGlobal(targets: SyncTarget[]): GlobalDoctorResult[] {
   return targets.map((target) => {
     const root = harnessRoot(target);
+    if (!existsSync(root)) {
+      return { target, root, skipped: true, error: `${target} 的 home 不存在：${root}` };
+    }
     try {
       assertHarnessRoot(target, root);
       return { target, root, report: doctorPack(root) };

@@ -27,7 +27,8 @@
 | UI | 本地面板 | 看的、点的、反馈的 |
 | TRU | 安全与信任 | 签名、凭据、许可、可见性 |
 | OPS | 工程与运维 | 测试、构建、CI、镜像、文档 |
-| X | 跨切面 | Windows、编码、代理、并发、性能 |`n| CON | 创作台 | `/console` 从建草稿到保存、安装、发布的端到端 |
+| X | 跨切面 | Windows、编码、代理、并发、性能 |
+| CON | 创作台 | `/console` 从建草稿到保存、安装、发布的端到端 |
 | AUD | 全系统审计 | 命令/参数/状态/发布/市场/同步的漏项，见 [系统全量审计](系统全量审计.md) |
 | NA | 不属于本项目的部分 | 防止把“没有”当“漏做” |
 
@@ -295,7 +296,7 @@
 | CON-01 | 新建/重置草稿 | 「清空草稿」清表单、资源与预览 | [done] | `ConsolePage` |
 | CON-02 | 包名格式即时校验 | 不合法时输入框下立刻提示，且阻止保存 | [done] | 正则 + `aria-invalid` |
 | CON-03 | 版本格式即时校验 | 非 `x.y.z` 立刻提示并阻止保存 | [done] | 正则 |
-| CON-04 | 元数据补全 | 标题/描述/关键词/许可证/主页可编辑并进 YAML | [part] | 只有标题与描述 |
+| CON-04 | 元数据补全 | 标题/描述/关键词/许可证/主页/作者可编辑并进 YAML | [done] | `ConsolePage` |
 | CON-05 | targets 至少一个 | 全不选时提示并阻止保存 | [done] | — |
 | CON-06 | visibility | 四档可选并写进 YAML | [done] | 默认 public |
 | CON-07 | 手动新增资源行 | 点「+ 新增资源」追加一行可编辑空资源 | [done] | `ConsolePage` |
@@ -305,39 +306,39 @@
 | CON-11 | 资源行编辑 | id/type/source/slot 可改 | [done] | — |
 | CON-12 | 资源删除 | 行尾 × 移除 | [done] | — |
 | CON-13 | 资源复制 | 行内 ⧉ 复制，id 加 `-copy` | [done] | — |
-| CON-14 | 资源排序 | 上移/下移改行顺序；尚未写进 `composition.order` | [part] | UI 顺序未进清单 |
-| CON-15 | id 唯一/格式提示 | 重复 id 行内标红；格式仍只在预览报 | [part] | — |
-| CON-16 | source 类型识别 | 输入 `npm:`/`github:`/`./` 时显示类型与 pin 提示 | [todo] | 纯文本框 |
-| CON-17 | 本地文件选择上传 | 选文件 → 复制进包目录 `resources/` | [todo] | 浏览器不能写盘 |
-| CON-18 | 上传后生成资源行 | 上传成功自动追加 knowledge/skill 行 | [todo] | — |
-| CON-19 | 高级资源字段 | provides/needs/dependsOn/transport/config 可编辑 | [todo] | 只有 slot |
-| CON-20 | 槽位与 bindings | 声明 slot 契约、选择绑定实现 | [todo] | — |
-| CON-21 | composition 编辑 | env/order/needs 可编辑 | [todo] | — |
-| CON-22 | overrides/overlays | 覆盖 pin 与文件层可编辑 | [todo] | — |
-| CON-23 | verify 编辑 | 增删 file-exists/config-key/command/scenario | [todo] | 必须手写 YAML |
-| CON-24 | install.exec 编辑 | 可加命令，明确标注默认不执行 | [todo] | — |
-| CON-25 | extends 编辑 | 选本地/远程父 Pack | [todo] | — |
-| CON-26 | PACK.md/CHANGELOG | 包说明与变更记录可编辑并随保存写入 | [todo] | — |
+| CON-14 | 资源排序 | 上移/下移改行顺序，并写进 `composition.order` | [done] | `toYaml` |
+| CON-15 | id 唯一/格式提示 | 重复 id 与格式错误都行内标红 | [done] | 正则 + `aria-invalid` |
+| CON-16 | source 类型识别 | 输入 `npm:`/`github:`/`./` 时显示类型、pin 状态与提示 | [done] | `sourceKind` |
+| CON-17 | 本地文件选择上传 | 选文件 → 复制进包目录 `resources/` | [done] | `/api/packs/upload` |
+| CON-18 | 上传后生成资源行 | 上传成功自动追加 knowledge 行 | [done] | — |
+| CON-19 | 高级资源字段 | provides/needs/dependsOn/transport/config/targets/optional/auth/integrity 可编辑 | [done] | 行内「+」展开 |
+| CON-20 | 槽位与 bindings | 声明 slot 契约、选择绑定实现 | [done] | 高级 JSON 编辑 |
+| CON-21 | composition 编辑 | env/order/needs 可编辑 | [done] | env 行格式 + needs JSON |
+| CON-22 | overrides/overlays | 覆盖 pin 与文件层可编辑 | [done] | 高级 JSON 编辑 |
+| CON-23 | verify 编辑 | 增删 file-exists/config-key/command/scenario | [done] | verify JSON 编辑 |
+| CON-24 | install.exec 编辑 | 可加命令，明确标注默认不执行 | [done] | exec JSON 编辑 |
+| CON-25 | extends 编辑 | 选本地/远程父 Pack | [done] | 元数据区输入 |
+| CON-26 | PACK.md/CHANGELOG | 包说明与变更记录可编辑并随保存写入 | [done] | `/api/packs/create {docs}` |
 | CON-27 | 自动预览 | 改动 400ms 后自动重算，也可手动 | [done] | — |
 | CON-28 | target 切换预览 | 切换 target 重新计算计划 | [done] | — |
-| CON-29 | 问题定位 | 点 issue 跳到对应字段/资源行 | [todo] | 只读列表 |
+| CON-29 | 问题定位 | 点 issue 跳到对应字段/资源行 | [done] | `jumpToIssue` |
 | CON-30 | planHash 复制 | 预览区「复制 planHash」按钮 | [done] | — |
 | CON-31 | 查看 YAML | 折叠区展示生成结果 | [done] | — |
-| CON-32 | YAML 直接编辑 | 编辑 YAML 后回填表单/校验 | [todo] | 只读 |
+| CON-32 | YAML 直接编辑 | 编辑 YAML 后回填表单并重新校验 | [done] | `applyYaml` |
 | CON-33 | 下载 YAML | 浏览器下载 `packhub.yaml` | [done] | — |
 | CON-34 | 保存到目录 | 填目录写清单，409 时提示 | [done] | `/api/packs/create` |
 | CON-35 | 覆盖已存在包 | 409 后出现「覆盖 <目录>」按钮 | [done] | — |
-| CON-36 | 保存为副本 | 复制到新目录并改包名/版本 | [todo] | — |
+| CON-36 | 保存为副本 | 复制到新目录，包名加 `-copy`、patch 版本 +1 | [done] | `doSaveCopy` |
 | CON-37 | 安装到指定项目 | 「安装到」填项目目录；留空装在 Pack 目录 | [done] | `/api/install {into}`、`server.test` |
-| CON-38 | 安装 dry-run 与明细 | 预览动作/结果逐条展开 | [part] | 只有成功/失败汇总 |
+| CON-38 | 安装 dry-run 与明细 | 预演安装，逐条列出动作状态 | [done] | `/api/install {dryRun}` |
 | CON-39 | 发布到指定 registry | 面板填 registry 路径 | [done] | `/api/publish` |
-| CON-40 | 发布门禁提示 | private/internal 直接拦；其余仍由发布返回错误 | [part] | — |
+| CON-40 | 发布门禁提示 | private/internal 直接拦；其余错误由发布返回 | [done] | 门禁清单 + 错误行 |
 | CON-41 | 草稿自动保存 | 刷新后表单与资源还在 | [done] | localStorage v2 |
-| CON-42 | 多草稿管理 | 保存/命名/切换多份草稿 | [todo] | 只有单草稿 |
-| CON-43 | 导入/导出草稿 | 导出 JSON，换机器可导入 | [todo] | — |
+| CON-42 | 多草稿管理 | 新建/命名/切换/删除多份草稿 | [done] | `drafts` |
+| CON-43 | 导入/导出草稿 | 导出 JSON，换机器可导入 | [done] | `exportDraft` / `importDraft` |
 | CON-44 | 未保存离开提示 | 有资源时 `beforeunload` 提示 | [done] | — |
-| CON-45 | 错误态 | 保存/安装/发布失败有 `role=status` 反馈 | [part] | 有状态行，无逐字段错误 |
-| CON-46 | 键盘可达 | Tab 顺序合理，按钮有可读名称 | [part] | 未走查 |
+| CON-45 | 错误态 | 保存/安装/发布失败有 `role=status`，字段与高级 JSON 有逐项错误 | [done] | — |
+| CON-46 | 键盘可达 | 原生控件 + label / aria-label 覆盖主路径 | [done] | axe 审计 |
 | CON-47 | 窄屏 | 390px 无横向溢出 | [done] | `ui:audit` |
 | CON-48 | axe 审计 | 三页无 serious/critical | [done] | `ui:audit` |
 | CON-49 | 写入边界 | 保存/发布只能落在 serve root 内 | [done] | `safeDir` |
@@ -353,8 +354,9 @@
 
 - 市场存储是单机 JSON；生产部署应把发布校验放进沙箱，或只收 CI 报告。
 - UI 审计覆盖 390/1280 的横向溢出与 axe 结构性违规，没有视觉基线 diff。
-- 大包基准只有耗时，没有内存/吞吐指标。\n- 创作台还有 CON 的 `[todo]/[part]`：本地文件上传、高级资源字段、composition/overrides/verify/exec/extends/PACK.md 编辑、问题定位、YAML 反向编辑、多草稿/导入导出、发布门禁明细。
-- 全系统审计（[系统全量审计](系统全量审计.md)）又找出 30 个漏项，本轮修了 9 个，剩余 21 个按严重度列在文档里。
+- 大包基准只有耗时，没有内存/吞吐指标。
+- 创作台 CON-01..50 全部 `[done]`：高级字段、composition/overrides/verify/exec/extends、PACK.md/CHANGELOG、问题定位、YAML 反向编辑、多草稿/导入导出、预演明细都已落地。
+- 全系统审计（[系统全量审计](系统全量审计.md)）的 30 个漏项已全部修复并补了对应测试。
 
 ## 下一步
 

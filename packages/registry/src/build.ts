@@ -27,6 +27,11 @@ export interface IndexPack {
   keywords: string[];
   resourceCount: number;
   install: string;
+  /** 清单里的展示元数据；没有就是 null / 空数组，读方不用猜 */
+  license: string | null;
+  homepage: string | null;
+  authors: { name: string; url?: string }[];
+  requiresAgent: string | null;
 }
 
 export interface RegistryIndex {
@@ -180,8 +185,23 @@ export function buildIndex(registryRoot: string): BuildResult {
 
       const sorted = [...entries].sort((a, b) => (semverGreater(a.version, b.version) ? 1 : -1));
       const lead = sorted[sorted.length - 1]!;
-      const meta = (lead.manifest as { metadata: { title?: string; name: string; description?: string; targets: string[]; keywords?: string[] }; resources: unknown[] })
-        .metadata;
+      const meta = (
+        lead.manifest as {
+          metadata: {
+            title?: string;
+            name: string;
+            description?: string;
+            targets: string[];
+            keywords?: string[];
+            license?: string;
+            homepage?: string;
+            authors?: { name: string; url?: string }[];
+          };
+          resources: unknown[];
+          requires?: { agent?: string };
+        }
+      ).metadata;
+      const leadManifest = lead.manifest as { requires?: { agent?: string } };
       const allVerified = entries.every((e) => e.trust === 'verified');
 
       packs.push({
@@ -197,6 +217,10 @@ export function buildIndex(registryRoot: string): BuildResult {
         keywords: meta.keywords ?? [],
         resourceCount: (lead.manifest as { resources: unknown[] }).resources.length,
         install: `npx packhub add ${packName}`,
+        license: meta.license ?? null,
+        homepage: meta.homepage ?? null,
+        authors: meta.authors ?? [],
+        requiresAgent: leadManifest.requires?.agent ?? null,
       });
     }
   }

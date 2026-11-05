@@ -57,7 +57,15 @@ export function startServer(opts: ServeOptions): Promise<Server> {
       res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
       res.end('404：api 在 /api/*，面板产物未构建（pnpm --filter web build）');
     } catch (err) {
-      sendJson(res, 500, { error: (err as Error).message });
+      const message = (err as Error).message;
+      const tooLarge = message.includes('请求体超过');
+      if (tooLarge) {
+        // 请求体还没读完就拒绝：回完 413 后把剩余字节丢掉并关连接，
+        // 不能直接 destroy——客户端会先看到 ECONNRESET，收不到 413。
+        res.setHeader('connection', 'close');
+        req.resume();
+      }
+      sendJson(res, tooLarge ? 413 : 500, { error: message });
     }
   });
 
@@ -126,7 +134,7 @@ async function handleApi(
 
   // 创作台上传单个文件到 Pack 目录（路径限定在目标 Pack 内）
   if (url.pathname === '/api/packs/upload' && req.method === 'POST') {
-    const parsed = (await readBody(req)) as {
+    const parsed = (await readBody(req, 16 * 1024 * 1024)) as {
       dir?: string;
       path?: string;
       dataBase64?: string;
@@ -164,6 +172,14 @@ async function handleApi(
     if (errors.length > 0) return sendJson(res, 422, { error: '清单未通过校验', issues: errors });
     mkdirSync(target, { recursive: true });
     writeFileSync(join(target, 'packhub.yaml'), text, 'utf8');
+    // PACK.md / CHANGELOG 是包页展示用的旁挂文档，跟清单一起保存
+    const docs = body.docs as { readme?: unknown; changelog?: unknown } | undefined;
+    if (docs && typeof docs.readme === 'string') {
+      writeFileSync(join(target, 'PACK.md'), docs.readme, 'utf8');
+    }
+    if (docs && typeof docs.changelog === 'string') {
+      writeFileSync(join(target, 'CHANGELOG.md'), docs.changelog, 'utf8');
+    }
     return sendJson(res, 201, {
       dir: relative(root, target).split(sep).join('/'),
       name: parsed.manifest.metadata.name,
@@ -183,12 +199,14 @@ async function handleApi(
         force: body.force === true,
       });
       const indexed = writeIndex(registry);
+      if (!indexed.ok) result.rollback();
+      else result.finalize();
       return sendJson(res, indexed.ok ? 200 : 422, {
         name: result.name,
         version: result.version,
         dir: relative(root, result.dir).split(sep).join('/'),
         indexed: indexed.ok,
-        error: indexed.ok ? undefined : '索引门禁没过',
+        error: indexed.ok ? undefined : '索引门禁没过，本次版本已撤回',
       });
     } catch (err) {
       return sendJson(res, 422, { error: (err as Error).message });
@@ -260,6 +278,7 @@ async function handleApi(
     const into = body.into ? safeDir(root, String(body.into)) : ctx.dir;
     const result = await installPack(ctx, plan, {
       allowExec: body.allowExec === true,
+      dryRun: body.dryRun === true,
       root: into,
       packRoot: ctx.dir,
     });
@@ -267,6 +286,7 @@ async function handleApi(
       outcomes: result.outcomes,
       planHash: plan.planHash,
       statePath: result.statePath,
+      dryRun: body.dryRun === true,
       root: relative(root, into).split(sep).join('/'),
     });
   }
@@ -369,9 +389,25 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
-async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+async function readBody(
+  req: IncomingMessage,
+  limit = 8 * 1024 * 1024,
+): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(chunk as Buffer);
+  let size = 0;
+  let tooLarge = false;
+  for await (const chunk of req) {
+    const buf = chunk as Buffer;
+    size += buf.length;
+    if (size > limit) {
+      // 继续把剩余字节读掉（不保留），否则客户端在上传中途会收到 ECONNRESET
+      tooLarge = true;
+      chunks.length = 0;
+      continue;
+    }
+    chunks.push(buf);
+  }
+  if (tooLarge) throw new Error(`请求体超过 ${Math.round(limit / 1024 / 1024)} MB 上限`);
   if (!chunks.length) return {};
   try {
     return JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>;

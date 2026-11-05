@@ -58,6 +58,9 @@ jobs:
       - name: 真装一遍并校验（干净环境，需要联网取资源）
         run: pnpm registry:verify-all
 
+      - name: 示例包安装 + verify 矩阵
+        run: pnpm verify:examples
+
   test-windows:
     runs-on: windows-latest
     steps:

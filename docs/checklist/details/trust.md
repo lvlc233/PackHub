@@ -4,7 +4,7 @@
 
 | 编号 | 验收动作 | 现状/证据 | 缺口/下一步 |
 |---|---|---|---|
-| TRU-01 | `keygen` → `sign` → `verify-sig` | ed25519 签 `{pack@version,planHash}`，可验 | 无密钥托管/轮换 |
+| TRU-01 | `keygen` → `sign` → `verify-sig` | ed25519 签 `{pack@version,planHash}`，可验；远程引用按扁平化计划签验 | 无密钥托管/轮换 |
 | TRU-02 | 看私钥文件权限 | keygen 以 0600 写（POSIX） | Windows 权限语义弱 |
 | TRU-03 | `sign` 后看清单 | 签名写 `packhub.signatures.json`，不改 manifest | 版本目录不可变因此受益 |
 | TRU-04 | `add` 一个无签名包 | 有信任列表就强制；`--allow-unsigned` 显式降级；trust.json 可设 requireSignature | 无签名仍是默认放行 |
@@ -18,4 +18,4 @@
 
 ## 结论
 
-签名、凭据、可见性的基础都有，但“默认安全”还不够：签名不强制、许可不阻断、安装无审计。当前定位是开发者工具，不是托管平台；这些缺口在团队/市场场景会变成硬伤。
+签名、凭据、可见性、安装审计都有；签名是否强制由信任列表/`requireSignature` 决定，许可策略命中会阻断发布/安装，安装操作写 `~/.packhub/audit.jsonl`。当前定位是开发者工具，不是托管平台；密钥轮换与组织级分发仍留给市场平面。

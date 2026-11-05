@@ -167,6 +167,27 @@ describe('市场写端', () => {
       expect(approved.status).toBe(200);
       expect((await searchMarket(m.url, '规范')).length).toBe(1);
 
+      // 管理 token 可轮换：旧 token 立刻失效，新 token 可用，动作写进审计
+      const rotated = await fetch(`${m.url}/api/admin/rotate`, {
+        method: 'POST',
+        headers: { 'x-market-admin': 'secret', 'content-type': 'application/json' },
+        body: '{}',
+      });
+      expect(rotated.status).toBe(200);
+      const rotatedBody = (await rotated.json()) as { token: string };
+      expect(rotatedBody.token.length).toBeGreaterThan(20);
+      const oldQueue = await fetch(`${m.url}/api/admin/queue`, {
+        headers: { 'x-market-admin': 'secret' },
+      });
+      expect(oldQueue.status).toBe(401);
+      const newQueue = await fetch(`${m.url}/api/admin/queue`, {
+        headers: { 'x-market-admin': rotatedBody.token },
+      });
+      expect(newQueue.status).toBe(200);
+      const audit = readFileSync(join(reg, '.market/admin-audit.jsonl'), 'utf8');
+      expect(audit).toContain('"action":"approve"');
+      expect(audit).toContain('"action":"rotate-admin-token"');
+
       const download = await fetch(`${m.url}/download?name=reviewer/rules&version=0.1.0`);
       expect(download.status).toBe(200);
       await download.arrayBuffer();

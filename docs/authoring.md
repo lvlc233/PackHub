@@ -254,6 +254,8 @@ overlays:
 | `overrides`（资源级） | 换掉某个资源的 pin / 实现 / 安装参数 | 上游用 `@0.6.2`，本项目锁 `@0.6.3` |
 | `overlays`（文件级） | 安装完成后按路径覆盖文件 | 把上游的 `SKILL.md` 换成加了团队规则的版本 |
 
+两个**保留字段**：`overlays[].note` 与 `install.exec[].undo` 只被 schema 接受并随 state 记录，安装器不读取、回滚也不自动执行。它们留给未来的说明与撤销能力，不要依赖它们产生行为。
+
 ### 继承与本地覆盖
 
 `extends: ../base` 继承一个本地父 Pack；`extends: packhub://scope/name@1.0.0` 从 registry 取远程父包（落在子包 `.packhub/cache/extends/`，路径相对子包，planHash 跨机器一致）。单个资源也可以引用已发布包里的文件或目录：`source: "packhub://scope/name@1.0.0#docs/guide.md"`（skill 则指向目录）；安装期同样落进 `.packhub/cache/packhub/`，`lock` 与 `publish` 要求先 vendored。父包的 `resources`、`composition`、`slots`、`bindings`、`paths`、`overrides`、`verify` 一起合并；子包同名资源覆盖父包，`metadata` 与 `requires` 以子包为准；父包的本地 source 会被改写成相对子包的路径，安装时能读。成环报 `extends-cycle`。远程继承要求 `--index` / `PACKHUB_INDEX`；`packhub publish` 会自动扁平化（外部文件复制到 `external/`，清单去掉 `extends`）；直接调用 `publishPack` 时先 `flattenPack`。

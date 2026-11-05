@@ -72,6 +72,9 @@ interface State {
   packs: Record<
     string,
     {
+      /** 旧版 state 没有这两个字段；key 本身是 name@version */
+      pack?: string;
+      version?: string;
       planHash: string;
       installedAt: string;
       actions: ActionOutcome[];
@@ -108,6 +111,11 @@ export interface VersionInfo {
   planHash: string;
   installedAt: string;
   active: boolean;
+  /** 版本目录里镜像了多少个文件 */
+  files: number;
+  /** 计划动作数；failed 是当时失败的动作数（正常安装应为 0） */
+  actions: number;
+  failed: number;
 }
 
 interface ActiveFile {
@@ -346,6 +354,8 @@ export async function applyPlan(plan: Plan, opts: ApplyOptions): Promise<ApplyRe
     ];
     for (const k of oldKeys) delete state.packs[k];
     state.packs[key] = {
+      pack: plan.pack.name,
+      version: plan.pack.version,
       planHash: plan.planHash,
       installedAt: new Date().toISOString(),
       actions: outcomes,
@@ -534,6 +544,9 @@ export function listVersions(root: string, pack?: string): VersionInfo[] {
           planHash: record.planHash,
           installedAt: record.installedAt,
           active: active[record.pack]?.version === record.version,
+          files: record.files?.length ?? 0,
+          actions: record.actions?.length ?? 0,
+          failed: (record.actions ?? []).filter((a) => a.status === 'failed').length,
         });
       } catch {
         /* 坏掉的版本目录跳过 */
@@ -580,6 +593,8 @@ export async function activatePack(root: string, pack: string, version: string):
       const actions = await replayShared(root, record);
       if (fromKey) delete state.packs[fromKey];
       state.packs[`${record.pack}@${record.version}`] = {
+        pack: record.pack,
+        version: record.version,
         planHash: record.planHash,
         installedAt: record.installedAt,
         actions,

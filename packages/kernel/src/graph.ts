@@ -1,6 +1,9 @@
-import type { Issue, Manifest, ResourceSpec } from './types.ts';
+import type { Issue, Manifest, ResourceSpec, TargetId } from './types.ts';
 import { checkSource, parseSource } from './ref.ts';
 import { deepMerge } from './util.ts';
+
+/** 已知的 harness 名称；requires.agent 写别的名字只警告，不阻断（新 harness 不该让旧包装不上）。 */
+export const KNOWN_AGENTS = ['dsh', 'claude-code', 'codex', 'opencode'] as const;
 
 export interface Graph {
   /** capability -> 提供它的 resource id 列表（只含会被安装的资源） */
@@ -109,11 +112,31 @@ function checkPaths(manifest: Manifest, issues: Issue[]): void {
 export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue[] } {
   const issues: Issue[] = [];
   const resources = new Map<string, ResourceSpec>();
-  const providers = new Map<string, string[]>();
 
   const overrideOf = new Map((manifest.overrides ?? []).map((o) => [o.resource, o]));
   const { active, excluded } = resolveSlots(manifest, issues);
   checkPaths(manifest, issues);
+
+  // requires.agent 只做提示：写错名字不阻断安装，但要让人看见
+  const agent = manifest.requires?.agent;
+  if (agent && !(KNOWN_AGENTS as readonly string[]).includes(agent)) {
+    issues.push({
+      code: 'unknown-agent',
+      severity: 'warning',
+      message: `requires.agent=${agent} 不在已知 harness（${KNOWN_AGENTS.join(' / ')}）里；按通用安装继续`,
+    });
+  }
+  if (
+    agent &&
+    ['dir', 'dsh', 'claude-code', 'codex', 'server'].includes(agent) &&
+    !manifest.metadata.targets.includes(agent as TargetId)
+  ) {
+    issues.push({
+      code: 'agent-target-mismatch',
+      severity: 'warning',
+      message: `requires.agent=${agent}，但 metadata.targets 没有声明 ${agent}；这个包不会装进该 harness`,
+    });
+  }
 
   // 重复 id 在所有资源上查（包括未绑定的候选）
   const seen = new Set<string>();
@@ -138,16 +161,39 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
     // 未绑定槽位的候选：只做结构检查，不进依赖图、不进计划
     if (!active.has(res.id)) return;
     resources.set(res.id, res);
-
     const parsed = parseSource(res.source);
     issues.push(...checkSource(parsed, res.integrity, `${at}.source`));
-
-    for (const cap of res.provides ?? []) {
-      const list = providers.get(cap) ?? [];
-      list.push(res.id);
-      providers.set(cap, list);
-    }
   });
+
+  // optional 资源：needs 在当前集合里无人提供时自动跳过（级联：跳过后它 provides 的能力也消失）。
+  // 显式绑定到槽位的实现不自动跳过——作者已经点名要它，缺能力应当报错而不是静默换掉。
+  const explicitlyBound = (res: ResourceSpec): boolean =>
+    Boolean(res.slot && manifest.bindings?.[res.slot] === res.id);
+  const providersOf = (set: Map<string, ResourceSpec>): Map<string, string[]> => {
+    const map = new Map<string, string[]>();
+    for (const res of set.values()) {
+      for (const cap of res.provides ?? []) {
+        map.set(cap, [...(map.get(cap) ?? []), res.id]);
+      }
+    }
+    return map;
+  };
+  for (;;) {
+    const available = providersOf(resources);
+    const drop = [...resources.values()].filter(
+      (res) =>
+        res.optional === true &&
+        !explicitlyBound(res) &&
+        (res.needs ?? []).some((need) => (available.get(need) ?? []).filter((id) => id !== res.id).length === 0),
+    );
+    if (drop.length === 0) break;
+    for (const res of drop) {
+      resources.delete(res.id);
+      excluded.push({ resource: res.id, slot: res.slot ?? '', reason: 'optional-unmet' });
+    }
+  }
+
+  const providers = providersOf(resources);
 
   // 同一 locator 两个不同 pin → 冲突（宁严不松）
   const byLocator = new Map<string, { pin?: string; id: string }[]>();

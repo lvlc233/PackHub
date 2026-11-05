@@ -1,5 +1,14 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { loadPack } from '@packhub/kernel';
 import { lockPack, packArchive } from '@packhub/runtime';
 import { runPack, type VerifyReport } from '@packhub/runner';
@@ -28,6 +37,10 @@ export interface PublishResult {
   dir: string;
   report: VerifyReport;
   wrote: string[];
+  /** 索引门禁失败时调用：把本次写入的版本目录与归档撤掉（force 时恢复旧版本） */
+  rollback: () => void;
+  /** 索引写成功后调用：清掉 force 覆盖时留的临时备份 */
+  finalize: () => void;
 }
 
 const FILES = ['packhub.yaml', 'packhub.lock.json', 'packhub.signatures.json', 'PACK.md', 'CHANGELOG.md'];
@@ -86,36 +99,74 @@ export async function publishPack(packDir: string, opts: PublishOptions): Promis
   }
 
   const wrote: string[] = [];
-  if (!opts.dryRun) {
-    mkdirSync(versionDir, { recursive: true });
-    for (const file of FILES) {
-      const src = join(dir, file);
-      if (!existsSync(src)) continue;
-      writeFileSync(join(versionDir, file), readFileSync(src));
-      wrote.push(file);
+  const archive = join(registryRoot, 'packs', scope, name.split('/')[1]!, `${version}.phub`);
+  let backup: string | undefined;
+  const removeWritten = (): void => {
+    rmSync(versionDir, { recursive: true, force: true });
+    rmSync(archive, { force: true });
+  };
+  const restoreBackup = (): void => {
+    if (!backup) return;
+    const oldVersion = join(backup, 'version');
+    const oldArchive = join(backup, 'archive.phub');
+    if (existsSync(oldVersion)) {
+      rmSync(versionDir, { recursive: true, force: true });
+      cpSync(oldVersion, versionDir, { recursive: true });
     }
-    // vendored 资源也要进版本目录：清单、锁、报告都在这里，别人克隆 registry 后能直接复核
-    for (const sub of ['resources', 'fragments', 'overrides', 'skills', 'glue']) {
-      const src = join(dir, sub);
-      if (!existsSync(src)) continue;
-      cpSync(src, join(versionDir, sub), { recursive: true });
-      wrote.push(`${sub}/`);
+    if (existsSync(oldArchive)) {
+      mkdirSync(dirname(archive), { recursive: true });
+      cpSync(oldArchive, archive);
     }
-    writeFileSync(join(versionDir, 'packhub.lock.json'), JSON.stringify(lock, null, 2) + '\n', 'utf8');
-    wrote.push('packhub.lock.json');
-    writeFileSync(join(versionDir, 'verify.json'), JSON.stringify(report, null, 2) + '\n', 'utf8');
-    wrote.push('verify.json');
+  };
+  const rollback = (): void => {
+    removeWritten();
+    restoreBackup();
+    if (backup) rmSync(backup, { recursive: true, force: true });
+  };
+  const finalize = (): void => {
+    if (backup) rmSync(backup, { recursive: true, force: true });
+  };
 
-    // 3) 归档（vendored，离线可装）
-    const archive = join(registryRoot, 'packs', scope, name.split('/')[1]!, `${version}.phub`);
-    await packArchive(dir, { vendored: true, out: archive });
-    wrote.push(`${version}.phub`);
+  if (!opts.dryRun) {
+    // force 覆盖时先把旧版本留一份，索引门禁失败可以还原，不会留下「新目录 + 旧索引」
+    if (existsSync(versionDir) || existsSync(archive)) {
+      backup = mkdtempSync(join(tmpdir(), 'packhub-publish-backup-'));
+      if (existsSync(versionDir)) cpSync(versionDir, join(backup, 'version'), { recursive: true });
+      if (existsSync(archive)) cpSync(archive, join(backup, 'archive.phub'));
+    }
+    try {
+      mkdirSync(versionDir, { recursive: true });
+      for (const file of FILES) {
+        const src = join(dir, file);
+        if (!existsSync(src)) continue;
+        writeFileSync(join(versionDir, file), readFileSync(src));
+        wrote.push(file);
+      }
+      // vendored 资源也要进版本目录：清单、锁、报告都在这里，别人克隆 registry 后能直接复核
+      for (const sub of ['resources', 'fragments', 'overrides', 'skills', 'glue']) {
+        const src = join(dir, sub);
+        if (!existsSync(src)) continue;
+        cpSync(src, join(versionDir, sub), { recursive: true });
+        wrote.push(`${sub}/`);
+      }
+      writeFileSync(join(versionDir, 'packhub.lock.json'), JSON.stringify(lock, null, 2) + '\n', 'utf8');
+      wrote.push('packhub.lock.json');
+      writeFileSync(join(versionDir, 'verify.json'), JSON.stringify(report, null, 2) + '\n', 'utf8');
+      wrote.push('verify.json');
+
+      // 3) 归档（vendored，离线可装）
+      await packArchive(dir, { vendored: true, out: archive });
+      wrote.push(`${version}.phub`);
+    } catch (err) {
+      rollback();
+      throw err;
+    }
   } else {
     wrote.push(...FILES.filter((f) => existsSync(join(dir, f))), 'packhub.lock.json', 'verify.json');
   }
 
   for (const w of wrote) log(`→ ${w}`);
-  return { name, version, dir: versionDir, report, wrote };
+  return { name, version, dir: versionDir, report, wrote, rollback, finalize };
 }
 
 /** PR 模式：把要提交的文件复制到一个干净目录，方便直接开分支。 */

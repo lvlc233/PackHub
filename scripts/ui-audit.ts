@@ -3,7 +3,7 @@
  * 检查：横向溢出（窄屏塌不塌）与 axe 的结构性违规（严重/致命才失败）。
  * 用法：pnpm ui:audit（需要先 pnpm web:build）
  */
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { chromium } from 'playwright';
 import AxeBuilder from '@axe-core/playwright';
@@ -68,6 +68,47 @@ try {
     } else {
       console.log('✓ 创作台保存：新增资源 → 保存到目录');
     }
+
+    // YAML 反向编辑：改标题 → 应用回表单 → 保存，文件里应是新标题
+    const yamlDir = 'tmp/ui-audit-yaml';
+    try {
+      await page.getByText('直接编辑 yaml（可应用回表单）').click();
+      await page.locator('.cs-yaml-edit').fill(`apiVersion: packhub.dev/v0
+kind: Pack
+metadata:
+  name: me/yaml-e2e
+  version: 0.1.0
+  title: YAML 改过的标题
+  description: 从 YAML 回填
+  targets: [dir]
+  visibility: public
+requires:
+  packhub: ">=0.0.1 <0.1"
+resources:
+  - id: rules
+    type: knowledge
+    source: ./rules.md
+`);
+      await page.getByRole('button', { name: '应用 YAML' }).click();
+      const title = await page
+        .locator('.cs-form label')
+        .filter({ hasText: '标题' })
+        .locator('input')
+        .inputValue();
+      if (title !== 'YAML 改过的标题') throw new Error(`标题没回填：${title}`);
+      await page.getByRole('textbox', { name: '目录', exact: false }).fill(yamlDir);
+      await page.getByRole('button', { name: '保存到目录' }).click();
+      await page.getByRole('status').filter({ hasText: yamlDir }).waitFor({ timeout: 10_000 });
+      const saved = readFileSync(join(root, yamlDir, 'packhub.yaml'), 'utf8');
+      if (!saved.includes('YAML 改过的标题')) throw new Error('保存的 YAML 里没有新标题');
+      console.log('✓ 创作台 YAML 反向编辑：改 YAML → 回填表单 → 保存');
+    } catch (err) {
+      failures++;
+      console.log(`x 创作台 YAML 反向编辑失败：${(err as Error).message}`);
+    } finally {
+      rmSync(join(root, yamlDir), { recursive: true, force: true });
+    }
+
     await page.close();
   } catch (err) {
     failures++;

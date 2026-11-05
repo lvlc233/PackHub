@@ -1,9 +1,11 @@
-import { cpSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { stringify as stringifyYaml } from 'yaml';
-import type { Manifest } from '@packhub/kernel';
+import { loadPack, planFor, type Manifest } from '@packhub/kernel';
 import { loadPackResolved, type LoadPackResolvedOptions } from './extends.ts';
+import { readSignatures, SIGNATURE_FILE, type SignatureEntry } from './signfile.ts';
+import { verifySignatures } from './signature.ts';
 
 export interface FlattenResult {
   /** 可以拿去 run / lock / publish 的目录；没有远程引用时就是原目录 */
@@ -50,10 +52,9 @@ export async function flattenPack(
       return !['.packhub', '.git', 'node_modules', 'dist'].includes(name) && !name.endsWith('.phub');
     },
   });
-  // 旧锁与旧签名都绑在原先的计划上，扁平化后必须重新生成
-  for (const stale of ['packhub.lock.json', 'packhub.signatures.json']) {
-    rmSync(join(work, stale), { force: true });
-  }
+  // 旧锁绑在原先的计划上，扁平化后必须重新生成；签名则要先验证是否对得上新计划
+  rmSync(join(work, 'packhub.lock.json'), { force: true });
+  const originalFileSigs = readSignatures(abs);
 
   const cacheRoot = join(abs, '.packhub', 'cache');
   const warnings: string[] = [];
@@ -76,11 +77,34 @@ export async function flattenPack(
     signatures: [],
   };
   if (remoteExtends) warnings.push('扁平化去掉了远程 extends；发布的是合并后的自包含清单');
-  if ((ctx.manifest.signatures ?? []).length > 0) {
-    warnings.push('原有签名对应的是扁平化前的计划，已移除；发布前请对扁平化后的清单重新 sign');
+
+  // 先写一版清单算扁平化后的计划，再把能对上这个计划的签名留下。
+  // 这样「对原包 sign → publish 自动扁平化」不会因为计划变了而把签名静默丢掉。
+  writeFileSync(join(work, 'packhub.yaml'), stringifyYaml(manifest), 'utf8');
+  const pack = `${manifest.metadata.name}@${manifest.metadata.version}`;
+  const flatCtx = loadPack(work);
+  const flatPlan = planFor(flatCtx, { target: 'dir' }).plan;
+  const keep = (entries: SignatureEntry[]): SignatureEntry[] => {
+    if (!flatPlan || entries.length === 0) return [];
+    return entries.filter((entry) => verifySignatures([entry], pack, flatPlan.planHash)[0]?.ok === true);
+  };
+  const fileSigs = keep(originalFileSigs);
+  const manifestSigs = keep(ctx.manifest.signatures ?? []);
+  if (fileSigs.length < originalFileSigs.length || manifestSigs.length < (ctx.manifest.signatures ?? []).length) {
+    warnings.push('有签名对应的是扁平化前的计划，已移除；发布前请对扁平化后的清单重新 sign');
+  }
+  manifest.signatures = manifestSigs;
+  writeFileSync(join(work, 'packhub.yaml'), stringifyYaml(manifest), 'utf8');
+  if (fileSigs.length > 0) {
+    writeFileSync(
+      join(work, SIGNATURE_FILE),
+      JSON.stringify({ apiVersion: 'packhub.dev/signatures/v0', signatures: fileSigs }, null, 2) + '\n',
+      'utf8',
+    );
+  } else {
+    rmSync(join(work, SIGNATURE_FILE), { force: true });
   }
 
-  writeFileSync(join(work, 'packhub.yaml'), stringifyYaml(manifest), 'utf8');
   return {
     dir: work,
     manifest,

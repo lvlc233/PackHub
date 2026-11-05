@@ -50,6 +50,10 @@ describe('staged 版本与激活指针', () => {
     const versions = listVersions(project, 'demo/ver');
     expect(versions.map((v) => v.version).sort()).toEqual(['0.1.0', '0.2.0']);
     expect(versions.find((v) => v.active)?.version).toBe('0.2.0');
+    // versions 现在带文件数 / 动作数 / 失败数，不只是一行名字
+    expect(versions.find((v) => v.version === '0.2.0')?.files).toBeGreaterThan(0);
+    expect(versions.find((v) => v.version === '0.2.0')?.actions).toBeGreaterThan(0);
+    expect(versions.every((v) => v.failed === 0)).toBe(true);
 
     // 切回 0.1.0：文件镜像、配置合并、state 记录都跟着换
     const back = await activatePack(project, 'demo/ver', '0.1.0');

@@ -6,10 +6,15 @@ import { publishPack, writeIndex } from '../src/index.ts';
 import {
   fetchPack,
   flattenPack,
+  generateKeyPair,
   installPack,
   loadPackResolved,
   packArchive,
   planFor,
+  readSignatures,
+  signPlan,
+  verifySignatures,
+  writeSignature,
 } from '@packhub/runtime';
 
 const dirs: string[] = [];
@@ -107,6 +112,78 @@ resources:
       expect(published.name).toBe('demo/flat');
     } finally {
       flat.cleanup();
+    }
+  });
+
+  it('对扁平化计划签的名，重新扁平化后仍然保留', async () => {
+    const regIn = temp('packhub-flat-sign-reg-');
+    const base = join(regIn, 'base-src');
+    mkdirSync(base, { recursive: true });
+    writeFileSync(
+      join(base, 'packhub.yaml'),
+      `apiVersion: packhub.dev/v0
+kind: Pack
+metadata: { name: demo/signbase, version: 1.0.0, targets: [dir] }
+requires: { packhub: ">=0.0.1 <0.1" }
+resources:
+  - id: shared
+    type: knowledge
+    source: ./shared.md
+`,
+      'utf8',
+    );
+    writeFileSync(join(base, 'shared.md'), '# shared\n', 'utf8');
+    await packArchive(base, { vendored: true, out: join(regIn, 'packs/demo/signbase/1.0.0.phub') });
+    const indexIn = join(regIn, 'index.json');
+    writeFileSync(
+      indexIn,
+      JSON.stringify({
+        apiVersion: 'packhub.dev/index/v0',
+        packs: [{ name: 'demo/signbase', latest: '1.0.0', versions: ['1.0.0'], trust: 'community' }],
+      }),
+      'utf8',
+    );
+
+    const child = temp('packhub-flat-sign-child-');
+    writeFileSync(
+      join(child, 'packhub.yaml'),
+      `apiVersion: packhub.dev/v0
+kind: Pack
+extends: packhub://demo/signbase@1.0.0
+metadata: { name: demo/signed, version: 0.1.0, targets: [dir], visibility: public }
+requires: { packhub: ">=0.0.1 <0.1" }
+resources:
+  - id: own
+    type: knowledge
+    source: ./own.md
+`,
+      'utf8',
+    );
+    writeFileSync(join(child, 'own.md'), '# own\n', 'utf8');
+
+    // 先拿到扁平化计划并签名，模拟 packhub sign 的行为
+    const first = await flattenPack(child, { index: indexIn });
+    try {
+      const ctx = await loadPackResolved(first.dir, { index: indexIn });
+      const plan = planFor(ctx).plan!;
+      const { privatePem, publicKey } = generateKeyPair();
+      writeSignature(child, signPlan(privatePem, 'demo/signed@0.1.0', plan.planHash));
+      expect(readSignatures(child)).toHaveLength(1);
+
+      // publish 会再扁平化一次：签名必须还在，且能对新的扁平化计划验过
+      const second = await flattenPack(child, { index: indexIn });
+      try {
+        expect(second.manifest.signatures ?? []).toHaveLength(0);
+        const sigs = readSignatures(second.dir);
+        expect(sigs).toHaveLength(1);
+        expect(sigs[0]!.key).toBe(publicKey);
+        const again = planFor(await loadPackResolved(second.dir, { index: indexIn })).plan!;
+        expect(verifySignatures(sigs, 'demo/signed@0.1.0', again.planHash)[0]!.ok).toBe(true);
+      } finally {
+        second.cleanup();
+      }
+    } finally {
+      first.cleanup();
     }
   });
 });

@@ -36,6 +36,29 @@ describe('doctor', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it('active.json 与 state 不一致能发现', async () => {
+    const dir = await installed();
+    const activePath = join(dir, '.packhub/active.json');
+    const active = JSON.parse(readFileSync(activePath, 'utf8')) as {
+      packs: Record<string, { version: string }>;
+    };
+    active.packs['demo/doctor']!.version = '9.9.9';
+    writeFileSync(activePath, JSON.stringify(active, null, 2), 'utf8');
+    const report = doctorPack(dir);
+    expect(report.ok).toBe(false);
+    expect(report.findings[0]!.activeDrift.join(' ')).toContain('active=9.9.9');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('active.json 丢失能发现', async () => {
+    const dir = await installed();
+    rmSync(join(dir, '.packhub/active.json'), { force: true });
+    const report = doctorPack(dir);
+    expect(report.ok).toBe(false);
+    expect(report.findings[0]!.activeDrift.join(' ')).toContain('active.json 没有');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   it('宿主重写掉指令文件后能指出托管块不见了', async () => {
     const dir = await installed();
     // 模拟 Claude Code / 用户自己重新生成 CLAUDE.md

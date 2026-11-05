@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -19,6 +19,152 @@ function run(args: string[], env: Record<string, string> = {}): { status: number
   });
   return { status: res.status, out: `${res.stdout ?? ''}${res.stderr ?? ''}` };
 }
+
+function waitForUrl(child: ReturnType<typeof spawn>, timeoutMs = 15_000): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let out = '';
+    const timer = setTimeout(() => reject(new Error(`等待服务地址超时：${out}`)), timeoutMs);
+    const check = (): void => {
+      const match = out.match(/http:\/\/127\.0\.0\.1:\d+/);
+      if (!match) return;
+      clearTimeout(timer);
+      resolve(match[0]);
+    };
+    child.stdout?.on('data', (chunk) => {
+      out += String(chunk);
+      check();
+    });
+    child.stderr?.on('data', (chunk) => {
+      out += String(chunk);
+      check();
+    });
+    child.on('exit', (code) => {
+      if (!out.match(/http:\/\/127\.0\.0\.1:\d+/)) {
+        clearTimeout(timer);
+        reject(new Error(`服务提前退出（${code}）：${out}`));
+      }
+    });
+  });
+}
+
+describe('cli 端到端：pack / publish / hub / market', () => {
+  const makePack = (dir: string, name = 'me/e2e', version = '0.1.0'): void => {
+    writeFileSync(
+      join(dir, 'packhub.yaml'),
+      `apiVersion: packhub.dev/v0
+kind: Pack
+metadata:
+  name: ${name}
+  version: ${version}
+  title: E2E
+  visibility: public
+  targets: [dir]
+requires: { packhub: ">=0.0.1 <0.1" }
+resources:
+  - id: rules
+    type: knowledge
+    source: ./rules.md
+verify:
+  - type: file-exists
+    path: "\${target.knowledgeDir}/rules.md"
+`,
+      'utf8',
+    );
+    writeFileSync(join(dir, 'rules.md'), '# rules\n', 'utf8');
+  };
+
+  it('pack 输出结构化结果，publish 写版本目录与索引', () => {
+    const packDir = mkdtempSync(join(tmpdir(), 'packhub-cli-pack-'));
+    makePack(packDir);
+    const packed = run(['pack', packDir, '--json']);
+    expect(packed.status).toBe(0);
+    const packedBody = JSON.parse(packed.out.slice(packed.out.indexOf('{'), packed.out.lastIndexOf('}') + 1)) as {
+      file: string;
+      bytes: number;
+      entries: string[];
+    };
+    expect(existsSync(packedBody.file)).toBe(true);
+    expect(packedBody.entries).toContain('packhub.yaml');
+
+    const registry = mkdtempSync(join(tmpdir(), 'packhub-cli-reg-'));
+    const published = run(['publish', packDir, '--registry', registry, '--json']);
+    expect(published.status).toBe(0);
+    const body = JSON.parse(published.out.slice(published.out.indexOf('{'), published.out.lastIndexOf('}') + 1)) as {
+      ok: boolean;
+      name: string;
+      version: string;
+      indexed: boolean;
+    };
+    expect(body.ok).toBe(true);
+    expect(body.indexed).toBe(true);
+    expect(existsSync(join(registry, 'packs/me/e2e/0.1.0/packhub.yaml'))).toBe(true);
+    expect(existsSync(join(registry, 'index.json'))).toBe(true);
+
+    rmSync(packDir, { recursive: true, force: true });
+    rmSync(registry, { recursive: true, force: true });
+  });
+
+  it('索引门禁失败时撤回刚写入的版本目录', () => {
+    const packDir = mkdtempSync(join(tmpdir(), 'packhub-cli-pubfail-'));
+    makePack(packDir);
+    const registry = mkdtempSync(join(tmpdir(), 'packhub-cli-regbad-'));
+    // 放一个坏包让 writeIndex 必然报错；发布新包时索引门禁会失败
+    const bad = join(registry, 'packs/bad/pkg/1.0.0');
+    mkdirSync(bad, { recursive: true });
+    writeFileSync(join(bad, 'packhub.yaml'), 'apiVersion: packhub.dev/v0\nkind: Pack\n', 'utf8');
+
+    const published = run(['publish', packDir, '--registry', registry]);
+    expect(published.status).toBe(1);
+    expect(published.out).toContain('已撤回');
+    expect(existsSync(join(registry, 'packs/me/e2e/0.1.0'))).toBe(false);
+    expect(existsSync(join(registry, 'packs/me/e2e/0.1.0.phub'))).toBe(false);
+
+    rmSync(packDir, { recursive: true, force: true });
+    rmSync(registry, { recursive: true, force: true });
+  });
+
+  it('hub 命令起只读服务并响应 health', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'packhub-cli-hubhome-'));
+    const child = spawn(process.execPath, ['--experimental-strip-types', BIN, 'hub', ROOT, '--port', '0'], {
+      cwd: ROOT,
+      env: { ...process.env, PACKHUB_HOME: home },
+    });
+    try {
+      const url = await waitForUrl(child);
+      const res = await fetch(`${url}/api/health`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { ok: boolean; packs: number };
+      expect(body.ok).toBe(true);
+      expect(body.packs).toBeGreaterThan(0);
+    } finally {
+      child.kill();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('market serve 起服务后，market register / whoami 能走通', async () => {
+    const registry = mkdtempSync(join(tmpdir(), 'packhub-cli-marketserve-'));
+    const home = mkdtempSync(join(tmpdir(), 'packhub-cli-markethome-'));
+    const child = spawn(
+      process.execPath,
+      ['--experimental-strip-types', BIN, 'market', 'serve', registry, '--port', '0'],
+      { cwd: ROOT, env: { ...process.env, PACKHUB_HOME: home } },
+    );
+    try {
+      const url = await waitForUrl(child);
+      const registered = run(['market', 'register', url, 'Demo CLI'], { PACKHUB_HOME: home });
+      expect(registered.status).toBe(0);
+      expect(registered.out).toContain('已注册');
+      const who = run(['market', 'whoami'], { PACKHUB_HOME: home });
+      expect(who.status).toBe(0);
+      expect(who.out).toContain('demo-cli');
+    } finally {
+      child.kill();
+      rmSync(registry, { recursive: true, force: true });
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('cli 端到端：add → verify → uninstall', () => {
   it('没有索引时明确报错；配了 PACKHUB_INDEX 就能装、能验、能卸', () => {
@@ -116,9 +262,11 @@ describe('cli 端到端：add → verify → uninstall', () => {
     const packDir = join(base, 'pack');
     const dsh = join(base, 'dsh');
     const codex = join(base, 'codex');
+    const claude = join(base, 'claude');
     mkdirSync(join(packDir, 'skills/hello'), { recursive: true });
     mkdirSync(dsh, { recursive: true });
     mkdirSync(codex, { recursive: true });
+    mkdirSync(claude, { recursive: true });
     writeFileSync(
       join(packDir, 'skills/hello/SKILL.md'),
       '---\nname: hello\ndescription: Hello.\n---\n\n# Hello\n',
@@ -141,7 +289,7 @@ resources:
 `,
       'utf8',
     );
-    const env = { PACKHUB_DSH_HOME: dsh, PACKHUB_CODEX_HOME: codex };
+    const env = { PACKHUB_DSH_HOME: dsh, PACKHUB_CODEX_HOME: codex, PACKHUB_CLAUDE_HOME: claude };
 
     const synced = run(['sync', packDir, '--to', 'dsh,codex'], env);
     expect(synced.status).toBe(0);

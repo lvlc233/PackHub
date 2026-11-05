@@ -16,9 +16,12 @@ metadata:
   version: ${overrides.version ?? '0.1.0'}
   title: 发布会用
   description: 发布流程测试。
+  license: MIT
+  homepage: https://example.com/demo
+  authors: [{ name: 测试作者 }]
   targets: [dir]
   visibility: ${overrides.visibility ?? 'public'}
-requires: { packhub: ">=0.0.1 <0.1" }
+requires: { packhub: ">=0.0.1 <0.1", agent: dsh }
 resources:
   - id: rules
     type: knowledge
@@ -53,11 +56,23 @@ describe('publish', () => {
     const idx = writeIndex(reg);
     expect(idx.ok).toBe(true);
     const index = JSON.parse(readFileSync(join(reg, 'index.json'), 'utf8')) as {
-      packs: { name: string; trust: string; latest: string }[];
+      packs: {
+        name: string;
+        trust: string;
+        latest: string;
+        license: string | null;
+        homepage: string | null;
+        authors: { name: string }[];
+        requiresAgent: string | null;
+      }[];
     };
     expect(index.packs[0]!.name).toBe('demo/published');
     expect(index.packs[0]!.trust).toBe('verified');
     expect(index.packs[0]!.latest).toBe('0.1.0');
+    expect(index.packs[0]!.license).toBe('MIT');
+    expect(index.packs[0]!.homepage).toBe('https://example.com/demo');
+    expect(index.packs[0]!.authors[0]!.name).toBe('测试作者');
+    expect(index.packs[0]!.requiresAgent).toBe('dsh');
     rmSync(pack, { recursive: true, force: true });
     rmSync(reg, { recursive: true, force: true });
   });

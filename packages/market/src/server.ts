@@ -1,4 +1,5 @@
 import {
+  appendFileSync,
   createReadStream,
   existsSync,
   mkdirSync,
@@ -11,6 +12,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { loadPack } from '@packhub/kernel';
@@ -22,6 +24,7 @@ import {
   bumpDownload,
   createAccount,
   downloadTrend,
+  hashToken,
   loadDb,
   ratePack,
   ratingSummary,
@@ -90,13 +93,62 @@ export async function startMarket(opts: MarketOptions): Promise<RunningMarket> {
   const maxUpload = opts.maxUploadBytes ?? 25 * 1024 * 1024;
   const requireReview = opts.requireReview ?? process.env.PACKHUB_MARKET_REVIEW === '1';
   const adminToken = opts.adminToken ?? process.env.PACKHUB_MARKET_ADMIN;
-  if (requireReview && !adminToken) {
-    throw new Error('requireReview 需要 adminToken（或 PACKHUB_MARKET_ADMIN），否则没人能批准上传');
-  }
   const stagingRoot = join(root, '.market', 'staging');
+  const adminFile = join(root, '.market', 'admin.json');
+  const adminAuditFile = join(root, '.market', 'admin-audit.jsonl');
   mkdirSync(join(root, 'packs'), { recursive: true });
   mkdirSync(join(root, '.market'), { recursive: true });
   mkdirSync(stagingRoot, { recursive: true });
+
+  interface AdminFile {
+    apiVersion: 'packhub.dev/market-admin/v0';
+    hash: string;
+    createdAt: string;
+    rotatedAt?: string;
+  }
+  const readAdmin = (): AdminFile | undefined => {
+    if (!existsSync(adminFile)) return undefined;
+    try {
+      return JSON.parse(readFileSync(adminFile, 'utf8')) as AdminFile;
+    } catch {
+      return undefined;
+    }
+  };
+  const writeAdmin = (token: string): AdminFile => {
+    const current = readAdmin();
+    const next: AdminFile = {
+      apiVersion: 'packhub.dev/market-admin/v0',
+      hash: hashToken(token),
+      createdAt: current?.createdAt ?? new Date().toISOString(),
+      ...(current ? { rotatedAt: new Date().toISOString() } : {}),
+    };
+    writeFileSync(adminFile, JSON.stringify(next, null, 2) + '\n', 'utf8');
+    return next;
+  };
+  const same = (a: string, b: string): boolean => {
+    const left = Buffer.from(a);
+    const right = Buffer.from(b);
+    return left.length === right.length && timingSafeEqual(left, right);
+  };
+  // 首次启动用 env/参数里的 token 落盘；之后以文件为准，允许通过 rotate 换掉
+  if (adminToken && !readAdmin()) writeAdmin(adminToken);
+  if (requireReview && !adminToken && !readAdmin()) {
+    throw new Error('requireReview 需要 adminToken（或 PACKHUB_MARKET_ADMIN），否则没人能批准上传');
+  }
+  const isAdmin = (req: IncomingMessage): boolean => {
+    const given = String(req.headers['x-market-admin'] ?? '');
+    if (!given) return false;
+    const stored = readAdmin();
+    if (stored) return same(hashToken(given), stored.hash);
+    return adminToken ? same(given, adminToken) : false;
+  };
+  const adminAudit = (entry: Record<string, unknown>): void => {
+    try {
+      appendFileSync(adminAuditFile, JSON.stringify({ at: new Date().toISOString(), ...entry }) + '\n', 'utf8');
+    } catch {
+      /* 审计写失败不影响主流程 */
+    }
+  };
 
   const server = createServer((req, res) => {
     void handle(req, res).catch((err) => {
@@ -252,6 +304,7 @@ export async function startMarket(opts: MarketOptions): Promise<RunningMarket> {
           const target = requireReview ? stagingRoot : root;
           const published = await publishPack(packDir, { registry: target, allowExec: false });
           if (requireReview) {
+            published.finalize();
             recordReview(root, name, version, 'pending', 'waiting for admin review');
             return sendJson(res, 202, {
               name,
@@ -260,12 +313,14 @@ export async function startMarket(opts: MarketOptions): Promise<RunningMarket> {
               note: '已通过干净安装与只读校验，等待管理员批准后进索引',
             });
           }
-          recordReview(root, name, version, 'approved', 'clean install passed');
           const indexed = writeIndex(root);
           if (!indexed.ok) {
+            published.rollback();
             recordReview(root, name, version, 'rejected', 'index gate failed');
-            return sendJson(res, 422, { error: '索引门禁没过，版本已写入但未进索引' });
+            return sendJson(res, 422, { error: '索引门禁没过，本次版本已撤回' });
           }
+          published.finalize();
+          recordReview(root, name, version, 'approved', 'clean install passed');
           return sendJson(res, 201, {
             name,
             version,
@@ -307,7 +362,7 @@ export async function startMarket(opts: MarketOptions): Promise<RunningMarket> {
     }
 
     if (url.pathname === '/api/admin/queue' && req.method === 'GET') {
-      if (!adminToken || req.headers['x-market-admin'] !== adminToken) {
+      if (!isAdmin(req)) {
         return sendJson(res, 401, { error: '需要 x-market-admin 管理 token' });
       }
       const db = loadDb(root);
@@ -321,8 +376,28 @@ export async function startMarket(opts: MarketOptions): Promise<RunningMarket> {
       });
     }
 
+    if (url.pathname === '/api/admin/rotate' && req.method === 'POST') {
+      if (!isAdmin(req)) {
+        return sendJson(res, 401, { error: '需要 x-market-admin 管理 token' });
+      }
+      const body = JSON.parse((await readBody(req, 64 * 1024)).toString('utf8') || '{}') as {
+        token?: string;
+      };
+      const provided = typeof body.token === 'string' ? body.token.trim() : '';
+      if (provided && provided.length < 12) {
+        return sendJson(res, 400, { error: '新 token 至少 12 个字符，或留空让服务端生成' });
+      }
+      const token = provided || randomBytes(24).toString('base64url');
+      const next = writeAdmin(token);
+      adminAudit({ action: 'rotate-admin-token', ip: req.socket.remoteAddress, rotatedAt: next.rotatedAt });
+      return sendJson(res, 200, {
+        token,
+        note: '新 token 只显示一次；旧 token 已失效，请立刻更新部署配置',
+      });
+    }
+
     if (url.pathname === '/api/admin/review' && req.method === 'POST') {
-      if (!adminToken || req.headers['x-market-admin'] !== adminToken) {
+      if (!isAdmin(req)) {
         return sendJson(res, 401, { error: '需要 x-market-admin 管理 token' });
       }
       const body = JSON.parse((await readBody(req, 64 * 1024)).toString('utf8') || '{}') as {
@@ -349,7 +424,10 @@ export async function startMarket(opts: MarketOptions): Promise<RunningMarket> {
           ? readdirSync(join(stagingRoot, 'packs', name))
           : [];
         if (left.length === 0) rmSync(join(stagingRoot, 'packs', name), { recursive: true, force: true });
+        // staging 里的索引是发布时留下的中间产物，别跟着版本一起进归档目录
+        rmSync(join(stagingRoot, 'index.json'), { force: true });
         recordReview(root, name, version, 'rejected', body.note ?? 'rejected by admin');
+        adminAudit({ action: 'reject', name, version, ip: req.socket.remoteAddress, note: body.note });
         return sendJson(res, 200, { name, version, status: 'rejected' });
       }
 
@@ -357,13 +435,26 @@ export async function startMarket(opts: MarketOptions): Promise<RunningMarket> {
       mkdirSync(dirname(destDir), { recursive: true });
       renameSync(stagedDir, destDir);
       const stagedArchive = join(stagingRoot, 'packs', name, `${version}.phub`);
+      const destArchive = join(root, 'packs', name, `${version}.phub`);
       if (existsSync(stagedArchive)) {
-        mkdirSync(dirname(join(root, 'packs', name, `${version}.phub`)), { recursive: true });
-        renameSync(stagedArchive, join(root, 'packs', name, `${version}.phub`));
+        mkdirSync(dirname(destArchive), { recursive: true });
+        renameSync(stagedArchive, destArchive);
+      }
+      const left = existsSync(join(stagingRoot, 'packs', name))
+        ? readdirSync(join(stagingRoot, 'packs', name))
+        : [];
+      if (left.length === 0) rmSync(join(stagingRoot, 'packs', name), { recursive: true, force: true });
+      rmSync(join(stagingRoot, 'index.json'), { force: true });
+      const indexed = writeIndex(root);
+      if (!indexed.ok) {
+        // 索引没过：把版本移回 staging，别让「目录在、索引没有」的状态留在 registry
+        mkdirSync(dirname(stagedDir), { recursive: true });
+        renameSync(destDir, stagedDir);
+        if (existsSync(destArchive)) renameSync(destArchive, stagedArchive);
+        return sendJson(res, 500, { error: '批准后重建索引失败，版本已移回 staging' });
       }
       recordReview(root, name, version, 'approved', body.note ?? 'approved by admin');
-      const indexed = writeIndex(root);
-      if (!indexed.ok) return sendJson(res, 500, { error: '批准后重建索引失败' });
+      adminAudit({ action: 'approve', name, version, ip: req.socket.remoteAddress, note: body.note });
       return sendJson(res, 200, { name, version, status: 'approved' });
     }
 

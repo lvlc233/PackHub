@@ -13,6 +13,8 @@ export interface DriftFinding {
   blockIds: string[];
   /** 配置值/MCP 条目被外部改掉 */
   configDrift: string[];
+  /** active.json 与 state 不一致（版本或 planHash 对不上、条目多/少） */
+  activeDrift: string[];
 }
 
 export interface DoctorReport {
@@ -29,10 +31,34 @@ export function doctorPack(root: string): DoctorReport {
   const state = loadState(root);
   const packs = Object.keys(state.packs);
   const findings: DriftFinding[] = [];
+  const active = readActiveFile(root);
+  const activeNames = new Set<string>();
 
   for (const pack of packs) {
     const record = state.packs[pack]!;
-    const finding: DriftFinding = { pack, blocksMissing: [], filesMissing: [], blockIds: [], configDrift: [] };
+    const finding: DriftFinding = {
+      pack,
+      blocksMissing: [],
+      filesMissing: [],
+      blockIds: [],
+      configDrift: [],
+      activeDrift: [],
+    };
+    const name = pack.split('@')[0] ?? pack;
+    // 旧版 state 没有 version 字段：从 key 里取，避免把历史安装误报成漂移
+    const recordVersion = record.version ?? pack.split('@')[1] ?? '';
+    activeNames.add(name);
+    const pointer = active[name];
+    if (!pointer) {
+      finding.activeDrift.push(`active.json 没有 ${name}`);
+    } else {
+      if (pointer.version !== recordVersion) {
+        finding.activeDrift.push(`${name}: active=${pointer.version} state=${recordVersion}`);
+      }
+      if (pointer.planHash !== record.planHash) {
+        finding.activeDrift.push(`${name}: active planHash 与 state 不一致`);
+      }
+    }
 
     for (const file of record.written) {
       if (!existsSync(join(root, file))) finding.filesMissing.push(file);
@@ -75,12 +101,50 @@ export function doctorPack(root: string): DoctorReport {
       }
     }
 
-    if (finding.blocksMissing.length || finding.filesMissing.length || finding.configDrift.length) {
+    if (
+      finding.blocksMissing.length ||
+      finding.filesMissing.length ||
+      finding.configDrift.length ||
+      finding.activeDrift.length
+    ) {
       findings.push(finding);
     }
   }
 
+  // active.json 里还挂着、state 里已经没有的包：切换/卸载没清干净
+  for (const [name, pointer] of Object.entries(active)) {
+    if (activeNames.has(name)) continue;
+    findings.push({
+      pack: `${name}@${pointer.version}`,
+      blocksMissing: [],
+      filesMissing: [],
+      blockIds: [],
+      configDrift: [],
+      activeDrift: [`active.json 有 ${name}，但 state 里没有这个包`],
+    });
+  }
+
   return { packs, findings, ok: findings.length === 0 };
+}
+
+interface ActivePointer {
+  version: string;
+  planHash: string;
+  target?: string;
+  at?: string;
+}
+
+function readActiveFile(root: string): Record<string, ActivePointer> {
+  const file = join(root, '.packhub/active.json');
+  if (!existsSync(file)) return {};
+  try {
+    const parsed = JSON.parse(readFileSync(file, 'utf8')) as {
+      packs?: Record<string, ActivePointer>;
+    };
+    return parsed.packs ?? {};
+  } catch {
+    return {};
+  }
 }
 
 function readConfigFile(file: string): unknown {
