@@ -1,6 +1,6 @@
 # PackHub 功能全量清单
 
-> 版本：2026-11-05 ／ 口径：本仓库当前代码、CLI 实测、测试套件（54 个文件 / 208 项）与 registry 现状。
+> 版本：2026-11-05 ／ 口径：本仓库当前代码、CLI 实测、测试套件（54 个文件 / 210 项）与 registry 现状。
 > 用途：实现 checklist、选型对照、漏项审计。**不是**产品介绍。
 
 ## 怎么读
@@ -86,7 +86,7 @@
 | REF-06 | 计划快照 | lock 带 `plan` 快照，`diff` 靠它比较 | [done] | `lock.ts`、`diff` |
 | REF-07 | 离线锁 | `lock --offline` 只处理本地/已 pin | [done] | `resolve.ts`、CLI |
 | REF-08 | pypi 只收 sdist | 纯 wheel 包明确拒绝 | [part] | `download.ts` |
-| REF-09 | `packhub://` 来源 | `add packhub://scope/name@ver` 等价 registry 安装；资源级来源仍无下载器 | [part] | `cli add`、`ref.ts` warning |
+| REF-09 | `packhub://` 来源 | `add` 等价 registry 安装；资源级 `packhub://scope/name@ver#path` 取归档内文件/目录并改写成本地缓存路径 | [done] | `loadPackResolved`、`extends-remote.test` |
 | REF-10 | 缓存与 GC | `cache ls` 标引用；`cache clean` 只删无引用项，支持 dry-run | [done] | `cache.ts`、`cache.test` |
 | REF-11 | 代理 | 下载与索引请求走 `HTTPS_PROXY` | [done] | `download.ts`、`registry.ts` |
 | REF-12 | 锁过期检测 | `add` 比对 `lock.planHash`；`diff` 比当前计划 | [done] | `consume.ts`、`diff` |
@@ -253,7 +253,7 @@
 
 | 编号 | 功能点 | 能观察到的事实 | 现状 | 证据/缺口 |
 |---|---|---|---|---|
-| OPS-01 | 测试套件 | 54 个文件 / 208 项通过 | [done] | `pnpm check` |
+| OPS-01 | 测试套件 | 54 个文件 / 210 项通过 | [done] | `pnpm check` |
 | OPS-02 | 类型检查 | `tsc --noEmit` 通过 | [done] | `pnpm typecheck` |
 | OPS-03 | registry 门禁 | `registry:check` 通过 | [done] | CI |
 | OPS-04 | 干净安装 CI | `registry:verify-all`（需网络） | [done] | workflow |
@@ -284,7 +284,7 @@
 
 上一轮的八项（staged 版本、资源发现、工具入口、scenario、市场写端、签名默认、全局同步、声明层四项）已经落地或收窄。剩下的是：
 
-1. **资源级 `packhub://`**（REF-09）：`extends` 与 `add` 都能用 `packhub://`，但单个资源把 `packhub://` 当来源时还没有下载器（缺“归档内子路径”的取法）。
+1. **资源级 `packhub://` 的发布形态**：安装期可以取用，但 `lock` / `publish` 要求先 vendored；还没有“把引用包一起打进 `.phub`”的自动展开。
 2. **全局 MCP 只有 codex**（SYN-12）：DSH 的 profile patch 与 Claude 的 user config 还没有 adapter；当前会被明确拒绝，不会写半套。
 3. **市场生产化**（REG-12 / HUB-12）：单机 JSON 存储、自动审核、无评分/评论；发布校验在服务进程内跑，生产应放进沙箱或只收 CI 报告。
 4. **CLI 机器接口**（CLI-03 / CLI-04）：`--json` 与退出码没有全命令统一；脚本调用仍要按命令记。

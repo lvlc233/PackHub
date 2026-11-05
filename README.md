@@ -217,7 +217,7 @@ project/
 
 ## 作者怎么发
 
-发布前要把引用固定下来。先写 `packhub.yaml`，或者用 `packhub init` 起骨架、`packhub resource add` 逐项添加。`source` 支持 `npm:`、`github:`、`pypi:`、`https://` 和 `./` 本地路径。`packhub lock` 会解析这些引用，把分支换成 commit、范围换成具体版本、文件算出 sha256，然后写进 `packhub.lock.json`。解析不到就保留原样并给出警告，不假装锁住。
+发布前要把引用固定下来。先写 `packhub.yaml`，或者用 `packhub init` 起骨架、`packhub resource add` 逐项添加。`source` 支持 `npm:`、`github:`、`pypi:`、`https://`、`./` 本地路径，以及资源级的 `packhub://scope/name@ver#path`（从已发布包取归档内文件/目录）。`packhub lock` 会解析这些引用，把分支换成 commit、范围换成具体版本、文件算出 sha256，然后写进 `packhub.lock.json`。解析不到就保留原样并给出警告，不假装锁住。
 
 私有来源不在清单里写 token：`auth.env` 只写变量名，值放环境变量或 `packhub auth set`。锁、state 和日志都不保存 token。
 

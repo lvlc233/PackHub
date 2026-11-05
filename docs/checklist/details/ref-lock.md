@@ -12,7 +12,7 @@
 | REF-06 | `lock` 后 `diff` | lock 带 `plan` 快照，diff 按动作内容比 | 快照只保留一个 target |
 | REF-07 | `lock --offline` | 不联网，未解析项保留并 warn | 没有“部分联网”模式 |
 | REF-08 | `pypi:` 纯 wheel 包 | 明确拒绝，只收 sdist | wheel 解包未做 |
-| REF-09 | `packhub://scope/name@ver` | `add` 等价 registry 安装；资源级来源仍只解析、不下载 | 需要“归档内子路径”的取法 |
+| REF-09 | `packhub://scope/name@ver#path` | 资源级引用取归档内文件/目录到缓存并改写成本地路径；`add` 等价 registry 安装 | lock/publish 要求先 vendored |
 | REF-10 | 多次安装后看 `.packhub/cache` | `cache ls` 标引用，`cache clean [--dry-run]` 只删无引用项 | 没有按时间/大小策略 |
 | REF-11 | 设 `HTTPS_PROXY` 拉索引/下载 | 下载与索引请求走代理 | 第三方脚本不继承 |
 | REF-12 | 锁后改清单再 `add` | 报 `lock-mismatch`；`diff` 能看出差异 | 没有自动重锁提示 |

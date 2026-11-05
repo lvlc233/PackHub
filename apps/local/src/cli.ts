@@ -286,6 +286,15 @@ const lock = defineCommand({
   },
   async run({ args }) {
     const dir = resolve(String(args.dir));
+    const raw = loadPack(dir);
+    if (raw.manifest?.extends?.startsWith('packhub://')) {
+      console.error('远程 extends 的包不能直接 lock：先 vendored 父包（或改成本地继承）');
+      process.exit(2);
+    }
+    if (raw.manifest?.resources.some((r) => r.source.startsWith('packhub://'))) {
+      console.error('资源级 packhub:// 的包不能直接 lock：先把被引用的文件 vendored 进包内（改成 ./ 来源）');
+      process.exit(2);
+    }
     const ctx = await loadPackResolved(dir, {
       index: resolveRegistry(args.index ? String(args.index) : undefined),
     });
@@ -394,7 +403,7 @@ const resourceAdd = defineCommand({
     console.log(`✓ 已追加资源 ${id}（${type}）→ ${file}`);
 
     // 加完立刻重算：格式对不对、能力图缺不缺，当场能看到
-    const ctx = await loadPackResolved(dir);
+    const ctx = loadPack(dir);
     const errors = ctx.issues.filter((i) => i.severity === 'error');
     if (errors.length) {
       for (const e of errors) console.error(`error [${e.code}] ${e.message}`);
@@ -427,12 +436,12 @@ const slotSwap = defineCommand({
       console.error(`没有 packhub.yaml：${file}`);
       process.exit(2);
     }
-    const before = planFor(await loadPackResolved(dir)).plan;
+    const before = planFor(loadPack(dir)).plan;
 
     setBinding(file, String(args.slot), String(args.resource));
     console.log(`✓ bindings.${String(args.slot)} → ${String(args.resource)}`);
 
-    const ctx = await loadPackResolved(dir);
+    const ctx = loadPack(dir);
     const errors = ctx.issues.filter((i) => i.severity === 'error');
     if (errors.length) {
       for (const e of errors) console.error(`error [${e.code}] ${e.message}`);
@@ -1353,7 +1362,7 @@ const licenses = defineCommand({
   },
   async run({ args }) {
     const dir = resolve(String(args.dir));
-    const ctx = await loadPackResolved(dir);
+    const ctx = loadPack(dir);
     if (reportIssues(ctx.issues)) process.exit(2);
     const findings = inspectLicenses(dir, ctx.manifest);
     const denied = new Set(
@@ -1416,7 +1425,7 @@ const sign = defineCommand({
   },
   async run({ args }) {
     const dir = resolve(String(args.dir));
-    const ctx = await loadPackResolved(dir);
+    const ctx = loadPack(dir);
     if (reportIssues(ctx.issues)) process.exit(2);
     const { plan, issues } = planFor(ctx, { target: 'dir' });
     if (!plan) {
@@ -1441,7 +1450,7 @@ const verifySig = defineCommand({
   },
   async run({ args }) {
     const dir = resolve(String(args.dir));
-    const ctx = await loadPackResolved(dir);
+    const ctx = loadPack(dir);
     if (reportIssues(ctx.issues)) process.exit(2);
     const { plan, issues } = planFor(ctx, { target: 'dir' });
     if (!plan) {
@@ -1538,7 +1547,7 @@ const diff = defineCommand({
       planHash: string;
       plan?: { actions: import('@packhub/kernel').PlanAction[] };
     };
-    const ctx = withLockPins(await loadPackResolved(dir), loadLock(dir));
+    const ctx = withLockPins(loadPack(dir), loadLock(dir));
     if (reportIssues(ctx.issues)) process.exit(2);
     const { plan, issues } = planFor(ctx, { target: String(args.target ?? 'dir') as never });
     if (!plan) {

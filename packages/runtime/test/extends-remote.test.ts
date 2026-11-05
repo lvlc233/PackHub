@@ -105,6 +105,94 @@ describe('远程 extends', () => {
     expect(readFileSync(join(project, '.packhub/knowledge/own.md'), 'utf8')).toBe('# own\n');
   });
 
+  it('资源级 packhub:// 取归档内路径，knowledge 与 skill 都能装', async () => {
+    const regRoot = temp('packhub-res-reg-');
+    const assets = join(regRoot, 'assets-src');
+    mkdirSync(join(assets, 'docs'), { recursive: true });
+    mkdirSync(join(assets, 'skills/hello'), { recursive: true });
+    writeFileSync(join(assets, 'docs/guide.md'), '# guide\n', 'utf8');
+    writeFileSync(join(assets, 'skills/hello/SKILL.md'), '---\nname: hello\ndescription: Hello skill.\n---\n', 'utf8');
+    writeFileSync(
+      join(assets, 'packhub.yaml'),
+      `apiVersion: packhub.dev/v0
+kind: Pack
+metadata: { name: demo/assets, version: 1.0.0, targets: [dir] }
+requires: { packhub: ">=0.0.1 <0.1" }
+resources:
+  - id: guide
+    type: knowledge
+    source: ./docs/guide.md
+`,
+      'utf8',
+    );
+    await packArchive(assets, { vendored: true, out: join(regRoot, 'packs/demo/assets/1.0.0.phub') });
+    const index = join(regRoot, 'index.json');
+    writeFileSync(
+      index,
+      JSON.stringify({
+        apiVersion: 'packhub.dev/index/v0',
+        packs: [{ name: 'demo/assets', latest: '1.0.0', versions: ['1.0.0'], trust: 'community' }],
+      }),
+      'utf8',
+    );
+    process.env.PACKHUB_INDEX = index;
+
+    const dir = temp('packhub-res-child-');
+    writeFileSync(
+      join(dir, 'packhub.yaml'),
+      `apiVersion: packhub.dev/v0
+kind: Pack
+metadata: { name: demo/compose, version: 0.1.0, targets: [dir] }
+requires: { packhub: ">=0.0.1 <0.1" }
+resources:
+  - id: guide
+    type: knowledge
+    source: "packhub://demo/assets@1.0.0#docs/guide.md"
+  - id: hello
+    type: skill
+    source: "packhub://demo/assets@1.0.0#skills/hello"
+`,
+      'utf8',
+    );
+
+    const ctx = await loadPackResolved(dir);
+    expect(ctx.issues.filter((i) => i.severity === 'error')).toEqual([]);
+    const sources = ctx.manifest.resources.map((r) => r.source);
+    expect(sources.every((s) => s.startsWith('./.packhub/cache/packhub/demo/assets/1.0.0/'))).toBe(true);
+
+    const project = temp('packhub-res-proj-');
+    const result = await installPack(ctx, planFor(ctx).plan!, { root: project, packRoot: dir });
+    expect(result.outcomes.every((o) => o.status === 'done' || o.status === 'noop')).toBe(true);
+    expect(readFileSync(join(project, '.packhub/knowledge/guide.md'), 'utf8')).toBe('# guide\n');
+    expect(existsSync(join(project, '.packhub/skills/hello/SKILL.md'))).toBe(true);
+  });
+
+  it('资源级 packhub:// 缺路径或类型不支持时明确报错', async () => {
+    const dir = temp('packhub-res-bad-');
+    writeFileSync(
+      join(dir, 'packhub.yaml'),
+      `apiVersion: packhub.dev/v0
+kind: Pack
+metadata: { name: demo/bad, version: 0.1.0, targets: [dir] }
+requires: { packhub: ">=0.0.1 <0.1" }
+resources:
+  - id: nopath
+    type: knowledge
+    source: "packhub://demo/assets@1.0.0"
+  - id: mcp
+    type: mcp
+    source: "packhub://demo/assets@1.0.0#mcp.json"
+    transport: stdio
+`,
+      'utf8',
+    );
+    process.env.PACKHUB_INDEX = 'index.json';
+    const ctx = await loadPackResolved(dir);
+    const codes = ctx.issues.map((i) => i.code);
+    expect(codes).toContain('packhub-source-path');
+    expect(codes).toContain('packhub-source-type');
+  });
+
   it('没有 registry 索引时明确报错，不去猜父包', async () => {
     const dir = child();
     delete process.env.PACKHUB_INDEX;

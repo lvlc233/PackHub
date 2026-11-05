@@ -45,6 +45,11 @@ export async function publishPack(packDir: string, opts: PublishOptions): Promis
       '远程 extends 的包不能直接发布：先把父包 vendored 进子包（或改成本地继承）再发，否则消费端解析不到父包',
     );
   }
+  if (ctx.manifest?.resources.some((r) => r.source.startsWith('packhub://'))) {
+    throw new Error(
+      '资源级 packhub:// 的包不能直接发布：先把被引用的文件 vendored 进包内（改成 ./ 来源）再发，否则消费端锁不住来源',
+    );
+  }
   const errors = ctx.issues.filter((i) => i.severity === 'error');
   if (errors.length > 0) {
     throw new Error(`清单有问题，不能发布：${errors.map((e) => e.message).join('; ')}`);
