@@ -50,7 +50,7 @@
 
 .cs-body {
   display: grid;
-  grid-template-columns: 210px minmax(0, 1.15fr) minmax(0, 1fr);
+  grid-template-columns: 210px minmax(0, 1.35fr) minmax(0, 0.9fr);
   gap: 18px;
   align-items: start;
 }
@@ -437,14 +437,12 @@
 
 .cs-restable-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 104px minmax(0, 1.5fr) 64px 24px;
+  grid-template-columns: minmax(0, 1fr) 100px minmax(0, 1.2fr) 52px auto;
   gap: 6px;
   margin-bottom: 6px;
 }
 
-.cs-restable-row .cs-slot {
-  font-size: 11px;
-}
+#placeholder
 
 .cs-del {
   border: 1px solid var(--line);
@@ -537,8 +535,8 @@
   background: #fff;
   color: #475467;
   border-radius: 7px;
-  width: 26px;
-  height: 26px;
+  width: 22px;
+  height: 22px;
   cursor: pointer;
 }
 
@@ -584,5 +582,17 @@
 
   .cs-deliver-row input {
     flex: 1 1 100%;
+  }
+}
+.cs-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+@media (max-width: 720px) {
+  .cs-row-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
   }
 }

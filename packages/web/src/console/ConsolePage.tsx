@@ -595,23 +595,25 @@ export function ConsolePage() {
                     )
                   }
                 />
-                <button className="cs-rowbtn" onClick={() => moveResource(i, -1)} title="上移" aria-label={`上移 ${r.id}`}>
-                  ↑
-                </button>
-                <button className="cs-rowbtn" onClick={() => moveResource(i, 1)} title="下移" aria-label={`下移 ${r.id}`}>
-                  ↓
-                </button>
-                <button className="cs-rowbtn" onClick={() => duplicateResource(i)} title="复制" aria-label={`复制 ${r.id}`}>
-                  ⧉
-                </button>
-                <button
-                  className="cs-del"
-                  onClick={() => setResources(resources.filter((_, j) => j !== i))}
-                  title="移除"
-                  aria-label={`移除 ${r.id}`}
-                >
-                  ×
-                </button>
+                <div className="cs-row-actions">
+                  <button className="cs-rowbtn" onClick={() => moveResource(i, -1)} title="上移" aria-label={`上移 ${r.id}`}>
+                    ↑
+                  </button>
+                  <button className="cs-rowbtn" onClick={() => moveResource(i, 1)} title="下移" aria-label={`下移 ${r.id}`}>
+                    ↓
+                  </button>
+                  <button className="cs-rowbtn" onClick={() => duplicateResource(i)} title="复制" aria-label={`复制 ${r.id}`}>
+                    ⧉
+                  </button>
+                  <button
+                    className="cs-del"
+                    onClick={() => setResources(resources.filter((_, j) => j !== i))}
+                    title="移除"
+                    aria-label={`移除 ${r.id}`}
+                  >
+                    ×
+                  </button>
+                </div>
                 {dupIds.has(r.id) && <span className="cs-field-error">id 重复：{r.id}</span>}
               </div>
             ))}
