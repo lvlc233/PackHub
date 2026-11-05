@@ -48,6 +48,7 @@ export {
   loadPackResolved,
   type LoadPackResolvedOptions,
 } from './extends.ts';
+export { flattenPack, type FlattenResult } from './flatten.ts';
 export {
   inspectCache,
   cleanCache,

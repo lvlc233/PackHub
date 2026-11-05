@@ -256,7 +256,7 @@ overlays:
 
 ### 继承与本地覆盖
 
-`extends: ../base` 继承一个本地父 Pack；`extends: packhub://scope/name@1.0.0` 从 registry 取远程父包（落在子包 `.packhub/cache/extends/`，路径相对子包，planHash 跨机器一致）。单个资源也可以引用已发布包里的文件或目录：`source: "packhub://scope/name@1.0.0#docs/guide.md"`（skill 则指向目录）；安装期同样落进 `.packhub/cache/packhub/`，`lock` 与 `publish` 要求先 vendored。父包的 `resources`、`composition`、`slots`、`bindings`、`paths`、`overrides`、`verify` 一起合并；子包同名资源覆盖父包，`metadata` 与 `requires` 以子包为准；父包的本地 source 会被改写成相对子包的路径，安装时能读。成环报 `extends-cycle`。远程继承要求 `--index` / `PACKHUB_INDEX`；发布前要扁平化，否则 `publish` 会拒绝。
+`extends: ../base` 继承一个本地父 Pack；`extends: packhub://scope/name@1.0.0` 从 registry 取远程父包（落在子包 `.packhub/cache/extends/`，路径相对子包，planHash 跨机器一致）。单个资源也可以引用已发布包里的文件或目录：`source: "packhub://scope/name@1.0.0#docs/guide.md"`（skill 则指向目录）；安装期同样落进 `.packhub/cache/packhub/`，`lock` 与 `publish` 要求先 vendored。父包的 `resources`、`composition`、`slots`、`bindings`、`paths`、`overrides`、`verify` 一起合并；子包同名资源覆盖父包，`metadata` 与 `requires` 以子包为准；父包的本地 source 会被改写成相对子包的路径，安装时能读。成环报 `extends-cycle`。远程继承要求 `--index` / `PACKHUB_INDEX`；`packhub publish` 会自动扁平化（外部文件复制到 `external/`，清单去掉 `extends`）；直接调用 `publishPack` 时先 `flattenPack`。
 
 使用者侧的 `.packhub/local.yaml` 不进清单、不进锁，只覆盖这一次安装：
 

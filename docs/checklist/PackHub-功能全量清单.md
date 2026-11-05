@@ -1,6 +1,6 @@
 # PackHub 功能全量清单
 
-> 版本：2026-11-05 ／ 口径：本仓库当前代码、CLI 实测、测试套件（54 个文件 / 210 项）与 registry 现状。
+> 版本：2026-11-05 ／ 口径：本仓库当前代码、CLI 实测、测试套件（55 个文件 / 211 项）与 registry 现状。
 > 用途：实现 checklist、选型对照、漏项审计。**不是**产品介绍。
 
 ## 怎么读
@@ -69,7 +69,7 @@
 | PKG-08 | overlays | 文件级覆盖排在资源之后；两覆盖层冲突报错，盖生成物只警告 | [done] | `plan.ts`、`overlay.test` |
 | PKG-09 | 可见性 | `public/unlisted/internal/private`，默认 private | [done] | `ref`/schema、`build.ts` |
 | PKG-10 | 签名声明 | manifest 可带 `signatures`，也支持独立文件 | [done] | `signature.ts`、`signfile.ts` |
-| PKG-11 | `extends` | 本地与 `packhub://` 父 Pack 都可继承；远程父包缓存进子包、路径稳定、环检测 | [part] | `loadPackResolved`、`extends*.test`；发布需扁平化 |
+| PKG-11 | `extends` | 本地与 `packhub://` 父 Pack 都可继承；远程父包缓存、路径稳定、环检测；publish 自动扁平化 | [done] | `loadPackResolved`、`flattenPack`、`extends*.test` |
 | PKG-12 | server profile | `server` target + 资源级 `targets` 裁剪，未命中进 `excluded`（target-mismatch） | [done] | `plan.ts`、`server-profile.test` |
 | PKG-13 | 本地覆盖 | `.packhub/local.yaml` 覆盖 pin/绑定/paths/vars/env，不进锁 | [done] | `mergeLocalOverrides`、`local-overrides.test` |
 | PKG-14 | PACK.md / CHANGELOG | 发布复制进版本目录；Hub / 市场 API 返回原文，包页渲染 | [done] | `publish.ts`、`hub/server.ts`、`PacksPage` |
@@ -86,7 +86,7 @@
 | REF-06 | 计划快照 | lock 带 `plan` 快照，`diff` 靠它比较 | [done] | `lock.ts`、`diff` |
 | REF-07 | 离线锁 | `lock --offline` 只处理本地/已 pin | [done] | `resolve.ts`、CLI |
 | REF-08 | pypi 只收 sdist | 纯 wheel 包明确拒绝 | [part] | `download.ts` |
-| REF-09 | `packhub://` 来源 | `add` 等价 registry 安装；资源级 `packhub://scope/name@ver#path` 取归档内文件/目录并改写成本地缓存路径 | [done] | `loadPackResolved`、`extends-remote.test` |
+| REF-09 | `packhub://` 来源 | `add` 等价 registry 安装；资源级 `packhub://scope/name@ver#path` 取归档内文件/目录，发布时自动扁平化 | [done] | `loadPackResolved`、`flattenPack`、`extends-remote.test` |
 | REF-10 | 缓存与 GC | `cache ls` 标引用；`cache clean` 只删无引用项，支持 dry-run | [done] | `cache.ts`、`cache.test` |
 | REF-11 | 代理 | 下载与索引请求走 `HTTPS_PROXY` | [done] | `download.ts`、`registry.ts` |
 | REF-12 | 锁过期检测 | `add` 比对 `lock.planHash`；`diff` 比当前计划 | [done] | `consume.ts`、`diff` |
@@ -253,7 +253,7 @@
 
 | 编号 | 功能点 | 能观察到的事实 | 现状 | 证据/缺口 |
 |---|---|---|---|---|
-| OPS-01 | 测试套件 | 54 个文件 / 210 项通过 | [done] | `pnpm check` |
+| OPS-01 | 测试套件 | 55 个文件 / 211 项通过 | [done] | `pnpm check` |
 | OPS-02 | 类型检查 | `tsc --noEmit` 通过 | [done] | `pnpm typecheck` |
 | OPS-03 | registry 门禁 | `registry:check` 通过 | [done] | CI |
 | OPS-04 | 干净安装 CI | `registry:verify-all`（需网络） | [done] | workflow |
@@ -282,25 +282,24 @@
 
 ## 缺口汇总
 
-上一轮的八项（staged 版本、资源发现、工具入口、scenario、市场写端、签名默认、全局同步、声明层四项）已经落地或收窄。剩下的是：
+最初八项（staged 版本、资源发现、工具入口、scenario、市场写端、签名默认、全局同步、声明层四项）已经落地；远程继承/资源级 `packhub://` 也在后续补上，发布时会自动扁平化。剩下的是：
 
-1. **资源级 `packhub://` 的发布形态**：安装期可以取用，但 `lock` / `publish` 要求先 vendored；还没有“把引用包一起打进 `.phub`”的自动展开。
-2. **全局 MCP 只有 codex**（SYN-12）：DSH 的 profile patch 与 Claude 的 user config 还没有 adapter；当前会被明确拒绝，不会写半套。
-3. **市场生产化**（REG-12 / HUB-12）：评分/评论已补；仍是单机 JSON 存储、自动审核，发布校验在服务进程内跑，生产应放进沙箱或只收 CI 报告。
-4. **CLI 机器接口**（CLI-03 / CLI-04）：`--json` 与退出码没有全命令统一；脚本调用仍要按命令记。
-5. **界面回归**（UI-07 / UI-08）：有焦点可见、跳过导航与 reduced-motion，没有 axe/键盘全流程审计，也没有 390px 的自动化回归。
-6. **重负载**（OPS-06 / X-06）：计划层有 200 资源基准；大包真装、overlay 全树遍历没有基准；Docker 镜像仍带 devDependencies。
-7. **Codex 技能元数据与选择器探针**：已补（SYN-13 / SYN-14）；没有做的是跨宿主的任务级行为矩阵。
-8. **记忆状态块**：仍靠 `mcp` + `knowledge` + `paths` 组合，持久状态目录的 `state` 块未实装。
+1. **全局 MCP 只有 codex**（SYN-12）：DSH 的 profile patch 与 Claude 的 user config 还没有 adapter；当前会被明确拒绝，不会写半套。
+2. **市场生产化**（REG-12 / HUB-12）：评分/评论、下载量、下架都有；仍是单机 JSON 存储、自动审核，发布校验在服务进程内跑，生产应放进沙箱或只收 CI 报告。
+3. **CLI 机器接口**（CLI-03 / CLI-04）：`add` 仍只有人类文本；参数级补全没有；个别错误仍用 1 表示用法问题。
+4. **界面回归**（UI-07 / UI-08 / UI-09）：有焦点可见、跳过导航、reduced-motion；没有 axe/键盘全流程审计与 390px 自动化回归，错误态仍分散。
+5. **重负载**（X-06 / X-04）：200 资源的计划与安装有基准；overlay 全树遍历、千文件包没有基准；多实例端口仍未统一。
+6. **pypi wheel**（REF-08）：只收 sdist，纯 wheel 包明确拒绝。
+7. **记忆状态块**：仍靠 `mcp` + `knowledge` + `paths` 组合，持久状态目录的 `state` 块未实装。
 
 ## 下一步
 
-1. **资源级 packhub://**：定义“归档内子路径 + 类型”的取法（例如 skill 取归档里的某个目录），复用 registry 的版本目录与完整性校验。
-2. **全局 MCP adapter**：DSH 写 profile patch 的 mcp 条目，Claude 写 user config；继续用托管块保证卸载可逆。
-3. **市场生产化**：SQLite/对象存储、审核工作流、评分与评论、沙箱验证；包内容仍按版本不可变。
-4. **CLI 统一**：所有命令一份 `--json` 结构 + 退出码表（0 成功 / 1 业务失败 / 2 用法与校验）。
-5. **界面审计**：axe + 键盘全流程 + 390px 截图回归；把错误态收敛到统一区域。
-6. **重负载**：大包（千文件）安装基准、overlay 遍历上限；Docker 多阶段瘦身。
+1. **全局 MCP adapter**：DSH 写 profile patch 的 mcp 条目，Claude 写 user config；继续用托管块保证卸载可逆。
+2. **市场生产化**：SQLite/对象存储、审核工作流、沙箱验证；包内容仍按版本不可变。
+3. **CLI 统一**：`add --json`、参数级补全、退出码边界（用法错误一律 2）。
+4. **界面审计**：axe + 键盘全流程 + 390px 截图回归；把错误态收敛到统一区域。
+5. **重负载**：千文件包安装基准、overlay 遍历上限、多实例端口分配。
+6. **记忆状态块**：给持久状态目录一个一等公民的 `state` 块。
 
 ## 细节文档
 

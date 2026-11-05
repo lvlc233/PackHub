@@ -38,6 +38,7 @@ import {
   probeHarness,
   probeSkill,
   loadPackResolved,
+  flattenPack,
   generateKeyPair,
   signPlan,
   verifySignatures,
@@ -897,11 +898,18 @@ const publish = defineCommand({
     force: { type: 'boolean', default: false, description: '允许覆盖已存在的版本目录' },
     offline: { type: 'boolean', default: false, description: '不联网解析引用' },
     'allow-exec': { type: 'boolean', default: false, description: '允许 runner 执行清单里的 install.exec' },
+    index: { type: 'string', description: '扁平化远程 extends / packhub:// 用的 registry 索引' },
   },
   async run({ args }) {
     const registry = resolve(String(args.registry));
+    let flat: Awaited<ReturnType<typeof flattenPack>> | undefined;
     try {
-      const res = await publishPack(resolve(String(args.dir)), {
+      // 远程引用先展开成自包含目录，发布的版本目录与归档都不再依赖父包
+      flat = await flattenPack(resolve(String(args.dir)), {
+        index: resolveRegistry(args.index ? String(args.index) : undefined),
+      });
+      for (const w of flat.warnings) console.warn(`warn  ${w}`);
+      const res = await publishPack(flat.dir, {
         registry,
         ...(args.out ? { out: resolve(String(args.out)) } : {}),
         dryRun: Boolean(args['dry-run']),

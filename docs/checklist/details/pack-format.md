@@ -14,7 +14,7 @@
 | PKG-08 | 两个 overlay 改同一文件；一个 overlay 盖生成物 | 前者 `overlay-conflict`，后者 `overlay-shadows` 警告 | 覆盖层不能声明“只盖某类文件”的规则 |
 | PKG-09 | 不写 `visibility` 发布 | 默认 `private`，`registry:check` 拒绝 | 四档在 Hub/索引侧只实现 public 门禁 |
 | PKG-10 | `keygen` + `sign` 后看清单/旁挂文件 | 签名写 `packhub.signatures.json`，不改清单 | 默认不强制，见 TRU-04 |
-| PKG-11 | 写 `extends: ../base` 或 `packhub://demo/base@1.0.0` 跑 plan | 本地继承直接合并；远程父包从 registry 取到子包缓存再合并，planHash 稳定 | 发布的包必须扁平化（publish 拒绝远程 extends） |
+| PKG-11 | 写 `extends: ../base` 或 `packhub://demo/base@1.0.0` 跑 plan | 本地继承直接合并；远程父包从 registry 取到子包缓存再合并，planHash 稳定；publish 自动扁平化 | 无（编程调用需先 flattenPack） |
 | PKG-12 | 写 `targets: [server]` 与资源级 `targets` | server 只物化，不写指令面；未命中资源进 excluded | 裁剪维度只有 target |
 | PKG-13 | 在项目放 `.packhub/local.yaml` | 覆盖 pin/绑定/paths/vars/env；不进锁 | 优先级只有“本地覆盖清单” |
 | PKG-14 | 放 `PACK.md` / `CHANGELOG.md` 发布 | 复制进版本目录，Hub/市场 API 返回，包页渲染 | 索引不内嵌全文 |
