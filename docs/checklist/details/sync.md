@@ -39,7 +39,7 @@
 ## 缺口
 
 - 同步 skills + 各 home 的 AGENTS/CLAUDE 托管块；codex 另有 config.toml MCP 托管块。
-- 不生成 Codex `agents/openai.yaml`；源目录里有就随 `link.skill` 一起复制。
+- Codex 的 `agents/openai.yaml`：源里没有就按 `SKILL.md` frontmatter 生成（选择器需要它）；已有则尊重源内容。
 - `probe --skill <name>` 会问一次 harness “你能用哪些 skill”，断言名字出现在回答里。
 - Claude Code 全局 target 已加（`~/.claude/skills` + `CLAUDE.md`）。
 - state 写在 harness home 的 `.packhub/` 下；宿主目录会被多一个隐藏目录。

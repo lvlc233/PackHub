@@ -66,6 +66,13 @@ describe('全局 harness 同步', () => {
       expect(agents).toContain('<!-- packhub:begin demo/sync -->');
       expect(agents).toContain('hello');
     }
+    // codex 的选择器要求 agents/openai.yaml：源里没有就生成一份
+    const yaml = readFileSync(join(codex, 'skills/hello/agents/openai.yaml'), 'utf8');
+    expect(yaml).toContain('interface:');
+    expect(yaml).toContain('display_name: "Hello"');
+    expect(yaml).toContain('$hello');
+    // dsh 不需要这个文件，不乱写
+    expect(existsSync(join(dsh, 'skills/hello/agents/openai.yaml'))).toBe(false);
   });
 
   it('SKILL.md 带 BOM 也能读', async () => {

@@ -5,6 +5,7 @@ import { parse as parseYaml } from 'yaml';
 import { loadPack, planFor, type Plan } from '@packhub/kernel';
 import { applyPlan, loadState, removePack, type ActionOutcome } from './install.ts';
 import { doctorPack, type DoctorReport } from './doctor.ts';
+import { readSkillFrontmatter } from './skill-meta.ts';
 
 export type SyncTarget = 'dsh' | 'codex' | 'claude-code';
 
@@ -64,32 +65,7 @@ export function globalTargetVars(target: SyncTarget = 'dsh'): Record<string, str
   };
 }
 
-export interface SkillFrontmatter {
-  name: string;
-  description: string;
-}
-
-/** 只认 SKILL.md 的 YAML frontmatter；Codex 对格式比 DSH 严，先在这里拦住。 */
-export function readSkillFrontmatter(skillDir: string): SkillFrontmatter {
-  const file = join(skillDir, 'SKILL.md');
-  if (!existsSync(file)) throw new Error(`skill 缺少 SKILL.md：${file}`);
-  const text = readFileSync(file, 'utf8').replace(/^\uFEFF/, '');
-  const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
-  if (!match) throw new Error(`SKILL.md 没有 YAML frontmatter：${file}`);
-  let data: unknown;
-  try {
-    data = parseYaml(match[1]!);
-  } catch (err) {
-    throw new Error(`SKILL.md frontmatter 不是合法 YAML：${file}（${(err as Error).message}）`);
-  }
-  if (!data || typeof data !== 'object') throw new Error(`SKILL.md frontmatter 不是对象：${file}`);
-  const { name, description } = data as Record<string, unknown>;
-  if (typeof name !== 'string' || !name.trim()) throw new Error(`SKILL.md 缺少字符串 name：${file}`);
-  if (typeof description !== 'string' || !description.trim()) {
-    throw new Error(`SKILL.md 缺少字符串 description：${file}`);
-  }
-  return { name: name.trim(), description: description.trim() };
-}
+export { readSkillFrontmatter, type SkillFrontmatter } from './skill-meta.ts';
 
 function assertHarnessRoot(target: SyncTarget, root: string): void {
   if (!existsSync(root)) {

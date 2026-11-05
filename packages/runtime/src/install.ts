@@ -21,6 +21,7 @@ import type { Plan, PlanAction } from '@packhub/kernel';
 import { canonicalize, deepMerge, diffActions, isPlainObject, sha256 } from '@packhub/kernel';
 import { download, resolvePypiSdist } from './download.ts';
 import { isSafeArchiveEntry } from './pack.ts';
+import { generateOpenaiYaml, readSkillFrontmatter } from './skill-meta.ts';
 import { resolveToken } from './credentials.ts';
 
 export interface ApplyOptions {
@@ -281,6 +282,19 @@ export async function applyPlan(plan: Plan, opts: ApplyOptions): Promise<ApplyRe
   }
 
   const statePath = join(opts.root, STATE_FILE);
+  // codex 的技能选择器要求 agents/openai.yaml：源里没有就补一份，不执行任何包内代码
+  if (!opts.dryRun && plan.target === 'codex' && !outcomes.some((o) => o.status === 'failed')) {
+    try {
+      ensureCodexSkillYaml(opts.root, plan, written);
+    } catch (err) {
+      outcomes.push({
+        actionId: 'codex-skill#1',
+        op: 'write',
+        status: 'failed',
+        message: `openai.yaml 生成失败：${(err as Error).message}`,
+      });
+    }
+  }
   const failed = outcomes.some((o) => o.status === 'failed');
 
   // 失败不留半套：按本次快照把文件放回去，不写 state，也不留 generation
@@ -1614,4 +1628,23 @@ function findOwnershipConflicts(plan: Plan, key: string, root: string): string[]
     }
   }
   return out;
+}
+
+/** 给 codex 目标下的 skill 补 agents/openai.yaml；已有就尊重源内容。 */
+function ensureCodexSkillYaml(root: string, plan: Plan, written: string[]): void {
+  for (const action of plan.actions) {
+    if (action.op !== 'link.skill') continue;
+    const dir = within(root, action.to);
+    const file = join(dir, 'agents', 'openai.yaml');
+    if (existsSync(file)) continue;
+    let front;
+    try {
+      front = readSkillFrontmatter(dir);
+    } catch {
+      continue; // 不是标准 skill 的目录（比如用户手放的）不强行生成
+    }
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, generateOpenaiYaml(front), 'utf8');
+    written.push(`${action.to}/agents/openai.yaml`);
+  }
 }
