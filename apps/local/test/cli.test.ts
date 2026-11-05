@@ -49,6 +49,13 @@ describe('cli 端到端：add → verify → uninstall', () => {
     expect(verified.out).toContain('1 个包');
     expect(verified.out).toContain('0 项失败');
 
+    const verifiedJson = run(['verify', project, '--json']);
+    expect(verifiedJson.status).toBe(0);
+    const parsed = JSON.parse(
+      verifiedJson.out.slice(verifiedJson.out.indexOf('{'), verifiedJson.out.lastIndexOf('}') + 1),
+    ) as { installed: { pack: string }[] };
+    expect(parsed.installed[0]?.pack).toContain('lvlc233/team-conventions');
+
     expect(existsSync(join(project, '.packhub/packs/lvlc233/team-conventions/packhub.yaml'))).toBe(true);
     const removed = run(['uninstall', project]);
     expect(removed.status).toBe(0);

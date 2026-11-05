@@ -207,7 +207,7 @@
 |---|---|---|---|---|
 | CLI-01 | 单一入口 | `packhub --help` 列子命令 | [done] | `cli.ts` |
 | CLI-02 | 子命令覆盖 | plan/install/verify/lock/publish/sync 等可用 | [done] | `main` |
-| CLI-03 | JSON 输出 | plan/run/search/discover/doctor/versions/audit 有 `--json`；add/install/verify 仍人类文本 | [part] | — |
+| CLI-03 | JSON 输出 | plan/run/install/verify/rollback/uninstall/search/discover/doctor/versions/audit/market 有 `--json`；add/lock 仍人类文本 | [part] | — |
 | CLI-04 | 退出码 | 0 成功、1 失败、2 用法；但部分路径用 1 | [part] | 未统一 |
 | CLI-05 | 结构化编辑 | `init`、`resource add`、`slot swap` 保留注释 | [done] | `authoring.ts` |
 | CLI-06 | 搜索 | `discover` 搜资源目录/npm 并可直接写进清单；`search --all` 跨 registry | [done] | `discover`、`catalog.ts` |

@@ -131,6 +131,7 @@ const install = defineCommand({
     'allow-exec': { type: 'boolean', default: false },
     overwrite: { type: 'boolean', default: false, description: '允许覆盖别的包写过的文件' },
     target: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code | codex | server' },
+    json: { type: 'boolean', default: false, description: '输出结构化结果（脚本用）' },
   },
   async run({ args }) {
     const ctx = loadPack(String(args.dir));
@@ -150,16 +151,34 @@ const install = defineCommand({
       allowExec: Boolean(args['allow-exec']),
       overwrite: Boolean(args.overwrite),
     });
-    for (const o of result.outcomes) {
-      const mark = o.status === 'failed' ? 'x' : o.status === 'skipped' ? '-' : '✓';
-      console.log(`${mark} ${o.actionId.padEnd(16)} ${o.status.padEnd(14)} ${o.message ?? o.target ?? ''}`);
+    if (!args.json) {
+      for (const o of result.outcomes) {
+        const mark = o.status === 'failed' ? 'x' : o.status === 'skipped' ? '-' : '✓';
+        console.log(`${mark} ${o.actionId.padEnd(16)} ${o.status.padEnd(14)} ${o.message ?? o.target ?? ''}`);
+      }
     }
     if (result.outcomes.some((o) => o.status === 'failed')) {
-      if (result.rolledBack) console.error('\n有动作失败，已按快照回滚：磁盘回到安装前，state 未写入。');
+      if (args.json) {
+        console.log(
+          JSON.stringify(
+            { planHash: p.planHash, outcomes: result.outcomes, rolledBack: result.rolledBack ?? false },
+            null,
+            2,
+          ),
+        );
+      } else if (result.rolledBack) {
+        console.error('\n有动作失败，已按快照回滚：磁盘回到安装前，state 未写入。');
+      }
       process.exit(1);
     }
     if (!args['dry-run']) {
-      console.log(`\nstate: ${result.statePath}`);
+      if (args.json) {
+        console.log(
+          JSON.stringify({ planHash: p.planHash, outcomes: result.outcomes, statePath: result.statePath }, null, 2),
+        );
+      } else {
+        console.log(`\nstate: ${result.statePath}`);
+      }
       try {
         appendAudit({
           action: 'install',
@@ -182,6 +201,7 @@ const verify = defineCommand({
     dir: { type: 'positional', required: false, default: '.' },
     target: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code | codex | server' },
     pack: { type: 'string', description: '只验某个已装的包（name@version）' },
+    json: { type: 'boolean', default: false, description: '输出结构化结果（脚本用）' },
   },
   async run({ args }) {
     const dir = resolve(String(args.dir));
@@ -192,18 +212,33 @@ const verify = defineCommand({
       });
       let failed = 0;
       let skipped = 0;
-      for (const report of reports) {
-        console.log(`\n${report.pack}`);
-        console.log(`  planHash ${report.planHash}`);
-        for (const r of report.results) {
-          const mark = r.status === 'pass' ? '✓' : r.status === 'fail' ? 'x' : '-';
-          console.log(`  ${mark} [${r.index}] ${r.type.padEnd(18)} ${r.status.padEnd(8)} ${r.detail}`);
+      if (!args.json) {
+        for (const report of reports) {
+          console.log(`\n${report.pack}`);
+          console.log(`  planHash ${report.planHash}`);
+          for (const r of report.results) {
+            const mark = r.status === 'pass' ? '✓' : r.status === 'fail' ? 'x' : '-';
+            console.log(`  ${mark} [${r.index}] ${r.type.padEnd(18)} ${r.status.padEnd(8)} ${r.detail}`);
+          }
+          failed += report.results.filter((r) => r.status === 'fail').length;
+          skipped += report.results.filter((r) => r.status === 'skipped').length;
+          if (!report.ok) failed++;
         }
-        failed += report.results.filter((r) => r.status === 'fail').length;
-        skipped += report.results.filter((r) => r.status === 'skipped').length;
-        if (!report.ok) failed++;
+        console.log(`\n${reports.length} 个包：${failed} 项失败 / ${skipped} 项跳过`);
+      } else {
+        for (const report of reports) {
+          failed += report.results.filter((r) => r.status === 'fail').length;
+          skipped += report.results.filter((r) => r.status === 'skipped').length;
+          if (!report.ok) failed++;
+        }
+        console.log(
+          JSON.stringify(
+            { installed: reports, results: reports.flatMap((r) => r.results), failed, skipped },
+            null,
+            2,
+          ),
+        );
       }
-      console.log(`\n${reports.length} 个包：${failed} 项失败 / ${skipped} 项跳过`);
       if (failed) process.exit(1);
       return;
     }
@@ -216,13 +251,17 @@ const verify = defineCommand({
       process.exit(2);
     }
     const results = await verifyPack(ctx.dir, p);
-    for (const r of results) {
-      const mark = r.status === 'pass' ? '✓' : r.status === 'fail' ? 'x' : '-';
-      console.log(`${mark} [${r.index}] ${r.type.padEnd(18)} ${r.status.padEnd(8)} ${r.detail}`);
-    }
     const failed = results.filter((r) => r.status === 'fail').length;
     const skipped = results.filter((r) => r.status === 'skipped').length;
-    console.log(`\n${results.length} 项：${results.length - failed - skipped} 通过 / ${failed} 失败 / ${skipped} 跳过`);
+    if (args.json) {
+      console.log(JSON.stringify({ planHash: p.planHash, results, failed, skipped }, null, 2));
+    } else {
+      for (const r of results) {
+        const mark = r.status === 'pass' ? '✓' : r.status === 'fail' ? 'x' : '-';
+        console.log(`${mark} [${r.index}] ${r.type.padEnd(18)} ${r.status.padEnd(8)} ${r.detail}`);
+      }
+      console.log(`\n${results.length} 项：${results.length - failed - skipped} 通过 / ${failed} 失败 / ${skipped} 跳过`);
+    }
     if (failed) process.exit(1);
   },
 });
@@ -719,10 +758,15 @@ const rollback = defineCommand({
   args: {
     dir: { type: 'positional', required: false, default: '.' },
     generation: { type: 'string', description: '指定 generation（默认最近一次）' },
+    json: { type: 'boolean', default: false },
   },
   run({ args }) {
     const dir = resolve(String(args.dir));
     const res = rollbackPack(dir, args.generation ? String(args.generation) : undefined);
+    if (args.json) {
+      console.log(JSON.stringify(res, null, 2));
+      return;
+    }
     console.log(`回退 ${res.generation}`);
     for (const r of res.restored) console.log(`  ↩ ${r}`);
     for (const r of res.removed) console.log(`  × ${r}`);
@@ -1437,11 +1481,16 @@ const uninstall = defineCommand({
   args: {
     dir: { type: 'positional', required: false, default: '.' },
     pack: { type: 'string', description: '只卸载这个包（name@version）' },
+    json: { type: 'boolean', default: false },
   },
   run({ args }) {
     const dir = resolve(String(args.dir));
     const key = args.pack ? String(args.pack) : undefined;
     const res = removePack(dir, key);
+    if (args.json) {
+      console.log(JSON.stringify(res, null, 2));
+      return;
+    }
     if (res.removed.length === 0 && res.kept.length === 0) {
       console.log('没有可卸载的记录（state 里没有这个包）');
       return;
