@@ -6,7 +6,7 @@ import { loadPack, planFor, type Plan } from '@packhub/kernel';
 import { applyPlan, loadState, removePack, type ActionOutcome } from './install.ts';
 import { doctorPack, type DoctorReport } from './doctor.ts';
 
-export type SyncTarget = 'dsh' | 'codex';
+export type SyncTarget = 'dsh' | 'codex' | 'claude-code';
 
 export interface SyncOptions {
   targets: SyncTarget[];
@@ -37,24 +37,30 @@ export interface GlobalDoctorResult {
 
 /** 全局 harness 的落点：优先环境变量，测试与多环境都靠它隔离。 */
 export function harnessRoot(target: SyncTarget): string {
-  const env = target === 'dsh' ? process.env.PACKHUB_DSH_HOME : process.env.PACKHUB_CODEX_HOME;
-  return env ? resolve(env) : join(homedir(), target === 'dsh' ? '.dsh' : '.codex');
+  const env =
+    target === 'dsh'
+      ? process.env.PACKHUB_DSH_HOME
+      : target === 'codex'
+        ? process.env.PACKHUB_CODEX_HOME
+        : process.env.PACKHUB_CLAUDE_HOME;
+  if (env) return resolve(env);
+  return join(homedir(), target === 'dsh' ? '.dsh' : target === 'codex' ? '.codex' : '.claude');
 }
 
 /**
  * 全局同步的路径表：root 是 harness home，skills 直接落在它的 skills/ 下。
- * 不写 instructionFile——全局 AGENTS.md 不归这个命令管。
+ * codex 的 MCP 配置是 TOML；其余 harness 暂只同步 skills 与指令块。
  */
-export function globalTargetVars(): Record<string, string> {
+export function globalTargetVars(target: SyncTarget = 'dsh'): Record<string, string> {
   return {
     root: '.packhub',
     cacheDir: '.packhub/cache',
     skillsDir: 'skills',
     knowledgeDir: 'knowledge',
     promptsDir: 'prompts',
-    configFile: 'config.json',
-    // 空字符串让 buildPlan 不追加 instruction：全局 AGENTS.md 不归 sync 管
-    instructionFile: '',
+    binDir: 'bin',
+    configFile: target === 'codex' ? 'config.toml' : '.packhub/config.json',
+    instructionFile: target === 'claude-code' ? 'CLAUDE.md' : 'AGENTS.md',
   };
 }
 
@@ -87,9 +93,13 @@ export function readSkillFrontmatter(skillDir: string): SkillFrontmatter {
 
 function assertHarnessRoot(target: SyncTarget, root: string): void {
   if (!existsSync(root)) {
-    throw new Error(
-      `${target} 的 home 不存在：${root}${target === 'codex' ? '（先安装 Codex，或设 PACKHUB_CODEX_HOME）' : '（先安装 DSH，或设 PACKHUB_DSH_HOME）'}`,
-    );
+    const hint =
+      target === 'codex'
+        ? '（先安装 Codex，或设 PACKHUB_CODEX_HOME）'
+        : target === 'claude-code'
+          ? '（先安装 Claude Code，或设 PACKHUB_CLAUDE_HOME）'
+          : '（先安装 DSH，或设 PACKHUB_DSH_HOME）';
+    throw new Error(`${target} 的 home 不存在：${root}${hint}`);
   }
   if (!statSync(root).isDirectory()) throw new Error(`${target} 的 home 不是目录：${root}`);
 }
@@ -108,12 +118,20 @@ export async function syncPack(
   if (errors.length) throw new Error(`清单有错：${errors.map((e) => e.message).join('; ')}`);
 
   const resources = ctx.manifest.resources ?? [];
-  if (!resources.some((r) => r.type === 'skill')) throw new Error('这个 Pack 没有 skill 资源');
-  const others = resources.filter((r) => r.type !== 'skill');
+  if (resources.length === 0) throw new Error('这个 Pack 没有可同步的资源');
+  const others = resources.filter((r) => r.type !== 'skill' && r.type !== 'mcp');
   if (others.length) {
     throw new Error(
-      `全局同步目前只支持 skill，拒绝这些资源：${others.map((r) => `${r.id}(${r.type})`).join(', ')}`,
+      `全局同步只支持 skill 与 mcp，拒绝这些资源：${others.map((r) => `${r.id}(${r.type})`).join(', ')}`,
     );
+  }
+  const mcp = resources.filter((r) => r.type === 'mcp');
+  for (const target of opts.targets) {
+    if (mcp.length > 0 && target !== 'codex') {
+      throw new Error(
+        `${target}: 全局 MCP 目前只支持 codex（写 ~/.codex/config.toml）；${mcp.map((r) => r.id).join(', ')} 需要项目级安装`,
+      );
+    }
   }
   if (ctx.manifest.install?.exec?.length) {
     throw new Error('全局同步不会执行 install.exec');
@@ -125,7 +143,7 @@ export async function syncPack(
     throw new Error('全局同步不支持 composition.env（会写 harness 的配置文件）');
   }
 
-  for (const r of resources) {
+  for (const r of resources.filter((x) => x.type === 'skill')) {
     if (!r.source.startsWith('./')) throw new Error(`全局同步要求本地 skill 源：${r.id} 是 ${r.source}`);
     readSkillFrontmatter(resolve(dir, r.source));
   }
@@ -149,12 +167,26 @@ export async function syncPack(
         );
       }
     }
+    if (target === 'codex' && mcp.length > 0) {
+      const configFile = join(root, 'config.toml');
+      if (existsSync(configFile)) {
+        const text = readFileSync(configFile, 'utf8');
+        const ownsConfig = Object.entries(state.packs).some(
+          ([key, rec]) => key.startsWith(`${ctx.manifest.metadata.name}@`) && rec.written.includes('config.toml'),
+        );
+        for (const r of mcp) {
+          if (new RegExp(`\\[mcp_servers\\.${r.id}\\]`).test(text) && !ownsConfig && !opts.overwrite) {
+            throw new Error(`${target}: config.toml 里已经有 [mcp_servers.${r.id}]，不是这个包装的；确认后加 --overwrite`);
+          }
+        }
+      }
+    }
   }
 
   const results: SyncTargetResult[] = [];
   for (const target of opts.targets) {
     const root = harnessRoot(target);
-    const { plan } = planFor(ctx, { target, targetVars: globalTargetVars() });
+    const { plan } = planFor(ctx, { target, targetVars: globalTargetVars(target) });
     if (!plan) throw new Error(`${target}: 生成不了计划`);
     if (opts.dryRun) {
       results.push({ target, root, planHash: plan.planHash });

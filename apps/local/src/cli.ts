@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+﻿import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { defineCommand, type CommandDef } from 'citty';
@@ -817,7 +817,7 @@ const sync = defineCommand({
   meta: { name: 'sync', description: '把 skill-only Pack 同步到 harness 的全局 skills/（dsh / codex）' },
   args: {
     dir: { type: 'positional', required: true, description: 'Pack 目录' },
-    to: { type: 'string', required: true, description: '目标，逗号分隔：dsh,codex' },
+    to: { type: 'string', required: true, description: '目标，逗号分隔：dsh,codex,claude-code' },
     'dry-run': { type: 'boolean', default: false },
     remove: { type: 'boolean', default: false, description: '从目标 harness 移除这个包' },
     overwrite: { type: 'boolean', default: false, description: '允许覆盖别的包占用的 skill 目录' },
@@ -827,7 +827,7 @@ const sync = defineCommand({
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
-    if (targets.length === 0 || targets.some((t) => t !== 'dsh' && t !== 'codex')) {
+    if (targets.length === 0 || targets.some((t) => t !== 'dsh' && t !== 'codex' && t !== 'claude-code')) {
       console.error(`--to 只接受 dsh / codex：${targets.join(',')}`);
       process.exit(2);
     }
@@ -999,7 +999,7 @@ const doctor = defineCommand({
       const targets = String(args.targets)
         .split(',')
         .map((s) => s.trim())
-        .filter((t) => t === 'dsh' || t === 'codex') as SyncTarget[];
+        .filter((t) => t === 'dsh' || t === 'codex' || t === 'claude-code') as SyncTarget[];
       const results = doctorGlobal(targets);
       if (args.json) {
         console.log(JSON.stringify(results, null, 2));

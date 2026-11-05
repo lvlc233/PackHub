@@ -206,7 +206,7 @@ async function handleApi(
   }
 
   if (url.pathname === '/api/harness' && req.method === 'GET') {
-    const reports = doctorGlobal(['dsh', 'codex']);
+    const reports = doctorGlobal(['dsh', 'codex', 'claude-code']);
     return sendJson(res, 200, {
       targets: reports.map((r) => ({
         target: r.target,
@@ -222,7 +222,7 @@ async function handleApi(
     const body = await readBody(req);
     const targets = (Array.isArray(body.to) ? body.to : ['dsh', 'codex'])
       .map(String)
-      .filter((t): t is SyncTarget => t === 'dsh' || t === 'codex');
+      .filter((t): t is SyncTarget => t === 'dsh' || t === 'codex' || t === 'claude-code');
     if (targets.length === 0) return sendJson(res, 400, { error: '至少选一个 harness' });
     try {
       const result = await syncPack(dir, {
@@ -240,7 +240,7 @@ async function handleApi(
     const body = await readBody(req);
     const targets = (Array.isArray(body.to) ? body.to : ['dsh', 'codex'])
       .map(String)
-      .filter((t): t is SyncTarget => t === 'dsh' || t === 'codex');
+      .filter((t): t is SyncTarget => t === 'dsh' || t === 'codex' || t === 'claude-code');
     if (targets.length === 0) return sendJson(res, 400, { error: '至少选一个 harness' });
     try {
       return sendJson(res, 200, { results: removeSynced(dir, targets) });

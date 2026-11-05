@@ -60,9 +60,12 @@ describe('全局 harness 同步', () => {
     expect(existsSync(join(dsh, '.packhub/state.json'))).toBe(true);
     expect(existsSync(join(codex, '.packhub/state.json'))).toBe(true);
     expect(doctorGlobal(['dsh', 'codex']).every((r) => r.report?.ok)).toBe(true);
-    // 全局同步不碰 AGENTS.md
-    expect(existsSync(join(dsh, 'AGENTS.md'))).toBe(false);
-    expect(existsSync(join(codex, 'AGENTS.md'))).toBe(false);
+    // 指令面写进各自 home 的 AGENTS.md 托管块
+    for (const home of [dsh, codex]) {
+      const agents = readFileSync(join(home, 'AGENTS.md'), 'utf8');
+      expect(agents).toContain('<!-- packhub:begin demo/sync -->');
+      expect(agents).toContain('hello');
+    }
   });
 
   it('SKILL.md 带 BOM 也能读', async () => {
@@ -90,6 +93,9 @@ describe('全局 harness 同步', () => {
     expect(removed.every((r) => r.packs.length === 1)).toBe(true);
     expect(existsSync(join(dsh, 'skills/hello'))).toBe(false);
     expect(existsSync(join(codex, 'skills/hello'))).toBe(false);
+    // 托管块也只摘自己这一段；块外没内容时文件被删掉
+    expect(existsSync(join(dsh, 'AGENTS.md'))).toBe(false);
+    expect(existsSync(join(codex, 'AGENTS.md'))).toBe(false);
   });
 
   it('frontmatter 不合法时拒绝，不写盘', async () => {
@@ -131,6 +137,39 @@ describe('全局 harness 同步', () => {
     const src = pack();
     await expect(syncPack(src, { targets: ['dsh', 'codex'] })).rejects.toThrow(/home 不存在/);
     expect(existsSync(join(dsh, 'skills'))).toBe(false);
+  });
+
+  it('codex 的全局 MCP 写进 config.toml 托管块，移除时摘掉', async () => {
+    const { codex } = homes();
+    const src = temp('packhub-sync-mcp-');
+    writeFileSync(
+      join(src, 'packhub.yaml'),
+      `apiVersion: packhub.dev/v0
+kind: Pack
+metadata: { name: demo/mcp, version: 0.1.0, targets: [codex] }
+requires: { packhub: ">=0.0.1 <0.1" }
+resources:
+  - id: search
+    type: mcp
+    source: npm:@scope/search@1.4.0
+    transport: stdio
+    config: { args: ["-y", "@scope/search@1.4.0"] }
+`,
+      'utf8',
+    );
+    await syncPack(src, { targets: ['codex'] });
+    const toml = readFileSync(join(codex, 'config.toml'), 'utf8');
+    expect(toml).toContain('[mcp_servers.search]');
+    expect(toml).toContain('npx');
+    expect(toml).toContain('# packhub:end mcp search');
+
+    // dsh 没有全局 MCP adapter：明确拒绝，不写半套
+    process.env.PACKHUB_DSH_HOME = temp('packhub-dsh-');
+    await expect(syncPack(src, { targets: ['dsh'] })).rejects.toThrow(/只支持 codex/);
+
+    removeSynced(src, ['codex']);
+    const after = existsSync(join(codex, 'config.toml')) ? readFileSync(join(codex, 'config.toml'), 'utf8') : '';
+    expect(after).not.toContain('[mcp_servers.search]');
   });
 
   it('harness home 不存在时明确报错', async () => {

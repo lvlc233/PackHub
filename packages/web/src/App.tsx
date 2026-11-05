@@ -112,8 +112,11 @@ export function App() {
   const issues = (detail?.issues ?? []).filter((i) => i.severity === 'error');
   const installedKey = manifest ? `${manifest.metadata.name}@${manifest.metadata.version}` : '';
   const installed = installedKey ? detail?.state?.[installedKey] : undefined;
+  const hasMcp = !!manifest && manifest.resources.some((r) => r.type === 'mcp');
   const canSync =
-    !!manifest && manifest.resources.length > 0 && manifest.resources.every((r) => r.type === 'skill');
+    !!manifest &&
+    manifest.resources.length > 0 &&
+    manifest.resources.every((r) => r.type === 'skill' || r.type === 'mcp');
 
   const statusOf = useMemo(() => {
     const map = new Map<string, InstallOutcome>();
@@ -428,12 +431,14 @@ export function App() {
                   </div>
                   {!canSync ? (
                     <p className="hint">
-                      这个包包含非 skill 资源。全局同步只接受 skill-only Pack；MCP / 配置 / 知识请用
-                      target 安装。
+                      这个包包含不能全局同步的资源。支持 skill（全部 harness）与 mcp（仅 codex）；配置 /
+                      知识 / 工具请用 target 安装。
                     </p>
                   ) : (
                     <>
-                      <p className="hint">只写 skills/；不碰全局 AGENTS.md 与 MCP 配置。</p>
+                      <p className="hint">
+                        写 skills/ 与各 home 的 AGENTS.md 托管块；mcp 只写 codex 的 config.toml。
+                      </p>
                       <div className="harness-targets">
                         {harness.length === 0 && <p className="hint">读取 harness 状态…</p>}
                         {harness.map((h) => (
@@ -441,7 +446,7 @@ export function App() {
                             <input
                               type="checkbox"
                               checked={syncTargets.includes(h.target)}
-                              disabled={!h.ok || syncBusy}
+                              disabled={!h.ok || syncBusy || (hasMcp && h.target !== 'codex')}
                               onChange={(e) =>
                                 setSyncTargets((prev) =>
                                   e.target.checked
@@ -462,7 +467,7 @@ export function App() {
                       </div>
                       {harness.some((h) => !h.ok) && (
                         <p className="hint">
-                          不可用的 harness 目录不存在；装好宿主，或用 PACKHUB_DSH_HOME / PACKHUB_CODEX_HOME。
+                          不可用的 harness 目录不存在；装好宿主，或用 PACKHUB_DSH_HOME / PACKHUB_CODEX_HOME / PACKHUB_CLAUDE_HOME。
                         </p>
                       )}
                       <div className="harness-actions">

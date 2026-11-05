@@ -671,6 +671,13 @@ function deactivatePlan(
   for (const { path: rel, resource } of servers) {
     const abs = within(root, rel);
     if (!existsSync(abs)) continue;
+    if (/\.toml$/i.test(rel)) {
+      const text = stripMcpToml(readFileSync(abs, 'utf8'), resource);
+      if (text.trim() === '') rmSync(abs, { force: true });
+      else writeFileSync(abs, text, 'utf8');
+      removed.push(rel);
+      continue;
+    }
     const data = JSON.parse(readFileSync(abs, 'utf8')) as Record<string, unknown>;
     const list = { ...(data.mcpServers as Record<string, unknown> | undefined) };
     delete list[resource];
@@ -801,6 +808,14 @@ export function removePack(root: string, packKey?: string): RemoveResult {
         // 配置文件是共享的：先按 merge 的 undo 还原键，再摘掉自己登记的 server 条目，不整文件删
         const regs = record.actions.filter((a) => a.op === 'register.mcp' && a.target === rel && a.resource);
         const undos = record.actions.filter((a) => a.op === 'merge.config' && a.target === rel && a.undo);
+        if (regs.length > 0 && /\.toml$/i.test(rel)) {
+          let text = readFileSync(abs, 'utf8');
+          for (const a of regs) text = stripMcpToml(text, a.resource as string);
+          if (text.trim() === '') rmSync(abs, { force: true });
+          else writeFileSync(abs, text, 'utf8');
+          removed.push(rel);
+          continue;
+        }
         if ((regs.length > 0 || undos.length > 0) && /\.json$/i.test(rel)) {
           const data = JSON.parse(readFileSync(abs, 'utf8')) as Record<string, unknown>;
           for (const a of undos) {
@@ -1042,6 +1057,33 @@ async function applyAction(
     case 'register.mcp': {
       const path = action.path ?? '.packhub/config.json';
       const to = within(opts.root, path);
+      // codex 的全局 MCP 配置是 TOML：用带标记的托管块，卸载时按 id 摘掉
+      if (/\.toml$/i.test(path)) {
+        const before = existsSync(to) ? readFileSync(to, 'utf8') : '';
+        const next = upsertMcpToml(before, action.resource ?? 'mcp', action.spec);
+        if (before === next) {
+          return {
+            actionId: action.actionId,
+            op: action.op,
+            status: 'noop',
+            target: path,
+            resource: action.resource ?? 'mcp',
+          };
+        }
+        if (!opts.dryRun) {
+          mkdirSync(dirname(to), { recursive: true });
+          if (before) backup(opts.root, path, before);
+          writeFileSync(to, next, 'utf8');
+          if (!written.includes(path)) written.push(path);
+        }
+        return {
+          actionId: action.actionId,
+          op: action.op,
+          status: 'done',
+          target: path,
+          resource: action.resource ?? 'mcp',
+        };
+      }
       const current = (existsSync(to) ? readStructured(to) : {}) as Record<string, unknown>;
       const servers = { ...(current.mcpServers as Record<string, unknown> | undefined) } as Record<string, unknown>;
       const key = action.resource ?? 'mcp';
@@ -1265,6 +1307,54 @@ function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/* ---------- TOML 托管块（codex 的 config.toml） ---------- */
+
+function tomlValue(value: unknown): string | undefined {
+  if (typeof value === 'string') return JSON.stringify(value);
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) {
+    const items = value.map((v) => tomlValue(v)).filter((v): v is string => v !== undefined);
+    return `[${items.join(', ')}]`;
+  }
+  if (isPlainObject(value)) {
+    const pairs = Object.entries(value as Record<string, unknown>)
+      .map(([k, v]) => {
+        const encoded = tomlValue(v);
+        return encoded === undefined ? undefined : `${k} = ${encoded}`;
+      })
+      .filter((v): v is string => Boolean(v));
+    return `{ ${pairs.join(', ')} }`;
+  }
+  return undefined;
+}
+
+function mcpTomlBlock(id: string, spec: Record<string, unknown>): string {
+  const lines = [`# packhub:begin mcp ${id}`, `[mcp_servers.${id}]`];
+  for (const [key, value] of Object.entries(spec)) {
+    const encoded = tomlValue(value);
+    if (encoded !== undefined) lines.push(`${key} = ${encoded}`);
+  }
+  lines.push(`# packhub:end mcp ${id}`);
+  return lines.join('\n');
+}
+
+function upsertMcpToml(text: string, id: string, spec: Record<string, unknown>): string {
+  const begin = `# packhub:begin mcp ${id}`;
+  const end = `# packhub:end mcp ${id}`;
+  const block = mcpTomlBlock(id, spec);
+  const re = new RegExp(`${escapeRe(begin)}[\\s\\S]*?${escapeRe(end)}`, 'm');
+  if (re.test(text)) return text.replace(re, block);
+  const trimmed = text.trimEnd();
+  return trimmed ? `${trimmed}\n\n${block}\n` : `${block}\n`;
+}
+
+function stripMcpToml(text: string, id: string): string {
+  const begin = `# packhub:begin mcp ${id}`;
+  const end = `# packhub:end mcp ${id}`;
+  const re = new RegExp(`\\n*${escapeRe(begin)}[\\s\\S]*?${escapeRe(end)}\\n*`, 'm');
+  return text.replace(re, '\n').replace(/\n{3,}/g, '\n\n').trimEnd() + (text.trim() ? '\n' : '');
+}
+
 /** 对象的所有叶子路径；数组当一个叶子整体处理。 */
 export function leafPaths(value: unknown, base: string[] = []): string[][] {
   if (isPlainObject(value) && Object.keys(value as object).length > 0) {
@@ -1322,7 +1412,7 @@ export function pruneEmpty(value: unknown): Record<string, unknown> {
 
 /** 共享路径：配置文件（多个包合并）与根目录的指令文件（托管块各写各的）。 */
 function isSharedPath(rel: string): boolean {
-  if (/\.(json|jsonc)$/i.test(rel)) return true;
+  if (/\.(json|jsonc|toml)$/i.test(rel)) return true;
   return !rel.includes('/') && /\.md$/i.test(rel);
 }
 
@@ -1422,6 +1512,14 @@ export function pruneRemoved(
       const path = action.path ?? '.packhub/config.json';
       const abs = within(root, path);
       if (!existsSync(abs)) continue;
+      if (/\.toml$/i.test(path)) {
+        let text = readFileSync(abs, 'utf8');
+        text = stripMcpToml(text, server);
+        if (text.trim() === '') rmSync(abs, { force: true });
+        else writeFileSync(abs, text, 'utf8');
+        removed.push(path);
+        continue;
+      }
       const data = JSON.parse(readFileSync(abs, 'utf8')) as Record<string, unknown>;
       const servers = { ...(data.mcpServers as Record<string, unknown> | undefined) };
       delete servers[server];
