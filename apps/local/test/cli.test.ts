@@ -35,6 +35,20 @@ describe('cli 端到端：add → verify → uninstall', () => {
     expect(added.out).toContain('装上');
     expect(existsSync(join(project, '.packhub/knowledge/style-guide.md'))).toBe(true);
 
+    const jsonProject = mkdtempSync(join(tmpdir(), 'packhub-cli-addjson-'));
+    const addedJson = run(
+      ['add', 'lvlc233/team-conventions', '--dir', jsonProject, '--json'],
+      { PACKHUB_INDEX: index },
+    );
+    expect(addedJson.status).toBe(0);
+    const addedBody = JSON.parse(
+      addedJson.out.slice(addedJson.out.indexOf('{'), addedJson.out.lastIndexOf('}') + 1),
+    ) as { installed: boolean; label: string; verification?: unknown[] };
+    expect(addedBody.installed).toBe(true);
+    expect(addedBody.label).toContain('lvlc233/team-conventions');
+    expect(addedBody.verification?.length).toBe(1);
+    rmSync(jsonProject, { recursive: true, force: true });
+
     // packhub:// 与 registry 名称等价，是消费端的规范引用写法
     const second = mkdtempSync(join(tmpdir(), 'packhub-cli-phub-'));
     const viaScheme = run(['add', 'packhub://lvlc233/team-conventions@0.0.1', '--dir', second], {

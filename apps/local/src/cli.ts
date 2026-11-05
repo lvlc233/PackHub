@@ -522,9 +522,11 @@ const add = defineCommand({
     'no-verify': { type: 'boolean', default: false, description: '装完不跑 verify 检查' },
     'deep-verify': { type: 'boolean', default: false, description: '安装后也跑 command / mcp-ready（会执行包里的命令）' },
     trusted: { type: 'string', description: '信任的公钥 id 列表文件（每行一个）' },
+    json: { type: 'boolean', default: false, description: '输出结构化结果（脚本用）' },
   },
   async run({ args }) {
     const projectDir = resolve(String(args.dir));
+    const say = args.json ? (_line: string): void => {} : (line: string): void => console.log(line);
     const target = String(args.source);
     const targetEnv = String(args.target);
     // packhub://scope/name@version 是 registry 引用的规范写法，与 scope/name + --version 等价
@@ -554,7 +556,7 @@ const add = defineCommand({
         .replace(/^-+|-+$/g, '')
         .slice(-48);
       packDir = join(workBase, '.packhub/packs', slug);
-      console.log(`→ 取 ${target} …`);
+      say(`→ 取 ${target} …`);
       const resolved = await resolveAddSource(target, packDir);
       packDir = resolved.dir;
       label = resolved.label;
@@ -567,7 +569,7 @@ const add = defineCommand({
         process.exit(2);
       }
       packDir = join(workBase, '.packhub/packs', registryName);
-      console.log(`→ 取 ${registryName}${registryVersion ? `@${registryVersion}` : ''} …`);
+      say(`→ 取 ${registryName}${registryVersion ? `@${registryVersion}` : ''} …`);
       const fetched = await fetchPack({
         name: registryName,
         index: indexRef,
@@ -634,9 +636,9 @@ const add = defineCommand({
       process.exit(2);
     }
     if (inspection.signatures.length > 0) {
-      console.log(`签名 ${goodSignatures}/${inspection.signatures.length} 有效${trusted ? `，信任列表内 ${trustedSignatures} 个` : ''}`);
+      say(`签名 ${goodSignatures}/${inspection.signatures.length} 有效${trusted ? `，信任列表内 ${trustedSignatures} 个` : ''}`);
     } else if (!policy.require) {
-      console.log('这个包没有签名（未配置信任列表，按开发者模式继续）');
+      say('这个包没有签名（未配置信任列表，按开发者模式继续）');
     }
 
     // 项目根的 .packhub/local.yaml 只改这次安装：覆盖 pin、绑定、路径与环境变量
@@ -655,7 +657,7 @@ const add = defineCommand({
         graph: validated.graph,
         issues: [...ctx.issues, ...localIssues],
       };
-      console.log('已应用 .packhub/local.yaml 覆盖');
+      say('已应用 .packhub/local.yaml 覆盖');
     }
 
     const { plan, issues } = planFor(ctx, { target: targetEnv as never });
@@ -665,7 +667,8 @@ const add = defineCommand({
     }
 
     if (args['dry-run']) {
-      printPlan(plan);
+      if (args.json) console.log(JSON.stringify({ label, dryRun: true, plan }, null, 2));
+      else printPlan(plan);
       rmSync(workBase, { recursive: true, force: true });
       return;
     }
@@ -677,13 +680,23 @@ const add = defineCommand({
     });
     for (const o of result.outcomes) {
       const mark = o.status === 'failed' ? 'x' : o.status === 'skipped' ? '-' : '✓';
-      console.log(`${mark} ${o.actionId.padEnd(16)} ${o.status.padEnd(10)} ${o.message ?? o.target ?? ''}`);
+      say(`${mark} ${o.actionId.padEnd(16)} ${o.status.padEnd(10)} ${o.message ?? o.target ?? ''}`);
     }
     if (result.outcomes.some((o) => o.status === 'failed')) {
-      if (result.rolledBack) console.error('\n有动作失败，已按快照回滚：磁盘回到安装前，state 未写入。');
+      if (args.json) {
+        console.log(
+          JSON.stringify(
+            { label, planHash: plan.planHash, outcomes: result.outcomes, rolledBack: result.rolledBack ?? false },
+            null,
+            2,
+          ),
+        );
+      } else if (result.rolledBack) {
+        console.error('\n有动作失败，已按快照回滚：磁盘回到安装前，state 未写入。');
+      }
       process.exit(1);
     }
-    console.log(`\n装上 ${label} → ${projectDir}`);
+    say(`\n装上 ${label} → ${projectDir}`);
     try {
       appendAudit({
         action: 'add',
@@ -698,23 +711,50 @@ const add = defineCommand({
     }
 
     // 装完立刻复核：否则「装上了」和「能用」之间又断了一层
+    let reports: Awaited<ReturnType<typeof verifyInstalled>> | undefined;
     if (!args['no-verify']) {
       const key = `${ctx.manifest.metadata.name}@${ctx.manifest.metadata.version}`;
-      const reports = await verifyInstalled(projectDir, {
+      reports = await verifyInstalled(projectDir, {
         pack: key,
         ...(args['deep-verify'] ? {} : { types: [...SAFE_CHECKS] }),
       });
       for (const r of reports) {
-        console.log(`\n校验 ${r.pack}：${r.ok ? '通过' : '未通过'}`);
+        say(`\n校验 ${r.pack}：${r.ok ? '通过' : '未通过'}`);
         for (const c of r.results) {
           const mark = c.status === 'pass' ? '✓' : c.status === 'fail' ? 'x' : '-';
-          console.log(`  ${mark} [${c.index}] ${c.type.padEnd(18)} ${c.status.padEnd(8)} ${c.detail}`);
+          say(`  ${mark} [${c.index}] ${c.type.padEnd(18)} ${c.status.padEnd(8)} ${c.detail}`);
         }
       }
       if (!reports.every((r) => r.ok)) {
-        console.error('装上了，但有校验没过；先修清单里的 verify 或确认环境。');
+        if (args.json) {
+          console.log(
+            JSON.stringify(
+              { label, planHash: plan.planHash, outcomes: result.outcomes, installed: false, verification: reports },
+              null,
+              2,
+            ),
+          );
+        } else {
+          console.error('装上了，但有校验没过；先修清单里的 verify 或确认环境。');
+        }
         process.exit(1);
       }
+    }
+    if (args.json) {
+      console.log(
+        JSON.stringify(
+          {
+            label,
+            pack: `${ctx.manifest.metadata.name}@${ctx.manifest.metadata.version}`,
+            planHash: plan.planHash,
+            outcomes: result.outcomes,
+            installed: true,
+            ...(reports ? { verification: reports } : {}),
+          },
+          null,
+          2,
+        ),
+      );
     }
   },
 });
