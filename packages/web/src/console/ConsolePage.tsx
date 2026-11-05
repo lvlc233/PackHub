@@ -911,6 +911,77 @@ export function ConsolePage() {
     });
   };
 
+  const slotDefs = safeJson<Record<string, { contract?: string[]; note?: string }>>(advanced.slots, {});
+  const bindingDefs = safeJson<Record<string, string>>(advanced.bindings, {});
+  const slotNames = [
+    ...new Set([
+      ...Object.keys(slotDefs),
+      ...resources.map((r) => r.slot).filter((s): s is string => Boolean(s)),
+    ]),
+  ];
+  const verifyList = safeJson<{ type: string }[]>(advanced.verify, []);
+  const execList = safeJson<{ command?: string }[]>(advanced.exec, []);
+
+  const updateSlot = (slot: string, patch: { contract?: string[] }): void => {
+    const next = { ...slotDefs, [slot]: { ...slotDefs[slot], ...patch } };
+    setAdvanced({ ...advanced, slots: JSON.stringify(next, null, 2) });
+  };
+  const updateBinding = (slot: string, id: string): void => {
+    const next = { ...bindingDefs };
+    if (id) next[slot] = id;
+    else delete next[slot];
+    setAdvanced({ ...advanced, bindings: JSON.stringify(next, null, 2) });
+  };
+  const addSlot = (): void => {
+    const name = window.prompt('槽位名（小写字母开头，只含小写字母/数字/连字符）')?.trim();
+    if (!name) return;
+    if (!/^[a-z][a-z0-9-]*$/.test(name)) {
+      setDelivery({ kind: 'error', text: `槽位名不合法：${name}` });
+      return;
+    }
+    updateSlot(name, { contract: slotDefs[name]?.contract ?? [] });
+  };
+  const removeSlot = (slot: string): void => {
+    const next = { ...slotDefs };
+    delete next[slot];
+    const nextBindings = { ...bindingDefs };
+    delete nextBindings[slot];
+    setAdvanced({
+      ...advanced,
+      slots: JSON.stringify(next, null, 2),
+      bindings: JSON.stringify(nextBindings, null, 2),
+    });
+  };
+  const addCheck = (type: string): void => {
+    const sample: Record<string, unknown> =
+      type === 'file-exists'
+        ? { type, path: '.packhub/knowledge/example.md' }
+        : type === 'config-key'
+          ? { type, path: '.packhub/config.json', key: 'app.flavor', equals: 'a' }
+          : type === 'command'
+            ? { type, run: ['node', '--version'], expectExit: 0 }
+            : { type, run: ['node', '-e', 'console.log("ok")'], expectExit: 0, expectOutput: 'ok' };
+    setAdvanced({ ...advanced, verify: JSON.stringify([...verifyList, sample], null, 2) });
+  };
+  const removeCheck = (index: number): void => {
+    setAdvanced({
+      ...advanced,
+      verify: JSON.stringify(verifyList.filter((_, i) => i !== index), null, 2),
+    });
+  };
+  const addExec = (): void => {
+    setAdvanced({
+      ...advanced,
+      exec: JSON.stringify([...execList, { command: 'node', args: ['--version'] }], null, 2),
+    });
+  };
+  const removeExec = (index: number): void => {
+    setAdvanced({
+      ...advanced,
+      exec: JSON.stringify(execList.filter((_, i) => i !== index), null, 2),
+    });
+  };
+
   const copyHash = (): void => {
     if (!plan) return;
     void navigator.clipboard?.writeText(plan.planHash);
@@ -1461,9 +1532,47 @@ export function ConsolePage() {
 
           <details className="cs-adv" id="adv-slots">
             <summary>slots / bindings（槽位与绑定）</summary>
+            <div className="cs-slotlist">
+              <div className="cs-reslist-head">
+                <span>{slotNames.length} 个槽位</span>
+                <button className="cs-link" onClick={addSlot}>
+                  + 添加槽位
+                </button>
+              </div>
+              {slotNames.length === 0 && <p className="cs-hint">资源里填了 slot 后，这里可以声明契约并选择绑定实现。</p>}
+              {slotNames.map((slot) => {
+                const candidates = resources.filter((r) => r.slot === slot);
+                return (
+                  <div className="cs-slotrow" key={slot}>
+                    <code>{slot}</code>
+                    <label>
+                      契约（逗号）
+                      <input
+                        value={(slotDefs[slot]?.contract ?? []).join(', ')}
+                        onChange={(e) => updateSlot(slot, { contract: splitList(e.target.value) })}
+                      />
+                    </label>
+                    <label>
+                      绑定实现
+                      <select value={bindingDefs[slot] ?? ''} onChange={(e) => updateBinding(slot, e.target.value)}>
+                        <option value="">未绑定</option>
+                        {candidates.map((r) => (
+                          <option key={r.key} value={r.id}>
+                            {r.id}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button className="cs-rowbtn" onClick={() => removeSlot(slot)} aria-label={`删除槽位 ${slot}`}>
+                      ×
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
             <div className="cs-advgrid">
               <label>
-                slots（JSON 对象）
+                slots（原始 JSON）
                 <textarea
                   rows={3}
                   value={advanced.slots}
@@ -1472,7 +1581,7 @@ export function ConsolePage() {
                 {advancedErrors.slots && <span className="cs-field-error">{advancedErrors.slots}</span>}
               </label>
               <label id="adv-bindings">
-                bindings（JSON 对象）
+                bindings（原始 JSON）
                 <textarea
                   rows={3}
                   value={advanced.bindings}
@@ -1509,6 +1618,42 @@ export function ConsolePage() {
 
           <details className="cs-adv" id="adv-verify">
             <summary>verify / install.exec（校验与安装命令）</summary>
+            <div className="cs-slotlist">
+              <div className="cs-reslist-head">
+                <span>verify {verifyList.length} 项</span>
+                <span className="cs-reslist-actions">
+                  {['file-exists', 'config-key', 'command', 'scenario'].map((type) => (
+                    <button className="cs-link" key={type} onClick={() => addCheck(type)}>
+                      + {type}
+                    </button>
+                  ))}
+                </span>
+              </div>
+              {verifyList.map((check, index) => (
+                <div className="cs-slotrow" key={`${check.type}-${index}`}>
+                  <code>{check.type}</code>
+                  <span className="cs-hint-inline">在下方 JSON 里改参数</span>
+                  <button className="cs-rowbtn" onClick={() => removeCheck(index)} aria-label={`删除校验 ${index}`}>
+                    ×
+                  </button>
+                </div>
+              ))}
+              <div className="cs-reslist-head">
+                <span>install.exec {execList.length} 条（默认不执行）</span>
+                <button className="cs-link" onClick={addExec}>
+                  + 命令
+                </button>
+              </div>
+              {execList.map((item, index) => (
+                <div className="cs-slotrow" key={`exec-${index}`}>
+                  <code>{item.command ?? 'command'}</code>
+                  <span className="cs-hint-inline">需 --allow-exec 才执行</span>
+                  <button className="cs-rowbtn" onClick={() => removeExec(index)} aria-label={`删除命令 ${index}`}>
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
             <div className="cs-advgrid">
               <label>
                 verify（JSON 数组）
