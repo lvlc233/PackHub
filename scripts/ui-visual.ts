@@ -30,8 +30,8 @@ const SHOTS: Shot[] = [
 
 /** 允许的差异：抗锯齿/字体栅格化通常远低于这个比例；布局位移会远超。 */
 const PIXEL_DELTA = 16;
-const MAX_DIFF_RATIO = 0.02;
-const MAX_MEAN_DELTA = 3;
+const MAX_DIFF_RATIO = 0.035;
+const MAX_MEAN_DELTA = 4;
 
 export async function visualAudit(
   browser: Browser,

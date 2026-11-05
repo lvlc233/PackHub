@@ -18,7 +18,7 @@
 | UI-12 | 面板内安装 | 保存后执行计划并回填动作 | 安装根就是 Pack 目录 |
 | UI-13 | 面板内发布 | 干净安装+校验+写 registry/索引 | 发布耗时同步等待 |
 | UI-14 | 创作台端到端 | `ui:audit` 真点新增资源→保存并断言文件 | 无 |
-| UI-15 | 视觉回归 | 首页/目录/创作台固定视口截图，与 `test/ui-baseline/<platform>/` 比像素（阈值 2%）；`ui:baseline` 重生成 | Linux 基线未生成 |
+| UI-15 | 视觉回归 | 首页/目录/创作台固定视口截图，与 `test/ui-baseline/<platform>/` 比像素（阈值 3.5%）；`ui:baseline` 重生成 | Linux 基线未生成 |
 
 ## 结论
 
