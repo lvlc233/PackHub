@@ -233,6 +233,11 @@ async function handleApi(
       manifest: readFileSync(join(dir, 'packhub.yaml'), 'utf8'),
       lock: readJson(join(dir, 'packhub.lock.json')),
       verify: readJson(join(dir, 'verify.json')),
+      // 包说明与变更记录：原文返回，页面自己排
+      readme: existsSync(join(dir, 'PACK.md')) ? readFileSync(join(dir, 'PACK.md'), 'utf8') : null,
+      changelog: existsSync(join(dir, 'CHANGELOG.md'))
+        ? readFileSync(join(dir, 'CHANGELOG.md'), 'utf8')
+        : null,
     });
   }
 

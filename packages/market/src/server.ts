@@ -160,6 +160,10 @@ export async function startMarket(opts: MarketOptions): Promise<RunningMarket> {
         verify: existsSync(join(dir, 'verify.json'))
           ? JSON.parse(readFileSync(join(dir, 'verify.json'), 'utf8'))
           : null,
+        readme: existsSync(join(dir, 'PACK.md')) ? readFileSync(join(dir, 'PACK.md'), 'utf8') : null,
+        changelog: existsSync(join(dir, 'CHANGELOG.md'))
+          ? readFileSync(join(dir, 'CHANGELOG.md'), 'utf8')
+          : null,
         review: db.reviews[`${name}@${version}`] ?? null,
         downloads: db.stats[`${name}@${version}`]?.downloads ?? 0,
       });

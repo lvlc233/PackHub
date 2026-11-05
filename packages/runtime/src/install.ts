@@ -927,7 +927,7 @@ async function applyAction(
     }
 
     case 'unpack': {
-      const from = within(opts.packRoot ?? opts.root, action.from);
+      const from = readable(opts.packRoot ?? opts.root, action.from);
       const to = within(opts.root, action.to);
       if (!existsSync(from)) throw new Error(`待解包文件不存在：${action.from}`);
       if (!opts.dryRun) {
@@ -977,7 +977,7 @@ async function applyAction(
       };
     }
     case 'link.skill': {
-      const from = within(opts.packRoot ?? opts.root, action.from);
+      const from = readable(opts.packRoot ?? opts.root, action.from);
       const to = within(opts.root, action.to);
       if (!existsSync(from)) {
         throw new Error(`skill 源目录不存在：${action.from}`);
@@ -993,7 +993,7 @@ async function applyAction(
       const to = within(opts.root, action.to);
       // 覆盖层可能带二进制文件（图片、字体、脚本），不能一律按 UTF-8 读
       if (action.content === undefined && action.from) {
-        const raw = readFileSync(within(opts.packRoot ?? opts.root, action.from));
+        const raw = readFileSync(readable(opts.packRoot ?? opts.root, action.from));
         const binary = raw.subarray(0, 8192).includes(0);
         if (binary) {
           if (existsSync(to) && readFileSync(to).equals(raw)) {
@@ -1001,7 +1001,7 @@ async function applyAction(
           }
           if (!opts.dryRun) {
             mkdirSync(dirname(to), { recursive: true });
-            copyFileSync(within(opts.packRoot ?? opts.root, action.from), to);
+            copyFileSync(readable(opts.packRoot ?? opts.root, action.from), to);
             written.push(action.to);
           }
           return { actionId: action.actionId, op: action.op, status: 'done', target: action.to };
@@ -1010,7 +1010,7 @@ async function applyAction(
       const content =
         action.content !== undefined
           ? action.content
-          : readFileSync(within(opts.packRoot ?? opts.root, action.from ?? ''), 'utf8');
+          : readFileSync(readable(opts.packRoot ?? opts.root, action.from ?? ''), 'utf8');
       if (existsSync(to) && readFileSync(to, 'utf8') === content) {
         return { actionId: action.actionId, op: action.op, status: 'noop', target: action.to };
       }
@@ -1024,7 +1024,7 @@ async function applyAction(
 
     case 'merge.config': {
       const to = within(opts.root, action.path);
-      const patch = action.patch ?? readStructured(within(opts.packRoot ?? opts.root, action.patchFrom ?? ''));
+      const patch = action.patch ?? readStructured(readable(opts.packRoot ?? opts.root, action.patchFrom ?? ''));
       const current = existsSync(to) ? readStructured(to) : {};
       const merged = deepMerge(current, patch);
       const nextText = stringifyFor(to, merged);
@@ -1255,6 +1255,15 @@ function within(root: string, relPath: string): string {
     throw new Error(`路径越界，拒绝写入：${relPath}`);
   }
   return target;
+}
+
+/**
+ * 只读取源文件时用的定位：extends 会让父包的本地资源落在包目录之外，
+ * 读它不产生写入越界；写目标仍然走 within。
+ */
+function readable(root: string, relPath: string): string {
+  if (relPath.startsWith('../') || relPath.startsWith('..\\')) return resolve(root, relPath);
+  return within(root, relPath);
 }
 
 export function loadState(root: string): State {

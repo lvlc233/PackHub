@@ -57,6 +57,16 @@ export const TARGET_VARS: Record<TargetId, Record<string, string>> = {
     configFile: '.packhub/config.json',
     instructionFile: 'AGENTS.md',
   },
+  // server：只物化到项目内，不接宿主的指令面（CI / 容器里用）
+  server: {
+    root: '.packhub',
+    cacheDir: '.packhub/cache',
+    skillsDir: '.packhub/skills',
+    knowledgeDir: '.packhub/knowledge',
+    promptsDir: '.packhub/prompts',
+    binDir: '.packhub/bin',
+    configFile: '.packhub/config.json',
+  },
   codex: {
     root: '.packhub',
     cacheDir: '.packhub/cache',
@@ -106,9 +116,15 @@ export function buildPlan(
     });
   }
 
+  const excluded = [...graph.excluded];
   for (const id of graph.order) {
     const res = graph.resources.get(id);
     if (!res) continue;
+    // 资源级 target 裁剪：同一个 Pack 在 server 上可以不带 client-only 的资源
+    if (res.targets && res.targets.length > 0 && !res.targets.includes(opts.target)) {
+      excluded.push({ resource: id, slot: res.slot ?? '', reason: 'target-mismatch' });
+      continue;
+    }
     const parsed = parseSource(res.source);
     const at = `resources.${id}`;
 
@@ -270,7 +286,9 @@ export function buildPlan(
     const relFrom = ov.from.replace(/^\.\//, '').replace(/\/+$/, '');
     const absFrom = resolve(packDir, relFrom);
     const base = resolve(packDir);
-    if (absFrom !== base && !absFrom.startsWith(base + sep)) {
+    // extends 继承来的覆盖层会落在父包目录（../…）：只读它、写目标仍在安装根内
+    const inherited = ov.from.startsWith('../');
+    if (!inherited && absFrom !== base && !absFrom.startsWith(base + sep)) {
       issues.push({
         code: 'overlay-outside-pack',
         severity: 'error',
@@ -360,7 +378,7 @@ export function buildPlan(
     pack: { name: manifest.metadata.name, version: manifest.metadata.version },
     target: opts.target,
     actions,
-    excluded: graph.excluded,
+    excluded,
     verify,
   };
   return { plan: { ...plan, planHash: sha256(canonicalize(plan)) }, issues };

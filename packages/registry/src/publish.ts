@@ -28,7 +28,7 @@ export interface PublishResult {
   wrote: string[];
 }
 
-const FILES = ['packhub.yaml', 'packhub.lock.json', 'packhub.signatures.json'];
+const FILES = ['packhub.yaml', 'packhub.lock.json', 'packhub.signatures.json', 'PACK.md', 'CHANGELOG.md'];
 
 /**
  * 发布一个包：先跑 runner（干净安装 + 校验），再把版本目录与 .phub 写进 registry。

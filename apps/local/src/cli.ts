@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+﻿import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { defineCommand, type CommandDef } from 'citty';
@@ -22,6 +22,9 @@ import {
   diffActions,
   describeAction,
   searchResources,
+  mergeLocalOverrides,
+  readLocalOverrides,
+  validateGraph,
   type Issue,
   type Plan,
 } from '@packhub/kernel';
@@ -104,7 +107,7 @@ const plan = defineCommand({
   args: {
     dir: { type: 'positional', required: false, default: '.' },
     json: { type: 'boolean', default: false },
-    target: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code | codex' },
+    target: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code | codex | server' },
   },
   run({ args }) {
     const ctx = loadPack(String(args.dir));
@@ -126,7 +129,7 @@ const install = defineCommand({
     'dry-run': { type: 'boolean', default: false },
     'allow-exec': { type: 'boolean', default: false },
     overwrite: { type: 'boolean', default: false, description: '允许覆盖别的包写过的文件' },
-    target: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code | codex' },
+    target: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code | codex | server' },
   },
   async run({ args }) {
     const ctx = loadPack(String(args.dir));
@@ -176,7 +179,7 @@ const verify = defineCommand({
   meta: { name: 'verify', description: '跑 manifest 的检查；在项目根跑时用 state 里的计划快照' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
-    target: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code | codex' },
+    target: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code | codex | server' },
     pack: { type: 'string', description: '只验某个已装的包（name@version）' },
   },
   async run({ args }) {
@@ -227,7 +230,7 @@ const lock = defineCommand({
   meta: { name: 'lock', description: '解析引用（npm/github/https/pypi）并生成 packhub.lock.json' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
-    target: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code | codex' },
+    target: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code | codex | server' },
     offline: { type: 'boolean', default: false, description: '不联网：只锁本地与已 pin 的引用' },
   },
   async run({ args }) {
@@ -315,7 +318,7 @@ const resourceAdd = defineCommand({
     },
     dir: { type: 'string', default: '.', description: 'Pack 目录' },
     id: { type: 'string', description: '自定义资源 id（默认从 source 推断）' },
-    target: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code | codex' },
+    target: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code | codex | server' },
   },
   run({ args }) {
     const type = String(args.type) as (typeof RESOURCE_TYPES)[number];
@@ -423,7 +426,7 @@ const add = defineCommand({
     index: { type: 'string', description: 'registry 的 index.json（本地路径或 URL；也可用 PACKHUB_INDEX）' },
     version: { type: 'string', description: 'registry 包的版本，默认 latest' },
     dir: { type: 'string', default: '.', description: '项目目录' },
-    target: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code | codex' },
+    target: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code | codex | server' },
     'dry-run': { type: 'boolean', default: false },
     overwrite: { type: 'boolean', default: false },
     'allow-stale-lock': {
@@ -508,7 +511,7 @@ const add = defineCommand({
     }
     const lock = loadLock(packDir);
     // 清单里写的是 tag/范围也没关系：按锁把它换成本次要装的 commit/版本
-    const ctx = withLockPins(rawCtx, lock);
+    let ctx = withLockPins(rawCtx, lock);
     if (reportIssues(ctx.issues)) process.exit(2);
     if (!ctx.manifest.metadata.targets.includes(targetEnv as never)) {
       console.error(`这个包没有声明 target ${targetEnv}；声明了：${ctx.manifest.metadata.targets.join(', ')}`);
@@ -559,6 +562,25 @@ const add = defineCommand({
       console.log(`签名 ${goodSignatures}/${inspection.signatures.length} 有效${trusted ? `，信任列表内 ${trustedSignatures} 个` : ''}`);
     } else if (!policy.require) {
       console.log('这个包没有签名（未配置信任列表，按开发者模式继续）');
+    }
+
+    // 项目根的 .packhub/local.yaml 只改这次安装：覆盖 pin、绑定、路径与环境变量
+    const local = readLocalOverrides(projectDir);
+    if (local.overrides) {
+      const merged = mergeLocalOverrides(ctx.manifest, local.overrides);
+      const validated = validateGraph(merged.manifest);
+      const localIssues = [...local.issues, ...merged.issues, ...validated.issues];
+      if (localIssues.some((i) => i.severity === 'error')) {
+        reportIssues(localIssues, 'packhub add（local.yaml）');
+        process.exit(2);
+      }
+      ctx = {
+        ...ctx,
+        manifest: merged.manifest,
+        graph: validated.graph,
+        issues: [...ctx.issues, ...localIssues],
+      };
+      console.log('已应用 .packhub/local.yaml 覆盖');
     }
 
     const { plan, issues } = planFor(ctx, { target: targetEnv as never });

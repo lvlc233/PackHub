@@ -8,7 +8,7 @@
   "properties": {
     "apiVersion": { "const": "packhub.dev/v0" },
     "kind": { "const": "Pack" },
-    "extends": { "type": "string", "pattern": "^packhub://[a-z0-9-]+/[a-z0-9-]+@.+$" },
+    "extends": { "type": "string", "pattern": "^(\\.\\.?/[^\\s]+|packhub://[a-z0-9-]+/[a-z0-9-]+@.+)$" },
     "metadata": {
       "type": "object",
       "additionalProperties": false,
@@ -42,7 +42,7 @@
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
-          "items": { "enum": ["dir", "dsh", "claude-code", "codex"] }
+          "items": { "enum": ["dir", "dsh", "claude-code", "codex", "server"] }
         },
         "visibility": {
           "enum": ["public", "unlisted", "internal", "private"],
@@ -151,6 +151,12 @@
         "dependsOn": {
           "type": "array",
           "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" }
+        },
+        "targets": {
+          "type": "array",
+          "description": "只在这些 target 上安装；不写就全部安装（client / server 裁剪）",
+          "items": { "enum": ["dir", "dsh", "claude-code", "codex", "server"] },
+          "uniqueItems": true
         },
         "optional": { "type": "boolean", "default": false }
       },

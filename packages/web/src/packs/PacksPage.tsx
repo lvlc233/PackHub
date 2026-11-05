@@ -25,6 +25,8 @@ interface PackDetail {
   name: string;
   version: string;
   manifest: string;
+  readme?: string | null;
+  changelog?: string | null;
   verify: {
     ok: boolean;
     planHash: string;
@@ -181,6 +183,20 @@ function PackDetailPage({ name }: { name: string }) {
               <span>{copied ? '已复制' : '复制命令'}</span>
             </button>
           </section>
+
+          {detail.readme && (
+            <section className="pk-panel pk-readme">
+              <h2>说明</h2>
+              <pre>{detail.readme}</pre>
+            </section>
+          )}
+
+          {detail.changelog && (
+            <section className="pk-panel pk-readme">
+              <h2>变更记录</h2>
+              <pre>{detail.changelog}</pre>
+            </section>
+          )}
 
           <div className="pk-panels">
             <section className="pk-panel">

@@ -5,7 +5,7 @@
  */
 
 export type ResourceType = 'mcp' | 'skill' | 'prompt' | 'knowledge' | 'config' | 'tool';
-export type TargetId = 'dir' | 'dsh' | 'claude-code' | 'codex';
+export type TargetId = 'dir' | 'dsh' | 'claude-code' | 'codex' | 'server';
 
 export interface ResourceSpec {
   id: string;
@@ -21,6 +21,8 @@ export interface ResourceSpec {
   provides?: string[];
   needs?: string[];
   dependsOn?: string[];
+  /** 只在这些 target 上安装；不写就是全部（client / server 裁剪靠它） */
+  targets?: TargetId[];
   optional?: boolean;
 }
 
