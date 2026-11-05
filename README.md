@@ -397,7 +397,7 @@ pnpm verify:examples:offline       # 示例包逐个真装 + verify
 - 六类资源、十种安装动作、五个 target（`dir` / `dsh` / `claude-code` / `codex` / `server`）。
 - 能力图、槽位替换、资源级与文件级覆盖、冲突检测、资源级 target 裁剪、`optional` 资源缺能力时自动跳过并进 `excluded`。
 - 引用解析与锁定：版本、commit、github 归档 sha256；一个锁覆盖所有声明的 target（`plans`），安装按本次 target 核对。
-- 失败回滚、generation 快照、staged 版本目录、`versions` / `activate`（切换后自动 doctor + 只读校验）、`update`、`uninstall`。
+- 失败回滚、generation 快照、staged 版本目录（硬链接共享字节）、`versions` / `activate`（切换后自动 doctor + 只读校验）、`update`、`uninstall`。
 - 干净环境发布门禁、静态 registry、只读 Hub、Pages 产物；索引与包页带 ETag / Cache-Control。
 - 使用者侧：默认 registry（可配多个并按名字选）、锁校验、信任列表、安装后复核、安装审计。
 - 深校验：文件、配置、命令、stdio / http MCP 握手、内容哈希、scenario（真跑最小任务或问一次 harness）。
@@ -412,7 +412,7 @@ pnpm verify:examples:offline       # 示例包逐个真装 + verify
 
 ## 还不能做什么
 
-- 版本切换是产物副本重铺，不是硬链接；保留最近 5 个版本目录，更早的要重新安装。
+- 版本镜像优先用硬链接共享产物字节（文件系统不支持时退回复制）；直接原地编辑已装文件会同时改到镜像，PackHub 自己的安装/升级写入是原子替换。
 - 没有 SSH 部署与常驻同步 agent。
 - 远程 `extends` / 资源级 `packhub://` 在安装期解析（缓存进子包 `.packhub/cache/`）；`publish` 会自动扁平化，把被引用文件复制到 `external/` 再写版本目录。
 - 全局 MCP 只有 codex 的 TOML adapter；DSH / Claude Code 没有可依赖的稳定全局配置契约，仍走项目级安装。

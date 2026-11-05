@@ -11,7 +11,7 @@
 | CLI-05 | `init` / `resource add` / `slot swap` | 保留注释；重名加后缀；swap 只改一行 | 不推断 type |
 | CLI-06 | `discover` 关键词 | 搜资源目录/npm，`--add` 直接写清单；`search --all` 跨 registry | 目录需要作者维护 |
 | CLI-07 | `auth set/list/remove/rotate` | 凭据库 0600；环境变量优先 | 无 token 轮换策略 |
-| CLI-08 | `rollback` / `uninstall` / `update` / `versions` / `activate` | 都能跑；update 清旧产物，activate 整版切换 | 版本副本重铺，不共享字节 |
+| CLI-08 | `rollback` / `uninstall` / `update` / `versions` / `activate` | 都能跑；update 清旧产物，activate 整版切换 | 版本镜像用硬链接共享字节，不支持时复制 |
 | CLI-09 | `sync --to dsh,codex,claude-code` | skills + AGENTS/CLAUDE + codex TOML MCP；dry-run/remove | DSH/Claude 全局 MCP 无 adapter |
 | CLI-10 | 故意缺变量/缺目录 | 缺清单指 `init`、缺索引指环境变量、端口占用指 `--port 0`、签名指 `trust add` | 无 |
 | CLI-11 | `packhub completion bash|zsh|pwsh` | 输出子命令 + 参数补全脚本 | 无 |

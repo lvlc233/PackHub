@@ -37,7 +37,7 @@
 每次安装成功都会把产物镜像进 `.packhub/versions/<pack-slug>/<version>/`：
 
 ```
-files/…               write / unpack / link.skill 的产物副本（共享配置与指令文件除外）
+files/…               write / unpack / link.skill 的产物镜像（硬链接；共享配置与指令文件除外）
 record.json           内联了 merge 片段的计划、动作结果、owned 路径
 ```
 
@@ -69,7 +69,7 @@ record.json           内联了 merge 片段的计划、动作结果、owned 路
 ## 已知边界
 
 - 所有权只按动作声明的顶层路径判；两个包各装一个目录，目录内部撞文件不会提前发现。
-- 版本目录存的是产物副本，不是硬链接；大包换版本会有一次完整复制。
+- 版本镜像是硬链接：不支持硬链接的文件系统会退回复制；升级/安装对目标文件一律「临时文件 + rename」，所以不会改到旧镜像的 inode。直接原地编辑已装文件会同时改到镜像。
 - 崩溃残留的 `installing.lock` 要人工确认后删，没有超时回收。
 - `fetch` 的缓存文件不参与 owned/清理策略；缓存会留在 `.packhub/cache/`。
 - 失败回滚只覆盖本次 `touchedPaths`；`exec` 在仓库外的副作用无法撤销。

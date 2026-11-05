@@ -126,7 +126,7 @@
 | INS-09 | uninstall | 按 written 反删；registry 副本一起清 | [done] | `removePack` |
 | INS-10 | rollback | 一次退一个 generation；保留最近 5 个 | [done] | `rollbackPack` |
 | INS-11 | 并发锁 | `.packhub/installing.lock` O_EXCL | [done] | `acquireLock` |
-| INS-12 | staged 版本 | 每次安装镜像进 `.packhub/versions/`；`versions` / `activate` 整版切换；active.json 指针 | [done] | `install.ts`、`versions.test` |
+| INS-12 | staged 版本 | 每次安装镜像进 `.packhub/versions/`（硬链接，不支持时复制）；`versions` / `activate` 整版切换；active.json 指针 | [done] | `install.ts`、`versions.test`、`hardlink.test` |
 | INS-13 | 僵尸锁 | 锁里的 pid 已死时自动收回；活着的 pid 仍拒绝 | [done] | `acquireLock`、`guards.test` |
 | INS-14 | 跨包目录内部冲突 | 所有权按前缀判：包拥有目录时，别人往里写也算冲突 | [done] | `findOwnershipConflicts`、`guards.test` |
 | INS-15 | 状态目录生命周期 | 卸载默认 `kept`；`retain: remove` 才删；升级换版本数据不动；`doctor` 报 `stateMissing` | [done] | `state.test`、`doctor.ts` |
