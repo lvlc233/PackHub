@@ -8,7 +8,7 @@
 | UI-02 | 打开 `/packs`、`/packs/<scope>/<name>` | 目录与详情读 registry | 不显示 PACK.md/CHANGELOG |
 | UI-03 | 打开 `/console` | 草稿、资源池、计划预览、下载 YAML；高级字段、YAML 反向编辑、多草稿、导入导出 | 见 CON-01..50 |
 | UI-04 | 打开 `/forms` | 四个形态 demo | 只是 demo，不是产品入口 |
-| UI-05 | 选中 skill-only 包，滚到底部 | Harness 同步卡片：两个 home、勾选、预演/同步/移除 | 含 MCP 的包只提示不支持 |
+| UI-05 | 选中 skill-only / skill+mcp 包，滚到底部 | Harness 同步卡片：三个 home、勾选、预演/同步/移除 | dsh 不支持 mcp（宿主契约） |
 | UI-06 | 点安装/校验 | API 执行并回填步骤/状态 | 失败态只在顶部 error |
 | UI-07 | 390px 宽 | Chromium 实测无横向溢出；1080px 断点单列 | 视觉基线按平台存（win32 已生成） |
 | UI-08 | 键盘 Tab / 屏幕阅读器 | axe 在 390/1280 跑三页，无 serious/critical；焦点可见、跳过导航 | 没有完整键盘走查 |

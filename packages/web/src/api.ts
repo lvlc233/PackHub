@@ -80,7 +80,7 @@ export interface PackDetail {
 }
 
 export interface HarnessStatus {
-  target: 'dsh' | 'codex';
+  target: 'dsh' | 'codex' | 'claude-code';
   root: string;
   ok: boolean;
   packs: string[];
@@ -92,6 +92,7 @@ export interface SyncTargetResult {
   root: string;
   planHash?: string;
   outcomes?: InstallOutcome[];
+  mcp?: { id: string; status: 'added' | 'kept' | 'planned' | 'removed' }[];
 }
 
 export interface SyncResult {

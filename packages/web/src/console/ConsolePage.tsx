@@ -85,6 +85,7 @@ interface AdvancedState {
   exec: string;
   paths: string;
   vars: string;
+  state: string;
 }
 
 interface DraftRecord {
@@ -128,6 +129,7 @@ const EMPTY_ADVANCED: AdvancedState = {
   exec: '',
   paths: '',
   vars: '',
+  state: '',
 };
 
 const RES_TYPES = ['knowledge', 'prompt', 'skill', 'tool', 'mcp', 'config'];
@@ -298,6 +300,8 @@ function toYaml(
     lines.push('vars:');
     for (const [k, v] of Object.entries(vars)) lines.push(`  ${k}: ${JSON.stringify(v)}`);
   }
+  const stateDirs = safeJson<unknown[]>(advanced.state, []);
+  if (stateDirs.length > 0) lines.push(`state: ${JSON.stringify(stateDirs)}`);
 
   if (resources.length === 0) {
     lines.push('resources: []');
@@ -415,6 +419,7 @@ export function ConsolePage() {
     check('exec', advanced.exec, 'array');
     check('paths', advanced.paths, 'object');
     check('vars', advanced.vars, 'object');
+    check('state', advanced.state, 'array');
     if (advanced.compositionEnv.trim()) {
       try {
         linesToEnv(advanced.compositionEnv);
@@ -701,6 +706,7 @@ export function ConsolePage() {
         exec: install.exec ? JSON.stringify(install.exec, null, 2) : '',
         paths: data.paths ? JSON.stringify(data.paths, null, 2) : '',
         vars: data.vars ? JSON.stringify(data.vars, null, 2) : '',
+        state: data.state ? JSON.stringify(data.state, null, 2) : '',
       });
       setYamlEditing(false);
       setDelivery({ kind: 'ok', text: '已把 YAML 应用回表单' });
@@ -1677,7 +1683,7 @@ export function ConsolePage() {
           </details>
 
           <details className="cs-adv" id="adv-paths">
-            <summary>paths / vars（路径与变量）</summary>
+            <summary>paths / vars / state（路径、变量与持久状态）</summary>
             <div className="cs-advgrid">
               <label>
                 paths（JSON 对象）
@@ -1696,6 +1702,16 @@ export function ConsolePage() {
                   onChange={(e) => setAdvanced({ ...advanced, vars: e.target.value })}
                 />
                 {advancedErrors.vars && <span className="cs-field-error">{advancedErrors.vars}</span>}
+              </label>
+              <label id="adv-state">
+                state（JSON 数组：id / path / retain: keep|remove）
+                <textarea
+                  rows={3}
+                  value={advanced.state}
+                  onChange={(e) => setAdvanced({ ...advanced, state: e.target.value })}
+                  placeholder={'[{"id":"memory","description":"长期记忆"}]'}
+                />
+                {advancedErrors.state && <span className="cs-field-error">{advancedErrors.state}</span>}
               </label>
             </div>
           </details>

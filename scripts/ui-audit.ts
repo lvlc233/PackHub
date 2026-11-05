@@ -103,6 +103,9 @@ resources:
   - id: rules
     type: knowledge
     source: ./rules.md
+state:
+  - id: memory
+    retain: keep
 `);
       await page.getByRole('button', { name: '应用 YAML' }).click();
       const title = await page
@@ -111,11 +114,14 @@ resources:
         .locator('input')
         .inputValue();
       if (title !== 'YAML 改过的标题') throw new Error(`标题没回填：${title}`);
+      const stateField = await page.locator('#adv-state textarea').inputValue();
+      if (!stateField.includes('memory')) throw new Error('state 没回填到高级字段');
       await page.getByRole('textbox', { name: '目录', exact: false }).fill(yamlDir);
       await page.getByRole('button', { name: '保存到目录' }).click();
       await page.getByRole('status').filter({ hasText: yamlDir }).waitFor({ timeout: 10_000 });
       const saved = readFileSync(join(root, yamlDir, 'packhub.yaml'), 'utf8');
       if (!saved.includes('YAML 改过的标题')) throw new Error('保存的 YAML 里没有新标题');
+      if (!saved.includes('"id":"memory"')) throw new Error('保存的 YAML 里没有 state 块');
       console.log('✓ 创作台 YAML 反向编辑：改 YAML → 回填表单 → 保存');
     } catch (err) {
       failures++;

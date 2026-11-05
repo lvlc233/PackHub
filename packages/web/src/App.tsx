@@ -54,7 +54,7 @@ export function App() {
   const [copied, setCopied] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [harness, setHarness] = useState<HarnessStatus[]>([]);
-  const [syncTargets, setSyncTargets] = useState<string[]>(['dsh', 'codex']);
+  const [syncTargets, setSyncTargets] = useState<string[]>(['dsh', 'codex', 'claude-code']);
   const [syncBusy, setSyncBusy] = useState(false);
   const [syncLog, setSyncLog] = useState<SyncResult | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -438,13 +438,13 @@ export function App() {
                   </div>
                   {!canSync ? (
                     <p className="hint">
-                      这个包包含不能全局同步的资源。支持 skill（全部 harness）与 mcp（仅 codex）；配置 /
+                      这个包包含不能全局同步的资源。支持 skill（全部 harness）与 mcp（codex / claude-code）；配置 /
                       知识 / 工具请用 target 安装。
                     </p>
                   ) : (
                     <>
                       <p className="hint">
-                        写 skills/ 与各 home 的 AGENTS.md 托管块；mcp 只写 codex 的 config.toml。
+                        写 skills/ 与各 home 的 AGENTS.md 托管块；mcp 在 codex 写 config.toml，在 claude-code 走它的 user scope。
                       </p>
                       <div className="harness-targets">
                         {harness.length === 0 && <p className="hint">读取 harness 状态…</p>}
@@ -453,7 +453,7 @@ export function App() {
                             <input
                               type="checkbox"
                               checked={syncTargets.includes(h.target)}
-                              disabled={!h.ok || syncBusy || (hasMcp && h.target !== 'codex')}
+                              disabled={!h.ok || syncBusy || (hasMcp && h.target === 'dsh')}
                               onChange={(e) =>
                                 setSyncTargets((prev) =>
                                   e.target.checked
@@ -506,6 +506,11 @@ export function App() {
                                 {(r.outcomes ?? []).map((o) => (
                                   <span className={`pill pill-${o.status}`} key={o.actionId}>
                                     {STATUS_LABEL[o.status] ?? o.status}
+                                  </span>
+                                ))}
+                                {(r.mcp ?? []).map((m) => (
+                                  <span className="pill" key={`mcp-${m.id}`}>
+                                    mcp {m.id} · {m.status === 'added' ? '已登记' : m.status === 'kept' ? '已在' : m.status === 'planned' ? '预演' : '已移除'}
                                   </span>
                                 ))}
                                 {!r.outcomes && <span className="hint">预演</span>}

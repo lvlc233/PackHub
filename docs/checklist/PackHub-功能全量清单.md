@@ -1,4 +1,4 @@
-﻿# PackHub 功能全量清单
+# PackHub 功能全量清单
 
 > 版本：2026-11-05 ／ 口径：本仓库当前代码、CLI 实测、测试套件（63 个文件 / 254 项）与 registry 现状。
 > 用途：实现 checklist、选型对照、漏项审计。**不是**产品介绍。
@@ -238,7 +238,7 @@ ole=alert + ria-live；安装/校验按钮带 ria-busy | [done] | App.tsx |
 | UI-13 | 面板内发布 | 保存后点发布，跑干净安装+校验+写 registry 与索引 | [done] | /api/publish、server.test |
 | UI-14 | 创作台端到端 | Chromium 真点：新增资源 → 保存到目录，断言文件写出 | [done] | ui:audit |
 | UI-04 | 形态 demo | `/forms` 四个入口 demo | [done] | `FormsDemo` |
-| UI-05 | 同步卡片 | 勾选 dsh/codex、预演/同步/移除 | [done] | `App.tsx` |
+| UI-05 | 同步卡片 | 勾选 dsh / codex / claude-code、预演/同步/移除 | [done] | `App.tsx` |
 | UI-06 | 安装/校验按钮 | 面板内执行并回填结果 | [done] | `api.install/verify` |
 | UI-07 | 窄屏 | Chromium 390px 实测无横向溢出；1080px 断点单列 | [done] | `scripts/ui-audit.ts` |
 | UI-15 | 视觉回归 | 首页/目录/创作台固定视口截图与平台基线比像素；`ui:baseline` 重生成 | [done] | `scripts/ui-visual.ts`、`test/ui-baseline/win32/` |
@@ -349,6 +349,7 @@ ole=alert + ria-live；安装/校验按钮带 ria-busy | [done] | App.tsx |
 | CON-48 | axe 审计 | 三页无 serious/critical | [done] | `ui:audit` |
 | CON-49 | 写入边界 | 保存/发布只能落在 serve root 内 | [done] | `safeDir` |
 | CON-50 | 操作反馈 | 保存/安装/发布有进行中与结果 | [done] | `delivery` 状态 |
+| CON-51 | 持久状态编辑 | 高级区 state JSON 可编辑、进 YAML、YAML 反向回填；ui:audit 断言写盘 | [done] | `ConsolePage`、`ui:audit` |
 ## 缺口汇总
 
 清单里已经没有 `[todo]` / `[part]`；剩下 11 条 `[na]` 分两类：

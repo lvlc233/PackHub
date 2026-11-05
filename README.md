@@ -355,9 +355,9 @@ packhub doctor --global
 
 ## 界面与可见性
 
-`packhub serve` 起本地面板：左侧是包，右侧是组成、计划、校验和本机状态。`/console` 创作台可以拼草稿、新增/上传资源、编辑高级字段（slots / bindings / composition / overrides / overlays / verify / exec / extends / paths / vars）、直接改 YAML 再回填表单、管理多份草稿与导入导出，并直接「保存到目录 / 预演安装 / 安装 / 发布到 registry」；保存时连同 `PACK.md` / `CHANGELOG.md` 一起写。本地 source 指向的文件仍需自己放进目录。`packhub hub` 起只读发布站，提供 `/packs` 目录与包页；包页展示 license、authors、homepage 与 `requires.agent`。
+`packhub serve` 起本地面板：左侧是包，右侧是组成、计划、校验和本机状态。`/console` 创作台可以拼草稿、新增/上传资源、编辑高级字段（slots / bindings / composition / overrides / overlays / verify / exec / extends / paths / vars / state）、直接改 YAML 再回填表单、管理多份草稿与导入导出，并直接「保存到目录 / 预演安装 / 安装 / 发布到 registry」；保存时连同 `PACK.md` / `CHANGELOG.md` 一起写。本地 source 指向的文件仍需自己放进目录。`packhub hub` 起只读发布站，提供 `/packs` 目录与包页；包页展示 license、authors、homepage 与 `requires.agent`。
 
-面板底部有「Harness 同步」卡片：对 skill-only 的包，勾选 `dsh` / `codex`，可以直接预演、同步或移除；同步结果按 target 显示，失败原因原样打印。
+面板底部有「Harness 同步」卡片：对 skill-only 或 skill+mcp 的包，勾选 `dsh` / `codex` / `claude-code`，可以预演、同步或移除；同步结果按 target 显示，失败原因原样打印。
 
 包有四档可见性，写在 `metadata.visibility`：`public` 进公共索引；`unlisted` 不进索引，但用 `--index` 指向同一 registry、加 `--version` 可以绕过索引直接取归档；`internal` 放在内网 registry；`private` 不发布。registry 门禁只收 `public`。
 
