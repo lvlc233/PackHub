@@ -76,6 +76,14 @@ jobs:
       - name: Windows 全量测试（路径、权限位、命令垫片）
         run: pnpm check
 
+      - name: 构建面板
+        run: pnpm web:build
+
+      - name: UI 视觉回归（Windows 基线）
+        run: |
+          pnpm exec playwright install chromium
+          pnpm ui:audit
+
   publish-index:
     needs: verify
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'

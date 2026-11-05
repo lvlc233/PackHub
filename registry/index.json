@@ -1,6 +1,6 @@
 {
   "apiVersion": "packhub.dev/index/v0",
-  "generatedAt": "2026-11-05T06:03:38.496Z",
+  "generatedAt": "2026-11-05T13:24:36.815Z",
   "packs": [
     {
       "name": "lvlc233/doc-review",
@@ -25,7 +25,11 @@
         "cold-read"
       ],
       "resourceCount": 4,
-      "install": "npx packhub add lvlc233/doc-review"
+      "install": "npx packhub add lvlc233/doc-review",
+      "license": "MIT",
+      "homepage": null,
+      "authors": [],
+      "requiresAgent": null
     },
     {
       "name": "lvlc233/remote-demo",
@@ -47,7 +51,11 @@
         "github"
       ],
       "resourceCount": 2,
-      "install": "npx packhub add lvlc233/remote-demo"
+      "install": "npx packhub add lvlc233/remote-demo",
+      "license": "MIT",
+      "homepage": null,
+      "authors": [],
+      "requiresAgent": null
     },
     {
       "name": "lvlc233/team-conventions",
@@ -69,7 +77,11 @@
         "config"
       ],
       "resourceCount": 3,
-      "install": "npx packhub add lvlc233/team-conventions"
+      "install": "npx packhub add lvlc233/team-conventions",
+      "license": "CC-BY-4.0",
+      "homepage": null,
+      "authors": [],
+      "requiresAgent": null
     }
   ]
 }

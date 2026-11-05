@@ -8,6 +8,7 @@ import { join, resolve } from 'node:path';
 import { chromium } from 'playwright';
 import AxeBuilder from '@axe-core/playwright';
 import { defaultStaticDir, startServer } from '../apps/local/src/server.ts';
+import { visualAudit } from './ui-visual.ts';
 
 const root = resolve(process.cwd());
 const staticDir = defaultStaticDir();
@@ -31,7 +32,10 @@ try {
     });
     const page = await context.newPage();
     for (const path of pages) {
+      const pageErrors: string[] = [];
+      page.on('pageerror', (err) => pageErrors.push(err.message));
       await page.goto(`${base}${path}`, { waitUntil: 'networkidle' });
+      const bodyText = (await page.locator('body').innerText()).trim();
       const overflow = await page.evaluate(() => {
         const doc = document.documentElement;
         return Math.max(doc.scrollWidth, document.body.scrollWidth) - window.innerWidth;
@@ -39,6 +43,14 @@ try {
       const axe = await new AxeBuilder({ page }).analyze();
       const serious = axe.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
       const label = `${viewport.name} ${path}`;
+      if (bodyText.length === 0) {
+        failures++;
+        console.log(`x ${label}: 页面是空的（渲染失败？）`);
+      }
+      for (const message of pageErrors) {
+        failures++;
+        console.log(`x ${label}: 未捕获异常 — ${message.split('\n')[0]}`);
+      }
       if (overflow > 1) {
         failures++;
         console.log(`x ${label}: 横向溢出 ${overflow}px`);
@@ -54,6 +66,9 @@ try {
     }
     await context.close();
   }
+
+  const visual = await visualAudit(browser, base, { baseline: process.argv.includes('--baseline'), root });
+  failures += visual.failures.length;
   const testDir = 'tmp/ui-audit-pack';
   try {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });

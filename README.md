@@ -391,7 +391,7 @@ pnpm registry:verify-all:offline   # 跳过远程引用，只验本地 registry
 pnpm verify:examples:offline       # 示例包逐个真装 + verify
 ```
 
-直接跑 CLI：`pnpm packhub plan examples/team-conventions`。界面改动后跑 `pnpm web:build && pnpm ui:audit`（需要 Chromium；CI 里装）。
+直接跑 CLI：`pnpm packhub plan examples/team-conventions`。界面改动后跑 `pnpm web:build && pnpm ui:audit`（需要 Chromium；CI 里装）：它会查横向溢出、axe，并按 `test/ui-baseline/<platform>/` 做截图回归。改版式后用 `pnpm ui:baseline` 重生成当前平台的基线（按平台分目录，跨平台不互相比像素）。
 
 ## 现在能做什么
 

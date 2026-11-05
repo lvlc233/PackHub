@@ -134,9 +134,11 @@ function PackListPage() {
                 <span>{p.resourceCount} 个资源</span>
                 <span>{p.targets.join(' · ')}</span>
                 {p.license && <span>{p.license}</span>}
-                {p.authors.length > 0 && <span>{p.authors.map((a) => a.name).join('、')}</span>}
+                {(p.authors ?? []).length > 0 && (
+                  <span>{(p.authors ?? []).map((a) => a.name).join('、')}</span>
+                )}
                 {p.requiresAgent && <span>agent: {p.requiresAgent}</span>}
-                {p.keywords.slice(0, 3).map((k) => (
+                {(p.keywords ?? []).slice(0, 3).map((k) => (
                   <span key={k}>#{k}</span>
                 ))}
               </div>
@@ -202,8 +204,8 @@ function PackDetailPage({ name }: { name: string }) {
               <p className="pk-hint">
                 {detail.metadata.title}
                 {detail.metadata.license ? ` · ${detail.metadata.license}` : ''}
-                {detail.metadata.authors.length > 0
-                  ? ` · ${detail.metadata.authors.map((a) => a.name).join('、')}`
+                {(detail.metadata.authors ?? []).length > 0
+                  ? ` · ${(detail.metadata.authors ?? []).map((a) => a.name).join('、')}`
                   : ''}
                 {detail.metadata.requiresAgent ? ` · agent: ${detail.metadata.requiresAgent}` : ''}
                 {detail.metadata.homepage ? (

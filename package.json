@@ -36,13 +36,16 @@
     "bench:install": "node --experimental-strip-types scripts/bench.ts 200 --install",
     "bench:overlay": "node --experimental-strip-types scripts/bench.ts 200 --overlay --check",
     "bench:large": "node --experimental-strip-types scripts/bench.ts 1000 --overlay --install",
-    "ui:audit": "node --experimental-strip-types scripts/ui-audit.ts"
+    "ui:audit": "node --experimental-strip-types scripts/ui-audit.ts",
+    "ui:baseline": "node --experimental-strip-types scripts/ui-audit.ts --baseline"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",
     "@types/node": "^22.10.2",
+    "@types/pngjs": "^6.0.5",
     "esbuild": "^0.25.0",
     "playwright": "^1.64.1",
+    "pngjs": "^7.0.0",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
   }

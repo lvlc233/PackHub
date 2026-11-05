@@ -239,6 +239,7 @@
 | UI-05 | 同步卡片 | 勾选 dsh/codex、预演/同步/移除 | [done] | `App.tsx` |
 | UI-06 | 安装/校验按钮 | 面板内执行并回填结果 | [done] | `api.install/verify` |
 | UI-07 | 窄屏 | Chromium 390px 实测无横向溢出；1080px 断点单列 | [done] | `scripts/ui-audit.ts` |
+| UI-15 | 视觉回归 | 首页/目录/创作台固定视口截图与平台基线比像素；`ui:baseline` 重生成 | [done] | `scripts/ui-visual.ts`、`test/ui-baseline/win32/` |
 | UI-08 | 可访问性 | axe 在 390/1280 跑首页/目录/创作台，无 serious/critical；焦点可见、跳过导航、reduced-motion | [done] | `ui:audit`、`scripts/ui-audit.ts` |
 
 | UI-10 | 路由 | history 路由：站内链接 pushState、popstate 后退；`routeFor` 有单测 | [done] | `router.ts`、`router.test` |
@@ -356,7 +357,7 @@
 另有几条非阻断的运维建议，不算功能缺口：
 
 - 市场存储是单机 JSON；生产部署应把发布校验放进沙箱，或只收 CI 报告。
-- UI 审计覆盖 390/1280 的横向溢出与 axe 结构性违规，没有视觉基线 diff。
+- UI 审计覆盖 390/1280 的横向溢出与 axe 结构性违规，并对首页/目录/创作台做截图基线回归（`test/ui-baseline/<platform>/`，按平台分开）。
 - 大包基准只有耗时，没有内存/吞吐指标。
 - 创作台 CON-01..50 全部 `[done]`：高级字段、composition/overrides/verify/exec/extends、PACK.md/CHANGELOG、问题定位、YAML 反向编辑、多草稿/导入导出、预演明细都已落地。
 - 全系统审计（[系统全量审计](系统全量审计.md)）的 30 个漏项已全部修复并补了对应测试。
@@ -365,7 +366,7 @@
 
 1. **市场生产化**：SQLite/对象存储 + 管理前端接现有审核 API；包内容继续按版本不可变。
 2. **全局 MCP adapter**：等 DSH/Claude 给出稳定配置契约后再接，避免把第三方 patch 写进产品。
-3. **视觉回归**：在 `ui:audit` 上加截图基线；键盘全流程再补一轮。
+3. **视觉回归**：`ui:audit` 已加截图基线（按平台）；还剩键盘全流程与 Linux 基线。
 4. **记忆 state 块**：给持久状态目录一个一等公民的 `state` 块。
 ## 细节文档
 
