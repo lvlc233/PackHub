@@ -4,6 +4,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { extname, join, resolve, sep } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type { Plan, VerifyCheck } from '@packhub/kernel';
+import { askHarness } from './harness-probe.ts';
 
 export type CheckStatus = 'pass' | 'fail' | 'skipped';
 
@@ -119,6 +120,71 @@ function evaluate(check: VerifyCheck, opts: VerifyOptions): { status: CheckStatu
       return {
         status: 'fail',
         detail: `${check.resource} 没有回应 initialize${tail ? `：${tail}` : '（可能没装或起了就退出）'}`,
+      };
+    }
+    case 'scenario': {
+      const wants =
+        typeof check.expectOutput === 'string'
+          ? [check.expectOutput]
+          : Array.isArray(check.expectOutput)
+            ? check.expectOutput
+            : [];
+      if (check.harness) {
+        if (!check.prompt) return { status: 'skipped', detail: 'scenario 用 harness 时必须写 prompt' };
+        const asked = askHarness({
+          target: check.harness,
+          projectDir: opts.root,
+          prompt: check.prompt,
+          ...(check.timeout ? { timeoutMs: check.timeout * 1000 } : {}),
+        });
+        if (!asked.ok) {
+          return { status: 'fail', detail: `harness 没跑通：${asked.reason ?? '未知原因'}` };
+        }
+        const missing = wants.filter((w) => !asked.answer.includes(w));
+        if (missing.length > 0) {
+          return {
+            status: 'fail',
+            detail: `回答里缺：${missing.join('、')}（回答：${asked.answer.replace(/\s+/g, ' ').slice(0, 120)}）`,
+          };
+        }
+        return {
+          status: 'pass',
+          detail: `${check.harness} 回答里出现了期望内容（${asked.answer.replace(/\s+/g, ' ').slice(0, 80)}）`,
+        };
+      }
+      if (!check.run || check.run.length === 0) {
+        return { status: 'skipped', detail: 'scenario 需要 run 或 harness 之一' };
+      }
+      const [command, ...args] = check.run;
+      if (!command) return { status: 'fail', detail: 'scenario 的 run 为空' };
+      const cwd = check.cwd ? safe(opts.root, check.cwd) : opts.root;
+      const res = spawnSync(command, args, {
+        cwd,
+        encoding: 'utf8',
+        timeout: (check.timeout ?? 120) * 1000,
+        shell: process.platform === 'win32',
+        windowsHide: true,
+      });
+      const expected = check.expectExit ?? 0;
+      const combined = `${res.stdout ?? ''}\n${res.stderr ?? ''}`;
+      if (res.status !== expected) {
+        const tail = combined.trim().split(/\r?\n/).slice(-1)[0] ?? '';
+        return {
+          status: 'fail',
+          detail: `退出码 ${String(res.status)}（期望 ${expected}）${tail ? ` · ${tail}` : ''}`,
+        };
+      }
+      const missing = wants.filter((w) => !combined.includes(w));
+      if (missing.length > 0) {
+        return { status: 'fail', detail: `输出里缺：${missing.join('、')}` };
+      }
+      const missingFiles = (check.expectFiles ?? []).filter((f) => !existsSync(safe(opts.root, f)));
+      if (missingFiles.length > 0) {
+        return { status: 'fail', detail: `跑完没有产出文件：${missingFiles.join('、')}` };
+      }
+      return {
+        status: 'pass',
+        detail: `退出码 ${String(res.status)}${wants.length ? `，输出含 ${wants.join('、')}` : ''}`,
       };
     }
     case 'knowledge-integrity': {

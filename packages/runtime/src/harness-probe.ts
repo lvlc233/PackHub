@@ -24,6 +24,27 @@ export interface ProbeOptions {
   runner?: Runner;
 }
 
+export interface AskOptions {
+  target: HarnessTarget;
+  projectDir: string;
+  /** 要发给 harness 的一句话 */
+  prompt: string;
+  timeoutMs?: number;
+  patchFile?: string;
+  model?: string;
+  runner?: Runner;
+}
+
+export interface AskResult {
+  ok: boolean;
+  answer: string;
+  command: string;
+  status: number | null;
+  stdout: string;
+  stderr: string;
+  reason?: string;
+}
+
 export interface ProbeResult {
   ok: boolean;
   harness: HarnessTarget;
@@ -59,6 +80,82 @@ const DEFAULT_RUNNER: Runner = (command, args, cwd) => {
     stderr: res.stderr ?? '',
   };
 };
+
+/** 跑一次 harness headless 并把最终回答取出来；probe 与 scenario 共用。 */
+export function askHarness(opts: AskOptions): AskResult {
+  const runner = opts.runner ?? DEFAULT_RUNNER;
+  const model =
+    opts.model ??
+    (opts.target === 'codex' ? 'gpt-5.6-sol' : 'opencode-go/deepseek-v4.1-flash');
+  const prompt = opts.prompt;
+  const command =
+    opts.target === 'dsh'
+      ? `dsh --profile headless${opts.patchFile ? ` --patch ${opts.patchFile}` : ''} --json "<prompt>"`
+      : opts.target === 'opencode'
+        ? `opencode run --model ${model} "<prompt>"`
+        : opts.target === 'codex'
+          ? `codex exec --skip-git-repo-check --sandbox read-only -m ${model} "<prompt>"`
+          : 'claude -p "<prompt>" --max-budget-usd 0.05 --no-session-persistence';
+
+  const res =
+    opts.target === 'dsh'
+      ? runner(
+          'dsh',
+          [
+            '--profile',
+            'headless',
+            ...(opts.patchFile ? ['--patch', opts.patchFile] : []),
+            '--json',
+            prompt,
+          ],
+          opts.projectDir,
+        )
+      : opts.target === 'opencode'
+        ? runner('opencode', ['run', '--model', model, prompt], opts.projectDir)
+        : opts.target === 'codex'
+          ? runner(
+              'codex',
+              ['exec', '--skip-git-repo-check', '--sandbox', 'read-only', '-m', model, prompt],
+              opts.projectDir,
+            )
+          : runner(
+              'claude',
+              ['-p', prompt, '--max-budget-usd', '0.05', '--no-session-persistence'],
+              opts.projectDir,
+            );
+
+  const stripAnsi = (s: string): string => s.replace(/\x1B\[[0-9;]*[A-Za-z]/g, '');
+  const answer =
+    opts.target === 'dsh'
+      ? parseDshFinal(res.stdout)
+      : stripAnsi(res.stdout).trim();
+  const combined = `${res.stdout}\n${res.stderr}`;
+  const base = {
+    answer,
+    command,
+    status: res.status,
+    stdout: res.stdout,
+    stderr: res.stderr,
+  };
+  if (/MISSING_CREDENTIAL|no API key/i.test(combined)) {
+    return {
+      ...base,
+      ok: false,
+      reason: '缺少凭证：headless 需要环境变量 DEEPSEEK_API_KEY（桌面应用里存的那份读不到）',
+    };
+  }
+  if (/Not logged in/i.test(combined)) {
+    return { ...base, ok: false, reason: 'Claude Code 未登录：先跑 claude 并 /login' };
+  }
+  if (res.status !== 0) {
+    return {
+      ...base,
+      ok: false,
+      reason: `命令退出码 ${res.status}：${res.stderr.trim().split(/\r?\n/).slice(-1)[0] ?? ''}`,
+    };
+  }
+  return { ...base, ok: true };
+}
 
 /** 从托管块里取一个"回答里应该出现"的标记：块内第一行的标题，取不到就用整行。 */
 export function extractMarker(text: string): string | null {
@@ -118,88 +215,30 @@ export function probeHarness(opts: ProbeOptions): ProbeResult {
     return { ...base, reason: `${instructionFile} 里没有 packhub 托管块` };
   }
 
-  const runner = opts.runner ?? DEFAULT_RUNNER;
-  const model =
-    opts.model ??
-    (opts.target === 'codex' ? 'gpt-5.6-sol' : 'opencode-go/deepseek-v4.1-flash');
-  const command =
-    opts.target === 'dsh'
-      ? `dsh --profile headless${opts.patchFile ? ` --patch ${opts.patchFile}` : ''} --json "<question>"`
-      : opts.target === 'opencode'
-        ? `opencode run --model ${model} "<question>"`
-        : opts.target === 'codex'
-          ? `codex exec --skip-git-repo-check --sandbox read-only -m ${model} "<question>"`
-          : 'claude -p "<question>" --max-budget-usd 0.05 --no-session-persistence';
-
-  const dshArgs = [
-    '--profile',
-    'headless',
-    ...(opts.patchFile ? ['--patch', opts.patchFile] : []),
-    '--json',
-    QUESTION,
-  ];
-  const res =
-    opts.target === 'dsh'
-      ? runner('dsh', dshArgs, opts.projectDir)
-      : opts.target === 'opencode'
-        ? runner('opencode', ['run', '--model', model, QUESTION], opts.projectDir)
-        : opts.target === 'codex'
-          ? runner(
-              'codex',
-              [
-                'exec',
-                '--skip-git-repo-check',
-                '--sandbox',
-                'read-only',
-                '-m',
-                model,
-                QUESTION,
-              ],
-              opts.projectDir,
-            )
-          : runner(
-            'claude',
-            ['-p', QUESTION, '--max-budget-usd', '0.05', '--no-session-persistence'],
-            opts.projectDir,
-          );
-
-  const stripAnsi = (s: string): string => s.replace(/\x1B\[[0-9;]*[A-Za-z]/g, '');
-  const answer =
-    opts.target === 'dsh'
-      ? parseDshFinal(res.stdout)
-      : opts.target === 'opencode'
-        ? stripAnsi(res.stdout).trim()
-        : stripAnsi(res.stdout).trim();
-  const combined = `${res.stdout}\n${res.stderr}`;
-
-  if (/MISSING_CREDENTIAL|no API key/i.test(combined)) {
+  const asked = askHarness({
+    target: opts.target,
+    projectDir: opts.projectDir,
+    prompt: QUESTION,
+    ...(opts.timeoutMs ? { timeoutMs: opts.timeoutMs } : {}),
+    ...(opts.patchFile ? { patchFile: opts.patchFile } : {}),
+    ...(opts.model ? { model: opts.model } : {}),
+    ...(opts.runner ? { runner: opts.runner } : {}),
+  });
+  if (!asked.ok) {
     return {
       ...base,
       marker,
-      command,
-      answer,
-      reason: '缺少凭证：headless 需要环境变量 DEEPSEEK_API_KEY（桌面应用里存的那份读不到）',
+      command: asked.command,
+      answer: asked.answer,
+      ...(asked.reason ? { reason: asked.reason } : {}),
     };
   }
-  if (/Not logged in|/i.test(combined) && /Not logged in/i.test(combined)) {
-    return { ...base, marker, command, answer, reason: 'Claude Code 未登录：先跑 claude 并 /login' };
-  }
-  if (res.status !== 0) {
-    return {
-      ...base,
-      marker,
-      command,
-      answer,
-      reason: `命令退出码 ${res.status}：${res.stderr.trim().split(/\r?\n/).slice(-1)[0] ?? ''}`,
-    };
-  }
-
-  const ok = answer.includes(marker);
+  const ok = asked.answer.includes(marker);
   return {
     ok,
     harness: opts.target,
-    command,
-    answer,
+    command: asked.command,
+    answer: asked.answer,
     marker,
     ...(ok ? {} : { reason: '回答里没有出现托管块的标记——harness 没把这份指令读进上下文' }),
   };

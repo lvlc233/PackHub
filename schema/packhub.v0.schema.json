@@ -258,7 +258,7 @@
       "additionalProperties": false,
       "required": ["type"],
       "properties": {
-        "type": { "enum": ["file-exists", "command", "config-key", "mcp-ready", "knowledge-integrity"] },
+        "type": { "enum": ["file-exists", "command", "config-key", "mcp-ready", "knowledge-integrity", "scenario"] },
         "path": { "type": "string" },
         "run": { "type": "array", "items": { "type": "string" } },
         "expectExit": { "type": "integer" },
@@ -266,7 +266,17 @@
         "key": { "type": "string" },
         "equals": { "type": ["string", "number", "boolean"] },
         "resource": { "type": "string" },
-        "integrity": { "type": "string" }
+        "integrity": { "type": "string" },
+        "harness": { "enum": ["dsh", "claude-code", "opencode", "codex"] },
+        "prompt": { "type": "string" },
+        "expectOutput": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "array", "items": { "type": "string" } }
+          ]
+        },
+        "expectFiles": { "type": "array", "items": { "type": "string" } },
+        "cwd": { "type": "string" }
       }
     }
   }

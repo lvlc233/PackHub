@@ -61,7 +61,21 @@ export type VerifyCheck =
   | { type: 'command'; run: string[]; expectExit?: number; timeout?: number }
   | { type: 'config-key'; path: string; key: string; equals?: string | number | boolean }
   | { type: 'mcp-ready'; resource: string; timeout?: number }
-  | { type: 'knowledge-integrity'; resource: string; integrity?: string };
+  | { type: 'knowledge-integrity'; resource: string; integrity?: string }
+  /** 真跑一次最小任务：要么执行命令，要么让 harness headless 回答一句话，再断言结果。 */
+  | {
+      type: 'scenario';
+      run?: string[];
+      harness?: 'dsh' | 'claude-code' | 'opencode' | 'codex';
+      prompt?: string;
+      expectExit?: number;
+      /** 回答/输出里必须出现的子串；写数组时全部都要出现 */
+      expectOutput?: string | string[];
+      /** 跑完必须存在的文件（相对安装根） */
+      expectFiles?: string[];
+      cwd?: string;
+      timeout?: number;
+    };
 
 export interface SlotSpec {
   /** 占位实现必须提供的能力 */
