@@ -138,7 +138,8 @@ function evaluate(check: VerifyCheck, opts: VerifyOptions): { status: CheckStatu
 /** 在安装产物里找第一个 sha256 匹配的文件（只看 .packhub 下的物化结果，跳过缓存/快照/包副本）。 */
 function findFileWithHash(root: string, integrity: string): string | null {
   const start = existsSync(join(root, '.packhub')) ? join(root, '.packhub') : root;
-  const skip = new Set(['.git', 'node_modules', 'cache', 'snapshots', 'backups', 'packs']);
+  // versions/ 是版本镜像，不是活文件：否则「文件被改过」会被镜像里的原始副本掩盖
+  const skip = new Set(['.git', 'node_modules', 'cache', 'snapshots', 'backups', 'packs', 'versions']);
   const walk = (dir: string, rel: string): string | null => {
     let entries;
     try {

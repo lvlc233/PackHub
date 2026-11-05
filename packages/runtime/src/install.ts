@@ -79,9 +79,42 @@ interface State {
 
 const STATE_API = 'packhub.dev/state/v0';
 
+/** 一个已装版本的落盘记录：文件内容镜像 + 可重放的共享改动。 */
+export interface VersionRecord {
+  apiVersion: 'packhub.dev/version/v0';
+  pack: string;
+  version: string;
+  target: Plan['target'];
+  planHash: string;
+  installedAt: string;
+  /** 计划里的 merge/config 片段已经内联，换版本时不再依赖 Pack 目录 */
+  plan: Plan;
+  actions: ActionOutcome[];
+  /** 这个版本拥有的路径（含共享配置与指令文件） */
+  written: string[];
+  /** 镜像在 files/ 下的路径（write / unpack / link.skill 的产物） */
+  files: string[];
+}
+
+export interface VersionInfo {
+  pack: string;
+  version: string;
+  target: Plan['target'];
+  planHash: string;
+  installedAt: string;
+  active: boolean;
+}
+
+interface ActiveFile {
+  apiVersion: 'packhub.dev/active/v0';
+  packs: Record<string, { version: string; target: string; planHash: string; at: string }>;
+}
+
 const STATE_DIR = '.packhub';
 const STATE_FILE = '.packhub/state.json';
 const INSTALL_LOCK = '.packhub/installing.lock';
+const VERSIONS_DIR = '.packhub/versions';
+const ACTIVE_FILE = '.packhub/active.json';
 
 /** 同一目录同时只允许一个安装：O_EXCL 创建锁文件，天然原子。 */
 function acquireLock(root: string): () => void {
@@ -160,9 +193,11 @@ function prepareGeneration(root: string, plan: Plan): Generation {
       created.push(rel);
     }
   }
+  mkdirSync(dir, { recursive: true });
   const statePath = join(root, STATE_FILE);
   if (existsSync(statePath)) cpSync(statePath, join(dir, 'state.json'));
-  mkdirSync(dir, { recursive: true });
+  const activePath = join(root, ACTIVE_FILE);
+  if (existsSync(activePath)) cpSync(activePath, join(dir, 'active.json'));
   const gen: Generation = {
     id,
     at: new Date().toISOString(),
@@ -235,6 +270,28 @@ export async function applyPlan(plan: Plan, opts: ApplyOptions): Promise<ApplyRe
   }
 
   if (!opts.dryRun && !failed) {
+    // 把这次安装的产物镜像进版本目录：以后可以整版切换，而不是只能原地回退一步
+    try {
+      stageVersion(opts.root, plan, outcomes, written, opts.packRoot ?? opts.root);
+    } catch (err) {
+      const dir = versionDirOf(opts.root, plan.pack.name, plan.pack.version);
+      rmSync(dir, { recursive: true, force: true });
+      if (gen) {
+        restoreGeneration(opts.root, gen);
+        const activeBackup = join(opts.root, STATE_DIR, 'snapshots', gen.id, 'active.json');
+        if (existsSync(activeBackup)) cpSync(activeBackup, join(opts.root, ACTIVE_FILE));
+      }
+      outcomes.push({
+        actionId: 'stage#1',
+        op: 'write',
+        status: 'failed',
+        message: `版本目录写入失败：${(err as Error).message}`,
+      });
+      return { outcomes, statePath, rolledBack: true };
+    }
+  }
+
+  if (!opts.dryRun && !failed) {
     const state = loadState(opts.root);
     state.apiVersion = 'packhub.dev/state/v0';
     // 升级到新版本时把同名的旧记录并进来：written 取并集，旧 key 不留
@@ -279,6 +336,355 @@ function pruneSnapshots(root: string, keep: Generation[]): void {
   }
 }
 
+/* ---------- 版本目录与激活指针 ---------- */
+
+function packSlug(name: string): string {
+  return name.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+}
+
+function versionDirOf(root: string, pack: string, version: string): string {
+  return join(root, VERSIONS_DIR, packSlug(pack), packSlug(version));
+}
+
+function readActive(root: string): ActiveFile {
+  const file = join(root, ACTIVE_FILE);
+  if (!existsSync(file)) return { apiVersion: 'packhub.dev/active/v0', packs: {} };
+  try {
+    const parsed = JSON.parse(readFileSync(file, 'utf8')) as Partial<ActiveFile>;
+    return { apiVersion: 'packhub.dev/active/v0', packs: parsed.packs ?? {} };
+  } catch {
+    return { apiVersion: 'packhub.dev/active/v0', packs: {} };
+  }
+}
+
+function writeActive(root: string, next: ActiveFile): void {
+  const file = join(root, ACTIVE_FILE);
+  mkdirSync(dirname(file), { recursive: true });
+  atomicWrite(file, JSON.stringify(next, null, 2) + '\n');
+}
+
+function setActive(root: string, pack: string, version: string, planHash: string, target: string): void {
+  const active = readActive(root);
+  active.packs[pack] = { version, target, planHash, at: new Date().toISOString() };
+  writeActive(root, active);
+}
+
+function unsetActive(root: string, pack: string): void {
+  const active = readActive(root);
+  if (!(pack in active.packs)) return;
+  delete active.packs[pack];
+  if (Object.keys(active.packs).length === 0) {
+    rmSync(join(root, ACTIVE_FILE), { force: true });
+    return;
+  }
+  writeActive(root, active);
+}
+
+/** 把 merge.config 的 patchFrom 内联成 patch：换版本时 Pack 目录可能已经换了。 */
+function resolvePlan(plan: Plan, packRoot: string): Plan {
+  return {
+    ...plan,
+    actions: plan.actions.map((action) => {
+      if (action.op !== 'merge.config' || action.patch !== undefined || !action.patchFrom) return action;
+      try {
+        return { ...action, patch: readStructured(resolve(packRoot, action.patchFrom)) };
+      } catch {
+        return action;
+      }
+    }),
+  };
+}
+
+/** 安装成功后把产物镜像进版本目录，并切激活指针。 */
+function stageVersion(
+  root: string,
+  plan: Plan,
+  outcomes: ActionOutcome[],
+  written: string[],
+  packRoot: string,
+): VersionRecord {
+  const dir = versionDirOf(root, plan.pack.name, plan.pack.version);
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(join(dir, 'files'), { recursive: true });
+  const files: string[] = [];
+  for (const rel of touchedPaths(plan)) {
+    if (isSharedPath(rel)) continue;
+    const abs = within(root, rel);
+    if (!existsSync(abs)) continue;
+    cpSync(abs, join(dir, 'files', rel), { recursive: true, force: true });
+    files.push(rel);
+  }
+  const record: VersionRecord = {
+    apiVersion: 'packhub.dev/version/v0',
+    pack: plan.pack.name,
+    version: plan.pack.version,
+    target: plan.target,
+    planHash: plan.planHash,
+    installedAt: new Date().toISOString(),
+    plan: resolvePlan(plan, packRoot),
+    actions: outcomes,
+    written: [...written],
+    files,
+  };
+  writeFileSync(join(dir, 'record.json'), JSON.stringify(record, null, 2) + '\n', 'utf8');
+  setActive(root, plan.pack.name, plan.pack.version, plan.planHash, plan.target);
+  pruneVersions(root, plan.pack.name);
+  return record;
+}
+
+/** 每个包只保留最近 5 个版本目录；当前激活的那个永远保留。 */
+function pruneVersions(root: string, pack: string): void {
+  const dir = join(root, VERSIONS_DIR, packSlug(pack));
+  if (!existsSync(dir)) return;
+  const active = readActive(root).packs[pack]?.version;
+  const records = readdirSync(dir, { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => {
+      const recordFile = join(dir, e.name, 'record.json');
+      try {
+        return JSON.parse(readFileSync(recordFile, 'utf8')) as VersionRecord;
+      } catch {
+        return undefined;
+      }
+    })
+    .filter((r): r is VersionRecord => Boolean(r))
+    .sort((a, b) => (a.installedAt < b.installedAt ? 1 : -1));
+  let keep = 5;
+  for (const record of records) {
+    if (record.version === active) continue;
+    if (keep > 0) {
+      keep--;
+      continue;
+    }
+    rmSync(join(dir, versionSlug(record.version)), { recursive: true, force: true });
+  }
+}
+
+function versionSlug(version: string): string {
+  return version.replace(/[^a-zA-Z0-9._-]+/g, '-');
+}
+
+export function readVersionRecord(root: string, pack: string, version: string): VersionRecord {
+  const file = join(versionDirOf(root, pack, version), 'record.json');
+  if (!existsSync(file)) throw new Error(`没有这个版本：${pack}@${version}（用 packhub versions ${pack} 查看）`);
+  return JSON.parse(readFileSync(file, 'utf8')) as VersionRecord;
+}
+
+/** 列出所有可切换的版本，active 标记当前挂载的那个。 */
+export function listVersions(root: string, pack?: string): VersionInfo[] {
+  const base = join(root, VERSIONS_DIR);
+  if (!existsSync(base)) return [];
+  const active = readActive(root).packs;
+  const out: VersionInfo[] = [];
+  for (const packDir of readdirSync(base, { withFileTypes: true })) {
+    if (!packDir.isDirectory()) continue;
+    for (const verDir of readdirSync(join(base, packDir.name), { withFileTypes: true })) {
+      if (!verDir.isDirectory()) continue;
+      try {
+        const record = JSON.parse(
+          readFileSync(join(base, packDir.name, verDir.name, 'record.json'), 'utf8'),
+        ) as VersionRecord;
+        if (pack && record.pack !== pack) continue;
+        out.push({
+          pack: record.pack,
+          version: record.version,
+          target: record.target,
+          planHash: record.planHash,
+          installedAt: record.installedAt,
+          active: active[record.pack]?.version === record.version,
+        });
+      } catch {
+        /* 坏掉的版本目录跳过 */
+      }
+    }
+  }
+  return out.sort((a, b) => (a.pack === b.pack ? (a.installedAt < b.installedAt ? 1 : -1) : a.pack.localeCompare(b.pack)));
+}
+
+export interface ActivateResult {
+  pack: string;
+  from: string | null;
+  to: string;
+  removed: string[];
+  written: string[];
+}
+
+/**
+ * 把某个已装版本挂到项目上：拆掉当前版本的产物，铺开目标版本的镜像，
+ * 再重放配置与会话指令。整次切换在锁里做，失败按快照恢复。
+ */
+export async function activatePack(root: string, pack: string, version: string): Promise<ActivateResult> {
+  const release = acquireLock(root);
+  try {
+    const record = readVersionRecord(root, pack, version);
+    const state = loadState(root);
+    const fromKey = Object.keys(state.packs).find((k) => (k.split('@')[0] ?? '') === pack);
+    const previous = fromKey ? state.packs[fromKey] : undefined;
+
+    // 快照要覆盖「旧版本留下、新版本不再产出」的文件，否则切换失败会留下半套
+    const snapshotPlan: Plan = {
+      ...record.plan,
+      actions: [...(previous?.plan?.actions ?? []), ...record.plan.actions],
+    };
+    const gen = prepareGeneration(root, snapshotPlan);
+    const keep = touchedPaths(record.plan);
+    const removed = previous?.plan
+      ? deactivatePlan(root, previous.plan, previous.actions, keep)
+      : [];
+
+    const snapshotDir = join(root, STATE_DIR, 'snapshots', gen.id);
+    try {
+      materialize(root, record);
+      const actions = await replayShared(root, record);
+      if (fromKey) delete state.packs[fromKey];
+      state.packs[`${record.pack}@${record.version}`] = {
+        planHash: record.planHash,
+        installedAt: record.installedAt,
+        actions,
+        written: [...record.written],
+        plan: record.plan,
+      };
+      state.generations = [...(state.generations ?? []), gen].slice(-5);
+      pruneSnapshots(root, state.generations);
+      writeFileSync(join(root, STATE_FILE), JSON.stringify(state, null, 2) + '\n', 'utf8');
+      setActive(root, record.pack, record.version, record.planHash, record.target);
+    } catch (err) {
+      restoreGeneration(root, gen);
+      rmSync(snapshotDir, { recursive: true, force: true });
+      throw err;
+    }
+
+    return {
+      pack: record.pack,
+      from: fromKey ?? null,
+      to: `${record.pack}@${record.version}`,
+      removed,
+      written: record.files,
+    };
+  } finally {
+    release();
+  }
+}
+
+/** 把版本目录里的文件镜像铺回项目。 */
+function materialize(root: string, record: VersionRecord): void {
+  const src = join(versionDirOf(root, record.pack, record.version), 'files');
+  for (const rel of record.files) {
+    const from = join(src, rel);
+    if (!existsSync(from)) continue;
+    const to = within(root, rel);
+    mkdirSync(dirname(to), { recursive: true });
+    cpSync(from, to, { recursive: true, force: true });
+  }
+}
+
+/** 重放这个版本的共享改动；文件镜像已经在 materialize 里铺好。 */
+async function replayShared(root: string, record: VersionRecord): Promise<ActionOutcome[]> {
+  const outcomes: ActionOutcome[] = [];
+  const scratch: string[] = [];
+  const opts: ApplyOptions = { root, packRoot: root };
+  for (const action of record.plan.actions) {
+    if (action.op === 'merge.config' || action.op === 'register.mcp' || action.op === 'instruction') {
+      outcomes.push(await applyAction(action, record.plan, opts, scratch));
+      continue;
+    }
+    if (action.op === 'exec') {
+      outcomes.push({
+        actionId: action.actionId,
+        op: action.op,
+        status: 'noop',
+        message: '激活时不重跑安装期命令',
+      });
+      continue;
+    }
+    const target = 'to' in action ? action.to : 'dest' in action ? action.dest : undefined;
+    outcomes.push({ actionId: action.actionId, op: action.op, status: 'done', target });
+  }
+  return outcomes;
+}
+
+/**
+ * 拆掉旧版本的产物：文件删掉、配置按 undo 还原、MCP 条目摘掉、指令块摘掉。
+ * `keep` 是新版本仍会产出的路径——重叠部分让新版本覆盖，不先删。
+ */
+function deactivatePlan(
+  root: string,
+  plan: Plan,
+  actions: ActionOutcome[],
+  keep: string[],
+): string[] {
+  const removed: string[] = [];
+  const byId = new Map(actions.map((o) => [o.actionId, o]));
+  const keptBy = (rel: string): boolean =>
+    keep.some((p) => p === rel || rel.startsWith(`${p}/`) || p.startsWith(`${rel}/`));
+  const configs: { path: string; ops: { path: string[]; had: boolean; value?: unknown }[] }[] = [];
+  const servers: { path: string; resource: string }[] = [];
+  const blocks: { file: string; blockId: string }[] = [];
+
+  for (const action of plan.actions) {
+    if (action.op === 'write' || action.op === 'link.skill' || action.op === 'unpack') {
+      if (keptBy(action.to)) continue;
+      const abs = within(root, action.to);
+      if (!existsSync(abs)) continue;
+      rmSync(abs, { recursive: true, force: true });
+      removed.push(action.to);
+      continue;
+    }
+    if (action.op === 'merge.config') {
+      const undo = byId.get(action.actionId)?.undo;
+      const ops = undo?.ops?.length
+        ? undo.ops
+        : leafPaths(action.patch ?? {}).filter((p) => p.length > 0).map((p) => ({ path: p, had: false }));
+      configs.push({ path: action.path, ops });
+      continue;
+    }
+    if (action.op === 'register.mcp') {
+      servers.push({ path: action.path ?? '.packhub/config.json', resource: action.resource ?? 'mcp' });
+      continue;
+    }
+    if (action.op === 'instruction') blocks.push({ file: action.file, blockId: action.blockId });
+  }
+
+  for (const { path: rel, ops } of configs) {
+    const abs = within(root, rel);
+    if (!existsSync(abs)) continue;
+    const data = JSON.parse(readFileSync(abs, 'utf8')) as Record<string, unknown>;
+    for (const op of ops) {
+      if (op.had) setPath(data, op.path, op.value);
+      else deletePath(data, op.path);
+    }
+    const pruned = pruneEmpty(data);
+    if (Object.keys(pruned).length === 0) rmSync(abs, { force: true });
+    else writeFileSync(abs, JSON.stringify(pruned, null, 2) + '\n', 'utf8');
+    removed.push(rel);
+  }
+
+  for (const { path: rel, resource } of servers) {
+    const abs = within(root, rel);
+    if (!existsSync(abs)) continue;
+    const data = JSON.parse(readFileSync(abs, 'utf8')) as Record<string, unknown>;
+    const list = { ...(data.mcpServers as Record<string, unknown> | undefined) };
+    delete list[resource];
+    if (Object.keys(list).length === 0) delete data.mcpServers;
+    else data.mcpServers = list;
+    const pruned = pruneEmpty(data);
+    if (Object.keys(pruned).length === 0) rmSync(abs, { force: true });
+    else writeFileSync(abs, JSON.stringify(pruned, null, 2) + '\n', 'utf8');
+    removed.push(rel);
+  }
+
+  for (const { file, blockId } of blocks) {
+    const abs = within(root, file);
+    if (!existsSync(abs)) continue;
+    const text = stripBlock(readFileSync(abs, 'utf8'), blockId);
+    if (text.trim() === '') rmSync(abs, { force: true });
+    else writeFileSync(abs, text, 'utf8');
+    removed.push(file);
+  }
+
+  return removed;
+}
+
 export interface RollbackResult {
   generation: string;
   restored: string[];
@@ -313,6 +719,11 @@ export function rollbackPack(root: string, generation?: string): RollbackResult 
     if (after.generations.length > 0) {
       writeFileSync(statePath, JSON.stringify(after, null, 2) + '\n', 'utf8');
     }
+    // 激活指针也要跟着退回：否则 versions 会显示一个已经不在盘上的版本
+    const activeBackup = join(dir, 'active.json');
+    const activePath = join(root, ACTIVE_FILE);
+    if (existsSync(activeBackup)) cpSync(activeBackup, activePath);
+    else if (Object.keys(after.packs).length === 0) rmSync(activePath, { force: true });
     rmSync(dir, { recursive: true, force: true });
 
     return { generation: gen.id, restored, removed };
@@ -423,6 +834,17 @@ export function removePack(root: string, packKey?: string): RemoveResult {
         if (existsSync(copy)) rmSync(copy, { recursive: true, force: true });
       }
       delete state.packs[key];
+      // 没有任何版本记录留下时，把整个版本目录与激活项一并摘掉
+      if (packName && !Object.keys(state.packs).some((k) => (k.split('@')[0] ?? '') === packName)) {
+        const versions = within(root, join(VERSIONS_DIR, packSlug(packName)));
+        if (existsSync(versions)) rmSync(versions, { recursive: true, force: true });
+        // 空壳目录不留在项目里
+        const versionsRoot = join(root, VERSIONS_DIR);
+        if (existsSync(versionsRoot) && readdirSync(versionsRoot).length === 0) {
+          rmSync(versionsRoot, { recursive: true, force: true });
+        }
+        unsetActive(root, packName);
+      }
     }
 
     const statePath = join(root, STATE_FILE);

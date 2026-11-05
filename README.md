@@ -185,10 +185,12 @@ manifest（声明） → plan（要做什么） → state（做了什么） → 
 project/
 ├── .packhub/
 │   ├── state.json          # 装了什么、拥有哪些文件
+│   ├── active.json         # 每个包当前挂着的版本
 │   ├── config.json         # MCP 与配置合并的结果
 │   ├── knowledge/          # knowledge 资源
 │   ├── prompts/            # prompt 资源
 │   ├── skills/             # skill 资源
+│   ├── versions/           # 已装版本的产物镜像，可整版切换
 │   └── snapshots/          # 安装前快照，用于回退
 ├── AGENTS.md               # dsh 目标的托管块
 └── CLAUDE.md / .mcp.json   # claude-code 目标的托管块与 MCP 配置
@@ -196,9 +198,10 @@ project/
 
 只有 state 里记录的文件属于这个包；升级和卸载以这份记录为准，回滚用 generation 快照。
 
-安装失败或需要重来时，有两层退路：
+安装失败或需要重来时，有三层退路：
 
-- `packhub rollback`：按 generation 快照退回一次安装；连续调用可以继续往前退。快照只保留最近 5 个 generation，没有激活指针，不能一次切到任意版本。
+- `packhub versions` / `packhub activate <name>@<version>`：每次安装都会把产物镜像进 `.packhub/versions/`，列出版本并把任意已装版本挂回项目；配置、MCP 登记与托管块一起重放。
+- `packhub rollback`：按 generation 快照退回一次安装；连续调用可以继续往前退。快照只保留最近 5 个 generation。
 - `packhub uninstall`：按 state 里记录的文件反向删除；配置文件只摘自己的键，指令文件只摘自己的块。
 
 `packhub update` 先安装新版本，再按旧计划清掉不再产出的文件。旧计划在安装前从 state 取出；安装时 state 会合并旧记录，清理仍用取出的那一份。
@@ -385,7 +388,7 @@ pnpm registry:check
 
 ## 还不能做什么
 
-- 没有 staged 版本目录与激活指针，安装直接写入目标目录；回退一次退一个 generation，不能整体切版本。
+- 版本切换是产物副本重铺，不是硬链接；保留最近 5 个版本目录，更早的要重新安装。
 - 一个锁只覆盖一个 target；跨 target 安装时，锁只保证引用，目标计划没有被 `planHash` 校验。
 - 没有 SSH 部署与常驻同步 agent。
 - 没有 scenario 探针（执行最小任务并检查行为）。

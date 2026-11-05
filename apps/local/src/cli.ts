@@ -20,6 +20,8 @@ import {
   setBinding,
   removePack,
   rollbackPack,
+  listVersions,
+  activatePack,
   packArchive,
   fetchPack,
   readIndex,
@@ -604,6 +606,58 @@ const rollback = defineCommand({
   },
 });
 
+const versions = defineCommand({
+  meta: { name: 'versions', description: '列出已装版本目录与当前激活版本' },
+  args: {
+    dir: { type: 'positional', required: false, default: '.' },
+    pack: { type: 'positional', required: false, description: '只看这个包（name）' },
+    json: { type: 'boolean', default: false },
+  },
+  run({ args }) {
+    const list = listVersions(resolve(String(args.dir)), args.pack ? String(args.pack) : undefined);
+    if (args.json) {
+      console.log(JSON.stringify(list, null, 2));
+      return;
+    }
+    if (list.length === 0) {
+      console.log('没有已暂存的版本');
+      return;
+    }
+    for (const v of list) {
+      const mark = v.active ? '●' : '○';
+      console.log(`${mark} ${`${v.pack}@${v.version}`.padEnd(40)} ${v.target.padEnd(12)} ${v.installedAt.slice(0, 19)}`);
+    }
+    console.log('\n● 表示当前激活；用 packhub activate <name>@<version> 切换');
+  },
+});
+
+const activate = defineCommand({
+  meta: { name: 'activate', description: '把同一个包已暂存的某个版本挂到项目上' },
+  args: {
+    ref: { type: 'positional', required: true, description: 'name@version' },
+    dir: { type: 'positional', required: false, default: '.' },
+  },
+  async run({ args }) {
+    const ref = String(args.ref);
+    const at = ref.lastIndexOf('@');
+    if (at <= 0 || at === ref.length - 1) {
+      console.error('用法：packhub activate <name>@<version>');
+      process.exit(2);
+    }
+    const pack = ref.slice(0, at);
+    const version = ref.slice(at + 1);
+    try {
+      const res = await activatePack(resolve(String(args.dir)), pack, version);
+      console.log(`激活 ${res.to}${res.from ? `（原 ${res.from}）` : ''}`);
+      for (const r of res.removed) console.log(`  × ${r}`);
+      console.log(`\n铺开 ${res.written.length} 个路径；配置与指令块已按这个版本重放`);
+    } catch (err) {
+      console.error(`x ${(err as Error).message}`);
+      process.exit(1);
+    }
+  },
+});
+
 const run = defineCommand({
   meta: { name: 'run', description: '在干净目录里装一遍并校验（发布门禁的同一个执行者）' },
   args: {
@@ -1166,6 +1220,8 @@ export const main: CommandDef = defineCommand({
     install,
     uninstall,
     rollback,
+    versions,
+    activate,
     update,
     verify,
     lock,

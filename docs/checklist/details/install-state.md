@@ -32,12 +32,23 @@
 - `plan` 是快照：`update` 和 `verify` 在项目根上靠它工作，不再要求项目里有 `packhub.yaml`。
 - `actions` 保留每种动作的结果与 `undo`（`merge.config` 用叶子键记撤销）。
 
+## 版本目录与激活
+
+每次安装成功都会把产物镜像进 `.packhub/versions/<pack-slug>/<version>/`：
+
+```
+files/…               write / unpack / link.skill 的产物副本（共享配置与指令文件除外）
+record.json           内联了 merge 片段的计划、动作结果、owned 路径
+```
+
+`.packhub/active.json` 记录每个包当前挂着的版本。`packhub versions` 列出可切换版本，`packhub activate <name>@<version>` 做整版切换：拆掉旧版本产物、铺开目标版本镜像、重放配置合并 / MCP 登记 / 指令块；整个过程在安装锁里，失败按 generation 快照恢复。每个包保留最近 5 个版本目录，当前激活的永远保留。
+
 ## 回退
 
-- `rollbackPack(root, id?)`：取最后一个或指定 generation，恢复 `existed`、删除 `created`、把快照里的 `state.json` 放回去。
+- `rollbackPack(root, id?)`：取最后一个或指定 generation，恢复 `existed`、删除 `created`、把快照里的 `state.json` 与 `active.json` 放回去。
 - 一次退一个 generation；连续调用可以继续往前。
 - 只保留 5 个 generation；更早的快照会被删，rollback 会报“快照已不在”。
-- 没有“激活指针”，所以不能在同一目录里保留两个版本再整体切换。
+- 版本切换与 generation 回退是两条路：前者按包切版本，后者按安装动作整体回退。
 
 ## 升级
 
@@ -58,6 +69,7 @@
 ## 已知边界
 
 - 所有权只按动作声明的顶层路径判；两个包各装一个目录，目录内部撞文件不会提前发现。
+- 版本目录存的是产物副本，不是硬链接；大包换版本会有一次完整复制。
 - 崩溃残留的 `installing.lock` 要人工确认后删，没有超时回收。
 - `fetch` 的缓存文件不参与 owned/清理策略；缓存会留在 `.packhub/cache/`。
 - 失败回滚只覆盖本次 `touchedPaths`；`exec` 在仓库外的副作用无法撤销。
