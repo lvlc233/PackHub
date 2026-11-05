@@ -1,8 +1,18 @@
-﻿import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { defineCommand, type CommandDef } from 'citty';
 import { defaultStaticDir, startHub } from '@packhub/hub';
+import {
+  startMarket,
+  register as marketRegister,
+  login as marketLogin,
+  publishToMarket,
+  searchMarket,
+  yankVersion,
+  readSessions,
+  sessionPath as marketSessionPath,
+} from '@packhub/market';
 import { runPack } from '@packhub/runner';
 import { publishPack, writeIndex } from '@packhub/registry';
 import { credentialsPath, listTokens, removeToken, setToken } from '@packhub/runtime';
@@ -860,6 +870,169 @@ const sync = defineCommand({
   },
 });
 
+const marketServe = defineCommand({
+  meta: { name: 'serve', description: '起市场写端（账号、上传、下架、统计；包内容仍按版本不可变）' },
+  args: {
+    dir: { type: 'positional', required: false, default: '.', description: 'registry 根目录' },
+    port: { type: 'string', default: '8789' },
+    host: { type: 'string', default: '127.0.0.1' },
+  },
+  async run({ args }) {
+    const market = await startMarket({
+      root: resolve(String(args.dir)),
+      port: Number(args.port),
+      host: String(args.host),
+    });
+    console.log(`PackHub 市场（写端）→ ${market.url}`);
+    console.log('上传走 POST /api/publish；包仍由 Hub 只读分发');
+    for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+      process.on(signal, () => {
+        console.log(`${signal} → 关闭`);
+        void market.close().then(() => process.exit(0));
+      });
+    }
+    await new Promise(() => {});
+  },
+});
+
+const marketRegisterCmd = defineCommand({
+  meta: { name: 'register', description: '在市场注册账号，拿到只能发布自己 scope 的 token' },
+  args: {
+    url: { type: 'positional', required: true, description: '市场地址，例如 http://127.0.0.1:8789' },
+    name: { type: 'positional', required: true, description: '账号名（同时成为 scope）' },
+  },
+  async run({ args }) {
+    try {
+      const session = await marketRegister(String(args.url), String(args.name));
+      console.log(`✓ 已注册 ${session.name}（scope ${session.scope}）`);
+      console.log(`  token 已保存到 ${marketSessionPath()}（0600）`);
+      console.log(`  发布：packhub market publish <pack 目录> --url ${session.url}`);
+    } catch (err) {
+      console.error(`x ${(err as Error).message}`);
+      process.exit(1);
+    }
+  },
+});
+
+const marketLoginCmd = defineCommand({
+  meta: { name: 'login', description: '用已有 token 登录市场（token 存本机，不进清单）' },
+  args: {
+    url: { type: 'positional', required: true },
+    token: { type: 'positional', required: true },
+  },
+  async run({ args }) {
+    try {
+      const session = await marketLogin(String(args.url), String(args.token));
+      console.log(`✓ 已登录 ${session.url}（${session.name} / ${session.scope}）`);
+    } catch (err) {
+      console.error(`x ${(err as Error).message}`);
+      process.exit(1);
+    }
+  },
+});
+
+const marketPublishCmd = defineCommand({
+  meta: { name: 'publish', description: '把 Pack 打成 .phub 上传到市场（服务端跑干净安装+只读校验）' },
+  args: {
+    dir: { type: 'positional', required: false, default: '.' },
+    url: { type: 'string', description: '市场地址（默认用已保存的登录）' },
+    token: { type: 'string', description: '临时 token（默认用已保存的登录）' },
+  },
+  async run({ args }) {
+    try {
+      const res = await publishToMarket(resolve(String(args.dir)), {
+        ...(args.url ? { url: String(args.url) } : {}),
+        ...(args.token ? { token: String(args.token) } : {}),
+      });
+      console.log(`✓ 已发布 ${res.name}@${res.version}（${res.trust ?? 'community'}）`);
+      if (res.planHash) console.log(`  planHash ${res.planHash.slice(0, 22)}…`);
+    } catch (err) {
+      console.error(`x ${(err as Error).message}`);
+      process.exit(1);
+    }
+  },
+});
+
+const marketSearchCmd = defineCommand({
+  meta: { name: 'search', description: '在市场里按关键词找包（带下载量）' },
+  args: {
+    keyword: { type: 'positional', required: false },
+    url: { type: 'string', description: '市场地址（默认用已保存的登录）' },
+    json: { type: 'boolean', default: false },
+  },
+  async run({ args }) {
+    try {
+      const sessions = Object.keys(readSessions().sessions);
+      const url = args.url ? String(args.url) : sessions.length === 1 ? sessions[0]! : undefined;
+      if (!url) {
+        console.error('要指定 --url，或先 packhub market login 保存一个地址');
+        process.exit(2);
+      }
+      const packs = await searchMarket(url, String(args.keyword ?? ''));
+      if (args.json) {
+        console.log(JSON.stringify(packs, null, 2));
+        return;
+      }
+      for (const p of packs) {
+        console.log(`${p.name}@${p.latest}  ${p.trust ?? 'community'}  ${p.downloads ?? 0} 次下载`);
+        if (p.title) console.log(`  ${p.title}`);
+      }
+      if (packs.length === 0) console.log('没有匹配的包');
+    } catch (err) {
+      console.error(`x ${(err as Error).message}`);
+      process.exit(1);
+    }
+  },
+});
+
+const marketYankCmd = defineCommand({
+  meta: { name: 'yank', description: '下架自己发布的一个版本（移到 quarantine，索引同步移除）' },
+  args: {
+    ref: { type: 'positional', required: true, description: 'name@version' },
+    url: { type: 'string' },
+    token: { type: 'string' },
+    reason: { type: 'string' },
+  },
+  async run({ args }) {
+    try {
+      const res = await yankVersion(String(args.ref), {
+        ...(args.url ? { url: String(args.url) } : {}),
+        ...(args.token ? { token: String(args.token) } : {}),
+        ...(args.reason ? { reason: String(args.reason) } : {}),
+      });
+      console.log(`✓ 已下架 ${res.name}@${res.version}`);
+    } catch (err) {
+      console.error(`x ${(err as Error).message}`);
+      process.exit(1);
+    }
+  },
+});
+
+const marketWhoami = defineCommand({
+  meta: { name: 'whoami', description: '看本机保存了哪些市场登录' },
+  run() {
+    const sessions = Object.values(readSessions().sessions);
+    if (sessions.length === 0) {
+      console.log(`没有登录记录：${marketSessionPath()}`);
+      return;
+    }
+    for (const s of sessions) console.log(`${s.url}  ${s.name} (${s.scope})`);
+  },
+});
+
+const market = defineCommand({
+  meta: { name: 'market', description: '市场写端：账号、发布、下架、统计（Hub 仍然只读）' },
+  subCommands: {
+    serve: marketServe,
+    register: marketRegisterCmd,
+    login: marketLoginCmd,
+    publish: marketPublishCmd,
+    search: marketSearchCmd,
+    yank: marketYankCmd,
+    whoami: marketWhoami,
+  },
+});
+
 const trustAdd = defineCommand({
   meta: { name: 'add', description: '把发布者的公钥 id 加入本机信任列表' },
   args: {
@@ -1531,6 +1704,7 @@ export const main: CommandDef = defineCommand({
     auth,
     trust,
     audit,
+    market,
     run,
     publish,
     probe,
