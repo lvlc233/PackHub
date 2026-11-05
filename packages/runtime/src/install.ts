@@ -26,6 +26,7 @@ import { download, resolvePypiSdist } from './download.ts';
 import { isSafeArchiveEntry } from './pack.ts';
 import { generateOpenaiYaml, readSkillFrontmatter } from './skill-meta.ts';
 import { resolveToken } from './credentials.ts';
+import { removeClaudeMcp } from './host-mcp.ts';
 
 export interface ApplyOptions {
   /** 目标目录：写到哪里、state 放哪里 */
@@ -84,6 +85,8 @@ interface State {
       written: string[];
       /** 持久状态目录：记下来供卸载与 doctor 使用；不放进 written，卸载默认不删 */
       stateDirs?: { id: string; path: string; retain: 'keep' | 'remove' }[];
+      /** 由宿主 CLI 管理的全局 MCP（目前是 Claude Code user scope）；卸载时按名字摘掉 */
+      hostMcp?: string[];
       /** 上一份计划快照，update 靠它算差异 */
       plan?: Plan;
     }
@@ -880,6 +883,14 @@ export function removePack(root: string, packKey?: string): RemoveResult {
       const record = state.packs[key];
       if (!record) continue;
       const isLast = Object.keys(state.packs).length === 1;
+      // 宿主 CLI 管理的 MCP：按名字从 user scope 摘掉
+      for (const name of record.hostMcp ?? []) {
+        try {
+          if (removeClaudeMcp(name)) removed.push(`claude-mcp:${name}`);
+        } catch (err) {
+          kept.push(`claude-mcp:${name}（${(err as Error).message}）`);
+        }
+      }
       // 持久状态目录默认保留；只有显式 retain: remove 才跟随卸载删除
       for (const spec of record.stateDirs ?? []) {
         const abs = within(root, spec.path);
@@ -1394,6 +1405,13 @@ export function loadState(root: string): State {
     ...(parsed.generations ? { generations: parsed.generations } : {}),
     packs: parsed.packs ?? {},
   };
+}
+
+/** 写回 state（MCP adapter 之类的非文件改动用它，避免外部复制 loadState 的结构）。 */
+export function saveState(root: string, state: State): void {
+  const file = join(root, STATE_FILE);
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileAtomic(file, JSON.stringify(state, null, 2) + '\n');
 }
 
 function viaTemp(file: string): string {

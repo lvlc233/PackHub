@@ -8,6 +8,7 @@ import type {
   PlanAction,
   PlanActionInput,
   ResourceSpec,
+  ResourceType,
   TargetId,
   VerifyCheck,
 } from './types.ts';
@@ -20,6 +21,8 @@ export interface PlanOptions {
   /** adapter 提供的路径变量（相对 Pack 目录） */
   targetVars: Record<string, string>;
   packDir?: string;
+  /** 这些类型的资源交给宿主/外部适配器处理，不进计划（例如全局同步时的 MCP） */
+  skipResourceTypes?: ResourceType[];
 }
 
 /** dir adapter 的默认路径约定：物化到 .packhub，不碰宿主的配置文件。 */
@@ -161,6 +164,10 @@ export function buildPlan(
   for (const id of graph.order) {
     const res = graph.resources.get(id);
     if (!res) continue;
+    if (opts.skipResourceTypes?.includes(res.type)) {
+      excluded.push({ resource: id, slot: res.slot ?? '', reason: 'host-managed' });
+      continue;
+    }
     // 资源级 target 裁剪：同一个 Pack 在 server 上可以不带 client-only 的资源
     if (res.targets && res.targets.length > 0 && !res.targets.includes(opts.target)) {
       excluded.push({ resource: id, slot: res.slot ?? '', reason: 'target-mismatch' });
@@ -174,7 +181,7 @@ export function buildPlan(
         // MCP 由目标环境自己用 npx/uvx 拉起，安装期只登记，不预先下载包体
         push({
           op: 'register.mcp',
-          spec: mcpSpec(res, interp(res.config ?? {}) as Record<string, unknown>),
+          spec: buildMcpSpec(res, interp(res.config ?? {}) as Record<string, unknown>),
           path: targetVars.configFile ?? '.packhub/config.json',
           resource: id,
         });
@@ -425,7 +432,7 @@ export function buildPlan(
   return { plan: { ...plan, planHash: sha256(canonicalize(plan)) }, issues };
 }
 
-function mcpSpec(res: ResourceSpec, raw: Record<string, unknown>): Record<string, unknown> {
+export function buildMcpSpec(res: ResourceSpec, raw: Record<string, unknown>): Record<string, unknown> {
   const parsed = parseSource(res.source);
   const config = isPlainObject(raw) ? raw : {};
   const env = isPlainObject(config.env) ? config.env : undefined;

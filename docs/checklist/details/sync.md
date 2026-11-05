@@ -6,12 +6,13 @@
 |---|---|---|---|
 | `dsh` | `PACKHUB_DSH_HOME` 或 `~/.dsh` | `<home>/skills` | `<home>/.packhub/state.json` |
 | `codex` | `PACKHUB_CODEX_HOME` 或 `~/.codex` | `<home>/skills` | `<home>/.packhub/state.json` |
+| `claude-code` | `PACKHUB_CLAUDE_HOME` 或 `~/.claude` | `<home>/skills` | `<home>/.packhub/state.json` |
 
-`syncPack` 按 target 生成路径表：skills 落 `<home>/skills`，instruction 写 `<home>/AGENTS.md`（claude-code 是 `CLAUDE.md`）托管块；codex 额外写 `config.toml` 的 MCP 托管块，DSH/Claude 声明 MCP 时直接拒绝。
+`syncPack` 按 target 生成路径表：skills 落 `<home>/skills`，instruction 写 `<home>/AGENTS.md`（claude-code 是 `CLAUDE.md`）托管块；codex 额外写 `config.toml` 的 MCP 托管块，claude-code 调 `claude mcp add/remove --scope user`，DSH 声明 MCP 时直接拒绝（profile patch 是宿主私有格式）。
 
 ## 只接受什么
 
-- 所有资源都是 `type: skill`；
+- 资源只有 `type: skill` 与 `type: mcp`；mcp 只在 codex / claude-code 上支持（dsh 拒绝）；
 - 每个 skill 的 source 是本地 `./...`；
 - 源目录有 `SKILL.md`，YAML frontmatter 有字符串 `name` / `description`；
 - 没有 `install.exec`、`overlays`、`composition.env`（它们会写出 skills/ 之外的东西）。
@@ -29,8 +30,8 @@
 
 ## 移除与检查
 
-- `packhub sync <pack> --to dsh,codex --remove`：按包名从每个目标 state 找所有版本，`removePack` 反删。
-- `packhub doctor --global`：默认对 dsh / codex / claude-code 三个 home 跑 `doctorPack`，报告缺文件/缺块/配置漂移/激活指针；没装的 harness 标记 skipped，不算失败。
+- `packhub sync <pack> --to dsh,codex --remove`：按包名从每个目标 state 找所有版本，`removePack` 反删；claude-code 还会按 `hostMcp` 调 `claude mcp remove`。
+- `packhub doctor --global`：默认对 dsh / codex / claude-code 三个 home 跑 `doctorPack`，报告缺文件/缺块/配置漂移/激活指针/缺失 MCP；没装的 harness 标记 skipped，不算失败。
 
 ## 面板
 
@@ -38,7 +39,7 @@
 
 ## 缺口
 
-- 同步 skills + 各 home 的 AGENTS/CLAUDE 托管块；codex 另有 config.toml MCP 托管块。
+- 同步 skills + 各 home 的 AGENTS/CLAUDE 托管块；codex 另有 config.toml MCP 托管块，claude-code 走宿主 CLI 的 user scope（`hostMcp` 记名字）。
 - Codex 的 `agents/openai.yaml`：源里没有就按 `SKILL.md` frontmatter 生成（选择器需要它）；已有则尊重源内容。
 - `probe --skill <name>` 会问一次 harness “你能用哪些 skill”，断言名字出现在回答里。
 - Claude Code 全局 target 已加（`~/.claude/skills` + `CLAUDE.md`）。

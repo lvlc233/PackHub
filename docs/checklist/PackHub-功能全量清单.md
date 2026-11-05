@@ -199,11 +199,12 @@
 | SYN-09 | doctor --global | 两目标分别检查 | [done] | `doctorGlobal` |
 | SYN-10 | 手放 skill 保护 | 非本包拥有的目录拒绝，`--overwrite` 才覆盖 | [done] | `sync.ts` |
 | SYN-11 | 全目标预检 | 一个目标失败不写另一个 | [done] | `sync.ts` |
-| SYN-12 | 全局 AGENTS/MCP | AGENTS/CLAUDE 托管块 + codex TOML MCP；DSH/Claude 的全局 MCP 无公开稳定文件契约 | [na] | 宿主格式不由 PackHub 定义；项目级 MCP 仍可用 |
+| SYN-12 | 全局 AGENTS/MCP | AGENTS/CLAUDE 托管块 + codex TOML MCP + Claude Code user-scope MCP（宿主 CLI）；DSH 的 profile patch 是宿主私有格式，无稳定契约 | [done] | `sync.ts`、`host-mcp.ts`、`sync-claude.test` |
 | SYN-13 | Codex agents/openai.yaml | 源里没有时按 SKILL.md frontmatter 生成（display_name / short_description / default_prompt） | [done] | `skill-meta.ts`、`sync.test` |
 | SYN-14 | 目录加载探活 | `probe --skill <name>` 问一次 harness，断言 skill 名出现在可用列表 | [done] | `probeSkill`、`harness-probe.test` |
 | SYN-15 | claude 全局 | `sync --to claude-code` 写 `~/.claude/skills` + CLAUDE.md 托管块 | [done] | `sync.ts`、`cli` |
 | SYN-16 | 面板入口 | 本地面板 Harness 同步卡片 | [done] | `App.tsx` |
+| SYN-17 | Claude 全局 MCP | `sync --to claude-code` 调 `claude mcp add/remove --scope user`；`hostMcp` 记名，doctor 查、remove 摘 | [done] | `host-mcp.ts`、`sync-claude.test` |
 
 ## 9 CLI ｜命令与交互
 

@@ -10,6 +10,7 @@ export * from '@packhub/kernel';
 export {
   applyPlan,
   loadState,
+  saveState,
   removePack,
   rollbackPack,
   listVersions,
@@ -111,6 +112,14 @@ export {
   type PackArchiveOptions,
   type PackArchiveResult,
 } from './pack.ts';
+export {
+  addClaudeMcp,
+  removeClaudeMcp,
+  claudeAvailable,
+  claudeHasMcp,
+  type HostMcpSpec,
+  type HostMcpResult,
+} from './host-mcp.ts';
 export {
   readIndex,
   fetchPack,

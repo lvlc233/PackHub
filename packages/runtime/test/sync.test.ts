@@ -170,9 +170,9 @@ resources:
     expect(toml).toContain('npx');
     expect(toml).toContain('# packhub:end mcp search');
 
-    // dsh 没有全局 MCP adapter：明确拒绝，不写半套
+    // dsh 没有可依赖的全局 MCP 配置契约：明确拒绝，不写半套
     process.env.PACKHUB_DSH_HOME = temp('packhub-dsh-');
-    await expect(syncPack(src, { targets: ['dsh'] })).rejects.toThrow(/只支持 codex/);
+    await expect(syncPack(src, { targets: ['dsh'] })).rejects.toThrow(/没有可依赖的全局 MCP/);
 
     removeSynced(src, ['codex']);
     const after = existsSync(join(codex, 'config.toml')) ? readFileSync(join(codex, 'config.toml'), 'utf8') : '';

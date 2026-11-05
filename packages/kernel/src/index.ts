@@ -10,7 +10,7 @@ export * from './types.ts';
 export { parseSource, checkSource, isVolatilePin, type ParsedSource, type SourceKind } from './ref.ts';
 export { loadManifest, parseManifest, type LoadResult } from './manifest.ts';
 export { validateGraph, type Graph } from './graph.ts';
-export { buildPlan, DIR_TARGET_VARS, TARGET_VARS, type PlanOptions } from './plan.ts';
+export { buildPlan, buildMcpSpec, DIR_TARGET_VARS, TARGET_VARS, type PlanOptions } from './plan.ts';
 export { buildLock } from './lock.ts';
 export {
   parseCatalog,

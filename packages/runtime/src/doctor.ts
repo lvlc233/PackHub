@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { extname, join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { loadState } from './install.ts';
+import { claudeHasMcp } from './host-mcp.ts';
 
 export interface DriftFinding {
   pack: string;
@@ -17,6 +18,8 @@ export interface DriftFinding {
   activeDrift: string[];
   /** 声明的持久状态目录不见了（数据可能被误删） */
   stateMissing: string[];
+  /** 由宿主 CLI 管理的 MCP 不见了（例如用户在 Claude 里手工删掉） */
+  mcpMissing: string[];
 }
 
 export interface DoctorReport {
@@ -46,6 +49,7 @@ export function doctorPack(root: string): DoctorReport {
       configDrift: [],
       activeDrift: [],
       stateMissing: [],
+      mcpMissing: [],
     };
     const name = pack.split('@')[0] ?? pack;
     // 旧版 state 没有 version 字段：从 key 里取，避免把历史安装误报成漂移
@@ -68,6 +72,9 @@ export function doctorPack(root: string): DoctorReport {
     }
     for (const spec of record.stateDirs ?? []) {
       if (!existsSync(join(root, spec.path))) finding.stateMissing.push(spec.path);
+    }
+    for (const name of record.hostMcp ?? []) {
+      if (!claudeHasMcp(name)) finding.mcpMissing.push(name);
     }
 
     for (const action of record.actions ?? []) {
@@ -112,7 +119,8 @@ export function doctorPack(root: string): DoctorReport {
       finding.filesMissing.length ||
       finding.configDrift.length ||
       finding.activeDrift.length ||
-      finding.stateMissing.length
+      finding.stateMissing.length ||
+      finding.mcpMissing.length
     ) {
       findings.push(finding);
     }
@@ -129,6 +137,7 @@ export function doctorPack(root: string): DoctorReport {
       configDrift: [],
       activeDrift: [`active.json 有 ${name}，但 state 里没有这个包`],
       stateMissing: [],
+      mcpMissing: [],
     });
   }
 

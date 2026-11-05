@@ -1123,6 +1123,9 @@ const sync = defineCommand({
           const mark = o.status === 'done' || o.status === 'noop' ? '✓' : 'x';
           console.log(`    ${mark} ${o.actionId.padEnd(16)} ${o.status.padEnd(8)} ${o.target ?? ''}`);
         }
+        for (const m of res.mcp ?? []) {
+          console.log(`    ${m.status === 'planned' ? '·' : '✓'} mcp ${m.id.padEnd(14)} ${m.status}`);
+        }
       }
     } catch (err) {
       console.error(`x ${(err as Error).message}`);
@@ -1500,6 +1503,7 @@ const doctor = defineCommand({
           for (const c of f.configDrift) console.log(`      配置被改：${c}`);
           for (const a of f.activeDrift) console.log(`      激活指针不一致：${a}`);
           for (const s of f.stateMissing) console.log(`      状态目录不见了：${s}`);
+          for (const m of f.mcpMissing) console.log(`      MCP 不见了：${m}`);
         }
       }
       if (failed) process.exit(1);
@@ -1523,6 +1527,7 @@ const doctor = defineCommand({
       for (const c of f.configDrift) console.log(`    配置被改：${c}`);
       for (const a of f.activeDrift) console.log(`    激活指针不一致：${a}`);
       for (const s of f.stateMissing) console.log(`    状态目录不见了：${s}`);
+      for (const m of f.mcpMissing) console.log(`    MCP 不见了：${m}`);
     }
     if (report.ok) {
       console.log('✓ 全部在位');

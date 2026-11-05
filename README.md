@@ -344,11 +344,12 @@ packhub doctor --global
 ```
 
 - skills 落到各 home 的 `skills/`；同时写该 home 的 `AGENTS.md`（claude-code 是 `CLAUDE.md`）托管块，说明这个包提供了什么。
-- codex 的全局 MCP 写进 `~/.codex/config.toml` 的 `[mcp_servers.<id>]` 托管块；DSH / Claude Code 的全局 MCP 还没有 adapter，声明了 `mcp` 的包只在 codex 上同步。
+- codex 的全局 MCP 写进 `~/.codex/config.toml` 的 `[mcp_servers.<id>]` 托管块；claude-code 调用它自己的 `claude mcp add/remove --scope user`（稳定 CLI，不猜配置文件格式）。DSH 的 profile patch 是宿主私有格式，没有可依赖的全局 MCP 契约，声明了 `mcp` 的包在 DSH 上仍走项目级安装。
+- 装进 Claude Code 的 MCP 名字记在 `~/.claude/.packhub/state.json` 的 `hostMcp`：`doctor --global` 会查它是否还在，`sync --remove` / `uninstall` 会从 user scope 摘掉。
 - 安装前解析 `SKILL.md` 的 YAML frontmatter，`name` / `description` 不合法直接拒绝，避免 DSH 不报错、Codex 却加载失败。
 - 每个 harness 自己一份 state：`~/.dsh/.packhub/state.json`、`~/.codex/.packhub/state.json`、`~/.claude/.packhub/state.json`；卸载和漂移检查按目标分开。
 - 非标准 home 用 `PACKHUB_DSH_HOME` / `PACKHUB_CODEX_HOME` / `PACKHUB_CLAUDE_HOME`，测试就靠它隔离；目录不存在时直接报错，不会替你创建宿主目录。
-- 全局 MCP 是托管块：卸载只摘自己那段，不整文件删；`--overwrite` 才允许覆盖手放的同 id server。
+- 全局 MCP 是托管块：卸载只摘自己那段，不整文件删；claude-code 走宿主 CLI 的 user scope，`--overwrite` 才允许覆盖手放的同 id server。
 
 日常还会用到：`packhub verify .`（复核已装）、`packhub update`（升级）、`packhub rollback`、`packhub versions` / `packhub activate`（整版切换）、`packhub uninstall`、`packhub diff`（锁与当前计划对比）、`packhub discover`（找资源并落成清单）、`packhub cache ls|clean`（缓存回收）、`packhub trust` / `packhub audit`（签名与审计）、`packhub completion bash|zsh|pwsh`（补全）。
 
@@ -402,7 +403,7 @@ pnpm verify:examples:offline       # 示例包逐个真装 + verify
 - 使用者侧：默认 registry（可配多个并按名字选）、锁校验、信任列表、安装后复核、安装审计。
 - 深校验：文件、配置、命令、stdio / http MCP 握手、内容哈希、scenario（真跑最小任务或问一次 harness）。
 - 接入宿主：Claude Code / DSH / Codex 的投影、托管块、真实宿主探针；`requires.agent` 未知时给 warning，不阻断。
-- 全局同步：skills + AGENTS/CLAUDE 托管块 + codex TOML MCP，按目标记录状态，可 dry-run / remove / doctor（默认检查 dsh / codex / claude-code，没装的 harness 自动跳过）。
+- 全局同步：skills + AGENTS/CLAUDE 托管块 + codex TOML MCP + Claude Code user-scope MCP（宿主 CLI），按目标记录状态，可 dry-run / remove / doctor（默认检查 dsh / codex / claude-code，没装的 harness 自动跳过）。
 - 组包辅助：`discover` 找资源、`tool` 自动建可执行入口、`cache` 回收、`extends` 本地继承、`.packhub/local.yaml` 本机覆盖、PACK.md / CHANGELOG 包页。
 - 记忆与持久数据：清单里的 `state` 块声明状态目录，安装时创建，升级与卸载默认保留（`retain: remove` 才删），`doctor` 检查目录是否还在。
 - 市场写端：账号、上传（服务端干净安装 + 只读校验）、审核队列、搜索、下载统计/趋势、评分/评论、下架；管理 token 可轮换并写审计，Hub 仍只读。
@@ -415,7 +416,7 @@ pnpm verify:examples:offline       # 示例包逐个真装 + verify
 - 版本镜像优先用硬链接共享产物字节（文件系统不支持时退回复制）；直接原地编辑已装文件会同时改到镜像，PackHub 自己的安装/升级写入是原子替换。
 - 没有 SSH 部署与常驻同步 agent。
 - 远程 `extends` / 资源级 `packhub://` 在安装期解析（缓存进子包 `.packhub/cache/`）；`publish` 会自动扁平化，把被引用文件复制到 `external/` 再写版本目录。
-- 全局 MCP 只有 codex 的 TOML adapter；DSH / Claude Code 没有可依赖的稳定全局配置契约，仍走项目级安装。
+- DSH 没有可依赖的全局 MCP 文件契约（profile patch 是宿主私有格式）；DSH 上的 MCP 仍走项目级安装，Claude Code 走其 CLI 的 user scope。
 - 没有工具白名单、上下文范围、写入边界这类隔离能力。
 - `exec` 的外部副作用无法回滚；清单里的 `undo` 只记录，不自动执行。
 - 市场写端是单机 JSON 存储，没做多实例与计费；发布校验在服务进程内跑，生产部署应放进沙箱或只收 CI 报告。

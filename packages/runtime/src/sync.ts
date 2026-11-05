@@ -2,10 +2,18 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import { loadPack, planFor, type Plan } from '@packhub/kernel';
-import { applyPlan, loadState, removePack, type ActionOutcome } from './install.ts';
+import { loadPack, planFor, buildMcpSpec, interpolate, type PackContext, type Plan, type ResourceSpec } from '@packhub/kernel';
+import { applyPlan, loadState, saveState, removePack, type ActionOutcome } from './install.ts';
 import { doctorPack, type DoctorReport } from './doctor.ts';
 import { readSkillFrontmatter } from './skill-meta.ts';
+import {
+  addClaudeMcp,
+  claudeAvailable,
+  claudeHasMcp,
+  removeClaudeMcp,
+  type HostMcpResult,
+  type HostMcpSpec,
+} from './host-mcp.ts';
 
 export type SyncTarget = 'dsh' | 'codex' | 'claude-code';
 
@@ -20,6 +28,8 @@ export interface SyncTargetResult {
   root: string;
   planHash?: string;
   outcomes?: ActionOutcome[];
+  /** 交给宿主 CLI 的 MCP 结果（目前只有 claude-code 会走这条路） */
+  mcp?: HostMcpResult[];
 }
 
 export interface SyncRemoveResult {
@@ -105,9 +115,9 @@ export async function syncPack(
   }
   const mcp = resources.filter((r) => r.type === 'mcp');
   for (const target of opts.targets) {
-    if (mcp.length > 0 && target !== 'codex') {
+    if (mcp.length > 0 && target === 'dsh') {
       throw new Error(
-        `${target}: 全局 MCP 目前只支持 codex（写 ~/.codex/config.toml）；${mcp.map((r) => r.id).join(', ')} 需要项目级安装`,
+        `dsh: 没有可依赖的全局 MCP 配置契约（profile patch 是 DSH 私有的）；${mcp.map((r) => r.id).join(', ')} 需要项目级安装，或同步到 codex / claude-code`,
       );
     }
   }
@@ -159,15 +169,46 @@ export async function syncPack(
         }
       }
     }
+    if (target === 'claude-code' && mcp.length > 0) {
+      if (!claudeAvailable()) {
+        throw new Error(
+          'claude-code: 找不到可用的 claude 命令（先安装 Claude Code，或用 PACKHUB_CLAUDE_BIN 指定），无法注册全局 MCP',
+        );
+      }
+      const owned = new Set(
+        Object.entries(state.packs)
+          .filter(([key]) => key.startsWith(`${ctx.manifest.metadata.name}@`))
+          .flatMap(([, rec]) => rec.hostMcp ?? []),
+      );
+      for (const r of mcp) {
+        if (claudeHasMcp(r.id) && !owned.has(r.id) && !opts.overwrite) {
+          throw new Error(
+            `${target}: user scope 里已经有 MCP ${r.id}，不是这个包装的；确认后加 --overwrite`,
+          );
+        }
+      }
+    }
   }
 
   const results: SyncTargetResult[] = [];
   for (const target of opts.targets) {
     const root = harnessRoot(target);
-    const { plan } = planFor(ctx, { target, targetVars: globalTargetVars(target) });
+    const { plan } = planFor(ctx, {
+      target,
+      targetVars: globalTargetVars(target),
+      // claude 的全局 MCP 交给它自己的 CLI，计划里只落 skills 与指令块
+      ...(target === 'claude-code' ? { skipResourceTypes: ['mcp' as const] } : {}),
+    });
     if (!plan) throw new Error(`${target}: 生成不了计划`);
     if (opts.dryRun) {
-      results.push({ target, root, planHash: plan.planHash });
+      results.push({
+        target,
+        root,
+        planHash: plan.planHash,
+        ...(mcp.length > 0 && target === 'claude-code'
+          ? { mcp: mcp.map((r) => ({ id: r.id, status: 'planned' as const })) }
+          : {}),
+      });
       continue;
     }
     // 预检已经做过；这里只执行，不再重复判断
@@ -181,9 +222,72 @@ export async function syncPack(
     if (bad.length) {
       throw new Error(`${target}: 同步未完成（${bad.map((o) => `${o.actionId}=${o.status}`).join(', ')}）`);
     }
-    results.push({ target, root, planHash: plan.planHash, outcomes: res.outcomes });
+
+    let mcpResults: HostMcpResult[] | undefined;
+    if (mcp.length > 0) {
+      if (target === 'claude-code') {
+        mcpResults = registerClaudeMcp(ctx, mcp, target, root);
+      } else {
+        // codex：register.mcp 已经写进 config.toml，按动作结果判 added / kept
+        mcpResults = mcp.map((r) => {
+          const outcome = res.outcomes.find((o) => o.op === 'register.mcp' && o.resource === r.id);
+          return { id: r.id, status: outcome?.status === 'done' ? 'added' : 'kept' };
+        });
+      }
+    }
+    results.push({ target, root, planHash: plan.planHash, outcomes: res.outcomes, ...(mcpResults ? { mcp: mcpResults } : {}) });
   }
   return { pack, results };
+}
+
+/** 把 mcp 资源交给 claude 的 user scope；失败时撤掉这次新加的，避免留半套。 */
+function registerClaudeMcp(
+  ctx: PackContext,
+  resources: ResourceSpec[],
+  target: SyncTarget,
+  root: string,
+): HostMcpResult[] {
+  const added: string[] = [];
+  const out: HostMcpResult[] = [];
+  try {
+    for (const r of resources) {
+      const existed = claudeHasMcp(r.id);
+      if (!existed) {
+        addClaudeMcp(r.id, launchSpec(ctx, r, target));
+        added.push(r.id);
+      }
+      out.push({ id: r.id, status: existed ? 'kept' : 'added' });
+    }
+  } catch (err) {
+    for (const name of added) {
+      try {
+        removeClaudeMcp(name);
+      } catch {
+        /* 回滚尽力而为，原始错误更重要 */
+      }
+    }
+    throw new Error(`${target}: ${(err as Error).message}`);
+  }
+
+  const state = loadState(root);
+  const key = `${ctx.manifest.metadata.name}@${ctx.manifest.metadata.version}`;
+  const record = state.packs[key];
+  if (record) {
+    record.hostMcp = [...new Set([...(record.hostMcp ?? []), ...resources.map((r) => r.id)])];
+    saveState(root, state);
+  }
+  return out;
+}
+
+/** 复用计划层的 MCP 规格推导：npm → npx、pypi → uvx、http → url。 */
+function launchSpec(ctx: PackContext, res: ResourceSpec, target: SyncTarget): HostMcpSpec {
+  const scope = {
+    vars: ctx.manifest.vars ?? {},
+    target: globalTargetVars(target),
+    paths: ctx.manifest.paths ?? {},
+  };
+  const config = interpolate(res.config ?? {}, scope) as Record<string, unknown>;
+  return buildMcpSpec(res, config) as HostMcpSpec;
 }
 
 /** 从各 harness 的 state 里按包名移除所有版本。 */
