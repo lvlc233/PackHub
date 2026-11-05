@@ -30,7 +30,7 @@
 ## 移除与检查
 
 - `packhub sync <pack> --to dsh,codex --remove`：按包名从每个目标 state 找所有版本，`removePack` 反删。
-- `packhub doctor --global`：分别对两个 home 跑 `doctorPack`，报告缺文件/缺块；home 不存在时返回错误。
+- `packhub doctor --global`：默认对 dsh / codex / claude-code 三个 home 跑 `doctorPack`，报告缺文件/缺块/配置漂移/激活指针；没装的 harness 标记 skipped，不算失败。
 
 ## 面板
 

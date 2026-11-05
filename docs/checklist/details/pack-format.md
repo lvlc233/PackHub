@@ -5,11 +5,11 @@
 | 编号 | 验收动作 | 现状/证据 | 缺口/下一步 |
 |---|---|---|---|
 | PKG-01 | 在 `packhub.yaml` 里加一个未知键，跑 `pnpm packhub plan .` | 报 `schema` 错误；`additionalProperties:false` | 无 |
-| PKG-02 | 分别写六种 `type`，跑 `plan` | 六种都有动作映射；`authoring.md` 有示例 | `tool` 没有可执行入口，见 PKG-02 缺口 |
+| PKG-02 | 分别写六种 `type`，跑 `plan` | 六种都有动作映射；`tool` 解包后在 binDir 生成可执行 wrapper | 无 |
 | PKG-03 | 声明 `targets: [dir]`，跑 `install --target codex` | 报“没有声明 target codex” | 全局 target 的声明语义未区分项目/全局 |
 | PKG-04 | 两个候选占同一槽位，只绑一个，跑 `plan --json` | 未绑定的进 `excluded`；换 `bindings` 哈希变化 | 单候选槽位无法证明替换价值 |
 | PKG-05 | 把 `paths.x` 写成 `../out` 或绝对路径 | `bad-path`，plan 失败 | 无 |
-| PKG-06 | 写 `needs` 但无人 `provides` | `unmet-need`；`composition.order` 与 `dependsOn` 矛盾报错 | `composition.order` 的语义未写进 schema 注释 |
+| PKG-06 | 写 `needs` 但无人 `provides` | `unmet-need`；`optional` 资源会跳过；`composition.order` 与 `dependsOn` 矛盾报错 | 无 |
 | PKG-07 | 写 `overrides` 改资源 pin | 计划用覆盖后的值，清单上游不变 | 覆盖冲突只在 plan 阶段发现 |
 | PKG-08 | 两个 overlay 改同一文件；一个 overlay 盖生成物 | 前者 `overlay-conflict`，后者 `overlay-shadows` 警告 | 覆盖层不能声明“只盖某类文件”的规则 |
 | PKG-09 | 不写 `visibility` 发布 | 默认 `private`，`registry:check` 拒绝 | 四档在 Hub/索引侧只实现 public 门禁 |

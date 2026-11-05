@@ -4,7 +4,7 @@
 
 | 编号 | 验收动作 | 现状/证据 | 缺口/下一步 |
 |---|---|---|---|
-| REF-01 | 写 `npm:` / `pypi:` / `github:` / `https:` / `./` 各一条，跑 `plan` | 五种都能解析；`packhub://` 只解析不下载 | `packhub://` 需要仓库协议与下载实现 |
+| REF-01 | 写 `npm:` / `pypi:` / `github:` / `https:` / `./` 各一条，跑 `plan` | 五种都能解析；`packhub://` 也能解析并取归档内路径 | 无 |
 | REF-02 | 写 `@main`、`@latest`、`^1.0.0`、无 integrity 的 https | plan 阶段分别报 `unpinned-source` / `http-missing-integrity` | 规则在 `ref.ts`，测试覆盖 |
 | REF-03 | `packhub lock` 后看 `resolved[]` | 分支→commit、范围→版本、https→sha256、pypi→sdist | 解析失败只 warn，锁保留 null |
 | REF-04 | 下载 npm/https 后看 `integrity` | npm 用 `dist.integrity`；https 下载时算 sha256；github 用 commit 的 tarball 算 sha256 | 大仓库 lock 会多一次下载 |

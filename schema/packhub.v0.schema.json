@@ -189,6 +189,7 @@
         },
         "order": {
           "type": "array",
+          "description": "安装顺序；未列出的资源按清单顺序追加。与 dependsOn 矛盾会报 order-violates-dependency",
           "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" }
         },
         "needs": {

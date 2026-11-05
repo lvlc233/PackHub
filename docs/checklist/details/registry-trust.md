@@ -46,7 +46,7 @@ registry/
 ## 签名
 
 - `keygen` 生成 ed25519；私钥 0600。
-- `sign` 签 `{pack@version, planHash}`，写入 `packhub.signatures.json`，不改 manifest。
+- `sign` 签 `{pack@version, planHash}`，写入 `packhub.signatures.json`，不改 manifest；含远程引用时按发布扁平化后的计划签。
 - `verify-sig` 校验；`--trusted` 只接受列表里的公钥 id。
 - `runPack` 把签名结果写进报告；索引 `signers` 汇总。
 - 默认安装只提示，`--require-signature` 才拒绝。**verified 不证明是谁发的**，签名才回答来源。
@@ -66,7 +66,6 @@ CI 把 `index.json` 与 `packs/**/*.phub` 一起作为站点产物；只传索�
 
 ## 缺口
 
-- 没有多 registry 选择/优先级；只有 `PACKHUB_INDEX` 或一个默认索引。
-- 没有下架/撤回流程；版本不可变与下架需要 tombstone 或可见性标记。
-- 市场元数据（下载量、评分、审核状态）没有；索引只有包与版本。
-- 签名默认不强制，信任列表没有持久配置。
+- 市场写端是单机 JSON，没有多实例存储与计费；管理前端仍只有 API。
+- 签名默认不强制，由信任列表 / `requireSignature` 决定；密钥轮换留给市场平面。
+- 生产部署应把发布校验放进沙箱，或只收 CI 报告。
