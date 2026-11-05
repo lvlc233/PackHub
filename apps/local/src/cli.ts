@@ -2243,8 +2243,15 @@ ${map}
 /** 解析 argv 里的 flag，遇到当前命令没声明的 --flag 就报出来；citty 默认会静默忽略。 */
 export function unknownFlag(argv: string[]): string | undefined {
   type Cmd = { meta?: { name?: string }; args?: Record<string, unknown>; subCommands?: Record<string, Cmd> };
+  const namedArgs = (cmd: Cmd): Set<string> =>
+    new Set(
+      Object.entries(cmd.args ?? {})
+        // 位置参数不能用 --name 传：citty 会静默忽略，命令跑在默认目录（cwd）上
+        .filter(([, spec]) => (spec as { type?: string })?.type !== 'positional')
+        .map(([name]) => name),
+    );
   let cmd = main as unknown as Cmd;
-  let allowed = new Set(Object.keys(cmd.args ?? {}));
+  let allowed = namedArgs(cmd);
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i]!;
     if (token === '--') return undefined;
@@ -2259,7 +2266,7 @@ export function unknownFlag(argv: string[]): string | undefined {
     const sub = cmd.subCommands?.[token];
     if (sub) {
       cmd = sub;
-      allowed = new Set(Object.keys(cmd.args ?? {}));
+      allowed = namedArgs(cmd);
     }
   }
   return undefined;

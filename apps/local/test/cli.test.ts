@@ -367,6 +367,11 @@ verify:
     expect(badFlag.status).toBe(2);
     expect(badFlag.out).toContain('未知参数');
 
+    // 位置参数不接受 --dir：以前会被静默忽略，命令跑在 cwd 上
+    const positionalAsFlag = run(['uninstall', '--dir', '.']);
+    expect(positionalAsFlag.status).toBe(2);
+    expect(positionalAsFlag.out).toContain('未知参数 --dir');
+
     const base = mkdtempSync(join(tmpdir(), 'packhub-cli-init-'));
     const pack = join(base, 'pack');
     const reg = join(base, 'reg');

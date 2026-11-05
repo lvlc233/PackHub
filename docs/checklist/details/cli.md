@@ -7,7 +7,7 @@
 | CLI-01 | `pnpm packhub --help` | 列出子命令；未知参数给用法；completion 可补子命令与参数 | 无 |
 | CLI-02 | `plan/install/verify/lock/publish/sync/discover/cache/trust/audit/market` 各跑一次 | 都有实现与测试 | 参数级补全已覆盖 |
 | CLI-03 | `--json` 覆盖 | plan/run/install/verify/rollback/uninstall/lock/add/search/discover/doctor/versions/audit/market/update/activate/sync/pack/publish/licenses/sign/verify-sig 都有结构化输出 | 无 |
-| CLI-04 | 用不存在的包/错误 target | 0 成功 / 1 业务失败 / 2 用法与校验；缺清单/坏 target/校验失败有测试 | 无 |
+| CLI-04 | 用不存在的包/错误 target | 0 成功 / 1 业务失败 / 2 用法与校验；缺清单/坏 target/校验失败有测试 | 位置参数写成 `--dir` 会直接报未知参数（避免静默跑在 cwd） |
 | CLI-05 | `init` / `resource add` / `slot swap` | 保留注释；重名加后缀；swap 只改一行 | 不推断 type |
 | CLI-06 | `discover` 关键词 | 搜资源目录/npm，`--add` 直接写清单；`search --all` 跨 registry | 目录需要作者维护 |
 | CLI-07 | `auth set/list/remove/rotate` | 凭据库 0600；环境变量优先 | 无 token 轮换策略 |
