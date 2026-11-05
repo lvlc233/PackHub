@@ -73,7 +73,7 @@ merge.config#1   merge.config  .packhub/config.json                # 合并配�
 | `skill` | 下载 → 解包 → 复制到 skills 目录 |
 | `knowledge` / `prompt` | 写入文件 |
 | `config` | 合并进配置文件 |
-| `tool` | 下载 → 解包 |
+| `tool` | 下载 → 解包 → 在 `.packhub/bin/` 建可执行入口 |
 
 所以“装了一个 MCP 资源”，实际动作是登记启动命令，不是把 server 代码复制进项目。server 由配置里的 command 启动：npx / uvx 会在运行时取包，本地命令要预先装好。`tool` 则解到 `.packhub/cache/tools/<id>`，由配置或脚本引用。
 
@@ -157,7 +157,7 @@ manifest（声明） → plan（要做什么） → state（做了什么） → 
 
 还有一条判据：只要有一个动作不是 `done` / `noop`，或者一项检查不是 `pass`，这个包就不算完成。CLI、面板和索引都用同一条。
 
-计划里只有八种动作：
+计划里只有九种动作：
 
 | 动作 | 做什么 |
 |---|---|
@@ -165,12 +165,13 @@ manifest（声明） → plan（要做什么） → state（做了什么） → 
 | `unpack` | 解包归档 |
 | `write` | 写文件 |
 | `link.skill` | 把 skill 目录放到目标位置 |
-| `register.mcp` | 登记 MCP 启动配置 |
+| `link.bin` | 读 tool 的 `package.json`，在 binDir 生成跨平台 wrapper |
+| `register.mcp` | 登记 MCP 启动配置（JSON；`.toml` 走托管块） |
 | `merge.config` | 合并配置 |
 | `exec` | 执行安装期命令；默认待批准 |
 | `instruction` | 写宿主指令文件的托管块 |
 
-资源类型只是决定用哪几个。`instruction` 和 `exec` 不由资源类型产生：前者在 `dsh` / `claude-code` 目标下自动追加，后者来自清单顶层的 `install.exec`。`packhub run` 不会自动批准 exec；带 exec 的包会停在 `needs-approval`，报告不通过。要执行加 `--allow-exec`。overlays 会在最后追加 `write`，所以能盖住前面生成的文件。
+资源类型只是决定用哪几个。`instruction` 和 `exec` 不由资源类型产生：前者在 `dsh` / `claude-code` / `codex` 目标下自动追加，后者来自清单顶层的 `install.exec`。`packhub run` 不会自动批准 exec；带 exec 的包会停在 `needs-approval`，报告不通过。要执行加 `--allow-exec`。overlays 会在最后追加 `write`，所以能盖住前面生成的文件。
 
 ## 安装，以及出错之后
 
@@ -254,6 +255,18 @@ registry/
 
 索引里的 `trust` 只有两档：`verified`（报告通过且哈希一致）和 `community`（其余）。签名结果单独记录，不混进这个标记。
 
+## 找资源，再成包
+
+组包不必先知道 source 怎么写。`packhub discover` 从 registry 的 `resources.json` 里按关键词找 MCP / skill / CLI 候选；加 `--npm` 同时查 npm registry：
+
+```bash
+packhub discover "markdown lint" --index registry/index.json
+packhub discover "mcp filesystem" --npm
+packhub discover "markdown" --index registry/index.json --add 1 --dir my-pack
+```
+
+`--add <序号>` 直接把候选写成清单里的一个 `resources` 条目（id 自动推断，重名会加后缀），之后照常 `plan` / `install`。目录格式与 schema 见 `schema/resources.v0.schema.json`；没有目录时加 `--npm` 也能用，只是候选来自搜索、需要自己确认版本。
+
 ## 使用者怎么装
 
 命令来自本项目的 `packhub` CLI。开发时用 `pnpm packhub …`；`pnpm build:local` 生成可分发的单文件包。registry 页面上的 `npx packhub` 依赖发布到 npm 的 CLI；本仓库当前从源码运行。默认 registry 用 `PACKHUB_INDEX` 设；单条命令也可以加 `--index`。
@@ -308,8 +321,11 @@ verify:
 | `dsh` | `.packhub/` + `AGENTS.md` 里的托管块 |
 | `claude-code` | `.claude/skills/` + `.mcp.json` + `CLAUDE.md` 托管块 |
 | `codex` | 项目内 `.codex/skills/` + `AGENTS.md` 托管块；全局同步时是 `~/.codex/skills/` |
+| `server` | 只物化到 `.packhub/`，不写宿主指令面；给 CI / 容器用 |
 
-`metadata.targets` 声明作者支持的范围；`--target` 必须在其中，否则安装直接拒绝。
+`metadata.targets` 声明作者支持的范围；`--target` 必须在其中，否则安装直接拒绝。资源还可以写 `targets: [dir]` 做细粒度裁剪：同一个 Pack 在 `server` 上可以不带只在桌面端有用的资源，plan 会把它们放进 `excluded`（`target-mismatch`）。
+
+两处作者侧的补充：`extends: ../base` 会合并本地父 Pack 的资源与接线（父包同名资源被覆盖；远程 `extends` 还没实现）；项目根的 `.packhub/local.yaml` 可以在不改清单的情况下覆盖 pin、绑定、路径与 `composition.env`，安装后不会写进锁。`PACK.md` / `CHANGELOG.md` 会随发布进入版本目录，Hub 与市场页面直接渲染原文。
 
 托管块用 `<!-- packhub:begin <包名> -->` 标记。安装只改块内，卸载只移除自己的块；宿主重写整个文件时，`packhub doctor` 能发现。
 
@@ -317,22 +333,23 @@ verify:
 
 ## 同步到全局 harness
 
-skill-only 的 Pack 可以不装进项目，直接同步到宿主的全局 skills：
+skill 与 MCP 的 Pack 可以不装进项目，直接同步到宿主 home：
 
 ```bash
-packhub sync me/my-pack --to dsh,codex
+packhub sync me/my-pack --to dsh,codex,claude-code
 packhub sync me/my-pack --to dsh,codex --dry-run
-packhub sync me/my-pack --to dsh,codex --remove
+packhub sync me/my-pack --to codex --remove
 packhub doctor --global
 ```
 
-- 只接受 `type: skill` 且来源是本地目录；MCP / CLI / 配置需要各自的 adapter，暂不混进来。
+- skills 落到各 home 的 `skills/`；同时写该 home 的 `AGENTS.md`（claude-code 是 `CLAUDE.md`）托管块，说明这个包提供了什么。
+- codex 的全局 MCP 写进 `~/.codex/config.toml` 的 `[mcp_servers.<id>]` 托管块；DSH / Claude Code 的全局 MCP 还没有 adapter，声明了 `mcp` 的包只在 codex 上同步。
 - 安装前解析 `SKILL.md` 的 YAML frontmatter，`name` / `description` 不合法直接拒绝，避免 DSH 不报错、Codex 却加载失败。
-- 每个 harness 自己一份 state：`~/.dsh/.packhub/state.json`、`~/.codex/.packhub/state.json`；卸载和漂移检查按目标分开。
-- 不写全局 `AGENTS.md`，也不改 MCP 配置；只动 `skills/`。
-- 非标准 home 用 `PACKHUB_DSH_HOME` / `PACKHUB_CODEX_HOME`，测试就靠它隔离；目录不存在时直接报错，不会替你创建宿主目录。
+- 每个 harness 自己一份 state：`~/.dsh/.packhub/state.json`、`~/.codex/.packhub/state.json`、`~/.claude/.packhub/state.json`；卸载和漂移检查按目标分开。
+- 非标准 home 用 `PACKHUB_DSH_HOME` / `PACKHUB_CODEX_HOME` / `PACKHUB_CLAUDE_HOME`，测试就靠它隔离；目录不存在时直接报错，不会替你创建宿主目录。
+- 全局 MCP 是托管块：卸载只摘自己那段，不整文件删；`--overwrite` 才允许覆盖手放的同 id server。
 
-日常还会用到：`packhub verify .`（复核已装）、`packhub update`（升级）、`packhub rollback`、`packhub uninstall`、`packhub diff`（锁与当前计划对比）、`packhub search`。
+日常还会用到：`packhub verify .`（复核已装）、`packhub update`（升级）、`packhub rollback`、`packhub versions` / `packhub activate`（整版切换）、`packhub uninstall`、`packhub diff`（锁与当前计划对比）、`packhub discover`（找资源并落成清单）、`packhub cache ls|clean`（缓存回收）、`packhub trust` / `packhub audit`（签名与审计）、`packhub completion bash|zsh|pwsh`（补全）。
 
 ## 界面与可见性
 
@@ -374,15 +391,17 @@ pnpm registry:check
 
 ## 现在能做什么
 
-- 六类资源、八个安装动作、三个 target。
-- 能力图、槽位替换、资源级与文件级覆盖、冲突检测。
-- 引用解析与锁定：版本、commit、sha256。
-- 失败回滚、generation 快照、`rollback`、`update`、`uninstall`。
+- 六类资源、九种安装动作、五个 target（`dir` / `dsh` / `claude-code` / `codex` / `server`）。
+- 能力图、槽位替换、资源级与文件级覆盖、冲突检测、资源级 target 裁剪。
+- 引用解析与锁定：版本、commit、github 归档 sha256。
+- 失败回滚、generation 快照、staged 版本目录、`versions` / `activate`、`update`、`uninstall`。
 - 干净环境发布门禁、静态 registry、只读 Hub、Pages 产物。
-- 使用者侧：默认 registry、锁校验、签名提示、安装后复核。
-- 深校验：文件、配置、命令、stdio MCP 握手、内容哈希。
-- 接入宿主：Claude Code 与 DSH 的投影、托管块、真实宿主探针。
-- 全局同步：skill-only Pack 一条命令写进 DSH / Codex 的全局 `skills/`，按目标记录状态，可 dry-run / remove / doctor。
+- 使用者侧：默认 registry（可配多个并按名字选）、锁校验、信任列表、安装后复核、安装审计。
+- 深校验：文件、配置、命令、stdio / http MCP 握手、内容哈希、scenario（真跑最小任务或问一次 harness）。
+- 接入宿主：Claude Code / DSH / Codex 的投影、托管块、真实宿主探针。
+- 全局同步：skills + AGENTS/CLAUDE 托管块 + codex TOML MCP，按目标记录状态，可 dry-run / remove / doctor。
+- 组包辅助：`discover` 找资源、`tool` 自动建可执行入口、`cache` 回收、`extends` 本地继承、`.packhub/local.yaml` 本机覆盖、PACK.md / CHANGELOG 包页。
+- 市场写端：账号、上传（服务端干净安装 + 只读校验）、搜索、下载统计、下架；Hub 仍只读。
 
 一个真实的组包案例（需求 → 搜资源 → 筛选 → 成包）见 [examples/doc-review/README.md](examples/doc-review/README.md)。
 
@@ -391,11 +410,11 @@ pnpm registry:check
 - 版本切换是产物副本重铺，不是硬链接；保留最近 5 个版本目录，更早的要重新安装。
 - 一个锁只覆盖一个 target；跨 target 安装时，锁只保证引用，目标计划没有被 `planHash` 校验。
 - 没有 SSH 部署与常驻同步 agent。
-- 没有 scenario 探针（执行最小任务并检查行为）。
-- `mcp-ready` 只支持 stdio，http 传输跳过。
-- 没有 `PACK.md` / `CHANGELOG` 的包页渲染。
+- `extends` 只支持本地父 Pack；`packhub://` 形式的远程继承还没有实现。
+- 全局 MCP 只有 codex 的 TOML adapter；DSH / Claude Code 的全局 MCP 仍走项目级安装。
 - 没有工具白名单、上下文范围、写入边界这类隔离能力。
 - `exec` 的外部副作用无法回滚；清单里的 `undo` 只记录，不自动执行。
+- 市场写端是单机 JSON 存储，没做多实例、审核工作流与计费；发布校验在服务进程内跑，生产部署应放进沙箱或只收 CI 报告。
 - 记忆系统没有一等公民支持：可以用 `mcp` + `knowledge` + `paths` 组合，持久状态目录的 `state` 块尚未实装。
 
 ## 包市场
@@ -407,13 +426,24 @@ pnpm registry:check
 | 内容平面 | 包、版本、锁、验证报告、归档 | 不可变；git / 对象存储 + CDN |
 | 市场平面 | 账号、组织、发布、审核、搜索、统计、评分、计费 | 动态服务 + 数据库 |
 
-现在的 Hub 只是内容平面的读端：不接收上传，也不执行包里的代码。市场需要账号、审核、统计和写操作，这些放在独立的发布服务与市场 API 里；包内容仍按版本不可变。
+Hub 只是内容平面的读端：不接收上传，也不执行包里的代码。写操作在独立的 `@packhub/market` 服务里：
+
+```bash
+packhub market serve registry --port 8789
+packhub market register http://127.0.0.1:8789 my-team
+packhub market publish my-pack --url http://127.0.0.1:8789
+packhub market search demo --url http://127.0.0.1:8789
+packhub market yank my-team/x@0.1.0 --url http://127.0.0.1:8789
+```
+
+- 账号是 `scope`：只能发布 `scope/` 下的包；token 只显示一次，存 `~/.packhub/market.json`（0600）。
+- 上传的是 `.phub`；服务端解包、跑干净安装与只读校验（`file-exists` / `config-key` / `knowledge-integrity`），带 `install.exec`、`command`、`scenario`、`mcp-ready` 的包会被拒绝——市场不在服务器上执行上传者的代码。
+- 通过后写版本目录、归档并重建 `index.json`；下载计数、审核状态、下架原因都在 `.market/db.json`。下架把版本与归档移进 `.market/quarantine/`，索引同步移除，下载返回 410，已发布内容不改字节。
 
 路线：
 
-- **0.x（现在）**：静态 registry + 只读 Hub，发布走本地或 CI。
-- **下一步**：托管发布（认证 + 沙箱验证 + 对象存储），Hub 不变。
-- **再下一步**：市场元数据（搜索、统计、评分、审核、团队/私有 registry）。
+- **0.x（现在）**：静态 registry + 只读 Hub + 可选市场写端（单机 JSON，托管发布的门槛已跨过）。
+- **下一步**：多实例存储、审核工作流、团队/私有 registry；验证仍建议在沙箱或 CI 里跑。
 - **交易与许可**：尚未决定。要做就接在市场平面，不改包格式。
 
 需要先定三件事：账号归属（个人/组织/scope 认领）、验证在哪跑（平台沙箱或只收 CI 报告）、已发布版本是否永远不可变（建议是，下架用可见性标记）。

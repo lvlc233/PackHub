@@ -69,6 +69,12 @@ elevation:
 
 面板暴露了一个真 bug：`/api/packs` 之前只要有 state 就标「已装」，而含远程资源的包安装时 `fetch` 会被跳过。现在只有**每一步都 done/noop** 才算已装——半套安装不再显示成已装。
 
+## 可访问性与同步卡片
+
+- 键盘：`:focus-visible` 统一描边（紫、2px、offset 2px），鼠标点击不额外描边；首屏有「跳到主内容」链接（`.sr-only`，聚焦时可见）；`prefers-reduced-motion` 下关掉过渡。
+- 同步卡片对 `skill` 与 `mcp` 都开放；含 `mcp` 时只有 codex 目标可选（其余 harness 没有全局 MCP adapter，客户端直接禁用而不是服务端报错）。不可用的 harness 目录保持灰态并显示原因。
+- 未做：axe/对比度自动审计、完整键盘走查、390px 自动化回归；错误态仍分散在顶部与卡片内。
+
 ## 已知取舍
 
 - 展开层一次只能开一条资源（`expanded` 单值），多开会让卡片过长。

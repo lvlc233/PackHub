@@ -9,7 +9,7 @@
 | `file-exists` | 目标路径存在 | `fail` |
 | `config-key` | 键存在；有 `equals` 时严格等于 | `fail` |
 | `command` | 退出码等于 `expectExit ?? 0` | `fail`，带命令尾行 |
-| `mcp-ready` | stdio 启动后对 initialize 有 JSON 响应 | `fail`；缺启动规格或 http 时 `skipped` |
+| `mcp-ready` | stdio 启动或 http POST 后对 initialize 有 JSON / SSE 响应 | `fail`；缺启动规格时 `skipped` |
 | `knowledge-integrity` | 在 `.packhub/` 产物里找到一个 sha256 匹配的文件 | `fail` |
 
 `skipped` 不算通过，也不判失败；报告是否通过另算。
@@ -59,7 +59,7 @@ ok = 所有动作 status === 'done' | 'noop'
 
 ## 缺口
 
-- `scenario` 探针没有：无法验证“装完真的能完成一个任务”。
-- `mcp-ready` 只支持 stdio；http 传输直接 `skipped`，而 `skipped` 会让报告不通过。
+- `scenario` 探针只断言输出/文件，没有任务级行为矩阵（多轮、工具调用链）。
+- `mcp-ready` 的 http 探活不读代理环境变量（与下载路径不同源）。
 - `knowledge-integrity` 只在 `.packhub/` 里找文件，不校验缓存/投影层。
 - `command` 在 Windows 上过 shell；参数带空格时依赖 `cmd` 的引号规则。

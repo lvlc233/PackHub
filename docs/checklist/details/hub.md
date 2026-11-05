@@ -13,9 +13,9 @@
 | HUB-07 | `GET /api/health` | `{ok,packs,uptimeSeconds}` | 无 |
 | HUB-08 | SIGTERM | 停监听、等在途请求、5 秒兜底 | 无 |
 | HUB-09 | `docker build` | 只读端镜像，CMD 起 hub | 镜像包含开发依赖 |
-| HUB-10 | 找上传/发布接口 | 没有 | 市场写端未做 |
-| HUB-11 | 找账号/组织 | 没有 | 身份交给部署层 |
-| HUB-12 | 找搜索/统计 | 没有 | 只有索引列表 |
+| HUB-10 | 找上传/发布接口 | Hub 没有；写端在 `@packhub/market` | 市场是独立进程 |
+| HUB-11 | 找账号/组织 | 市场账号即 scope，token 认证 | 没有组织/成员 |
+| HUB-12 | 找搜索/统计 | 市场 `/api/search` 带下载量 | 没有评分/评论 |
 
 ## 结论
 

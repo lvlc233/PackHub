@@ -70,7 +70,7 @@ resources:                    # ← 唯一的列表
 - **判定**：能被 `npx` / `uvx` 启动、通过 stdio 或 http 通信的 MCP Server。
 - **安装期**：只生成 `register.mcp`，写进目标环境的 MCP 配置；制品由目标环境在运行时获取。`transport` 必填。
 - **安装后的位置**：`.packhub/config.json` 的 `mcpServers.<id>`。
-- **verify 写什么**：`config-key`（确认 command 写对了）。`mcp-ready` 现在记为「跳过」。
+- **verify 写什么**：`config-key`（确认 command 写对了）；`mcp-ready` 会真发一次 initialize（stdio 与 http 都支持）。
 
 #### 2. `skill` —— 必须指到含 SKILL.md 的目录
 
@@ -113,7 +113,7 @@ resources:                    # ← 唯一的列表
 - **判定**：要被引用而不是被执行的资料。
 - **安装期**：https 必须带 `integrity`（sha256），下载即校验；本地源直接拷贝。
 - **安装后的位置**：`.packhub/knowledge/<文件名>`。
-- **verify 写什么**：`file-exists`；要更强的保证可写 `knowledge-integrity`（目前记为跳过）。
+- **verify 写什么**：`file-exists`；要更强的保证可写 `knowledge-integrity`（按 sha256 在产物里找文件）。
 - **注意**：指向会变的内容（分支上的文件）时，integrity 迟早会失效——**pin 到 commit**。
 
 #### 5. `config` —— 只合并，不覆盖
@@ -139,9 +139,9 @@ resources:                    # ← 唯一的列表
 ```
 
 - **判定**：有自己的命令行入口，安装后供人或 Agent 直接调用。
-- **安装期**：`fetch` → `unpack` 到 `.packhub/cache/tools/<id>/`。**不会**自动加到 `PATH`，也不会执行。
-- **安装后的位置**：`.packhub/cache/tools/<id>/`。
-- **verify 写什么**：`command` 跑一次 `--version`（目前记为跳过）；临时用 `file-exists` 指到解包后的入口文件。
+- **安装期**：`fetch` → `unpack` 到 `.packhub/cache/tools/<id>/`，再读 `package.json` 的 `bin`，在 `.packhub/bin/<命令>` 生成跨平台 wrapper（Windows 是 `.cmd`）。`config.bin` 可指定用哪个 bin 名。
+- **安装后的位置**：制品在 `.packhub/cache/tools/<id>/`，入口在 `.packhub/bin/`。**不会**自动加到 `PATH`；让 agent 用绝对路径，或在指令里写清 `.packhub/bin/<命令>`。
+- **verify 写什么**：`command` 跑一次 `.packhub/bin/<命令> --version`，或 `file-exists` 指到入口。
 - **注意**：需要执行命令（安装脚本、`git config`）时写 `install.exec`；默认拒绝执行，需要 `--allow-exec`。
 
 ### 完整的（每条批注都是真实现状）
@@ -253,6 +253,29 @@ overlays:
 |---|---|---|
 | `overrides`（资源级） | 换掉某个资源的 pin / 实现 / 安装参数 | 上游用 `@0.6.2`，本项目锁 `@0.6.3` |
 | `overlays`（文件级） | 安装完成后按路径覆盖文件 | 把上游的 `SKILL.md` 换成加了团队规则的版本 |
+
+### 继承与本地覆盖
+
+`extends: ../base` 继承一个本地父 Pack：父包的 `resources`、`composition`、`slots`、`bindings`、`paths`、`overrides`、`verify` 一起合并；子包同名资源覆盖父包，`metadata` 与 `requires` 以子包为准；父包的本地 source 会被改写成相对子包的路径，安装时能读。成环直接报 `extends-cycle`；远程 `packhub://…` 形式暂未实现。
+
+使用者侧的 `.packhub/local.yaml` 不进清单、不进锁，只覆盖这一次安装：
+
+```yaml
+# 项目根的 .packhub/local.yaml
+overrides:
+  - resource: repo-search
+    source: npm:@scope/search@1.4.0
+bindings: { voice: elevenlabs }
+vars: { SEARCH_ROOT: ./docs }
+composition:
+  env: { FLAVOR: local }
+```
+
+`packhub add` 与 `packhub plan` 都会读它；清单本身不被改写。覆盖后的计划如果与锁里的 `planHash` 对不上，`add` 仍会按锁核对——这是有意的：本地覆盖是使用者的显式选择，不是绕过来源校验的后门。
+
+### 包说明与变更记录
+
+根目录放 `PACK.md`（用途、示例）与 `CHANGELOG.md`（按版本写改了什么），`packhub publish` 会把它们复制进版本目录；`packhub hub` 的包页与市场 `/api/packs` 直接返回原文。它们不参与 `planHash`，也不影响安装。
 
 ### 槽位与路径：换实现只改一行
 
@@ -454,7 +477,26 @@ verify:
     equals: npx
 ```
 
-`command` 会真的跑命令并按 `expectExit` 判定；`mcp-ready` 对 stdio server 发一次 initialize 握手（http 传输暂时跳过）；`knowledge-integrity` 在 `.packhub/` 产物里按 sha256 找文件。发布时至少要有一条真能判定的检查。
+`command` 会真的跑命令并按 `expectExit` 判定；`mcp-ready` 对 stdio server 或 http 端点发一次 initialize 握手；`knowledge-integrity` 在 `.packhub/` 产物里按 sha256 找文件。发布时至少要有一条真能判定的检查。
+
+`scenario` 是「装完真的能用」的那一层：要么跑一条最小任务，要么让 harness headless 回答一句话，再断言输出或文件。
+
+```yaml
+verify:
+  - type: scenario
+    run: ["node", "scripts/smoke.mjs"]   # 在安装根执行
+    expectExit: 0
+    expectOutput: ["ready", "ok"]        # 输出里必须都出现
+    expectFiles: ["tmp/smoke.txt"]
+    timeout: 120
+
+  - type: scenario                       # 或者问宿主一次
+    harness: dsh                         # dsh / claude-code / opencode / codex
+    prompt: 这个项目装了什么整合包？只回答包名。
+    expectOutput: team-conventions
+```
+
+`scenario` 会执行命令 / 调 harness，所以 `add` 装完的自动复核不跑它，`--deep-verify` 和发布门禁才跑；市场写端会直接拒绝带 `scenario` 的包（不在服务器上执行上传者代码）。
 
 ---
 
@@ -471,7 +513,7 @@ verify:
 | `order-violates-dependency` | `composition.order` 与 `dependsOn` 矛盾 | 调顺序或删 order |
 | `dependency-cycle` | 依赖成环 | 去掉一条反向依赖 |
 | `config-source-unsupported` | config 资源用了非本地来源 | 把片段放进包内（`./fragments/…`）再引用 |
-| `unknown-target` | `--target` 写了不支持的值 | 用 `dir` / `dsh` / `claude-code` / `codex` |
+| `unknown-target` | `--target` 写了不支持的值 | 用 `dir` / `dsh` / `claude-code` / `codex` / `server` |
 
 ---
 

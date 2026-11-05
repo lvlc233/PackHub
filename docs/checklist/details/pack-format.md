@@ -14,10 +14,10 @@
 | PKG-08 | 两个 overlay 改同一文件；一个 overlay 盖生成物 | 前者 `overlay-conflict`，后者 `overlay-shadows` 警告 | 覆盖层不能声明“只盖某类文件”的规则 |
 | PKG-09 | 不写 `visibility` 发布 | 默认 `private`，`registry:check` 拒绝 | 四档在 Hub/索引侧只实现 public 门禁 |
 | PKG-10 | `keygen` + `sign` 后看清单/旁挂文件 | 签名写 `packhub.signatures.json`，不改清单 | 默认不强制，见 TRU-04 |
-| PKG-11 | 写 `extends:` 跑 plan | 字段能通过 schema，但没有合并逻辑 | 需要父 Pack 拉取、字段合并、环检测 |
-| PKG-12 | 写 `targets: [server]` | schema 拒绝；没有 client/server 裁剪 | 需要 target profile 与 include/exclude |
-| PKG-13 | 在项目放 `.packhub/local.yaml` | 不被读取 | 需要本地覆盖层与优先级规则 |
-| PKG-14 | 放 `PACK.md` / `CHANGELOG.md` 发布 | 归档可能带上，但版本目录/页面不专门处理 | 需要 publish 复制、页面渲染、索引字段 |
+| PKG-11 | 写 `extends: ../base` 跑 plan | 本地父包资源/接线合并，同名覆盖，成环报错 | 远程 `packhub://` 继承未实现 |
+| PKG-12 | 写 `targets: [server]` 与资源级 `targets` | server 只物化，不写指令面；未命中资源进 excluded | 裁剪维度只有 target |
+| PKG-13 | 在项目放 `.packhub/local.yaml` | 覆盖 pin/绑定/paths/vars/env；不进锁 | 优先级只有“本地覆盖清单” |
+| PKG-14 | 放 `PACK.md` / `CHANGELOG.md` 发布 | 复制进版本目录，Hub/市场 API 返回，包页渲染 | 索引不内嵌全文 |
 
 ## 结论
 
