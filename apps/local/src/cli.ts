@@ -116,6 +116,7 @@ const plan = defineCommand({
     dir: { type: 'positional', required: false, default: '.' },
     json: { type: 'boolean', default: false },
     target: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code | codex | server' },
+    index: { type: 'string', description: '远程 extends / packhub:// 用的 registry 索引' },
   },
   async run({ args }) {
     const ctx = await loadPackResolved(String(args.dir), {
@@ -358,6 +359,8 @@ metadata:
   title: 未命名整合包
   description: 一句话说清这个 Pack 替使用者完成了哪些整合工作。
   targets: [dir]
+  # public 才能进公共 registry；unlisted 可直链分发，internal/private 不发布
+  visibility: private
 
 requires:
   packhub: ">=0.0.1 <0.1"
@@ -374,8 +377,13 @@ verify:
 `;
     writeFileSync(file, template, 'utf8');
     writeFileSync(join(dir, 'resources', 'example.md'), '# 示例知识\n\n替换成真实内容。\n', 'utf8');
+    const gitignore = join(dir, '.gitignore');
+    if (!existsSync(gitignore)) {
+      writeFileSync(gitignore, '.packhub/\npack.phub\npackhub.key\n*.tar.gz\n', 'utf8');
+    }
     console.log(`created ${file}`);
     console.log('下一步：packhub resource add <type> <source> 追加资源，然后 packhub plan 看动作');
+    console.log('要发布到公共 registry 时，把 metadata.visibility 改成 public（或 unlisted 直链分发）');
   },
 });
 
@@ -942,6 +950,7 @@ const publish = defineCommand({
     offline: { type: 'boolean', default: false, description: '不联网解析引用' },
     'allow-exec': { type: 'boolean', default: false, description: '允许 runner 执行清单里的 install.exec' },
     index: { type: 'string', description: '扁平化远程 extends / packhub:// 用的 registry 索引' },
+    'allow-non-public': { type: 'boolean', default: false, description: '允许发布 unlisted/internal（公共索引仍只收 public）' },
   },
   async run({ args }) {
     const registry = resolve(String(args.registry));
@@ -959,6 +968,7 @@ const publish = defineCommand({
         force: Boolean(args.force),
         offline: Boolean(args.offline),
         allowExec: Boolean(args['allow-exec']),
+        allowNonPublic: Boolean(args['allow-non-public']),
         log: (line) => console.log(line),
       });
       if (args['dry-run']) {
@@ -1975,6 +1985,31 @@ const completion = defineCommand({
   },
 });
 
+
+/** 解析 argv 里的 flag，遇到当前命令没声明的 --flag 就报出来；citty 默认会静默忽略。 */
+export function unknownFlag(argv: string[]): string | undefined {
+  type Cmd = { meta?: { name?: string }; args?: Record<string, unknown>; subCommands?: Record<string, Cmd> };
+  let cmd = main as unknown as Cmd;
+  let allowed = new Set(Object.keys(cmd.args ?? {}));
+  for (let i = 0; i < argv.length; i++) {
+    const token = argv[i]!;
+    if (token === '--') return undefined;
+    if (token.startsWith('-')) {
+      if (token === '-h' || token === '--help' || token === '-v' || token === '--version') continue;
+      const name = token.replace(/^--?/, '').split('=')[0]!;
+      if (!allowed.has(name)) {
+        return `未知参数 --${name}（${cmd.meta?.name ?? 'packhub'}）；用 packhub ${cmd.meta?.name ?? ''} --help 看可用参数`;
+      }
+      continue;
+    }
+    const sub = cmd.subCommands?.[token];
+    if (sub) {
+      cmd = sub;
+      allowed = new Set(Object.keys(cmd.args ?? {}));
+    }
+  }
+  return undefined;
+}
 export const main: CommandDef = defineCommand({
   meta: { name: 'packhub', version: '0.0.1', description: 'Agent 能力的整合包工具' },
   subCommands: {

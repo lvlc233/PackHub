@@ -16,6 +16,8 @@ export interface PublishOptions {
   offline?: boolean;
   /** 允许 runner 执行清单里的 install.exec（默认不执行） */
   allowExec?: boolean;
+  /** 允许发布 unlisted/internal（默认只发 public） */
+  allowNonPublic?: boolean;
   log?: (line: string) => void;
 }
 
@@ -59,6 +61,10 @@ export async function publishPack(packDir: string, opts: PublishOptions): Promis
   const [scope] = name.split('/');
   if (!name.includes('/') || !scope) throw new Error(`包名必须是 scope/name：${name}`);
 
+  const visibility = ctx.manifest.metadata.visibility ?? 'private';
+  if (visibility !== 'public' && opts.allowNonPublic !== true) {
+    throw new Error(`visibility=${visibility}；公共 registry 只收 public。要发 unlisted/internal 加 --allow-non-public`);
+  }
   const versionDir = join(registryRoot, 'packs', scope, name.split('/')[1]!, version);
   if (existsSync(versionDir) && !opts.force) {
     throw new Error(`版本目录已存在：${versionDir}（已发布版本不可变；要发新版本请改 metadata.version）`);

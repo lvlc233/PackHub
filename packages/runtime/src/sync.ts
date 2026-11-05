@@ -82,7 +82,7 @@ function assertHarnessRoot(target: SyncTarget, root: string): void {
 
 /**
  * 把一个 skill-only Pack 同步到各 harness 的全局 skills/。
- * 只接受 type=skill 且来源是本地的资源；MCP/CLI/配置需要各自的 adapter，暂不混进来。
+ * 接受本地 skill 与（仅 codex）mcp；MCP 写入 config.toml 托管块，其他类型仍拒绝。
  */
 export async function syncPack(
   packDir: string,

@@ -95,9 +95,8 @@ describe('publish', () => {
   it('private 的包进不了公共 registry', async () => {
     const pack = makePack({ visibility: 'private' });
     const reg = registry();
-    await publishPack(pack, { registry: reg });
-    const res = buildIndex(reg);
-    expect(res.errors.some((e) => /visibility=private/.test(e))).toBe(true);
+    await expect(publishPack(pack, { registry: reg })).rejects.toThrow(/visibility=private/);
+    expect(existsSync(join(reg, 'packs/demo/published/0.1.0'))).toBe(false);
     rmSync(pack, { recursive: true, force: true });
     rmSync(reg, { recursive: true, force: true });
   });

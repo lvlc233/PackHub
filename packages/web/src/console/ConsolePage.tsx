@@ -674,7 +674,7 @@ export function ConsolePage() {
             {!targetsOk && <span className="cs-field-error">至少选一个 target</span>}
             <div className="cs-row">
               <span className="cs-label">targets</span>
-              {['dir', 'claude-code', 'dsh', 'codex'].map((t) => (
+              {['dir', 'claude-code', 'dsh', 'codex', 'server'].map((t) => (
                 <label key={t} className="cs-check">
                   <input
                     type="checkbox"
@@ -708,6 +708,7 @@ export function ConsolePage() {
                   ref={fileRef}
                   type="file"
                   multiple
+                  aria-label="上传文件"
                   className="cs-file"
                   onChange={(e) => {
                     void uploadFiles(e.target.files);

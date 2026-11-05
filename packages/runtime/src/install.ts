@@ -53,6 +53,8 @@ export interface ActionOutcome {
   undo?: {
     file: string;
     ops: { path: string[]; had: boolean; value?: unknown }[];
+    /** 合并后每个叶子键的值，doctor 用它查配置漂移 */
+    applied?: { path: string[]; value: unknown }[];
   };
 }
 
@@ -1073,6 +1075,8 @@ async function applyAction(
           const prev = getPath(current, p);
           return prev === undefined ? { path: p, had: false } : { path: p, had: true, value: prev };
         }),
+        // 合并后的值：doctor 用它判断配置有没有被宿主/别人改掉
+        applied: leafPaths(patch).map((p) => ({ path: p, value: getPath(merged, p) })),
       };
       if (before === nextText) {
         return { actionId: action.actionId, op: action.op, status: 'noop', target: action.path };
@@ -1307,7 +1311,12 @@ function readable(root: string, relPath: string): string {
 export function loadState(root: string): State {
   const file = join(root, STATE_FILE);
   if (!existsSync(file)) return { apiVersion: STATE_API, packs: {} };
-  const parsed = JSON.parse(readFileSync(file, 'utf8')) as Partial<State>;
+  let parsed: Partial<State>;
+  try {
+    parsed = JSON.parse(readFileSync(file, 'utf8')) as Partial<State>;
+  } catch (err) {
+    throw new Error(`state 损坏：${file}（${(err as Error).message}）；先备份再删除或修复后重试`);
+  }
   // 早期 state 没有 apiVersion：补上而不是拒绝——它是本机缓存，不是发布契约
   return {
     apiVersion: STATE_API,

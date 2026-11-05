@@ -6,3 +6,4 @@ dist/
 # registry 里的归档是分发物，必须入库（否则新克隆的 registry 装不了任何包）
 !registry/packs/**/*.phub
 .tmp/
+tmp/

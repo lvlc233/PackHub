@@ -343,7 +343,12 @@ export async function startMarket(opts: MarketOptions): Promise<RunningMarket> {
       if (!existsSync(stagedDir)) return sendJson(res, 404, { error: 'staging 里没有这个版本' });
 
       if (body.action === 'reject') {
-        rmSync(join(stagingRoot, 'packs', name), { recursive: true, force: true });
+        rmSync(join(stagingRoot, 'packs', name, version), { recursive: true, force: true });
+        rmSync(join(stagingRoot, 'packs', name, `${version}.phub`), { force: true });
+        const left = existsSync(join(stagingRoot, 'packs', name))
+          ? readdirSync(join(stagingRoot, 'packs', name))
+          : [];
+        if (left.length === 0) rmSync(join(stagingRoot, 'packs', name), { recursive: true, force: true });
         recordReview(root, name, version, 'rejected', body.note ?? 'rejected by admin');
         return sendJson(res, 200, { name, version, status: 'rejected' });
       }

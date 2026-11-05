@@ -135,7 +135,8 @@ export function startHub(opts: HubOptions): Promise<Server> {
       res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
       res.end('404：Hub 只有只读接口（/api/health、/api/registry、/api/registry/pack、/api/plan）');
     } catch (err) {
-      sendJson(res, 500, { error: (err as Error).message });
+      const message = (err as Error).message;
+      sendJson(res, message.includes('超过 1 MB') ? 413 : 500, { error: message });
     }
   });
 
@@ -277,7 +278,12 @@ function readJson(file: string): unknown {
 
 async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(chunk as Buffer);
+  let size = 0;
+  for await (const chunk of req) {
+    size += (chunk as Buffer).length;
+    if (size > 1024 * 1024) throw new Error('请求体超过 1 MB');
+    chunks.push(chunk as Buffer);
+  }
   const raw = Buffer.concat(chunks).toString('utf8');
   if (!raw) return {};
   try {

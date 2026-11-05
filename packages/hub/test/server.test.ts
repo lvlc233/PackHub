@@ -29,6 +29,15 @@ describe('Hub（只读发布端）', () => {
     expect(detail.manifest).toContain('apiVersion: packhub.dev/v0');
   });
 
+
+  it('请求体超过上限返回 413，而不是把内存吃满', async () => {
+    const res = await fetch(`${base}/api/plan`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ manifest: 'x'.repeat(1024 * 1024 + 10), target: 'dir' }),
+    });
+    expect(res.status).toBe(413);
+  });
   it('计划预览照常，但没有任何执行接口', async () => {
     const planRes = await fetch(`${base}/api/plan`, {
       method: 'POST',

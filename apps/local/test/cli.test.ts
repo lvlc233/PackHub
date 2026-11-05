@@ -213,6 +213,25 @@ verify:
     rmSync(pack, { recursive: true, force: true });
   });
 
+
+  it('未知参数退出 2；init 的私有包发布前被拦且不留半套', () => {
+    const badFlag = run(['plan', '.', '--nonsense']);
+    expect(badFlag.status).toBe(2);
+    expect(badFlag.out).toContain('未知参数');
+
+    const base = mkdtempSync(join(tmpdir(), 'packhub-cli-init-'));
+    const pack = join(base, 'pack');
+    const reg = join(base, 'reg');
+    const init = run(['init', pack, '--name', 'demo/init-flow']);
+    expect(init.status).toBe(0);
+    expect(readFileSync(join(pack, 'packhub.yaml'), 'utf8')).toContain('visibility: private');
+
+    const published = run(['publish', pack, '--registry', reg]);
+    expect(published.status).toBe(1);
+    expect(published.out).toMatch(/visibility=private/);
+    expect(existsSync(join(reg, 'packs', 'demo', 'init-flow'))).toBe(false);
+    rmSync(base, { recursive: true, force: true });
+  });
   it('discover 能按关键词列候选并写进清单', () => {
     const base = mkdtempSync(join(tmpdir(), 'packhub-cli-discover-'));
     const pack = join(base, 'pack');
