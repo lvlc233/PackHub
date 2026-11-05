@@ -474,3 +474,54 @@
   max-height: 320px;
   overflow: auto;
 }
+
+/* 保存与发布 */
+.cs-deliver {
+  border-top: 1px solid #eaecf0;
+  margin-top: 16px;
+  padding-top: 14px;
+  display: grid;
+  gap: 8px;
+}
+
+.cs-deliver h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: #101828;
+}
+
+.cs-deliver-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #475467;
+}
+
+.cs-deliver-row input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font: 12px var(--font-mono, monospace);
+  color: #101828;
+  background: #fff;
+}
+
+.cs-deliver-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cs-deliver-msg {
+  margin: 0;
+  font-size: 12px;
+  color: #067647;
+}
+
+.cs-deliver-msg.bad {
+  color: #b42318;
+}

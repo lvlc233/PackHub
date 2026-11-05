@@ -1,4 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { startServer } from '../src/server.ts';
 
 let server: Awaited<ReturnType<typeof startServer>>;
@@ -53,6 +56,52 @@ describe('HTTP API', () => {
     expect(data.issues.some((i) => i.severity === 'error')).toBe(true);
   });
 
+
+  it('创作台保存：写 packhub.yaml，已存在时拒绝；发布到临时 registry', async () => {
+    const rel = `tmp/api-pack-${Math.random().toString(36).slice(2, 8)}`;
+    const regRel = `tmp/api-reg-${Math.random().toString(36).slice(2, 8)}`;
+    const manifest = `apiVersion: packhub.dev/v0
+kind: Pack
+metadata: { name: demo/created, version: 0.1.0, targets: [dir], visibility: public }
+requires: { packhub: ">=0.0.1 <0.1" }
+resources:
+  - id: rules
+    type: knowledge
+    source: ./rules.md
+`;
+    try {
+      const created = await fetch(`${base}/api/packs/create`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ dir: rel, manifest }),
+      });
+      expect(created.status).toBe(201);
+      expect(existsSync(join(process.cwd(), rel, 'packhub.yaml'))).toBe(true);
+
+      const again = await fetch(`${base}/api/packs/create`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ dir: rel, manifest }),
+      });
+      expect(again.status).toBe(409);
+
+      writeFileSync(join(process.cwd(), rel, 'rules.md'), '# rules\n', 'utf8');
+      const published = await fetch(`${base}/api/publish`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ dir: rel, registry: regRel }),
+      });
+      expect(published.status).toBe(200);
+      const body = (await published.json()) as { indexed: boolean; name: string };
+      expect(body.indexed).toBe(true);
+      expect(body.name).toBe('demo/created');
+      const index = JSON.parse(readFileSync(join(process.cwd(), regRel, 'index.json'), 'utf8'));
+      expect(index.packs.some((p: { name: string }) => p.name === 'demo/created')).toBe(true);
+    } finally {
+      rmSync(join(process.cwd(), rel), { recursive: true, force: true });
+      rmSync(join(process.cwd(), regRel), { recursive: true, force: true });
+    }
+  });
   it('registry 索引可读', async () => {
     const res = await fetch(`${base}/api/registry`);
     expect(res.status).toBe(200);

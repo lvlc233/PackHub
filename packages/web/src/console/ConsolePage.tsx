@@ -57,6 +57,7 @@ const EMPTY_FORM = {
   title: '未命名整合包',
   description: '一句话说清这个包替使用者完成了哪些整合工作。',
   targets: ['dir'] as string[],
+  visibility: 'public',
 };
 
 const RES_TYPES = ['knowledge', 'prompt', 'skill', 'tool', 'mcp', 'config'];
@@ -109,7 +110,7 @@ export function ConsolePage() {
         form?: typeof EMPTY_FORM;
         resources?: Draft[];
       } | null;
-      return saved?.form ?? EMPTY_FORM;
+      return { ...EMPTY_FORM, ...(saved?.form ?? {}) };
     } catch {
       return EMPTY_FORM;
     }
@@ -128,6 +129,9 @@ export function ConsolePage() {
   const [issues, setIssues] = useState<Issue[]>([]);
   const [busy, setBusy] = useState(false);
   const [target, setTarget] = useState('dir');
+  const [saveDir, setSaveDir] = useState('');
+  const [savedDir, setSavedDir] = useState<string | null>(null);
+  const [delivery, setDelivery] = useState<{ kind: 'ok' | 'error' | 'busy'; text: string } | null>(null);
 
   const yaml = useMemo(() => toYaml(form, resources), [form, resources]);
 
@@ -191,6 +195,7 @@ export function ConsolePage() {
       title: browser.meta.title ?? '未命名整合包',
       description: browser.meta.description ?? '',
       targets: browser.meta.targets.length > 0 ? browser.meta.targets : ['dir'],
+      visibility: 'public',
     });
     setResources(browser.resources.map((r) => ({ ...r, key: uid() })));
   };
@@ -214,6 +219,88 @@ export function ConsolePage() {
     a.download = 'packhub.yaml';
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+
+  const doSave = async (): Promise<void> => {
+    const dir = saveDir.trim() || `packs/${form.name}`;
+    setDelivery({ kind: 'busy', text: '保存中…' });
+    try {
+      const res = await fetch('/api/packs/create', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ dir, manifest: yaml }),
+      });
+      const data = (await res.json()) as { dir?: string; error?: string; issues?: { message: string }[] };
+      if (!res.ok) {
+        setDelivery({ kind: 'error', text: data.error ?? data.issues?.map((i) => i.message).join('; ') ?? '保存失败' });
+        return;
+      }
+      setSavedDir(data.dir ?? dir);
+      setDelivery({ kind: 'ok', text: `已保存到 ${data.dir ?? dir}（只写了 packhub.yaml）` });
+    } catch (err) {
+      setDelivery({ kind: 'error', text: (err as Error).message });
+    }
+  };
+
+  const doInstall = async (): Promise<void> => {
+    if (!savedDir) return;
+    setDelivery({ kind: 'busy', text: '安装中…' });
+    try {
+      const res = await fetch(`/api/install?dir=${encodeURIComponent(savedDir)}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+      });
+      const data = (await res.json()) as {
+        outcomes?: { status: string }[];
+        error?: string;
+        issues?: { message: string }[];
+      };
+      if (!res.ok) {
+        setDelivery({ kind: 'error', text: data.error ?? data.issues?.map((i) => i.message).join('; ') ?? '安装失败' });
+        return;
+      }
+      const bad = (data.outcomes ?? []).filter((o) => o.status !== 'done' && o.status !== 'noop');
+      setDelivery(
+        bad.length === 0
+          ? { kind: 'ok', text: `安装完成：${(data.outcomes ?? []).length} 个动作` }
+          : { kind: 'error', text: `安装未完成：${bad.length} 个动作失败/跳过` },
+      );
+    } catch (err) {
+      setDelivery({ kind: 'error', text: (err as Error).message });
+    }
+  };
+
+  const doPublish = async (): Promise<void> => {
+    if (!savedDir) return;
+    setDelivery({ kind: 'busy', text: '发布中（会跑干净安装+校验）…' });
+    try {
+      const res = await fetch('/api/publish', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ dir: savedDir }),
+      });
+      const data = (await res.json()) as { name?: string; version?: string; error?: string };
+      if (!res.ok) {
+        setDelivery({ kind: 'error', text: data.error ?? '发布失败' });
+        return;
+      }
+      setDelivery({ kind: 'ok', text: `已发布 ${data.name}@${data.version}，索引已更新` });
+    } catch (err) {
+      setDelivery({ kind: 'error', text: (err as Error).message });
+    }
+  };
+  const addBlankResource = (): void => {
+    setResources((prev) => [
+      ...prev,
+      {
+        key: uid(),
+        id: `resource-${prev.length + 1}`,
+        type: 'knowledge',
+        source: './resources/example.md',
+      },
+    ]);
   };
 
   const errors = issues.filter((i) => i.severity === 'error');
@@ -346,6 +433,21 @@ export function ConsolePage() {
               />
             </label>
             <div className="cs-row">
+              <span className="cs-label">visibility</span>
+              <select
+                className="cs-visibility"
+                aria-label="visibility"
+                value={form.visibility}
+                onChange={(e) => setForm({ ...form, visibility: e.target.value })}
+              >
+                {['public', 'unlisted', 'internal', 'private'].map((v) => (
+                  <option key={v} value={v}>
+                    {v}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="cs-row">
               <span className="cs-label">targets</span>
               {['dir', 'claude-code', 'dsh', 'codex'].map((t) => (
                 <label key={t} className="cs-check">
@@ -370,6 +472,9 @@ export function ConsolePage() {
           <div className="cs-reslist">
             <div className="cs-reslist-head">
               <span>资源 {resources.length} 个</span>
+              <button className="cs-link" onClick={addBlankResource}>
+                + 新增资源
+              </button>
             </div>
             {resources.length === 0 && <p className="cs-hint">从左边收藏或包资源里点 + 添加。</p>}
             {resources.map((r, i) => (
@@ -461,6 +566,40 @@ export function ConsolePage() {
               )}
             </>
           )}
+          <section className="cs-deliver">
+            <h3>保存与发布</h3>
+            <label className="cs-deliver-row">
+              目录
+              <input
+                value={saveDir}
+                placeholder={`packs/${form.name}`}
+                onChange={(e) => setSaveDir(e.target.value)}
+                spellCheck={false}
+              />
+            </label>
+            <div className="cs-deliver-actions">
+              <button className="cs-btn" onClick={() => void doSave()}>
+                保存到目录
+              </button>
+              <button className="cs-btn ghost" onClick={() => void doInstall()} disabled={!savedDir}>
+                安装
+              </button>
+              <button className="cs-btn ghost" onClick={() => void doPublish()} disabled={!savedDir}>
+                发布到 registry
+              </button>
+            </div>
+            {delivery && (
+              <p
+                className={delivery.kind === 'error' ? 'cs-deliver-msg bad' : 'cs-deliver-msg'}
+                role="status"
+              >
+                {delivery.text}
+              </p>
+            )}
+            <p className="cs-hint">
+              保存只写 packhub.yaml；本地 source 指向的文件仍需放进该目录。发布前会跑干净安装与校验。
+            </p>
+          </section>
           {!plan && issues.length === 0 && <p className="cs-hint">改动会自动预览；点「预览计划」强制重算。</p>}
           {errors.length > 0 && <p className="cs-hint">有 {errors.length} 个错误，修完再看计划。</p>}
         </aside>

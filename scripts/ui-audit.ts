@@ -3,7 +3,8 @@
  * 检查：横向溢出（窄屏塌不塌）与 axe 的结构性违规（严重/致命才失败）。
  * 用法：pnpm ui:audit（需要先 pnpm web:build）
  */
-import { resolve } from 'node:path';
+import { existsSync, rmSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { chromium } from 'playwright';
 import AxeBuilder from '@axe-core/playwright';
 import { defaultStaticDir, startServer } from '../apps/local/src/server.ts';
@@ -53,11 +54,31 @@ try {
     }
     await context.close();
   }
+  const testDir = 'tmp/ui-audit-pack';
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    await page.goto(`${base}/console`, { waitUntil: 'networkidle' });
+    await page.getByRole('button', { name: '+ 新增资源' }).click();
+    await page.locator('.cs-deliver-row input').fill(testDir);
+    await page.getByRole('button', { name: '保存到目录' }).click();
+    await page.getByRole('status').filter({ hasText: '已保存到' }).waitFor({ timeout: 10_000 });
+    if (!existsSync(join(root, testDir, 'packhub.yaml'))) {
+      failures++;
+      console.log('x 创作台保存：没有写出 packhub.yaml');
+    } else {
+      console.log('✓ 创作台保存：新增资源 → 保存到目录');
+    }
+    await page.close();
+  } catch (err) {
+    failures++;
+    console.log(`x 创作台保存流程失败：${(err as Error).message}`);
+  } finally {
+    rmSync(join(root, testDir), { recursive: true, force: true });
+  }
 } finally {
   await browser.close();
   await new Promise<void>((done) => server.close(() => done()));
 }
-
 if (failures > 0) {
   console.error(`\n界面审计失败：${failures} 项`);
   process.exit(1);

@@ -13,7 +13,7 @@
 | UI-07 | 390px 宽 | Chromium 实测无横向溢出；1080px 断点单列 | 没有视觉基线 diff |
 | UI-08 | 键盘 Tab / 屏幕阅读器 | axe 在 390/1280 跑三页，无 serious/critical；焦点可见、跳过导航 | 没有完整键盘走查 |
 | UI-09 | 后端 500/422 | 顶部与同步错误 `role=alert` + `aria-live`；按钮 `aria-busy` | 错误文案未逐条审 |
-| UI-10 | 直接访问深链 | history 路由 pushState/popstate；深链与后退可用 | 没有嵌套路由 |
+| UI-10 | 直接访问深链 | history 路由 pushState/popstate；深链与后退可用 | 没有嵌套路由 |`n| UI-11 | 创作台保存 | 填目录 → 写 `packhub.yaml`；已存在 409 | 只写清单，不复制本地资源 |`n| UI-12 | 面板内安装 | 保存后执行计划并回填动作 | 安装根就是 Pack 目录 |`n| UI-13 | 面板内发布 | 干净安装+校验+写 registry/索引 | 发布耗时同步等待 |`n| UI-14 | 创作台端到端 | `ui:audit` 真点新增资源→保存并断言文件 | 无 |
 
 ## 结论
 

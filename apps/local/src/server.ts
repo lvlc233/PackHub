@@ -1,9 +1,10 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { buildPlan, loadPack, parseManifest, planFor, validateGraph, type TargetId } from '@packhub/kernel';
 import { installPack, loadState, verifyPack, verifyInstalled, hasInstalledPacks, syncPack, removeSynced, doctorGlobal, type SyncTarget } from '@packhub/runtime';
 import { collectPackResources, defaultStaticDir } from '@packhub/hub';
+import { publishPack, writeIndex } from '@packhub/registry';
 
 export interface ServeOptions {
   root: string;
@@ -123,6 +124,54 @@ async function handleApi(
     return sendJson(res, 200, { issues: planIssues, plan: plan ?? null });
   }
 
+  // 创作台保存：把预览用的 manifest 写成真实 Pack 目录（只写清单，不落资源文件）
+  if (url.pathname === '/api/packs/create' && req.method === 'POST') {
+    const body = await readBody(req);
+    const rel = String(body.dir ?? '').trim();
+    const text = String(body.manifest ?? '');
+    if (!rel) return sendJson(res, 400, { error: '要提供保存目录，例如 packs/me/my-pack' });
+    if (!text.trim()) return sendJson(res, 400, { error: 'manifest 为空' });
+    const target = safeDir(root, rel);
+    if (existsSync(join(target, 'packhub.yaml')) && body.force !== true) {
+      return sendJson(res, 409, { error: `${rel} 里已经有 packhub.yaml；换一个目录，或传 force: true` });
+    }
+    const parsed = parseManifest(text, '<console>');
+    if (!parsed.manifest) return sendJson(res, 422, { error: '清单未通过校验', issues: parsed.issues });
+    const { issues } = validateGraph(parsed.manifest);
+    const errors = [...parsed.issues, ...issues].filter((i) => i.severity === 'error');
+    if (errors.length > 0) return sendJson(res, 422, { error: '清单未通过校验', issues: errors });
+    mkdirSync(target, { recursive: true });
+    writeFileSync(join(target, 'packhub.yaml'), text, 'utf8');
+    return sendJson(res, 201, {
+      dir: relative(root, target).split(sep).join('/'),
+      name: parsed.manifest.metadata.name,
+      version: parsed.manifest.metadata.version,
+    });
+  }
+
+  // 从面板发布到本仓库的 registry（干净安装+校验+写索引）
+  if (url.pathname === '/api/publish' && req.method === 'POST') {
+    const body = await readBody(req);
+    const target = safeDir(root, String(body.dir ?? url.searchParams.get('dir') ?? '.'));
+    const registry = body.registry ? safeDir(root, String(body.registry)) : join(root, 'registry');
+    try {
+      const result = await publishPack(target, {
+        registry,
+        allowExec: false,
+        force: body.force === true,
+      });
+      const indexed = writeIndex(registry);
+      return sendJson(res, indexed.ok ? 200 : 422, {
+        name: result.name,
+        version: result.version,
+        dir: relative(root, result.dir).split(sep).join('/'),
+        indexed: indexed.ok,
+        error: indexed.ok ? undefined : '索引门禁没过',
+      });
+    } catch (err) {
+      return sendJson(res, 422, { error: (err as Error).message });
+    }
+  }
   if (url.pathname === '/api/registry/resources' && req.method === 'GET') {
     const name = url.searchParams.get('name') ?? '';
     const version = url.searchParams.get('version') ?? undefined;

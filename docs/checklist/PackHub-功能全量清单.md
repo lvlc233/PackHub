@@ -1,6 +1,6 @@
 # PackHub 功能全量清单
 
-> 版本：2026-11-05 ／ 口径：本仓库当前代码、CLI 实测、测试套件（56 个文件 / 217 项）与 registry 现状。
+> 版本：2026-11-05 ／ 口径：本仓库当前代码、CLI 实测、测试套件（56 个文件 / 218 项）与 registry 现状。
 > 用途：实现 checklist、选型对照、漏项审计。**不是**产品介绍。
 
 ## 怎么读
@@ -224,7 +224,12 @@
 |---|---|---|---|---|
 | UI-01 | 主面板 | 包列表、组成、计划、校验、本机状态 | [done] | `App.tsx` |
 | UI-02 | 包目录 | `/packs` 列表与详情 | [done] | `PacksPage` |
-| UI-03 | 创作台 | `/console` 草稿、预览、下载 | [done] | `ConsolePage` |
+| UI-03 | 创作台 | `/console` 草稿、新增资源行、自动预览、下载 YAML | [done] | `ConsolePage` |
+| UI-09 | 错误态 | 顶部错误与同步错误是 ole=alert + ria-live；安装/校验按钮带 ria-busy | [done] | App.tsx |
+| UI-11 | 保存到目录 | 面板填目录 → 写 packhub.yaml；已存在时 409 | [done] | /api/packs/create、server.test |
+| UI-12 | 面板内安装 | 保存后点安装，执行该目录计划并回填动作状态 | [done] | /api/install |
+| UI-13 | 面板内发布 | 保存后点发布，跑干净安装+校验+写 registry 与索引 | [done] | /api/publish、server.test |
+| UI-14 | 创作台端到端 | Chromium 真点：新增资源 → 保存到目录，断言文件写出 | [done] | ui:audit |
 | UI-04 | 形态 demo | `/forms` 四个入口 demo | [done] | `FormsDemo` |
 | UI-05 | 同步卡片 | 勾选 dsh/codex、预演/同步/移除 | [done] | `App.tsx` |
 | UI-06 | 安装/校验按钮 | 面板内执行并回填结果 | [done] | `api.install/verify` |
@@ -253,7 +258,7 @@
 
 | 编号 | 功能点 | 能观察到的事实 | 现状 | 证据/缺口 |
 |---|---|---|---|---|
-| OPS-01 | 测试套件 | 56 个文件 / 217 项通过 | [done] | `pnpm check` |
+| OPS-01 | 测试套件 | 56 个文件 / 218 项通过 | [done] | `pnpm check` |
 | OPS-02 | 类型检查 | `tsc --noEmit` 通过 | [done] | `pnpm typecheck` |
 | OPS-03 | registry 门禁 | `registry:check` 通过 | [done] | CI |
 | OPS-04 | 干净安装 CI | `registry:verify-all`（需网络） | [done] | workflow |
