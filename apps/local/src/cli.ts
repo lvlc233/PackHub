@@ -51,6 +51,14 @@ import {
   searchNpm,
   inspectCache,
   cleanCache,
+  trustPath,
+  readTrust,
+  addTrustedKey,
+  removeTrustedKey,
+  signaturePolicy,
+  auditPath,
+  appendAudit,
+  readAudit,
   type SyncTarget,
 } from '@packhub/runtime';
 
@@ -136,7 +144,21 @@ const install = defineCommand({
       if (result.rolledBack) console.error('\n有动作失败，已按快照回滚：磁盘回到安装前，state 未写入。');
       process.exit(1);
     }
-    if (!args['dry-run']) console.log(`\nstate: ${result.statePath}`);
+    if (!args['dry-run']) {
+      console.log(`\nstate: ${result.statePath}`);
+      try {
+        appendAudit({
+          action: 'install',
+          pack: p.pack.name,
+          version: p.pack.version,
+          planHash: p.planHash,
+          ok: true,
+          root: resolve(String(args.dir)),
+        });
+      } catch (err) {
+        console.warn(`warn  审计写入失败：${(err as Error).message}`);
+      }
+    }
   },
 });
 
@@ -404,6 +426,11 @@ const add = defineCommand({
       default: false,
       description: '没有有效签名就拒绝安装',
     },
+    'allow-unsigned': {
+      type: 'boolean',
+      default: false,
+      description: '即使配置了信任列表也接受无签名包（显式降低要求）',
+    },
     'no-verify': { type: 'boolean', default: false, description: '装完不跑 verify 检查' },
     'deep-verify': { type: 'boolean', default: false, description: '安装后也跑 command / mcp-ready（会执行包里的命令）' },
     trusted: { type: 'string', description: '信任的公钥 id 列表文件（每行一个）' },
@@ -486,9 +513,16 @@ const add = defineCommand({
     // 消费端核对：锁 / 验证报告 / 签名。锁按它自己的 target 重算，避免安装 target 不同被误判。
     const lockTarget = String(lock?.plan?.target ?? 'dir');
     const { plan: lockPlan } = planFor(ctx, { target: lockTarget as never });
-    const trusted = args.trusted
+    // 信任来源：显式 --trusted 文件 + 本机持久信任列表；有列表就只认列表内的公钥
+    const fileKeys = args.trusted
       ? readFileSync(String(args.trusted), 'utf8').split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
-      : undefined;
+      : [];
+    const policy = signaturePolicy({
+      require: Boolean(args['require-signature']),
+      allowUnsigned: Boolean(args['allow-unsigned']),
+    });
+    const trustedKeys = [...new Set([...(policy.trusted ?? []), ...fileKeys])];
+    const trusted = trustedKeys.length > 0 ? trustedKeys : undefined;
     const inspection = inspectPack(packDir, ctx.manifest, lockPlan, { ...(trusted ? { trusted } : {}) });
     for (const issue of inspection.issues) {
       const line = `[${issue.code}] ${issue.message}`;
@@ -504,12 +538,17 @@ const add = defineCommand({
     const trustedSignatures = trusted
       ? inspection.signatures.filter((s) => s.ok && trusted.includes(s.key)).length
       : goodSignatures;
-    if (args['require-signature'] && trustedSignatures === 0) {
-      console.error('这个包没有有效签名（--require-signature 要求至少一个）。');
+    if (policy.require && trustedSignatures === 0) {
+      console.error(
+        `这个包没有${policy.trusted ? '被信任列表认可' : '有效'}的签名（默认策略/signature 要求）。` +
+          `\n  先确认发布者，再用 packhub trust add <公钥 id> 加入信任列表；确实不用签名时加 --allow-unsigned。`,
+      );
       process.exit(2);
     }
     if (inspection.signatures.length > 0) {
       console.log(`签名 ${goodSignatures}/${inspection.signatures.length} 有效${trusted ? `，信任列表内 ${trustedSignatures} 个` : ''}`);
+    } else if (!policy.require) {
+      console.log('这个包没有签名（未配置信任列表，按开发者模式继续）');
     }
 
     const { plan, issues } = planFor(ctx, { target: targetEnv as never });
@@ -538,6 +577,18 @@ const add = defineCommand({
       process.exit(1);
     }
     console.log(`\n装上 ${label} → ${projectDir}`);
+    try {
+      appendAudit({
+        action: 'add',
+        pack: ctx.manifest.metadata.name,
+        version: ctx.manifest.metadata.version,
+        planHash: plan.planHash,
+        ok: true,
+        root: projectDir,
+      });
+    } catch (err) {
+      console.warn(`warn  审计写入失败：${(err as Error).message}`);
+    }
 
     // 装完立刻复核：否则「装上了」和「能用」之间又断了一层
     if (!args['no-verify']) {
@@ -594,6 +645,18 @@ const update = defineCommand({
     for (const p of res.pruned) console.log(`  × ${p}（已从磁盘清掉）`);
     for (const w of res.warnings) console.warn(`warn  ${w}`);
     console.log(`\nplanHash ${res.planHash.slice(0, 22)}…（可用 packhub rollback 退回）`);
+    try {
+      appendAudit({
+        action: 'update',
+        pack: res.name,
+        version: res.to.split('@').pop(),
+        planHash: res.planHash,
+        ok: true,
+        root: resolve(String(args.dir)),
+      });
+    } catch (err) {
+      console.warn(`warn  审计写入失败：${(err as Error).message}`);
+    }
 
     if (res.changed && !args['no-verify']) {
       const reports = await verifyInstalled(resolve(String(args.dir)), {
@@ -794,6 +857,76 @@ const sync = defineCommand({
       console.error(`x ${(err as Error).message}`);
       process.exit(1);
     }
+  },
+});
+
+const trustAdd = defineCommand({
+  meta: { name: 'add', description: '把发布者的公钥 id 加入本机信任列表' },
+  args: {
+    key: { type: 'positional', required: true, description: '公钥 id（packhub sign 输出里的 key）' },
+    label: { type: 'string', description: '给人看的备注，例如发布者名字' },
+  },
+  run({ args }) {
+    const entry = addTrustedKey(String(args.key), args.label ? String(args.label) : undefined);
+    console.log(`✓ 已信任 ${entry.key.slice(0, 16)}…${entry.label ? `（${entry.label}）` : ''}`);
+    console.log(`  ${trustPath()}`);
+    console.log('  之后安装默认要求来自这个列表的有效签名；要装无签名包用 --allow-unsigned');
+  },
+});
+
+const trustRemove = defineCommand({
+  meta: { name: 'remove', description: '从信任列表移除一个公钥' },
+  args: { key: { type: 'positional', required: true } },
+  run({ args }) {
+    const ok = removeTrustedKey(String(args.key));
+    console.log(ok ? `✓ 已移除 ${String(args.key).slice(0, 16)}…` : '信任列表里没有这个公钥');
+    if (!ok) process.exit(1);
+  },
+});
+
+const trustList = defineCommand({
+  meta: { name: 'list', description: '列出本机信任的公钥' },
+  run() {
+    const trust = readTrust();
+    if (trust.keys.length === 0) {
+      console.log(`信任列表是空的：${trustPath()}`);
+      console.log('用 packhub trust add <公钥 id> 添加发布者');
+      return;
+    }
+    for (const key of trust.keys) {
+      console.log(`${key.key}${key.label ? `  ${key.label}` : ''}  ${key.addedAt.slice(0, 19)}`);
+    }
+    console.log(`\n共 ${trust.keys.length} 个；requireSignature=${trust.requireSignature === true}`);
+  },
+});
+
+const trust = defineCommand({
+  meta: { name: 'trust', description: '管理持久信任的签名公钥' },
+  subCommands: { add: trustAdd, remove: trustRemove, list: trustList },
+});
+
+const audit = defineCommand({
+  meta: { name: 'audit', description: '看本机的安装审计（add / install / update）' },
+  args: {
+    tail: { type: 'string', default: '20', description: '只看最近 N 条' },
+    json: { type: 'boolean', default: false },
+  },
+  run({ args }) {
+    const entries = readAudit(Number(args.tail) || 20);
+    if (args.json) {
+      console.log(JSON.stringify(entries, null, 2));
+      return;
+    }
+    if (entries.length === 0) {
+      console.log(`还没有审计记录：${auditPath()}`);
+      return;
+    }
+    for (const e of entries) {
+      console.log(
+        `${e.at.slice(0, 19)}  ${e.action.padEnd(8)} ${`${e.pack ?? ''}@${e.version ?? ''}`.padEnd(34)} ${e.ok === false ? 'x' : '✓'}  ${e.planHash?.slice(0, 14) ?? ''}`,
+      );
+    }
+    console.log(`\n${auditPath()}`);
   },
 });
 
@@ -1396,6 +1529,8 @@ export const main: CommandDef = defineCommand({
     hub,
     doctor,
     auth,
+    trust,
+    audit,
     run,
     publish,
     probe,

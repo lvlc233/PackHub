@@ -58,6 +58,31 @@ describe('cli 端到端：add → verify → uninstall', () => {
     rmSync(project, { recursive: true, force: true });
   });
 
+  it('配置了信任列表后无签名包默认被拒，--allow-unsigned 才能装', () => {
+    const home = mkdtempSync(join(tmpdir(), 'packhub-cli-trust-'));
+    writeFileSync(
+      join(home, 'trust.json'),
+      JSON.stringify({ apiVersion: 'packhub.dev/trust/v0', keys: [{ key: 'abc', addedAt: new Date().toISOString() }] }),
+      'utf8',
+    );
+    const project = mkdtempSync(join(tmpdir(), 'packhub-cli-trust-proj-'));
+    const denied = run(['add', 'lvlc233/team-conventions', '--dir', project], {
+      PACKHUB_INDEX: join(ROOT, 'registry/index.json'),
+      PACKHUB_HOME: home,
+    });
+    expect(denied.status).toBe(2);
+    expect(denied.out).toMatch(/信任列表|签名/);
+
+    const allowed = run(['add', 'lvlc233/team-conventions', '--dir', project, '--allow-unsigned'], {
+      PACKHUB_INDEX: join(ROOT, 'registry/index.json'),
+      PACKHUB_HOME: home,
+    });
+    expect(allowed.status).toBe(0);
+    expect(existsSync(join(project, '.packhub/knowledge/style-guide.md'))).toBe(true);
+    rmSync(home, { recursive: true, force: true });
+    rmSync(project, { recursive: true, force: true });
+  });
+
   it('search 能读索引并按关键词过滤', () => {
     const index = join(ROOT, 'registry/index.json');
     const res = run(['search', 'conventions', '--index', index]);

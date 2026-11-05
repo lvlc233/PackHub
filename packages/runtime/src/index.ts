@@ -71,6 +71,17 @@ export {
   type SignatureFile,
 } from './signfile.ts';
 export {
+  trustPath,
+  readTrust,
+  addTrustedKey,
+  removeTrustedKey,
+  trustedKeyIds,
+  signaturePolicy,
+  type TrustFile,
+  type TrustedKey,
+} from './trust.ts';
+export { auditPath, appendAudit, readAudit, type AuditEntry } from './audit.ts';
+export {
   generateKeyPair,
   signPlan,
   verifySignatures,
