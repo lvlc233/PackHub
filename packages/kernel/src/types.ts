@@ -38,6 +38,16 @@ export interface Composition {
   needs?: CompositionNeed[];
 }
 
+/** 持久状态目录：装进项目、升级与卸载默认保留（记忆、索引、会话存档）。 */
+export interface StateDirSpec {
+  id: string;
+  /** 相对安装根的路径；默认 `.packhub/state/<id>` */
+  path?: string;
+  /** 卸载时保留（默认）还是跟随包一起删除；删数据必须显式写 remove */
+  retain?: 'keep' | 'remove';
+  description?: string;
+}
+
 export interface Overlay {
   /** Pack 内的目录，例如 ./overrides */
   from: string;
@@ -112,6 +122,8 @@ export interface Manifest {
   bindings?: Record<string, string>;
   /** 包统一管理的路径表，资源里用 ${paths.x} 引用 */
   paths?: Record<string, string>;
+  /** 持久状态目录；资源里用 ${state.<id>} 引用 */
+  state?: StateDirSpec[];
   overrides?: { resource: string; source?: string; config?: Record<string, unknown> }[];
   /** 装完之后按路径覆盖目标文件：mod 的 mod */
   overlays?: Overlay[];
@@ -152,6 +164,8 @@ export type PlanOp =
       approval: 'required';
     }
   | { op: 'instruction'; file: string; blockId: string; content: string }
+  /** 持久状态目录：只建目录，不写文件；卸载时按 retain 决定去留 */
+  | { op: 'state.dir'; to: string; retain: 'keep' | 'remove' }
   /** tool 的可执行入口：读解包后的 package.json，在 binDir 下生成跨平台 wrapper */
   | { op: 'link.bin'; from: string; to: string; command: string };
 

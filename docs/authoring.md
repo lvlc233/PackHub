@@ -329,6 +329,26 @@ verify:
 
 能力名统一写成 `命名空间:名字`（`audio:speak`、`memory:read`、`tool:repo_search`），槽位契约与 `provides` / `needs` 用同一套写法。
 
+**持久状态目录（state）** 是给“装完之后还会长”的数据用的：记忆库、索引、会话存档。它和资源产物的区别只有一条——**升级与卸载默认不删**。
+
+```yaml
+state:
+  - id: memory
+    description: 长期记忆与索引
+  - id: sessions
+    path: .packhub/state/sessions
+    retain: remove          # 唯一会删数据的开关；不写就是 keep
+```
+
+规则：
+
+- `id` 是 Pack 内的引用名；资源里用 `${state.memory}`，默认路径是 `.packhub/state/<id>`。
+- `path` 必须是安装根内的相对路径；绝对路径、盘符、`..` 都报 `bad-state-path`。
+- 安装时只建目录（`state.dir` 动作），不写文件；目录里放什么由资源或 Agent 自己决定。
+- 升级只保留目录，不碰里面的数据；新版本去掉声明也只给提示，不删。
+- 卸载默认保留并在结果里列为 `kept`；只有 `retain: remove` 才会连数据一起删。
+- `doctor` 会检查目录还在不在；被误删时报告 `stateMissing`。
+
 ### 生成物不要手写
 
 | 文件 | 谁生成 | 干什么 |

@@ -15,6 +15,8 @@ export interface DriftFinding {
   configDrift: string[];
   /** active.json 与 state 不一致（版本或 planHash 对不上、条目多/少） */
   activeDrift: string[];
+  /** 声明的持久状态目录不见了（数据可能被误删） */
+  stateMissing: string[];
 }
 
 export interface DoctorReport {
@@ -43,6 +45,7 @@ export function doctorPack(root: string): DoctorReport {
       blockIds: [],
       configDrift: [],
       activeDrift: [],
+      stateMissing: [],
     };
     const name = pack.split('@')[0] ?? pack;
     // 旧版 state 没有 version 字段：从 key 里取，避免把历史安装误报成漂移
@@ -62,6 +65,9 @@ export function doctorPack(root: string): DoctorReport {
 
     for (const file of record.written) {
       if (!existsSync(join(root, file))) finding.filesMissing.push(file);
+    }
+    for (const spec of record.stateDirs ?? []) {
+      if (!existsSync(join(root, spec.path))) finding.stateMissing.push(spec.path);
     }
 
     for (const action of record.actions ?? []) {
@@ -105,7 +111,8 @@ export function doctorPack(root: string): DoctorReport {
       finding.blocksMissing.length ||
       finding.filesMissing.length ||
       finding.configDrift.length ||
-      finding.activeDrift.length
+      finding.activeDrift.length ||
+      finding.stateMissing.length
     ) {
       findings.push(finding);
     }
@@ -121,6 +128,7 @@ export function doctorPack(root: string): DoctorReport {
       blockIds: [],
       configDrift: [],
       activeDrift: [`active.json 有 ${name}，但 state 里没有这个包`],
+      stateMissing: [],
     });
   }
 

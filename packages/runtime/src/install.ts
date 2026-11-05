@@ -79,6 +79,8 @@ interface State {
       installedAt: string;
       actions: ActionOutcome[];
       written: string[];
+      /** 持久状态目录：记下来供卸载与 doctor 使用；不放进 written，卸载默认不删 */
+      stateDirs?: { id: string; path: string; retain: 'keep' | 'remove' }[];
       /** 上一份计划快照，update 靠它算差异 */
       plan?: Plan;
     }
@@ -201,7 +203,7 @@ function generationId(): string {
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}${ms}-${rand}`;
 }
 
-/** 计划会写到哪些相对路径（含目录）。 */
+/** 计划会写到哪些相对路径（含目录）；状态目录不算写入，不参与快照与卸载删除。 */
 function touchedPaths(plan: Plan): string[] {
   const out: string[] = [];
   for (const a of plan.actions) {
@@ -212,6 +214,17 @@ function touchedPaths(plan: Plan): string[] {
     else if (a.op === 'instruction') out.push(a.file);
   }
   return [...new Set(out)];
+}
+
+/** 计划声明的持久状态目录。 */
+function stateDirSpecs(plan: Plan): { id: string; path: string; retain: 'keep' | 'remove' }[] {
+  return plan.actions
+    .filter((a) => a.op === 'state.dir')
+    .map((a) => ({
+      id: (a.resource ?? '').replace(/^state:/, ''),
+      path: a.to,
+      retain: a.retain,
+    }));
 }
 
 function prepareGeneration(root: string, plan: Plan): Generation {
@@ -353,6 +366,12 @@ export async function applyPlan(plan: Plan, opts: ApplyOptions): Promise<ApplyRe
       ...oldKeys.flatMap((k) => state.packs[k]?.written ?? []),
     ];
     for (const k of oldKeys) delete state.packs[k];
+    // 状态目录跨版本保留：新计划没再声明的旧目录也记着，卸载时仍按原 retain 处理
+    const stateDirs = new Map<string, { id: string; path: string; retain: 'keep' | 'remove' }>();
+    for (const k of [key, ...oldKeys]) {
+      for (const spec of state.packs[k]?.stateDirs ?? []) stateDirs.set(spec.path, spec);
+    }
+    for (const spec of stateDirSpecs(plan)) stateDirs.set(spec.path, spec);
     state.packs[key] = {
       pack: plan.pack.name,
       version: plan.pack.version,
@@ -363,6 +382,7 @@ export async function applyPlan(plan: Plan, opts: ApplyOptions): Promise<ApplyRe
       written: [...new Set([...previous, ...written])],
       // 计划快照：update 靠它算出「多了什么、少了什么」
       plan,
+      ...(stateDirs.size > 0 ? { stateDirs: [...stateDirs.values()] } : {}),
     };
     if (gen) {
       state.generations = [...(state.generations ?? []), gen].slice(-5);
@@ -645,6 +665,11 @@ async function replayShared(root: string, record: VersionRecord): Promise<Action
       outcomes.push(await applyAction(action, record.plan, opts, scratch));
       continue;
     }
+    if (action.op === 'state.dir') {
+      mkdirSync(within(root, action.to), { recursive: true });
+      outcomes.push({ actionId: action.actionId, op: action.op, status: 'done', target: action.to });
+      continue;
+    }
     if (action.op === 'exec') {
       outcomes.push({
         actionId: action.actionId,
@@ -851,6 +876,17 @@ export function removePack(root: string, packKey?: string): RemoveResult {
       const record = state.packs[key];
       if (!record) continue;
       const isLast = Object.keys(state.packs).length === 1;
+      // 持久状态目录默认保留；只有显式 retain: remove 才跟随卸载删除
+      for (const spec of record.stateDirs ?? []) {
+        const abs = within(root, spec.path);
+        if (!existsSync(abs)) continue;
+        if (spec.retain === 'remove') {
+          rmSync(abs, { recursive: true, force: true });
+          removed.push(spec.path);
+        } else {
+          kept.push(spec.path);
+        }
+      }
       const files = [...record.written].sort((a, b) => b.length - a.length);
       for (const rel of files) {
         if (rel === '.packhub/config.json' && !isLast) {
@@ -1191,6 +1227,18 @@ async function applyAction(
         status: 'done',
         target: action.file,
         blockId: action.blockId,
+      };
+    }
+
+    case 'state.dir': {
+      const to = within(opts.root, action.to);
+      if (!opts.dryRun) mkdirSync(to, { recursive: true });
+      return {
+        actionId: action.actionId,
+        op: action.op,
+        status: 'done',
+        target: action.to,
+        message: action.retain === 'remove' ? '卸载时删除' : '卸载时保留',
       };
     }
 
@@ -1549,6 +1597,13 @@ export function pruneRemoved(
       continue;
     }
 
+    if (action.op === 'state.dir') {
+      // 状态目录是数据，不是产物：新版本去掉声明也只提示，不删
+      kept.push(action.to);
+      warnings.push(`状态目录保留（数据不随升级删除）：${action.to}`);
+      continue;
+    }
+
     if (action.op === 'merge.config') {
       if (stillProduced(action.path)) {
         kept.push(action.path);
@@ -1639,9 +1694,11 @@ function findOwnershipConflicts(plan: Plan, key: string, root: string): string[]
     // 同一个包的旧版本不算冲突：升级本来就该覆盖自己
     if ((packKey.split('@')[0] ?? '') === selfName) continue;
     for (const rel of record.written) owners.set(rel, packKey);
+    for (const spec of record.stateDirs ?? []) owners.set(spec.path, packKey);
   }
   const out: string[] = [];
-  for (const rel of touchedPaths(plan)) {
+  const targets = [...touchedPaths(plan), ...stateDirSpecs(plan).map((s) => s.path)];
+  for (const rel of targets) {
     if (isSharedPath(rel)) continue;
     // 目录整体归一个包时，另一个包往目录里写文件同样算冲突
     for (const [owned, owner] of owners) {

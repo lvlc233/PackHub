@@ -1482,6 +1482,7 @@ const doctor = defineCommand({
           for (const b of f.blocksMissing) console.log(`      托管块不见了：${b}`);
           for (const c of f.configDrift) console.log(`      配置被改：${c}`);
           for (const a of f.activeDrift) console.log(`      激活指针不一致：${a}`);
+          for (const s of f.stateMissing) console.log(`      状态目录不见了：${s}`);
         }
       }
       if (failed) process.exit(1);
@@ -1504,6 +1505,7 @@ const doctor = defineCommand({
       for (const m of f.filesMissing) console.log(`    文件不见了：${m}`);
       for (const c of f.configDrift) console.log(`    配置被改：${c}`);
       for (const a of f.activeDrift) console.log(`    激活指针不一致：${a}`);
+      for (const s of f.stateMissing) console.log(`    状态目录不见了：${s}`);
     }
     if (report.ok) {
       console.log('✓ 全部在位');

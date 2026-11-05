@@ -218,6 +218,11 @@ export function mergeManifest(
     ...new Set([...(base.composition?.order ?? []), ...(child.composition?.order ?? [])]),
   ];
   const needs = [...(base.composition?.needs ?? []), ...(child.composition?.needs ?? [])];
+  // 状态目录按 id 合并：子包同名覆盖父包，未重名的都保留
+  const stateById = new Map<string, NonNullable<Manifest['state']>[number]>();
+  for (const spec of base.state ?? []) stateById.set(spec.id, spec);
+  for (const spec of child.state ?? []) stateById.set(spec.id, spec);
+  const state = [...stateById.values()];
 
   return {
     ...child,
@@ -225,6 +230,7 @@ export function mergeManifest(
     resources,
     vars: { ...(base.vars ?? {}), ...(child.vars ?? {}) },
     paths: { ...(base.paths ?? {}), ...(child.paths ?? {}) },
+    ...(state.length > 0 ? { state } : {}),
     composition: {
       ...(Object.keys(mergeEnv).length ? { env: mergeEnv } : {}),
       ...(order.length ? { order } : {}),

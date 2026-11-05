@@ -56,7 +56,7 @@
 3. `actions[].dependsOn` 指向的 id 必须存在于同一 plan。
 4. 所有路径是相对 Pack 目录的；执行层必须拒绝 `..` 逃逸。
 
-动作原语（已实装）：`fetch` · `unpack` · `write` · `link.skill` · `link.bin` · `register.mcp` · `merge.config` · `exec` · `instruction`。`link.bin` 从解包目录读 `package.json` 的 `bin`，在目标 binDir 生成 wrapper，不执行包里的代码；`register.mcp` 在 `.toml` 目标上写带标记的 `[mcp_servers.<id>]` 托管块，卸载只摘自己那段。
+动作原语（已实装）：`fetch` · `unpack` · `write` · `link.skill` · `link.bin` · `register.mcp` · `merge.config` · `exec` · `instruction` · `state.dir`。`link.bin` 从解包目录读 `package.json` 的 `bin`，在目标 binDir 生成 wrapper，不执行包里的代码；`register.mcp` 在 `.toml` 目标上写带标记的 `[mcp_servers.<id>]` 托管块，卸载只摘自己那段。`state.dir` 只建目录；清单里的 `state` 块决定路径与 `retain`（`keep` / `remove`），目录不参与 `written`、不随快照回滚删除。
 
 `exec` 带 `command/args/cwd/env/timeout` 与 `approval: required`：计划里永远标待批准，执行层必须显式 `--allow-exec` 才跑；退出码非零算失败，失败会触发整次安装回滚。`run` / `publish` 默认不批准 exec，此时动作为 `needs-approval`，报告不会通过。注意：回滚只恢复文件，命令在仓库外的副作用无法自动撤销（清单里的 `undo` 目前只作记录，不自动执行）。
 
@@ -118,6 +118,7 @@
       "installedAt": "2026-11-03T…",
       "actions": [{ "actionId": "write#1", "op": "write", "status": "done", "target": ".packhub/knowledge/style-guide.md" }],
       "written": [".packhub/knowledge/style-guide.md"],
+      "stateDirs": [{ "id": "memory", "path": ".packhub/state/memory", "retain": "keep" }],
       "plan": { "target": "dir", "actions": [], "verify": [], "excluded": [] }
     }
   }
@@ -139,6 +140,7 @@
 10. **安装根就是 state 所在目录**：`plan.verify` 里的相对路径一律相对这个目录；`packhub verify <项目>` 直接读 state 里的 `plan` 复核，不要求项目里有 `packhub.yaml`。
 11. **升级不留旧 key**：同一包名的新版本安装时，旧版本记录并入 `written` 后删除；`update` 再把「旧计划有、新计划没有」的产物从磁盘清掉。
 12. **版本目录**：每次安装把产物镜像进 `.packhub/versions/<pack-slug>/<ver>/files/`，并写 `record.json`（内联 merge 片段的计划、动作结果、owned 路径）；`.packhub/active.json` 记当前版本。`activate` 按 record 拆旧版本、铺新版本、重放配置/指令，整次切换在安装锁里且失败按快照回滚。
+13. **持久状态目录**：清单 `state` 块声明，安装时建目录并记进 `stateDirs`；目录不进 `written`、不进版本镜像、不被快照回滚删除。升级保留数据；卸载默认保留（结果里记 `kept`），只有 `retain: remove` 才删。`doctor` 缺目录时报 `stateMissing`。
 
 **合并配置是可逆的**：`merge.config` 执行时记下每个叶子键在合并前是否存在、值是什么（`action.undo`）；卸载时按它撤销——原来的值放回去、新增的键删掉、空了就删文件（不留空壳）。备份仍在 `.packhub/backups/`，但正常路径不再需要人工取回。
 

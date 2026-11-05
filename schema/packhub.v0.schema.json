@@ -94,6 +94,29 @@
       "description": "包统一发号施令的路径表，资源里用 ${paths.x} 引用；必须是相对路径",
       "additionalProperties": { "type": "string", "minLength": 1 }
     },
+    "state": {
+      "type": "array",
+      "description": "持久状态目录：安装时创建，升级与卸载默认保留（记忆、索引、会话存档）；资源里用 ${state.<id>} 引用",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "description": "相对安装根的路径；默认 .packhub/state/<id>；绝对路径与 .. 被拒"
+          },
+          "retain": {
+            "enum": ["keep", "remove"],
+            "default": "keep",
+            "description": "卸载时保留（keep，默认）还是删除（remove）；删除数据必须显式写 remove"
+          },
+          "description": { "type": "string", "maxLength": 200 }
+        }
+      }
+    },
     "overrides": { "$ref": "#/definitions/overrides" },
     "signatures": {
       "type": "array",

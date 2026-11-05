@@ -75,6 +75,7 @@
 | PKG-12 | server profile | `server` target + 资源级 `targets` 裁剪，未命中进 `excluded`（target-mismatch） | [done] | `plan.ts`、`server-profile.test` |
 | PKG-13 | 本地覆盖 | `.packhub/local.yaml` 覆盖 pin/绑定/paths/vars/env，不进锁 | [done] | `mergeLocalOverrides`、`local-overrides.test` |
 | PKG-14 | PACK.md / CHANGELOG | 发布复制进版本目录；Hub / 市场 API 返回原文，包页渲染 | [done] | `publish.ts`、`hub/server.ts`、`PacksPage` |
+| PKG-15 | 持久状态目录 | `state` 块声明目录与 `retain`；`${state.x}` 可插值；安装建目录，升级/卸载默认保留 | [done] | `plan.ts`、`state.test`、`authoring.md` |
 
 ## 2 REF ｜引用与锁
 
@@ -128,6 +129,7 @@
 | INS-12 | staged 版本 | 每次安装镜像进 `.packhub/versions/`；`versions` / `activate` 整版切换；active.json 指针 | [done] | `install.ts`、`versions.test` |
 | INS-13 | 僵尸锁 | 锁里的 pid 已死时自动收回；活着的 pid 仍拒绝 | [done] | `acquireLock`、`guards.test` |
 | INS-14 | 跨包目录内部冲突 | 所有权按前缀判：包拥有目录时，别人往里写也算冲突 | [done] | `findOwnershipConflicts`、`guards.test` |
+| INS-15 | 状态目录生命周期 | 卸载默认 `kept`；`retain: remove` 才删；升级换版本数据不动；`doctor` 报 `stateMissing` | [done] | `state.test`、`doctor.ts` |
 
 ## 5 VER ｜校验与门禁
 

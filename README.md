@@ -157,7 +157,7 @@ manifest（声明） → plan（要做什么） → state（做了什么） → 
 
 还有一条判据：只要有一个动作不是 `done` / `noop`，或者一项检查不是 `pass`，这个包就不算完成。CLI、面板和索引都用同一条。
 
-计划里只有九种动作：
+计划里只有十种动作：
 
 | 动作 | 做什么 |
 |---|---|
@@ -170,6 +170,7 @@ manifest（声明） → plan（要做什么） → state（做了什么） → 
 | `merge.config` | 合并配置 |
 | `exec` | 执行安装期命令；默认待批准 |
 | `instruction` | 写宿主指令文件的托管块 |
+| `state.dir` | 建持久状态目录；升级/卸载默认保留 |
 
 资源类型只是决定用哪几个。`instruction` 和 `exec` 不由资源类型产生：前者在 `dsh` / `claude-code` / `codex` 目标下自动追加，后者来自清单顶层的 `install.exec`。`packhub run` 不会自动批准 exec；带 exec 的包会停在 `needs-approval`，报告不通过。要执行加 `--allow-exec`。overlays 会在最后追加 `write`，所以能盖住前面生成的文件。
 
@@ -393,7 +394,7 @@ pnpm verify:examples:offline       # 示例包逐个真装 + verify
 
 ## 现在能做什么
 
-- 六类资源、九种安装动作、五个 target（`dir` / `dsh` / `claude-code` / `codex` / `server`）。
+- 六类资源、十种安装动作、五个 target（`dir` / `dsh` / `claude-code` / `codex` / `server`）。
 - 能力图、槽位替换、资源级与文件级覆盖、冲突检测、资源级 target 裁剪、`optional` 资源缺能力时自动跳过并进 `excluded`。
 - 引用解析与锁定：版本、commit、github 归档 sha256。
 - 失败回滚、generation 快照、staged 版本目录、`versions` / `activate`（切换后自动 doctor + 只读校验）、`update`、`uninstall`。
@@ -403,6 +404,7 @@ pnpm verify:examples:offline       # 示例包逐个真装 + verify
 - 接入宿主：Claude Code / DSH / Codex 的投影、托管块、真实宿主探针；`requires.agent` 未知时给 warning，不阻断。
 - 全局同步：skills + AGENTS/CLAUDE 托管块 + codex TOML MCP，按目标记录状态，可 dry-run / remove / doctor（默认检查 dsh / codex / claude-code，没装的 harness 自动跳过）。
 - 组包辅助：`discover` 找资源、`tool` 自动建可执行入口、`cache` 回收、`extends` 本地继承、`.packhub/local.yaml` 本机覆盖、PACK.md / CHANGELOG 包页。
+- 记忆与持久数据：清单里的 `state` 块声明状态目录，安装时创建，升级与卸载默认保留（`retain: remove` 才删），`doctor` 检查目录是否还在。
 - 市场写端：账号、上传（服务端干净安装 + 只读校验）、审核队列、搜索、下载统计/趋势、评分/评论、下架；管理 token 可轮换并写审计，Hub 仍只读。
 - 发布与运维：`pack` / `publish` / `update` / `sync` / `licenses` / `sign` / `verify-sig` 都有 `--json`；`publish` 索引门禁失败会撤回版本目录；示例包与 registry 都有安装 + verify 矩阵。
 
@@ -418,7 +420,6 @@ pnpm verify:examples:offline       # 示例包逐个真装 + verify
 - 没有工具白名单、上下文范围、写入边界这类隔离能力。
 - `exec` 的外部副作用无法回滚；清单里的 `undo` 只记录，不自动执行。
 - 市场写端是单机 JSON 存储，没做多实例与计费；发布校验在服务进程内跑，生产部署应放进沙箱或只收 CI 报告。
-- 记忆系统没有一等公民支持：可以用 `mcp` + `knowledge` + `paths` 组合，持久状态目录的 `state` 块尚未实装。
 
 ## 包市场
 

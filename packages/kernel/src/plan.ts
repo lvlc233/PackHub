@@ -95,6 +95,35 @@ export function buildPlan(
   const missing: string[] = [];
   const interp = (value: unknown): unknown => interpolate(value, scope, missing);
 
+  // 持久状态目录先算出来：resources / composition.env / verify 都可能用 ${state.<id>}
+  const statePaths: Record<string, string> = {};
+  const stateIds = new Set<string>();
+  for (const [i, spec] of (manifest.state ?? []).entries()) {
+    if (stateIds.has(spec.id)) {
+      issues.push({
+        code: 'duplicate-state-id',
+        severity: 'error',
+        message: `state.id 重复：${spec.id}`,
+      });
+      continue;
+    }
+    stateIds.add(spec.id);
+    const rawPath = spec.path ?? `${targetVars.root ?? '.packhub'}/state/${spec.id}`;
+    const resolvedPath = interp(rawPath);
+    const rel = typeof resolvedPath === 'string' ? resolvedPath : String(rawPath);
+    const normalized = normalizeStatePath(rel);
+    if (!normalized) {
+      issues.push({
+        code: 'bad-state-path',
+        severity: 'error',
+        message: `state[${i}].path 必须是安装根内的相对路径：${rel}`,
+      });
+      continue;
+    }
+    statePaths[spec.id] = normalized;
+  }
+  scope.state = statePaths;
+
   const actions: PlanAction[] = [];
   const counters = new Map<string, number>();
   const push = (action: PlanActionInput): PlanAction => {
@@ -104,6 +133,18 @@ export function buildPlan(
     actions.push(next);
     return next;
   };
+
+  // 状态目录：建目录，不写文件。放在最前面，后续动作引用 ${state.x} 时目录已经存在。
+  for (const spec of manifest.state ?? []) {
+    const to = statePaths[spec.id];
+    if (!to) continue;
+    push({
+      op: 'state.dir',
+      to,
+      retain: spec.retain ?? 'keep',
+      resource: `state:${spec.id}`,
+    });
+  }
 
   // 接线：Pack 级 env 注入到目标配置，让所有资源都能读到
   const packEnv = manifest.composition?.env;
@@ -333,7 +374,7 @@ export function buildPlan(
       op: 'instruction',
       file: instructionFile,
       blockId: manifest.metadata.name,
-      content: instructionBlock(manifest, graph, targetVars),
+      content: instructionBlock(manifest, graph, targetVars, statePaths),
     });
   }
 
@@ -447,6 +488,15 @@ function normalizeRel(p: string): string {
   return p.replace(/^\.\//, '').replace(/\/+$/, '') || '.';
 }
 
+/** 状态目录路径：安装根内的相对 POSIX 路径；绝对路径、盘符与 .. 一律拒绝。 */
+function normalizeStatePath(value: string): string | null {
+  const rel = value.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '');
+  if (!rel || rel === '.') return null;
+  if (/^([a-zA-Z]:\/|\/)/.test(rel)) return null;
+  if (rel.split('/').some((part) => part === '..')) return null;
+  return rel;
+}
+
 function flattenKeys(value: unknown, prefix = ''): string[] {
   if (!isPlainObject(value)) return prefix ? [prefix] : [];
   const keys: string[] = [];
@@ -477,7 +527,13 @@ function detectConflicts(
 
   for (const a of actions) {
     const isOverlay = (a.resource ?? '').startsWith('overlay#');
-    if (a.op === 'write' || a.op === 'link.skill' || a.op === 'unpack' || a.op === 'link.bin') {
+    if (
+      a.op === 'write' ||
+      a.op === 'link.skill' ||
+      a.op === 'unpack' ||
+      a.op === 'link.bin' ||
+      a.op === 'state.dir'
+    ) {
       const list = fsPaths.get(a.to) ?? [];
       list.push({ id: a.actionId, overlay: isOverlay });
       fsPaths.set(a.to, list);
@@ -557,8 +613,16 @@ function instructionBlock(
   manifest: Manifest,
   graph: Graph,
   targetVars: Record<string, string>,
+  statePaths: Record<string, string>,
 ): string {
   const active = manifest.resources.filter((r) => graph.resources.has(r.id));
+  const stateLines = (manifest.state ?? [])
+    .filter((spec) => statePaths[spec.id])
+    .map((spec) => {
+      const keep = (spec.retain ?? 'keep') === 'keep' ? '卸载保留' : '卸载删除';
+      const note = spec.description ? `：${spec.description}` : '';
+      return `- \`${spec.id}\` → \`${statePaths[spec.id]}\`（${keep}）${note}`;
+    });
   const lines: string[] = [
     `这个项目装了一个整合包：**${manifest.metadata.title ?? manifest.metadata.name}**（${manifest.metadata.version}）。`,
     '',
@@ -576,6 +640,7 @@ function instructionBlock(
     `- 提示词：\`${targetVars.promptsDir}\``,
     `- 工具入口：\`${targetVars.binDir}\``,
     `- 配置：\`${targetVars.configFile}\``,
+    ...(stateLines.length > 0 ? ['', '持久状态（数据，不是包产物）：', ...stateLines] : []),
   ];
   return lines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd();
 }

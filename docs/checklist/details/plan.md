@@ -4,7 +4,7 @@
 
 | 编号 | 验收动作 | 现状/证据 | 缺口/下一步 |
 |---|---|---|---|
-| PLN-01 | 构造含六类资源 + overlay + exec 的包 | 九种动作都能生成（含 `link.bin`）；`instruction` 在 dsh/codex/claude 下自动追加 | `probe` 不是 plan 动作 |
+| PLN-01 | 构造含六类资源 + overlay + exec 的包 | 十种动作都能生成（含 `link.bin` / `state.dir`）；`instruction` 在 dsh/codex/claude 下自动追加 | `probe` 不是 plan 动作 |
 | PLN-02 | 同一清单跑两次 `plan --json` | `actionId` 稳定；`planHash` 相同 | 无 |
 | PLN-03 | 写 `dependsOn` 成环；写 `composition.order` 与依赖矛盾 | `dependency-cycle` / `order-violates-dependency` | 顺序算法只做拓扑，不并行 |
 | PLN-04 | 写 `needs` 无提供方；`composition.needs.bind` 不存在 | `unmet-need` / `bad-bind` | 能力名没有集中注册表 |
@@ -17,6 +17,7 @@
 | PLN-13 | `target: server` 与资源级 `targets` | 未命中资源进 `excluded`（`target-mismatch`）；server 不写指令面 | 只有这一种裁剪维度 |
 | PLN-11 | `POST /api/plan` 草稿 | 返回 plan + issues，不落盘 | 与 CLI 共用 buildPlan，但 target 校验在 planFor |
 | PLN-12 | `install --dry-run` / `add --dry-run` | 不写项目；`add` 取包在临时目录 | dry-run 仍可能访问网络 |
+| PLN-14 | 清单写 `state` 块，在 config/env/verify 里用 `${state.<id>}` | 生成 `state.dir`，排在资源之前；默认 `.packhub/state/<id>`，retain 跟着进计划 | 状态目录只建不管内容 |
 
 ## 结论
 
