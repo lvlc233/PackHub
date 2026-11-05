@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 // 对 registry 里每个版本目录真装一遍并校验（CI 用）。
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+// 报告写到临时目录：registry 版本目录是不可变的，CI 不能每次改 verify.json 的时间戳。
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
@@ -41,21 +43,33 @@ if (targets.length === 0) {
 
 let failed = 0;
 let skipped = 0;
-for (const dir of targets) {
-  const label = dir.replace(ROOT + '/', '').replace(ROOT + '\\', '');
-  if (skipNetwork && needsNetwork(dir)) {
+const reports = mkdtempSync(join(tmpdir(), 'packhub-verify-all-'));
+try {
+  for (const dir of targets) {
+    const label = dir.replace(ROOT + '/', '').replace(ROOT + '\\', '');
+    if (skipNetwork && needsNetwork(dir)) {
+      console.log(`\n=== ${label} ===`);
+      console.log('- 跳过：清单里有远程引用（--skip-network）');
+      skipped++;
+      continue;
+    }
     console.log(`\n=== ${label} ===`);
-    console.log('- 跳过：清单里有远程引用（--skip-network）');
-    skipped++;
-    continue;
+    const report = join(reports, `${label.replace(/[\\/]/g, '-')}.json`);
+    const res = spawnSync(
+      process.execPath,
+      [
+        '--experimental-strip-types',
+        join(ROOT, 'scripts/registry/verify-pack.mjs'),
+        dir,
+        '--out',
+        report,
+      ],
+      { stdio: 'inherit', env: process.env },
+    );
+    if (res.status !== 0) failed++;
   }
-  console.log(`\n=== ${label} ===`);
-  const res = spawnSync(
-    process.execPath,
-    ['--experimental-strip-types', join(ROOT, 'scripts/registry/verify-pack.mjs'), dir],
-    { stdio: 'inherit', env: process.env },
-  );
-  if (res.status !== 0) failed++;
+} finally {
+  rmSync(reports, { recursive: true, force: true });
 }
 
 if (failed > 0) {

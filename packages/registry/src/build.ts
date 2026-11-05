@@ -112,6 +112,12 @@ export function buildIndex(registryRoot: string): BuildResult {
         if (headText !== null && norm(headText) !== norm(readFileSync(manifestPath, 'utf8'))) {
           errors.push(`${packName}@${version}: 版本目录不可变，packhub.yaml 已被修改（应发新版本）`);
         }
+        // verify.json 也是已发布内容：CI 复核应该写到临时位置，不能改版本目录的时间戳
+        const verifyRel = relative(registryRoot, join(dir, 'verify.json')).replaceAll('\\', '/');
+        const headVerify = gitShowHead(verifyRel);
+        if (headVerify !== null && norm(headVerify) !== norm(readFileSync(join(dir, 'verify.json'), 'utf8'))) {
+          errors.push(`${packName}@${version}: 版本目录不可变，verify.json 已被修改`);
+        }
 
         const ctx = loadPack(dir);
         for (const e of ctx.issues.filter((i) => i.severity === 'error')) {

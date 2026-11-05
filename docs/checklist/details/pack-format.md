@@ -18,7 +18,8 @@
 | PKG-12 | 写 `targets: [server]` 与资源级 `targets` | server 只物化，不写指令面；未命中资源进 excluded | 裁剪维度只有 target |
 | PKG-13 | 在项目放 `.packhub/local.yaml` | 覆盖 pin/绑定/paths/vars/env；不进锁 | 优先级只有“本地覆盖清单” |
 | PKG-14 | 放 `PACK.md` / `CHANGELOG.md` 发布 | 复制进版本目录，Hub/市场 API 返回，包页渲染 | 索引不内嵌全文 |
+| PKG-15 | 写 `state` 块，在 config/env 里用 `${state.<id>}` | 生成 `state.dir`，默认 `.packhub/state/<id>`；安装建目录，卸载默认保留 | 状态目录内容由资源/Agent 自己管 |
 
 ## 结论
 
-格式层已能表达当前所有安装语义；缺的是四类“声明了但没兑现”的字段：`extends`、server profile、本地覆盖、包说明/变更记录。这些都不影响现有包，但会让作者误以为可用。短期应在 schema 或文档里标 `reserved`，不要继续留空字段。
+格式层已覆盖当前安装语义：`extends`、server profile、本地覆盖、包说明与 `state` 都已兑现，不存在“声明了但没行为”的字段。

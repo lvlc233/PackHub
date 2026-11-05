@@ -38,8 +38,8 @@ registry/
 - 清单 schema / pin / 图校验；
 - 锁存在且 `lock.planHash` 与按锁重算的计划一致（`withLockPins`）；
 - `metadata.visibility === 'public'`；
-- 版本目录不可变：`git show HEAD:./packs/...` 与当前文件比较；
-- `verify.json` 的 `planHash` 与计划一致且 `ok`。
+- 版本目录不可变：`git show HEAD:./packs/...` 与当前文件比较（`packhub.yaml` 与 `verify.json` 都不许改）；
+- `verify.json` 的 `planHash` 与计划一致且 `ok`。CI 复核用 `verify-pack --out <临时文件>`，不写回版本目录。
 
 四项都成立才给 `trust: verified`；其余 `community`。`index.json` 是生成物，不手写。
 
