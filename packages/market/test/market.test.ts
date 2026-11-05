@@ -167,6 +167,20 @@ describe('市场写端', () => {
       expect(approved.status).toBe(200);
       expect((await searchMarket(m.url, '规范')).length).toBe(1);
 
+      // 管理页与概览：页面本身公开，数据接口要 token
+      const page = await fetch(`${m.url}/admin`);
+      expect(page.status).toBe(200);
+      expect(await page.text()).toContain('市场管理');
+      expect((await fetch(`${m.url}/api/admin/stats`)).status).toBe(401);
+      const statsRes = await fetch(`${m.url}/api/admin/stats`, {
+        headers: { 'x-market-admin': 'secret' },
+      });
+      expect(statsRes.status).toBe(200);
+      const stats = (await statsRes.json()) as { accounts: number; pending: number; versions: number };
+      expect(stats.accounts).toBeGreaterThan(0);
+      expect(stats.pending).toBe(0);
+      expect(stats.versions).toBeGreaterThan(0);
+
       // 管理 token 可轮换：旧 token 立刻失效，新 token 可用，动作写进审计
       const rotated = await fetch(`${m.url}/api/admin/rotate`, {
         method: 'POST',

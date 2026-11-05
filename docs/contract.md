@@ -19,7 +19,7 @@
 | 资源目录 | `packhub.dev/resources/v0` | `registry/resources.json` |
 | 版本记录 | `packhub.dev/version/v0` | `.packhub/versions/<pack>/<ver>/record.json` |
 | 激活指针 | `packhub.dev/active/v0` | `.packhub/active.json` |
-| 市场库 | `packhub.dev/market/v0` | 市场根的 `.market/db.json`（非分发格式） |
+| 市场库 | `packhub.dev/market/v0` | 市场根的 `.market/market.db`（SQLite；旧 `.market/db.json` 首次打开导入并改名） |
 
 **v0 期间没有兼容承诺**：字段可以增、可以改语义、可以删。读方遇到不认识的主版本（`v1`、`v2`）必须拒绝，不得猜测；遇到不认识的字段同样报错，不做静默忽略。
 
@@ -256,6 +256,8 @@ Hub 保持只读；写操作在独立服务里，包格式不变。
 | `POST` | `/api/publish` | 请求体是 `.phub`；服务端解包、跑干净安装与只读校验，账号只能发自己 scope；审核模式返回 202 pending |
 | `POST` | `/api/ratings` | `{name,version,score,comment?}` → 一账号一票，返回均分与评论 |
 | `GET` | `/api/admin/queue` | `x-market-admin` → 待审列表 |
+| `GET` | `/api/admin/stats` | `x-market-admin` → 账号/包/版本/待审计数、下载排行、最近审核 |
+| `GET` | `/admin` | 市场自带管理页（审核队列、统计、token 轮换），页面公开、数据接口要 token |
 | `POST` | `/api/admin/review` | `{name,version,action,note?}` → 批准（staging 移入 registry）或拒绝 |
 | `POST` | `/api/yank` | `{name,version,reason}` → 版本与归档移入 `.market/quarantine/`，索引重建 |
 

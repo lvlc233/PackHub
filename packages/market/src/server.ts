@@ -26,11 +26,12 @@ import {
   downloadTrend,
   hashToken,
   loadDb,
+  markYanked,
   ratePack,
   ratingSummary,
   recordReview,
-  saveDb,
 } from './store.ts';
+import { ADMIN_HTML } from './admin-page.ts';
 
 export interface MarketOptions {
   /** registry 根目录：packs/ 与 index.json 都写在这里 */
@@ -163,6 +164,15 @@ export async function startMarket(opts: MarketOptions): Promise<RunningMarket> {
     if (url.pathname === '/api/health') {
       const index = indexPack(root);
       return sendJson(res, 200, { ok: true, packs: index.packs?.length ?? 0 });
+    }
+
+    if (url.pathname === '/admin' && req.method === 'GET') {
+      res.writeHead(200, {
+        'content-type': 'text/html; charset=utf-8',
+        'cache-control': 'no-store',
+        'content-security-policy': "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'",
+      });
+      return void res.end(ADMIN_HTML);
     }
 
     if (url.pathname === '/api/accounts' && req.method === 'POST') {
@@ -361,6 +371,36 @@ export async function startMarket(opts: MarketOptions): Promise<RunningMarket> {
       return sendJson(res, 200, { name, version, rating: ratingSummary(root, name, version) });
     }
 
+    if (url.pathname === '/api/admin/stats' && req.method === 'GET') {
+      if (!isAdmin(req)) {
+        return sendJson(res, 401, { error: '需要 x-market-admin 管理 token' });
+      }
+      const db = loadDb(root);
+      const packs = (indexPack(root).packs ?? []) as { versions?: string[] }[];
+      const downloads = Object.entries(db.stats)
+        .sort((a, b) => b[1].downloads - a[1].downloads)
+        .slice(0, 10)
+        .map(([key, stat]) => {
+          const at = key.lastIndexOf('@');
+          return { name: key.slice(0, at), version: key.slice(at + 1), downloads: stat.downloads };
+        });
+      const recent = Object.entries(db.reviews)
+        .sort((a, b) => b[1].at.localeCompare(a[1].at))
+        .slice(0, 20)
+        .map(([key, review]) => {
+          const at = key.lastIndexOf('@');
+          return { name: key.slice(0, at), version: key.slice(at + 1), ...review };
+        });
+      return sendJson(res, 200, {
+        accounts: Object.keys(db.accounts).length,
+        packs: packs.length,
+        versions: packs.reduce((n, p) => n + (p.versions?.length ?? 0), 0),
+        pending: Object.values(db.reviews).filter((r) => r.status === 'pending').length,
+        downloads,
+        recent,
+      });
+    }
+
     if (url.pathname === '/api/admin/queue' && req.method === 'GET') {
       if (!isAdmin(req)) {
         return sendJson(res, 401, { error: '需要 x-market-admin 管理 token' });
@@ -482,9 +522,7 @@ export async function startMarket(opts: MarketOptions): Promise<RunningMarket> {
         mkdirSync(quarantine, { recursive: true });
         renameSync(archive, join(quarantine, `${version}.phub`));
       }
-      const db = loadDb(root);
-      db.yanked[`${name}@${version}`] = body.reason ?? 'yanked';
-      saveDb(root, db);
+      markYanked(root, name, version, body.reason ?? 'yanked');
       // 最后一个版本被撤掉时，清掉空的包目录，否则索引会因为「没有版本目录」报错
       const left = existsSync(join(root, 'packs', name))
         ? readdirSync(join(root, 'packs', name), { withFileTypes: true })

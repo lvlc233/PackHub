@@ -381,7 +381,7 @@ packhub doctor --global
 
 ## 本地开发
 
-Node >= 22.6，包管理器用 pnpm。
+Node >= 22.13（市场用内置 `node:sqlite`；更早的 22.x 需要实验开关），包管理器用 pnpm。
 
 ```bash
 pnpm install
@@ -406,7 +406,7 @@ pnpm verify:examples:offline       # 示例包逐个真装 + verify
 - 全局同步：skills + AGENTS/CLAUDE 托管块 + codex TOML MCP + Claude Code user-scope MCP（宿主 CLI），按目标记录状态，可 dry-run / remove / doctor（默认检查 dsh / codex / claude-code，没装的 harness 自动跳过）。
 - 组包辅助：`discover` 找资源、`tool` 自动建可执行入口、`cache` 回收、`extends` 本地继承、`.packhub/local.yaml` 本机覆盖、PACK.md / CHANGELOG 包页。
 - 记忆与持久数据：清单里的 `state` 块声明状态目录，安装时创建，升级与卸载默认保留（`retain: remove` 才删），`doctor` 检查目录是否还在。
-- 市场写端：账号、上传（服务端干净安装 + 只读校验）、审核队列、搜索、下载统计/趋势、评分/评论、下架；管理 token 可轮换并写审计，Hub 仍只读。
+- 市场写端：账号、上传（服务端干净安装 + 只读校验）、审核队列、搜索、下载统计/趋势、评分/评论、下架；SQLite 存储，`/admin` 自带审核与统计页；管理 token 可轮换并写审计，Hub 仍只读。
 - 发布与运维：`pack` / `publish` / `update` / `sync` / `licenses` / `sign` / `verify-sig` 都有 `--json`；`publish` 索引门禁失败会撤回版本目录；示例包与 registry 都有安装 + verify 矩阵。
 
 一个真实的组包案例（需求 → 搜资源 → 筛选 → 成包）见 [examples/doc-review/README.md](examples/doc-review/README.md)。
@@ -419,7 +419,7 @@ pnpm verify:examples:offline       # 示例包逐个真装 + verify
 - DSH 没有可依赖的全局 MCP 文件契约（profile patch 是宿主私有格式）；DSH 上的 MCP 仍走项目级安装，Claude Code 走其 CLI 的 user scope。
 - 没有工具白名单、上下文范围、写入边界这类隔离能力。
 - `exec` 的外部副作用无法回滚；清单里的 `undo` 只记录，不自动执行。
-- 市场写端是单机 JSON 存储，没做多实例与计费；发布校验在服务进程内跑，生产部署应放进沙箱或只收 CI 报告。
+- 市场写端是单机 SQLite（WAL），没做多实例与计费；发布校验在服务进程内跑，生产部署应放进沙箱或只收 CI 报告。
 
 ## 包市场
 
@@ -442,12 +442,12 @@ packhub market yank my-team/x@0.1.0 --url http://127.0.0.1:8789
 
 - 账号是 `scope`：只能发布 `scope/` 下的包；token 只显示一次，存 `~/.packhub/market.json`（0600）。
 - 上传的是 `.phub`；服务端解包、跑干净安装与只读校验（`file-exists` / `config-key` / `knowledge-integrity`），带 `install.exec`、`command`、`scenario`、`mcp-ready` 的包会被拒绝——市场不在服务器上执行上传者的代码。
-- 通过后写版本目录、归档并重建 `index.json`；下载计数、审核状态、下架原因都在 `.market/db.json`。下架把版本与归档移进 `.market/quarantine/`，索引同步移除，下载返回 410，已发布内容不改字节。
-- 管理 token 首次启动写进 `.market/admin.json`（只存 sha256）；`POST /api/admin/rotate` 用旧 token 换新 token，旧值立刻失效。approve / reject / rotate 都追加到 `.market/admin-audit.jsonl`。
+- 通过后写版本目录、归档并重建 `index.json`；下载计数、审核状态、评分与下架原因落在 `.market/market.db`（SQLite；旧版 `.market/db.json` 首次打开自动导入并改名 `.migrated`）。下架把版本与归档移进 `.market/quarantine/`，索引同步移除，下载返回 410，已发布内容不改字节。
+- 管理端：`/admin` 是市场进程自带的页面（审核队列、下载排行、最近审核、token 轮换）；数据接口仍要 `x-market-admin`。管理 token 首次启动写进 `.market/admin.json`（只存 sha256）；`POST /api/admin/rotate` 用旧 token 换新 token，旧值立刻失效。approve / reject / rotate 都追加到 `.market/admin-audit.jsonl`。
 
 路线：
 
-- **0.x（现在）**：静态 registry + 只读 Hub + 可选市场写端（单机 JSON，托管发布的门槛已跨过）。
+- **0.x（现在）**：静态 registry + 只读 Hub + 可选市场写端（单机 SQLite + `/admin` 审核页，托管发布的门槛已跨过）。
 - **下一步**：多实例存储、审核工作流、团队/私有 registry；验证仍建议在沙箱或 CI 里跑。
 - **交易与许可**：尚未决定。要做就接在市场平面，不改包格式。
 

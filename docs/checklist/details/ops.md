@@ -1,10 +1,10 @@
-# OPS ｜工程与运维：逐项验收
+﻿# OPS ｜工程与运维：逐项验收
 
 ## 怎么验
 
 | 编号 | 验收动作 | 现状/证据 | 缺口/下一步 |
 |---|---|---|---|
-| OPS-01 | `pnpm test` | 57 个文件 / 239 项通过 | 浏览器端到端仍少 |
+| OPS-01 | `pnpm test` | 63 个文件 / 254 项通过 | 浏览器端到端仍少 |
 | OPS-02 | `pnpm typecheck` | 通过 | 无 |
 | OPS-03 | `pnpm registry:check` | 3 个包通过 | 门禁依赖 git HEAD |
 | OPS-04 | `pnpm registry:verify-all` / `:offline` | 干净安装 + verify；offline 跳过远程引用 | 无 |

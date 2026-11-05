@@ -1,6 +1,6 @@
-# PackHub 功能全量清单
+﻿# PackHub 功能全量清单
 
-> 版本：2026-11-05 ／ 口径：本仓库当前代码、CLI 实测、测试套件（56 个文件 / 222 项）与 registry 现状。
+> 版本：2026-11-05 ／ 口径：本仓库当前代码、CLI 实测、测试套件（63 个文件 / 254 项）与 registry 现状。
 > 用途：实现 checklist、选型对照、漏项审计。**不是**产品介绍。
 
 ## 怎么读
@@ -164,8 +164,9 @@
 | REG-09 | vendored 目录入版本目录 | `resources/skills/...` 一起复制 | [done] | `publish.ts` |
 | REG-10 | Pages 带归档 | CI 复制 `packs/**/*.phub` | [done] | `registry.yml` |
 | REG-11 | 多 registry 配置 | `--index` 接受配置里的 registry 名；`search --all` 合并所有索引 | [done] | `resolveRegistry`、`registryIndexes` |
-| REG-12 | 市场元数据 | 下载量、趋势、评分/评论、审核队列（staging→批准/拒绝）、下架原因 | [done] | `@packhub/market`、`market.test`；存储仍是单机 JSON |
+| REG-12 | 市场元数据 | 下载量、趋势、评分/评论、审核队列（staging→批准/拒绝）、下架原因 | [done] | `@packhub/market`、`market.test`；SQLite 存储 |
 | REG-13 | 下架/可见性变更 | `market yank` 移入 quarantine、索引移除、下载 410 | [done] | `market/server.ts`、`market.test` |
+| REG-14 | 市场存储与管理端 | SQLite（WAL）+ 旧 JSON 自动迁移；`/admin` 审核队列、统计、token 轮换 | [done] | `store.ts`、`admin-page.ts`、`store.test` |
 
 ## 7 HUB ｜只读发布端
 
@@ -230,7 +231,8 @@
 | UI-01 | 主面板 | 包列表、组成、计划、校验、本机状态 | [done] | `App.tsx` |
 | UI-02 | 包目录 | `/packs` 列表与详情 | [done] | `PacksPage` |
 | UI-03 | 创作台 | `/console` 草稿、新增资源行、自动预览、下载 YAML | [done] | `ConsolePage` |
-| UI-09 | 错误态 | 顶部错误与同步错误是 ole=alert + ria-live；安装/校验按钮带 ria-busy | [done] | App.tsx |
+| UI-09 | 错误态 | 顶部错误与同步错误是 
+ole=alert + ria-live；安装/校验按钮带 ria-busy | [done] | App.tsx |
 | UI-11 | 保存到目录 | 面板填目录 → 写 packhub.yaml；已存在时 409 | [done] | /api/packs/create、server.test |
 | UI-12 | 面板内安装 | 保存后点安装，执行该目录计划并回填动作状态 | [done] | /api/install |
 | UI-13 | 面板内发布 | 保存后点发布，跑干净安装+校验+写 registry 与索引 | [done] | /api/publish、server.test |
@@ -264,7 +266,7 @@
 
 | 编号 | 功能点 | 能观察到的事实 | 现状 | 证据/缺口 |
 |---|---|---|---|---|
-| OPS-01 | 测试套件 | 56 个文件 / 222 项通过 | [done] | `pnpm check` |
+| OPS-01 | 测试套件 | 63 个文件 / 254 项通过 | [done] | `pnpm check` |
 | OPS-02 | 类型检查 | `tsc --noEmit` 通过 | [done] | `pnpm typecheck` |
 | OPS-03 | registry 门禁 | `registry:check` 通过 | [done] | CI |
 | OPS-04 | 干净安装 CI | `registry:verify-all`（需网络） | [done] | workflow |
@@ -351,12 +353,12 @@
 
 清单里已经没有 `[todo]` / `[part]`；剩下 11 条 `[na]` 分两类：
 
-1. **设计边界**：pypi 只装源码（wheel 是构建产物，不建 Python venv）；全局 MCP 只做 codex（DSH 是第三方 profile patch，Claude 的 user config 不在 harness home 内，都没有 PackHub 能依赖的稳定文件契约）；CLI 自更新没有渠道（未发布到 npm，分发走 `build:local`）。
+1. **设计边界**：pypi 只装源码（wheel 是构建产物，不建 Python venv）；全局 MCP 在 DSH 上不做（profile patch 是第三方宿主私有格式），Claude Code 走其稳定 CLI；CLI 自更新没有渠道（未发布到 npm，分发走 `build:local`）。
 2. **不属于 PackHub**：会话、上下文组装、模型接入、编排、编辑与代码智能等（见 NA 域）。
 
 另有几条非阻断的运维建议，不算功能缺口：
 
-- 市场存储是单机 JSON；生产部署应把发布校验放进沙箱，或只收 CI 报告。
+- 市场存储是单机 SQLite；生产部署应把发布校验放进沙箱，或只收 CI 报告。
 - UI 审计覆盖 390/1280 的横向溢出与 axe 结构性违规，并对首页/目录/创作台做截图基线回归（`test/ui-baseline/<platform>/`，按平台分开）。
 - 大包基准只有耗时，没有内存/吞吐指标。
 - 创作台 CON-01..50 全部 `[done]`：高级字段、composition/overrides/verify/exec/extends、PACK.md/CHANGELOG、问题定位、YAML 反向编辑、多草稿/导入导出、预演明细都已落地。
@@ -364,17 +366,17 @@
 
 ## 下一步
 
-1. **市场生产化**：SQLite/对象存储 + 管理前端接现有审核 API；包内容继续按版本不可变。
-2. **全局 MCP adapter**：等 DSH/Claude 给出稳定配置契约后再接，避免把第三方 patch 写进产品。
+1. **市场多实例化**：SQLite 与 `/admin` 已落地；下一步是对象存储/多实例与团队私有 registry。
+2. **全局 MCP**：Claude Code 已接宿主 CLI；DSH 等宿主给出稳定契约后再接，避免把第三方 patch 写进产品。
 3. **视觉回归**：`ui:audit` 已加截图基线（按平台）；还剩键盘全流程与 Linux 基线。
-4. **记忆 state 块**：给持久状态目录一个一等公民的 `state` 块。
+4. **记忆 state 块**：已落地（`state` 声明 + `state.dir` 动作 + 保留/删除策略）。
 ## 细节文档
 
 | 文档 | 覆盖 |
 |---|---|
 | [details/pack-format.md](details/pack-format.md) | manifest、资源类型、槽位、覆盖、可见性、`extends` |
 | [details/ref-lock.md](details/ref-lock.md) | source 类型、pin、integrity、解析、私有来源、缓存 |
-| [details/plan.md](details/plan.md) | 九种动作、顺序、冲突、planHash、target 变量 |
+| [details/plan.md](details/plan.md) | 十种动作、顺序、冲突、planHash、target 变量 |
 | [details/install-state.md](details/install-state.md) | 安装、快照、state、回滚、升级、所有权 |
 | [details/verify.md](details/verify.md) | 检查类型、严格判定、runner、探针 |
 | [details/registry-trust.md](details/registry-trust.md) | 发布、索引、不可变、trust、签名、可见性 |

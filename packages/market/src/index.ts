@@ -1,4 +1,5 @@
 export { startMarket, type MarketOptions, type RunningMarket } from './server.ts';
+export { ADMIN_HTML } from './admin-page.ts';
 export {
   createAccount,
   accountForToken,
@@ -9,7 +10,12 @@ export {
   bumpDownload,
   ratePack,
   ratingSummary,
+  downloadTrend,
+  markYanked,
+  hashToken,
+  legacyDbPath,
   dbPath,
+  type DailyDownloads,
   type MarketAccount,
   type MarketDb,
   type RatingSummary,
