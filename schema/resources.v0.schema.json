@@ -1,0 +1,34 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://packhub.dev/schema/resources.v0.schema.json",
+  "title": "PackHub Resource Catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "resources"],
+  "properties": {
+    "apiVersion": { "const": "packhub.dev/resources/v0" },
+    "resources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "type", "source"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9._-]*$" },
+          "type": { "enum": ["mcp", "skill", "prompt", "knowledge", "config", "tool"] },
+          "source": { "type": "string", "minLength": 1 },
+          "title": { "type": "string", "maxLength": 120 },
+          "description": { "type": "string", "maxLength": 600 },
+          "keywords": { "type": "array", "items": { "type": "string" }, "maxItems": 24 },
+          "provides": { "type": "array", "items": { "type": "string" } },
+          "homepage": { "type": "string", "format": "uri" },
+          "targets": {
+            "type": "array",
+            "items": { "enum": ["dir", "dsh", "claude-code", "codex"] },
+            "uniqueItems": true
+          }
+        }
+      }
+    }
+  }
+}

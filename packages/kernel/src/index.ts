@@ -10,6 +10,13 @@ export { loadManifest, parseManifest, type LoadResult } from './manifest.ts';
 export { validateGraph, type Graph } from './graph.ts';
 export { buildPlan, DIR_TARGET_VARS, TARGET_VARS, type PlanOptions } from './plan.ts';
 export { buildLock } from './lock.ts';
+export {
+  parseCatalog,
+  searchResources,
+  type CatalogEntry,
+  type ResourceCatalog,
+  type CatalogHit,
+} from './catalog.ts';
 export { diffActions, describeAction, type ActionDiff } from './diff.ts';
 export { canonicalize, sha256, interpolate, deepMerge, isPlainObject } from './util.ts';
 

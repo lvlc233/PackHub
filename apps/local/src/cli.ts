@@ -6,7 +6,15 @@ import { defaultStaticDir, startHub } from '@packhub/hub';
 import { runPack } from '@packhub/runner';
 import { publishPack, writeIndex } from '@packhub/registry';
 import { credentialsPath, listTokens, removeToken, setToken } from '@packhub/runtime';
-import { loadPack, planFor, diffActions, describeAction, type Issue, type Plan } from '@packhub/kernel';
+import {
+  loadPack,
+  planFor,
+  diffActions,
+  describeAction,
+  searchResources,
+  type Issue,
+  type Plan,
+} from '@packhub/kernel';
 import {
   addResource,
   readSignatures,
@@ -39,6 +47,8 @@ import {
   syncPack,
   removeSynced,
   doctorGlobal,
+  loadCatalog,
+  searchNpm,
   type SyncTarget,
 } from '@packhub/runtime';
 
@@ -1159,6 +1169,89 @@ const search = defineCommand({
   },
 });
 
+const discover = defineCommand({
+  meta: { name: 'discover', description: '搜 MCP / skill / CLI 候选，并把选中的写进清单' },
+  args: {
+    keyword: { type: 'positional', required: false, description: '关键词；留空列出全部' },
+    catalog: { type: 'string', description: '资源目录（文件或 URL；默认取 index 同目录的 resources.json）' },
+    index: { type: 'string', description: '索引路径或 URL，用来找同目录的 resources.json' },
+    npm: { type: 'boolean', default: false, description: '同时查 npm registry（联网）' },
+    type: { type: 'string', description: '只看某一类：mcp / skill / prompt / knowledge / config / tool' },
+    limit: { type: 'string', default: '10' },
+    add: { type: 'string', description: '把第几个结果写进清单（从 1 开始）' },
+    dir: { type: 'string', default: '.', description: 'Pack 目录（配合 --add）' },
+    json: { type: 'boolean', default: false },
+  },
+  async run({ args }) {
+    const keyword = String(args.keyword ?? '');
+    const limit = Math.max(1, Number(args.limit) || 10);
+    const local = await loadCatalog({
+      ...(args.catalog ? { catalog: String(args.catalog) } : {}),
+      ...(args.index ? { index: String(args.index) } : {}),
+    });
+    const npmRes = args.npm ? await searchNpm(keyword || 'mcp', limit) : { entries: [] as never[] };
+    if (local.error) console.warn(`warn  ${local.error}`);
+    if ('error' in npmRes && npmRes.error) console.warn(`warn  ${npmRes.error}`);
+
+    const seen = new Set<string>();
+    const entries = [...local.entries, ...npmRes.entries].filter((e) => {
+      if (seen.has(e.source)) return false;
+      seen.add(e.source);
+      return true;
+    });
+    let hits = searchResources(entries, keyword);
+    if (args.type) hits = hits.filter((h) => h.entry.type === String(args.type));
+    hits = hits.slice(0, limit);
+
+    if (hits.length === 0) {
+      console.log('没有匹配的资源候选');
+      if (!args.npm) console.log('试试加 --npm（联网查 npm），或用 --catalog 指向一份资源目录');
+      return;
+    }
+
+    if (args.add !== undefined) {
+      const n = Number(args.add);
+      if (!Number.isInteger(n) || n < 1 || n > hits.length) {
+        console.error(`--add 超出范围：1..${hits.length}`);
+        process.exit(2);
+      }
+      const pick = hits[n - 1]!.entry;
+      const file = join(resolve(String(args.dir)), 'packhub.yaml');
+      if (!existsSync(file)) {
+        console.error(`没有 packhub.yaml：${file}（先跑 packhub init）`);
+        process.exit(2);
+      }
+      const added = addResource(file, { type: pick.type, source: pick.source });
+      console.log(`✓ 已追加资源 ${added.id}（${pick.type}）→ ${file}`);
+      console.log(`  source: ${pick.source}`);
+      console.log('下一步：packhub install . --dry-run 看计划');
+      return;
+    }
+
+    if (args.json) {
+      console.log(
+        JSON.stringify(
+          {
+            catalog: local.source,
+            resources: hits.map((h) => ({ ...h.entry, score: h.score, matched: h.matched })),
+          },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
+    for (const [i, hit] of hits.entries()) {
+      const e = hit.entry;
+      console.log(`${String(i + 1).padStart(2)}. [${e.type.padEnd(9)}] ${e.title ?? e.id}`);
+      console.log(`    ${e.source}`);
+      if (e.description) console.log(`    ${e.description}`);
+    }
+    console.log(`\n目录：${local.source}${args.npm ? ' + npm search' : ''}`);
+    console.log('写进清单：packhub discover "<关键词>" ' + (args.index ? `--index ${String(args.index)} ` : '') + `--add <序号> --dir .`);
+  },
+});
+
 const hub = defineCommand({
   meta: { name: 'hub', description: '启动只读发布端（索引、包页、计划预览；没有执行接口）' },
   args: {
@@ -1228,6 +1321,7 @@ export const main: CommandDef = defineCommand({
     init,
     serve,
     search,
+    discover,
     add,
     sync,
     resource,

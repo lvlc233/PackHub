@@ -87,6 +87,12 @@ export {
   type IndexEntry,
 } from './registry.ts';
 export {
+  loadCatalog,
+  catalogPathNear,
+  searchNpm,
+  type CatalogLoadResult,
+} from './catalog.ts';
+export {
   credentialsPath,
   readCredentials,
   setToken,

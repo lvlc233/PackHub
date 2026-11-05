@@ -1,0 +1,59 @@
+{
+  "apiVersion": "packhub.dev/resources/v0",
+  "resources": [
+    {
+      "id": "mcp/everything",
+      "type": "mcp",
+      "source": "npm:@modelcontextprotocol/server-everything@0.6.2",
+      "title": "MCP Everything",
+      "description": "官方 MCP 参考 server：把一组演示工具暴露给 agent，适合验证 MCP 接线是否真的通。",
+      "keywords": ["mcp", "reference", "tools", "stdio"],
+      "provides": ["tool:mcp_everything"],
+      "homepage": "https://github.com/modelcontextprotocol/servers",
+      "targets": ["dir", "claude-code", "dsh", "codex"]
+    },
+    {
+      "id": "mcp/filesystem",
+      "type": "mcp",
+      "source": "npm:@modelcontextprotocol/server-filesystem@0.6.2",
+      "title": "MCP Filesystem",
+      "description": "把指定目录以只读/读写工具的形式暴露给 agent。参数里的目录要按项目实际情况改。",
+      "keywords": ["mcp", "filesystem", "files", "search"],
+      "provides": ["tool:repo_search"],
+      "homepage": "https://github.com/modelcontextprotocol/servers",
+      "targets": ["dir", "claude-code", "dsh", "codex"]
+    },
+    {
+      "id": "skill/code-review",
+      "type": "skill",
+      "source": "github:lvlc233/skill-hub/skills/code-review@9f2c1ab",
+      "title": "代码审查 skill",
+      "description": "按改动范围做结构化审查：先看接口与失败路径，再给可执行的修改意见。",
+      "keywords": ["skill", "review", "quality", "diff"],
+      "provides": ["skill:code_review"],
+      "targets": ["dir", "claude-code", "dsh", "codex"]
+    },
+    {
+      "id": "cli/markdownlint",
+      "type": "tool",
+      "source": "npm:markdownlint-cli2@0.14.0",
+      "title": "markdownlint-cli2",
+      "description": "Markdown 结构检查；装进 .packhub/tools 后由 wrapper 调用。",
+      "keywords": ["markdown", "lint", "docs", "cli"],
+      "provides": ["cli:markdownlint"],
+      "homepage": "https://github.com/DavidAnson/markdownlint-cli2",
+      "targets": ["dir", "claude-code", "dsh", "codex"]
+    },
+    {
+      "id": "cli/tsc",
+      "type": "tool",
+      "source": "npm:typescript@5.7.2",
+      "title": "TypeScript",
+      "description": "TypeScript 编译器（tsc）：给没有本地 node_modules 的项目补一个可用的类型检查入口。",
+      "keywords": ["typescript", "tsc", "typecheck", "cli"],
+      "provides": ["cli:tsc"],
+      "homepage": "https://www.typescriptlang.org/",
+      "targets": ["dir", "claude-code", "dsh", "codex"]
+    }
+  ]
+}

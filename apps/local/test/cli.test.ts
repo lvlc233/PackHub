@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -126,6 +126,67 @@ resources:
     expect(existsSync(join(project, '.packhub/knowledge'))).toBe(false);
     expect(existsSync(join(project, '.packhub/state.json'))).toBe(false);
     rmSync(project, { recursive: true, force: true });
+  });
+
+  it('discover 能按关键词列候选并写进清单', () => {
+    const base = mkdtempSync(join(tmpdir(), 'packhub-cli-discover-'));
+    const pack = join(base, 'pack');
+    mkdirSync(pack, { recursive: true });
+    writeFileSync(join(pack, 'rules.md'), '# rules\n', 'utf8');
+    writeFileSync(
+      join(pack, 'packhub.yaml'),
+      `apiVersion: packhub.dev/v0
+kind: Pack
+metadata: { name: demo/discover, version: 0.0.1, targets: [dir] }
+requires: { packhub: ">=0.0.1 <0.1" }
+resources:
+  - id: rules
+    type: knowledge
+    source: ./rules.md
+`,
+      'utf8',
+    );
+    const catalog = join(base, 'resources.json');
+    writeFileSync(
+      catalog,
+      JSON.stringify({
+        apiVersion: 'packhub.dev/resources/v0',
+        resources: [
+          {
+            id: 'cli/markdownlint',
+            type: 'tool',
+            source: 'npm:markdownlint-cli2@0.14.0',
+            title: 'markdownlint-cli2',
+            description: 'Markdown lint',
+            keywords: ['markdown', 'lint'],
+          },
+          {
+            id: 'skill/review',
+            type: 'skill',
+            source: 'github:o/r/skills/review@abc1234',
+            title: '审查',
+            description: 'code review',
+          },
+        ],
+      }),
+      'utf8',
+    );
+
+    const listed = run(['discover', 'markdown', '--catalog', catalog, '--json']);
+    expect(listed.status).toBe(0);
+    const parsed = JSON.parse(
+      listed.out.slice(listed.out.indexOf('{'), listed.out.lastIndexOf('}') + 1),
+    ) as {
+      resources: { id: string }[];
+    };
+    expect(parsed.resources.map((r) => r.id)).toContain('cli/markdownlint');
+
+    const added = run(['discover', 'markdown', '--catalog', catalog, '--add', '1', '--dir', pack]);
+    expect(added.status).toBe(0);
+    const manifest = readFileSync(join(pack, 'packhub.yaml'), 'utf8');
+    expect(manifest).toContain('npm:markdownlint-cli2@0.14.0');
+
+    rmSync(base, { recursive: true, force: true });
   });
 
   it('清单在锁定后被改过的 .phub 会被拒绝安装', async () => {
