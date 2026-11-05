@@ -1,5 +1,7 @@
 # 作者怎么做一个 Pack
 
+术语与 [README](../README.md) 一致：“资源”指 `packhub.yaml` 里的一条声明，不是上游制品。
+
 三条路，按成本从低到高。现在能用的只有前两条。
 
 | 方式 | 适合 | 现状 |
@@ -21,7 +23,7 @@ kind: Pack                        # 固定 Pack，给以后别的类型留位
 metadata:
   name: lvlc233/my-pack           # scope/name，scope 用 GitHub 用户名；这是全局主键
   version: 0.0.1                  # 语义化版本；发布后不可改，改动要发新版本
-  targets: [dir]                  # 能装到哪：dir（中性目录）/ dsh / claude-code
+  targets: [dir]                  # 能装到哪：dir / dsh / claude-code / codex
 
 requires:
   packhub: ">=0.0.1 <0.1"         # 需要的平台版本范围；不在范围内就拒绝执行
@@ -50,7 +52,7 @@ resources:                    # ← 唯一的列表
     source: github:owner/repo/skills/code-review@<40 位 commit>
 ```
 
-#### 1. `mcp` —— 只写配置，不下载包体
+#### 1. `mcp` —— 只写配置，不下载制品
 
 ```yaml
 - id: repo-search
@@ -65,9 +67,9 @@ resources:                    # ← 唯一的列表
   provides: [tool:repo_search]
 ```
 
-- **判定**：能被 `npx` / `uvx` 拉起、靠 stdio 或 http 通信的 MCP Server。
-- **安装期**：只生成 `register.mcp`，写进目标环境的 MCP 配置；包体由目标环境运行时装。`transport` 必填。
-- **装完落在哪**：`.packhub/config.json` 的 `mcpServers.<id>`。
+- **判定**：能被 `npx` / `uvx` 启动、通过 stdio 或 http 通信的 MCP Server。
+- **安装期**：只生成 `register.mcp`，写进目标环境的 MCP 配置；制品由目标环境在运行时获取。`transport` 必填。
+- **安装后的位置**：`.packhub/config.json` 的 `mcpServers.<id>`。
 - **verify 写什么**：`config-key`（确认 command 写对了）。`mcp-ready` 现在记为「跳过」。
 
 #### 2. `skill` —— 必须指到含 SKILL.md 的目录
@@ -81,7 +83,7 @@ resources:                    # ← 唯一的列表
 
 - **判定**：一个目录，里面有 `SKILL.md`（Agent Skills 的约定）。
 - **安装期**：`fetch`（整仓 tarball）→ `unpack`（去掉仓库顶层目录）→ `link.skill` 拷贝到 skills 目录。`github:owner/repo/sub/path@ref` 的 `sub/path` 会在解包后按路径取。
-- **装完落在哪**：`.packhub/skills/<id>/`。
+- **安装后的位置**：`.packhub/skills/<id>/`。
 - **verify 写什么**：`file-exists` 指到 `"${target.skillsDir}/<id>/SKILL.md"`。
 - **注意**：`github:` 的 pin 必须是 commit；写 `@main` 会被拒。
 
@@ -96,7 +98,7 @@ resources:                    # ← 唯一的列表
 
 - **判定**：要喂给 Agent 的提示词/角色/输出约定。
 - **安装期**：本地源直接 `write`；远程源 `fetch`。按源文件 basename 落到 prompts 目录。
-- **装完落在哪**：`.packhub/prompts/<文件名>`。
+- **安装后的位置**：`.packhub/prompts/<文件名>`。
 - **verify 写什么**：`file-exists`。
 
 #### 4. `knowledge` —— 文档、规范、资料
@@ -110,7 +112,7 @@ resources:                    # ← 唯一的列表
 
 - **判定**：要被引用而不是被执行的资料。
 - **安装期**：https 必须带 `integrity`（sha256），下载即校验；本地源直接拷贝。
-- **装完落在哪**：`.packhub/knowledge/<文件名>`。
+- **安装后的位置**：`.packhub/knowledge/<文件名>`。
 - **verify 写什么**：`file-exists`；要更强的保证可写 `knowledge-integrity`（目前记为跳过）。
 - **注意**：指向会变的内容（分支上的文件）时，integrity 迟早会失效——**pin 到 commit**。
 
@@ -124,7 +126,7 @@ resources:                    # ← 唯一的列表
 
 - **判定**：一小段要并进目标配置的 YAML/JSON（不要写成完整配置文件）。
 - **安装期**：`merge.config` 深合并进 `.packhub/config.json`；数组整体替换，对象逐键合并。原文件不存在则创建。
-- **装完落在哪**：`.packhub/config.json`。
+- **安装后的位置**：`.packhub/config.json`。
 - **verify 写什么**：`config-key` 检查某个键的最终值。
 - **注意**：合并前会备份原内容到 `.packhub/backups/`。
 
@@ -136,11 +138,11 @@ resources:                    # ← 唯一的列表
   source: npm:@biomejs/biome@1.9.4
 ```
 
-- **判定**：有自己的命令行入口，装完供人或 Agent 直接调用。
+- **判定**：有自己的命令行入口，安装后供人或 Agent 直接调用。
 - **安装期**：`fetch` → `unpack` 到 `.packhub/cache/tools/<id>/`。**不会**自动加到 `PATH`，也不会执行。
-- **装完落在哪**：`.packhub/cache/tools/<id>/`。
+- **安装后的位置**：`.packhub/cache/tools/<id>/`。
 - **verify 写什么**：`command` 跑一次 `--version`（目前记为跳过）；临时用 `file-exists` 指到解包后的入口文件。
-- **注意**：真正要执行东西（安装脚本、`git config`）得写 `install.exec`，且默认拒绝执行，需要 `--allow-exec`。
+- **注意**：需要执行命令（安装脚本、`git config`）时写 `install.exec`；默认拒绝执行，需要 `--allow-exec`。
 
 ### 完整的（每条批注都是真实现状）
 
@@ -250,7 +252,7 @@ overlays:
 | 字段 | 作用 | 例子 |
 |---|---|---|
 | `overrides`（资源级） | 换掉某个资源的 pin / 实现 / 安装参数 | 上游用 `@0.6.2`，本项目锁 `@0.6.3` |
-| `overlays`（文件级） | 装完之后按路径覆盖文件 | 把上游的 `SKILL.md` 换成加了团队规则的版本 |
+| `overlays`（文件级） | 安装完成后按路径覆盖文件 | 把上游的 `SKILL.md` 换成加了团队规则的版本 |
 
 ### 槽位与路径：换实现只改一行
 
@@ -366,7 +368,11 @@ packhub install my-pack --overwrite   # 默认会拒绝并指出占用者，确�
 # 7. 装进某个宿主（投影到 harness 会读的位置）
 packhub install my-pack --target claude-code   # .claude/skills + .mcp.json + CLAUDE.md 托管块
 packhub install my-pack --target dsh           # .packhub/skills + AGENTS.md 托管块
+packhub install my-pack --target codex         # .codex/skills + AGENTS.md 托管块
 packhub install my-pack --target dir           # 只物化到 .packhub（默认）
+
+# 7.5 skill-only 的包同步到全局 harness（只动 skills/）
+packhub sync my-pack --to dsh,codex
 ```
 
 `resource add` 做的是**结构化编辑**：追加一个资源节点、保留注释、推断 id（重名自动加 `-2`），然后立刻跑一遍清单校验和计划生成。它不做类型推断——`type` 必须由你给，因为同一个 npm 包既可能是 `mcp` 也可能是 `tool`。
@@ -377,18 +383,18 @@ packhub install my-pack --target dir           # 只物化到 .packhub（默认�
 
 ### `type`：先问「它怎么被用」
 
-| 你在装什么 | type | 安装期动作 |
+| 制品形态 | type | 安装动作 |
 |---|---|---|
-| 一个能被 npx/uvx 拉起的 MCP Server | `mcp` | 只写配置，不下载 |
-| 一个带 `SKILL.md` 的目录 | `skill` | 下载 → 解包 → 挂载 |
-| 一段提示词模板 | `prompt` | 写入 prompts 目录 |
-| 一份规范/文档/知识 | `knowledge` | 下载或拷贝 |
-| 一段要合并进配置的片段 | `config` | 合并到 config.json |
-| 一个 CLI 或脚本 | `tool` | 下载 → 解包 |
+| 能被 npx/uvx 启动的 MCP Server | `mcp` | 只写配置，不下载 |
+| 带 `SKILL.md` 的目录 | `skill` | 下载 → 解包 → 挂载 |
+| 提示词模板 | `prompt` | 写入 prompts 目录 |
+| 规范/文档/知识 | `knowledge` | 下载或复制 |
+| 要合并进配置的片段 | `config` | 合并到 config.json |
+| CLI 或脚本 | `tool` | 下载 → 解包 |
 
 ### `source`：决定可复现性
 
-现在实际可用的是四类（`pypi:` 与 `packhub://` 只在 schema 里声明，还没有下载实现）：
+现在实际可用的是五类（`packhub://` 只在 schema 里声明，还没有下载实现）：
 
 ```
 npm:@scope/pkg@1.2.3                      # npm 包（MCP server 常用）
@@ -398,20 +404,21 @@ https://…/note.md                         # 任意 https 单文件（knowledge
 ./resources/x.md                          # 本地，随包 vendored
 ```
 
-| 来源 | 适合 | 装的时候做什么 |
+| 来源 | 适合 | 安装动作 |
 |---|---|---|
-| `npm:` | 通过 npx 分发的 MCP server | 只登记启动命令，不下载包体 |
+| `npm:` | 通过 npx 分发的 MCP server | 只登记启动命令，不下载制品 |
 | `github:` | 仓库里的 skill 目录、工具、文档 | 下载 tarball → 解包 → 按子路径挂载 |
 | `https: … .tar.gz` | 公司 GitLab / Gitea 的 archive、任何归档 | 下载 → 解包（`skill` / `tool` 必须给归档；单文件给 `knowledge` / `prompt`） |
-| `./…` | 本地草稿、必须随包分发的内容 | 直接拷贝（发布前要 vendored 进版本目录） |
+| `./…` | 本地草稿、必须随包分发的内容 | 直接复制（发布前要 vendored 进版本目录） |
 
-**40 位 commit 从哪来**：GitHub 上 commit 页地址里那串；或 `git rev-parse HEAD`；或 `git ls-remote https://github.com/o/r refs/heads/main`。不接受 `@main`、`@latest`——它们会漂。
+**40 位 commit 的来源**：GitHub commit 页地址中的那串；或 `git rev-parse HEAD`；或 `git ls-remote https://github.com/o/r refs/heads/main`。不接受 `@main`、`@latest`，它们会漂移。
 
-**PyPI 怎么用**：`source: pypi:six@1.16.0`（必须 pin 版本）。装的时候先查 `https://pypi.org/pypi/<name>/<version>/json`，取 **sdist 的 .tar.gz** 再按 skill / tool 解包。只有 wheel 的包会被拒绝——wheel 是 zip，PackHub 不装二进制。内网镜像可以把 `HTTPS_PROXY` 指过去。
+**PyPI 来源**：`source: pypi:six@1.16.0`（必须 pin 版本）。安装时先查 `https://pypi.org/pypi/<name>/<version>/json`，取 **sdist 的 .tar.gz** 再按 skill / tool 解包。只有 wheel 的包会被拒绝：wheel 是 zip，PackHub 不安装二进制。内网镜像可以把 `HTTPS_PROXY` 指向镜像。
 
-**公司 GitLab / Gitea 怎么用**：拿它的 archive 下载链接（形如 `https://gitlab.example.com/g/p/-/archive/<sha>/p-<sha>.tar.gz`），配 `integrity`，`type` 用 `skill` 或 `tool`。私有仓库的鉴权目前没有支持（不带 token），内网场景建议直接把内容 vendored 进包。
+**公司 GitLab / Gitea 来源**：使用 archive 下载链接（形如 `https://gitlab.example.com/g/p/-/archive/<sha>/p-<sha>.tar.gz`），配置 `integrity`，`type` 用 `skill` 或 `tool`。私有仓库的鉴权目前没有支持（不带 token），内网场景建议直接把内容 vendored 进包。
 
-规则：**发布版必须落到不可变的东西上**。`@main`、`@latest`、无 integrity 的 https 都会在 `plan` 阶段被拒；integrity 由 `packhub lock` 或安装时自动补齐。
+规则：**发布版必须指向不可变的版本或 commit**。`@main`、`@latest`、`^1.0.0` / `~1.2` 这类范围、无 integrity 的 https 都会在 `plan` 阶段被拒（范围今天解析到 1.4.0，明天可能是 1.5.0，不算锁住）。
+`packhub lock` 会联网把分支/范围/单文件解析成 commit、具体版本与 sha256；解析不到就保留原样并给 warning，不假装锁住。`--offline` 可以只锁本地与已 pin 的引用。
 **私有来源**：manifest 里只写「需要哪个凭证」，值从环境变量取：
 
 ```yaml
@@ -424,16 +431,16 @@ https://…/note.md                         # 任意 https 单文件（knowledge
       scheme: bearer
 ```
 
-缺变量时安装会直接报 `需要 CORP_GITLAB_TOKEN…`；token 不写进清单、锁、state 或日志。完整策略见 [trust.md](trust.md)。
+缺变量时安装会直接报 `需要 CORP_GITLAB_TOKEN…`；token 不写进清单、锁、state 或日志。
 
-**可见性**：`metadata.visibility` 三档 `public` / `internal` / `private`，**默认 private**。要进公共 registry 必须显式写 `visibility: public`，否则 `registry:check` 会拒绝——默认公开迟早泄露一次。
+**可见性**：`metadata.visibility` 四档 `public` / `unlisted` / `internal` / `private`，**默认 private**。要进公共 registry 必须显式写 `visibility: public`，否则 `registry:check` 会拒绝——默认公开迟早泄露一次。
 
 ### `provides` / `needs`：只在有依赖时写
 
 - `provides`：这个资源对外提供什么能力（`tool:repo_search`、`skill:code_review`、`knowledge:house_style`）。
 - `needs`：它依赖什么能力。没人提供的 `needs` 会在校验时报 `unmet-need`。
 
-不是所有包都需要。只有「A 要能看见 B 提供的东西」时才写——这既是安装顺序的依据，也是 Pack 与「资源清单」的分界线。
+不是所有包都需要。只有「A 要能看见 B 提供的能力」时才写——这既是安装顺序的依据，也是 Pack 与「资源清单」的分界线。
 
 ### `verify`：写你愿意为它背书的检查
 
@@ -447,7 +454,7 @@ verify:
     equals: npx
 ```
 
-`command` / `mcp-ready` / `knowledge-integrity` 目前记为「跳过」——写了不会失败，但也不算通过。发布时至少要有一条真能判定的检查。
+`command` 会真的跑命令并按 `expectExit` 判定；`mcp-ready` 对 stdio server 发一次 initialize 握手（http 传输暂时跳过）；`knowledge-integrity` 在 `.packhub/` 产物里按 sha256 找文件。发布时至少要有一条真能判定的检查。
 
 ---
 
@@ -463,6 +470,8 @@ verify:
 | `pin-conflict` | 同一个源被锁到两个版本 | 用 `overrides` 显式定夺 |
 | `order-violates-dependency` | `composition.order` 与 `dependsOn` 矛盾 | 调顺序或删 order |
 | `dependency-cycle` | 依赖成环 | 去掉一条反向依赖 |
+| `config-source-unsupported` | config 资源用了非本地来源 | 把片段放进包内（`./fragments/…`）再引用 |
+| `unknown-target` | `--target` 写了不支持的值 | 用 `dir` / `dsh` / `claude-code` / `codex` |
 
 ---
 
