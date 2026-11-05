@@ -28,6 +28,7 @@ import {
   validateGraph,
   type Issue,
   type Plan,
+  type TargetId,
 } from '@packhub/kernel';
 import {
   addResource,
@@ -286,10 +287,10 @@ const verify = defineCommand({
 });
 
 const lock = defineCommand({
-  meta: { name: 'lock', description: '解析引用（npm/github/https/pypi）并生成 packhub.lock.json' },
+  meta: { name: 'lock', description: '解析引用（npm/github/https/pypi）并生成 packhub.lock.json（每个已声明 target 一份计划）' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
-    target: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code | codex | server' },
+    target: { type: 'string', default: 'dir', description: '主 target（dir | dsh | claude-code | codex | server）；其余声明过的 target 也会锁' },
     offline: { type: 'boolean', default: false, description: '不联网：只锁本地与已 pin 的引用' },
     index: { type: 'string', description: '远程 extends 用的 registry 索引' },
     json: { type: 'boolean', default: false, description: '输出锁与 planHash（脚本用）' },
@@ -316,10 +317,13 @@ const lock = defineCommand({
       });
       const out = join(ctx.dir, 'packhub.lock.json');
       writeFileSync(out, JSON.stringify(res.lock, null, 2) + '\n', 'utf8');
+      const hashes = Object.fromEntries(
+        Object.entries(res.plans).map(([target, plan]) => [target, plan?.planHash]),
+      );
       if (args.json) {
         console.log(
           JSON.stringify(
-            { out, lock: res.lock, planHash: res.plan.planHash, warnings: res.warnings },
+            { out, lock: res.lock, planHash: res.plan.planHash, plans: hashes, warnings: res.warnings },
             null,
             2,
           ),
@@ -328,7 +332,9 @@ const lock = defineCommand({
         for (const w of res.warnings) console.warn(`warn  ${w}`);
         const withHash = res.lock.resolved.filter((r) => r.integrity).length;
         console.log(`written ${out}`);
-        console.log(`planHash ${res.plan.planHash}`);
+        for (const [target, hash] of Object.entries(hashes)) {
+          console.log(`planHash ${String(hash).slice(0, 26)}…  ${target}`);
+        }
         console.log(`${res.lock.resolved.length} 个引用，${withHash} 个带 integrity`);
       }
     } catch (err) {
@@ -608,10 +614,21 @@ const add = defineCommand({
       console.error(`这个包没有声明 target ${targetEnv}；声明了：${ctx.manifest.metadata.targets.join(', ')}`);
       process.exit(2);
     }
-    if (lock?.plan && String(lock.plan.target) !== targetEnv) {
+    if (lock?.plan && String(lock.plan.target) !== targetEnv && !lock.plans?.[targetEnv as TargetId]) {
       console.warn(
-        `warn  锁的计划快照是 ${lock.plan.target}，本次安装 target 是 ${targetEnv}；目标计划没有被 planHash 校验`,
+        `warn  锁里只有 ${lock.plan.target} 的计划快照，本次安装 target 是 ${targetEnv}；目标计划没有被 planHash 校验`,
       );
+    }
+    // 锁里带了这个 target 的计划：按锁的哈希先核对一遍，避免「锁住的是 A、装的是 B」
+    if (lock?.plans?.[targetEnv as TargetId]) {
+      const expected = lock.plans[targetEnv as TargetId]!.planHash;
+      const preflight = planFor(ctx, { target: targetEnv as TargetId });
+      if (preflight.plan && preflight.plan.planHash !== expected && !args['allow-stale-lock']) {
+        console.error(
+          `锁里 ${targetEnv} 的计划与当前清单对不上（lock=${expected.slice(0, 20)}… plan=${preflight.plan.planHash.slice(0, 20)}…）；确认后加 --allow-stale-lock`,
+        );
+        process.exit(2);
+      }
     }
 
     // 消费端核对：锁 / 验证报告 / 签名。锁按它自己的 target 重算，避免安装 target 不同被误判。
@@ -1850,30 +1867,38 @@ const diff = defineCommand({
       console.error('没有 packhub.lock.json：先跑 packhub lock');
       process.exit(2);
     }
+    const target = String(args.target ?? 'dir');
     const lock = JSON.parse(readFileSync(lockPath, 'utf8')) as {
       planHash: string;
-      plan?: { actions: import('@packhub/kernel').PlanAction[] };
+      plan?: { target?: string; actions: import('@packhub/kernel').PlanAction[] };
+      plans?: Record<string, { planHash: string; actions: import('@packhub/kernel').PlanAction[] }>;
     };
     const ctx = withLockPins(loadPack(dir), loadLock(dir));
     if (reportIssues(ctx.issues)) process.exit(2);
-    const { plan, issues } = planFor(ctx, { target: String(args.target ?? 'dir') as never });
+    const { plan, issues } = planFor(ctx, { target: target as never });
     if (!plan) {
       reportIssues(issues, 'packhub diff');
       process.exit(2);
     }
-    if (!lock.plan) {
-      console.error('锁里没有计划快照（旧版锁），重跑 packhub lock');
+    // 多 target 锁优先用对应 target 的快照；旧锁只有一个 plan
+    const snapshot =
+      lock.plans?.[target] ??
+      (lock.plan && (lock.plan.target ?? 'dir') === target
+        ? { planHash: lock.planHash, actions: lock.plan.actions }
+        : undefined);
+    if (!snapshot) {
+      console.error(`锁里没有 ${target} 的计划快照（旧版锁，或 lock 时没声明这个 target）；重跑 packhub lock`);
       process.exit(2);
     }
 
-    const { added, removed } = diffActions(lock.plan.actions, plan.actions);
-    const unchanged = added.length === 0 && removed.length === 0 && lock.planHash === plan.planHash;
+    const { added, removed } = diffActions(snapshot.actions, plan.actions);
+    const unchanged = added.length === 0 && removed.length === 0 && snapshot.planHash === plan.planHash;
     if (unchanged) {
       console.log('计划无变化');
       return;
     }
 
-    console.log(`planHash ${lock.planHash.slice(0, 22)}… → ${plan.planHash.slice(0, 22)}…`);
+    console.log(`planHash ${snapshot.planHash.slice(0, 22)}… → ${plan.planHash.slice(0, 22)}…`);
     for (const a of removed) console.log(`  - ${describeAction(a)}`);
     for (const a of added) console.log(`  + ${describeAction(a)}`);
     console.log(`\n${added.length} 条新增 / ${removed.length} 条移除；确认后重跑 packhub lock`);

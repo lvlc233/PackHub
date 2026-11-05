@@ -1,9 +1,21 @@
-import type { LockFile, Manifest, Plan, ResolvedRef } from './types.ts';
+import type { LockFile, Manifest, Plan, PlanSnapshot, ResolvedRef } from './types.ts';
 
 export interface LockOptions {
   resolvedAt?: string;
   /** 解析后的引用（pin 到 commit / 版本 / sha256）；缺省时按清单原样记录 */
   resolved?: { id: string; source: string; integrity: string | null }[];
+  /** 已声明 target 的计划；不传就只锁主计划 */
+  plans?: Plan[];
+}
+
+function snapshot(plan: Plan): PlanSnapshot {
+  return {
+    target: plan.target,
+    planHash: plan.planHash,
+    actions: plan.actions,
+    verify: plan.verify,
+    excluded: plan.excluded,
+  };
 }
 
 export function buildLock(manifest: Manifest, plan: Plan, opts: LockOptions = {}): LockFile {
@@ -23,6 +35,10 @@ export function buildLock(manifest: Manifest, plan: Plan, opts: LockOptions = {}
     };
   });
 
+  const all = [plan, ...(opts.plans ?? []).filter((p) => p.target !== plan.target)];
+  const plans: Partial<Record<Plan['target'], PlanSnapshot>> = {};
+  for (const p of all) plans[p.target] = snapshot(p);
+
   return {
     apiVersion: 'packhub.dev/lock/v0',
     pack: `${manifest.metadata.name}@${manifest.metadata.version}`,
@@ -30,11 +46,7 @@ export function buildLock(manifest: Manifest, plan: Plan, opts: LockOptions = {}
     planHash: plan.planHash,
     generatedBy: 'packhub/0.0.1',
     // 计划快照：没有它就算不出「改了什么」，diff / update 都靠这一份
-    plan: {
-      target: plan.target,
-      actions: plan.actions,
-      verify: plan.verify,
-      excluded: plan.excluded,
-    },
+    plan: snapshot(plan),
+    ...(Object.keys(plans).length > 1 ? { plans } : {}),
   };
 }

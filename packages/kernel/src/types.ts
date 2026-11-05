@@ -194,19 +194,26 @@ export interface Plan {
   planHash: string;
 }
 
+/** 一个 target 的计划快照：diff / update / 安装前核对都靠它。 */
+export interface PlanSnapshot {
+  target: TargetId;
+  planHash: string;
+  actions: PlanAction[];
+  verify: VerifyCheck[];
+  excluded: Plan['excluded'];
+}
+
 export interface LockFile {
   apiVersion: 'packhub.dev/lock/v0';
   pack: string;
   resolved: ResolvedRef[];
+  /** 主计划（`plan.target`）的哈希；老读方仍读这一个 */
   planHash: string;
   generatedBy: string;
-  /** 计划快照：diff / update 靠它算「改了什么」 */
-  plan?: {
-    target: TargetId;
-    actions: PlanAction[];
-    verify: VerifyCheck[];
-    excluded: Plan['excluded'];
-  };
+  /** 主计划快照：diff / update 靠它算「改了什么」 */
+  plan?: PlanSnapshot;
+  /** 每个已声明 target 的计划快照；跨 target 安装时按这里的哈希核对 */
+  plans?: Partial<Record<TargetId, PlanSnapshot>>;
 }
 
 export interface ResolvedRef {

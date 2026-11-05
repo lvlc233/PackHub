@@ -129,7 +129,7 @@ manifest（声明） → plan（要做什么） → state（做了什么） → 
 
 `planHash` 是计划规范化之后算出的 sha256：同样的清单、同样的安装目标，在任何机器上得到同一个字符串。它保护“接线与引用”，不保护制品字节；字节由 `integrity` 保护。
 
-一个 target 一份计划。`lock` 只保存生成时那个 target 的计划快照（默认 `dir`）；`metadata.targets` 声明作者支持哪些 target，不等于一个锁覆盖全部 target。跨 target 安装时，锁只保证引用，目标计划不在锁里。
+一个 target 一份计划。`lock` 会为 `metadata.targets` 里每个 target 各存一份计划快照（`lock.plans`），主快照 `plan` / `planHash` 取 `--target` 指定的那个（默认 `dir`）。安装时先按本次 target 找对应快照核对；只有旧锁（没有 `plans`）才退化为“只保证引用、目标计划不核对”，并给出 warning。
 
 有了它，四件事才能对上：
 
@@ -396,7 +396,7 @@ pnpm verify:examples:offline       # 示例包逐个真装 + verify
 
 - 六类资源、十种安装动作、五个 target（`dir` / `dsh` / `claude-code` / `codex` / `server`）。
 - 能力图、槽位替换、资源级与文件级覆盖、冲突检测、资源级 target 裁剪、`optional` 资源缺能力时自动跳过并进 `excluded`。
-- 引用解析与锁定：版本、commit、github 归档 sha256。
+- 引用解析与锁定：版本、commit、github 归档 sha256；一个锁覆盖所有声明的 target（`plans`），安装按本次 target 核对。
 - 失败回滚、generation 快照、staged 版本目录、`versions` / `activate`（切换后自动 doctor + 只读校验）、`update`、`uninstall`。
 - 干净环境发布门禁、静态 registry、只读 Hub、Pages 产物；索引与包页带 ETag / Cache-Control。
 - 使用者侧：默认 registry（可配多个并按名字选）、锁校验、信任列表、安装后复核、安装审计。
@@ -413,7 +413,6 @@ pnpm verify:examples:offline       # 示例包逐个真装 + verify
 ## 还不能做什么
 
 - 版本切换是产物副本重铺，不是硬链接；保留最近 5 个版本目录，更早的要重新安装。
-- 一个锁只覆盖一个 target；跨 target 安装时，锁只保证引用，目标计划没有被 `planHash` 校验。
 - 没有 SSH 部署与常驻同步 agent。
 - 远程 `extends` / 资源级 `packhub://` 在安装期解析（缓存进子包 `.packhub/cache/`）；`publish` 会自动扁平化，把被引用文件复制到 `external/` 再写版本目录。
 - 全局 MCP 只有 codex 的 TOML adapter；DSH / Claude Code 没有可依赖的稳定全局配置契约，仍走项目级安装。

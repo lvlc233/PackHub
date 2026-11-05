@@ -11,7 +11,7 @@
 | PLN-05 | 槽位两个候选只绑一个 | 未绑定进 `excluded`；动作里没有 | 单候选无法演示 swap |
 | PLN-06 | 两动作写同一文件；两 config 改同一键；overlay 盖生成物 | 前两者 error，最后 warning | 跨包冲突不在 plan 内 |
 | PLN-07 | 两台机器跑同一清单（同 target） | `planHash` 一致；实测 Windows 与 registry 记录一致 | 依赖 Node 的 JSON 规范化，无版本号 |
-| PLN-08 | `lock --target dsh` 后看 lock | lock 只存一个 target 的计划快照 | 一个包不能同时持有多个 target 的锁 |
+| PLN-08 | `lock --target dsh` 后看 lock | 每个声明的 target 各有一份 `plans` 快照；主快照由 `--target` 指定 | 旧锁只有一份快照 |
 | PLN-09 | 在 verify/args/config 里用 `${target.*}` | 插值生效；未知 target 报错 | 可用变量没有集中文档清单 |
 | PLN-10 | `--target nope` | `unknown-target` | 无 |
 | PLN-13 | `target: server` 与资源级 `targets` | 未命中资源进 `excluded`（`target-mismatch`）；server 不写指令面 | 只有这一种裁剪维度 |

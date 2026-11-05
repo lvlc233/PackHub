@@ -134,6 +134,7 @@ export function buildIndex(registryRoot: string): BuildResult {
         const lock = JSON.parse(readFileSync(lockPath, 'utf8')) as {
           planHash?: string;
           resolved?: { id: string; source: string; integrity: string | null }[];
+          plans?: Partial<Record<string, { planHash?: string }>>;
         };
         // 按锁里钉死的 commit/版本算计划，否则「清单写 tag、锁写 commit」会被误判成过期
         const pinned = withLockPins(ctx, lock as unknown as LockFile);
@@ -146,6 +147,19 @@ export function buildIndex(registryRoot: string): BuildResult {
           errors.push(
             `${packName}@${version}: 锁已过期（lock=${String(lock.planHash).slice(0, 16)}… plan=${plan.planHash.slice(0, 16)}…），重跑 packhub lock`,
           );
+        }
+        // 多 target 锁：每个声明过的 target 都要和锁里的快照对得上
+        for (const target of ctx.manifest.metadata.targets) {
+          const expected = lock.plans?.[target]?.planHash;
+          if (!expected) continue;
+          const { plan: targetPlan } = planFor(pinned, { target });
+          if (!targetPlan) {
+            errors.push(`${packName}@${version}: 生成 ${target} 计划失败`);
+          } else if (targetPlan.planHash !== expected) {
+            errors.push(
+              `${packName}@${version}: ${target} 的计划与锁不一致（lock=${String(expected).slice(0, 16)}… plan=${targetPlan.planHash.slice(0, 16)}…），重跑 packhub lock`,
+            );
+          }
         }
 
         let trust: 'verified' | 'community' = 'community';

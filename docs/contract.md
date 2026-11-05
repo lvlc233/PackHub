@@ -77,11 +77,16 @@
   ],
   "planHash": "sha256-…",
   "generatedBy": "packhub/0.0.1",
-  "plan": {                      // 计划快照：diff / update 靠它算「改了什么」
+  "plan": {                      // 主计划快照（--target 指定的那个，默认 dir）
     "target": "dir",
+    "planHash": "sha256-…",
     "actions": [],
     "verify": [],
     "excluded": []
+  },
+  "plans": {                     // 每个已声明 target 一份；旧锁可能没有
+    "dir": { "target": "dir", "planHash": "sha256-…", "actions": [], "verify": [], "excluded": [] },
+    "dsh": { "target": "dsh", "planHash": "sha256-…", "actions": [], "verify": [], "excluded": [] }
   }
 }
 ```
@@ -91,8 +96,8 @@
 1. `planHash` 必须与当前 manifest 生成的 plan 一致；不一致 = 锁过期，`registry:check` 拒绝。
 2. `resolved[].source` 是**解析后**的引用：github 分支/tag 换成 40 位 commit，npm 范围/tag 换成具体版本，pypi 换成具体版本。
 3. `integrity` 来自清单、npm 的 `dist.integrity`、https 下载后的 sha256 或 PyPI 的 sha256；解析不出来就是 `null`，读方不得把 `null` 当「已验证」。
-4. `plan` 是快照，不参与 `planHash` 计算；没有它就无法做差异对比（`packhub diff` 会提示重跑 `lock`）。
-5. 安装时按 `resolved[]` 替换清单里的引用（`withLockPins`），保证「锁里写什么就装什么」；`add` 会先用锁的 target 重算计划并与 `planHash` 比对。
+4. `plan` 是主计划快照，`plans` 是每个已声明 target 的快照；快照不参与 `planHash` 计算。`lock` 会为 `metadata.targets` 里的每个 target 各算一份，`plan` 取 `--target`（默认 `dir`，未声明时取第一个）。没有快照就无法做差异对比（`packhub diff` 会提示重跑 `lock`）。
+5. 安装时按 `resolved[]` 替换清单里的引用（`withLockPins`），保证「锁里写什么就装什么」；`add` 先按本次 target 找 `plans[target]` 重算并比对，只有旧锁（没有 `plans`）才退化为只核对主计划并给 warning。
 
 ---
 

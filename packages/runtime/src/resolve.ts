@@ -11,6 +11,7 @@ import {
   type Manifest,
   type PackContext,
   type Plan,
+  type TargetId,
 } from '@packhub/kernel';
 import { download, httpJson, resolvePypiSdist } from './download.ts';
 
@@ -264,7 +265,8 @@ export function pinManifest(manifest: Manifest, resolved: ResolvedReference[]): 
 }
 
 export interface LockPackOptions extends ResolveOptions {
-  target?: 'dir' | 'dsh' | 'claude-code';
+  /** 主 target（决定 lock.plan / planHash）；默认 dir，未声明时用第一个声明的 target */
+  target?: TargetId;
 }
 
 export interface LockPackResult {
@@ -272,11 +274,14 @@ export interface LockPackResult {
   /** 按解析结果改过的清单 */
   manifest: Manifest;
   plan: Plan;
+  /** 每个已声明 target 的计划；键就是 target */
+  plans: Partial<Record<TargetId, Plan>>;
   warnings: string[];
 }
 
 /**
  * 解析引用 → 生成锁。计划也基于解析后的清单算，锁里的 planHash 才能指导安装。
+ * 一个包声明了几个 target，就为每个 target 各算一份计划；主计划由 opts.target 指定。
  */
 export async function lockPack(ctx: PackContext, opts: LockPackOptions = {}): Promise<LockPackResult> {
   const report = await resolveReferences(ctx.manifest, opts);
@@ -293,15 +298,29 @@ export async function lockPack(ctx: PackContext, opts: LockPackOptions = {}): Pr
   if (errors.length > 0) {
     throw new Error(`解析后的清单不合法：${errors.map((e) => e.message).join('; ')}`);
   }
-  const { plan, issues: planIssues } = buildPlan(manifest, graph, {
-    target: opts.target ?? 'dir',
-    targetVars: {},
-  });
-  if (!plan) throw new Error(`生成计划失败：${planIssues.map((i) => i.message).join('; ')}`);
+
+  const declared = manifest.metadata.targets;
+  const primary = opts.target ?? (declared.includes('dir') ? 'dir' : declared[0]);
+  if (!primary || !declared.includes(primary)) {
+    throw new Error(`这个包没有声明 target ${String(primary)}；声明了：${declared.join(', ')}`);
+  }
+  const plans: Partial<Record<TargetId, Plan>> = {};
+  for (const target of declared) {
+    const { plan, issues: planIssues } = buildPlan(manifest, graph, {
+      target,
+      targetVars: {},
+    });
+    if (!plan) {
+      throw new Error(`生成 ${target} 计划失败：${planIssues.map((i) => i.message).join('; ')}`);
+    }
+    plans[target] = plan;
+  }
+  const plan = plans[primary]!;
   return {
-    lock: buildLock(manifest, plan, { resolved: report.resolved }),
+    lock: buildLock(manifest, plan, { resolved: report.resolved, plans: Object.values(plans) }),
     manifest,
     plan,
+    plans,
     warnings: report.warnings,
   };
 }

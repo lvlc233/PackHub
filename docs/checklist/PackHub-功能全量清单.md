@@ -86,7 +86,7 @@
 | REF-03 | lock 解析 | 分支→commit、范围→具体版本、https→sha256、pypi→sdist | [done] | `resolve.ts`、`lock` |
 | REF-04 | 字节完整性 | npm 带 `dist.integrity`；https 下载校验；github 归档按 commit 下载算 sha256 | [done] | `resolve.ts`、`resolve.test` |
 | REF-05 | 私有来源鉴权 | `auth.env` 只存变量名；环境变量/凭据库取 token；报错不泄漏 | [done] | `install.ts`、`credentials.ts` |
-| REF-06 | 计划快照 | lock 带 `plan` 快照，`diff` 靠它比较 | [done] | `lock.ts`、`diff` |
+| REF-06 | 计划快照 | 主计划 `plan` + 每个 target 的 `plans` 快照；`diff` 靠它比较 | [done] | `lock.ts`、`diff`、`lock-targets.test` |
 | REF-07 | 离线锁 | `lock --offline` 只处理本地/已 pin | [done] | `resolve.ts`、CLI |
 | REF-08 | pypi 只收 sdist | 只装源码包，纯 wheel 明确拒绝（不落二进制） | [na] | 设计边界：wheel 是构建产物，PackHub 不建 Python venv |
 | REF-09 | `packhub://` 来源 | `add` 等价 registry 安装；资源级 `packhub://scope/name@ver#path` 取归档内文件/目录，发布时自动扁平化 | [done] | `loadPackResolved`、`flattenPack`、`extends-remote.test` |
@@ -105,7 +105,7 @@
 | PLN-05 | 槽位排除 | 未绑定候选进 `excluded`，不进动作 | [done] | `graph.ts`、`plan.ts` |
 | PLN-06 | 冲突检测 | 输出冲突、覆盖层冲突、配置键冲突；shadows 只警告 | [done] | `plan.ts` |
 | PLN-07 | planHash | 规范化 JSON 的 sha256；跨机器可复现 | [done] | `util.ts`、实测 |
-| PLN-08 | 一 target 一计划 | `lock` 只存锁定 target 的计划快照 | [done] | `lock.ts`、`add` |
+| PLN-08 | 一 target 一计划 | `lock` 为每个声明的 target 各存快照；主快照由 `--target` 指定 | [done] | `lock.ts`、`lock-targets.test` |
 | PLN-09 | target 变量 | `${target.*}` 随 target 变化 | [done] | `plan.ts` |
 | PLN-10 | 未知 target | 报 `unknown-target` | [done] | `planFor` |
 | PLN-11 | 预览 API | `/api/plan` 返回计划与 issues，不落盘 | [done] | `apps/local/server.ts` |
