@@ -56,9 +56,11 @@ export { inspectLicenses, type LicenseFinding } from './license.ts';
 export { doctorPack, type DoctorReport, type DriftFinding } from './doctor.ts';
 export {
   probeHarness,
+  probeSkill,
   extractMarker,
   type ProbeOptions,
   type ProbeResult,
+  type SkillProbeOptions,
   type HarnessTarget,
   type Runner,
   type RunnerResult,

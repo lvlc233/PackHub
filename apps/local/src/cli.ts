@@ -35,6 +35,7 @@ import {
   inspectLicenses,
   doctorPack,
   probeHarness,
+  probeSkill,
   generateKeyPair,
   signPlan,
   verifySignatures,
@@ -1303,14 +1304,18 @@ const probe = defineCommand({
     dir: { type: 'positional', required: false, default: '.' },
     target: { type: 'string', default: 'dsh', description: 'dsh | claude-code | opencode | codex' },
     patch: { type: 'string', description: 'dsh 的 --patch 层（配置 provider / 模型）' },
+    skill: { type: 'string', description: '改问技能选择器：断言这个 skill 名出现在可用列表里' },
     json: { type: 'boolean', default: false },
   },
   run({ args }) {
-    const result = probeHarness({
-      target: String(args.target) as 'dsh' | 'claude-code' | 'opencode' | 'codex',
-      projectDir: resolve(String(args.dir)),
-      ...(args.patch ? { patchFile: resolve(String(args.patch)) } : {}),
-    });
+    const target = String(args.target) as 'dsh' | 'claude-code' | 'opencode' | 'codex';
+    const result = args.skill
+      ? probeSkill({ target, projectDir: resolve(String(args.dir)), skill: String(args.skill) })
+      : probeHarness({
+          target,
+          projectDir: resolve(String(args.dir)),
+          ...(args.patch ? { patchFile: resolve(String(args.patch)) } : {}),
+        });
     if (args.json) {
       console.log(JSON.stringify(result, null, 2));
       if (!result.ok) process.exit(1);

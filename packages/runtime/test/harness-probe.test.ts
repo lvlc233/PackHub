@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { extractMarker, probeHarness, type Runner } from '../src/index.ts';
+import { extractMarker, probeHarness, probeSkill, type Runner } from '../src/index.ts';
 
 const AGENTS = `用户自己的说明。
 
@@ -27,6 +27,23 @@ describe('extractMarker', () => {
 
   it('没有块时返回 null', () => {
     expect(extractMarker('普通说明')).toBeNull();
+  });
+});
+
+describe('probeSkill（技能选择器）', () => {
+  it('回答里出现 skill 名 → ok；不出现 → 失败并说明原因', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'packhub-probe-skill-'));
+    const yes: Runner = () => ({ status: 0, stdout: 'hello\nreview-rules\n', stderr: '' });
+    const no: Runner = () => ({ status: 0, stdout: 'hello\n', stderr: '' });
+
+    const ok = probeSkill({ target: 'dsh', projectDir: dir, skill: 'review-rules', runner: yes });
+    expect(ok.ok).toBe(true);
+    expect(ok.marker).toBe('review-rules');
+
+    const bad = probeSkill({ target: 'dsh', projectDir: dir, skill: 'review-rules', runner: no });
+    expect(bad.ok).toBe(false);
+    expect(bad.reason).toMatch(/选择器/);
+    rmSync(dir, { recursive: true, force: true });
   });
 });
 

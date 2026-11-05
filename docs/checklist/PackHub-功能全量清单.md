@@ -197,7 +197,7 @@
 | SYN-11 | 全目标预检 | 一个目标失败不写另一个 | [done] | `sync.ts` |
 | SYN-12 | 全局 AGENTS/MCP | 写各 home 的 AGENTS/CLAUDE 托管块；MCP 只做 codex TOML | [part] | `sync.ts`、`sync.test`；DSH/Claude MCP 无 adapter |
 | SYN-13 | Codex agents/openai.yaml | 只在源里有就随目录复制，不生成 | [part] | 缺生成 |
-| SYN-14 | 目录加载探活 | 没有“技能出现在选择器”的探针 | [todo] | 只有 AGENTS 探针 |
+| SYN-14 | 目录加载探活 | `probe --skill <name>` 问一次 harness，断言 skill 名出现在可用列表 | [done] | `probeSkill`、`harness-probe.test` |
 | SYN-15 | claude 全局 | `sync --to claude-code` 写 `~/.claude/skills` + CLAUDE.md 托管块 | [done] | `sync.ts`、`cli` |
 | SYN-16 | 面板入口 | 本地面板 Harness 同步卡片 | [done] | `App.tsx` |
 

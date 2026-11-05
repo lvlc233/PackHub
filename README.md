@@ -329,7 +329,7 @@ verify:
 
 托管块用 `<!-- packhub:begin <包名> -->` 标记。安装只改块内，卸载只移除自己的块；宿主重写整个文件时，`packhub doctor` 能发现。
 
-`packhub probe` 会调用一次宿主（DSH / OpenCode / Codex / Claude Code）的 headless 入口，让它复述托管块里的标记，确认宿主确实读取了这份指令。`probe` 的参数是宿主程序，不是安装 target；OpenCode 没有专门的投影，验证的是项目里的 `AGENTS.md`。
+`packhub probe` 会调用一次宿主（DSH / OpenCode / Codex / Claude Code）的 headless 入口，让它复述托管块里的标记，确认宿主确实读取了这份指令。加 `--skill <name>` 改问技能选择器：“你当前能用哪些 skill”，断言名字出现；这是“目录被加载”的唯一实测手段。`probe` 的参数是宿主程序，不是安装 target；OpenCode 没有专门的投影，验证的是项目里的 `AGENTS.md`。
 
 ## 同步到全局 harness
 

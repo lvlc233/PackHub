@@ -40,6 +40,6 @@
 
 - 同步 skills + 各 home 的 AGENTS/CLAUDE 托管块；codex 另有 config.toml MCP 托管块。
 - 不生成 Codex `agents/openai.yaml`；源目录里有就随 `link.skill` 一起复制。
-- 没有“技能是否出现在宿主选择器”的探针；`probe` 仍只验证 AGENTS.md。
+- `probe --skill <name>` 会问一次 harness “你能用哪些 skill”，断言名字出现在回答里。
 - Claude Code 全局 target 已加（`~/.claude/skills` + `CLAUDE.md`）。
 - state 写在 harness home 的 `.packhub/` 下；宿主目录会被多一个隐藏目录。

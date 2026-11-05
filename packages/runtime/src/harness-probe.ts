@@ -81,6 +81,48 @@ const DEFAULT_RUNNER: Runner = (command, args, cwd) => {
   };
 };
 
+const SKILL_QUESTION =
+  '只做一件事：列出你当前可用的 skill 名称，一行一个；不要解释，没有就只回答「没有」。';
+
+export interface SkillProbeOptions {
+  target: HarnessTarget;
+  projectDir: string;
+  /** 期望出现在选择器里的 skill 名 */
+  skill: string;
+  model?: string;
+  runner?: Runner;
+}
+
+/**
+ * 技能选择器探活：问一次 headless 宿主「你能用哪些 skill」。
+ * AGENTS 探针证明宿主读了指令；这个探针证明 skill 目录真的被加载进了选择器。
+ */
+export function probeSkill(opts: SkillProbeOptions): ProbeResult {
+  const asked = askHarness({
+    target: opts.target,
+    projectDir: opts.projectDir,
+    prompt: SKILL_QUESTION,
+    ...(opts.model ? { model: opts.model } : {}),
+    ...(opts.runner ? { runner: opts.runner } : {}),
+  });
+  const base: ProbeResult = {
+    ok: false,
+    harness: opts.target,
+    command: asked.command,
+    answer: asked.answer,
+    marker: opts.skill,
+  };
+  if (!asked.ok) return { ...base, ...(asked.reason ? { reason: asked.reason } : {}) };
+  const ok = asked.answer.includes(opts.skill);
+  return {
+    ...base,
+    ok,
+    ...(ok
+      ? {}
+      : { reason: `回答里没有 skill「${opts.skill}」——宿主没把技能目录加载进选择器` }),
+  };
+}
+
 /** 跑一次 harness headless 并把最终回答取出来；probe 与 scenario 共用。 */
 export function askHarness(opts: AskOptions): AskResult {
   const runner = opts.runner ?? DEFAULT_RUNNER;
