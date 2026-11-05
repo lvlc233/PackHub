@@ -10,6 +10,7 @@ import {
   publishToMarket,
   searchMarket,
   yankVersion,
+  rateVersion,
   readSessions,
   sessionPath as marketSessionPath,
 } from '@packhub/market';
@@ -283,6 +284,7 @@ const lock = defineCommand({
     target: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code | codex | server' },
     offline: { type: 'boolean', default: false, description: '不联网：只锁本地与已 pin 的引用' },
     index: { type: 'string', description: '远程 extends 用的 registry 索引' },
+    json: { type: 'boolean', default: false, description: '输出锁与 planHash（脚本用）' },
   },
   async run({ args }) {
     const dir = resolve(String(args.dir));
@@ -304,13 +306,23 @@ const lock = defineCommand({
         target: String(args.target ?? 'dir') as never,
         offline: Boolean(args.offline),
       });
-      for (const w of res.warnings) console.warn(`warn  ${w}`);
       const out = join(ctx.dir, 'packhub.lock.json');
       writeFileSync(out, JSON.stringify(res.lock, null, 2) + '\n', 'utf8');
-      const withHash = res.lock.resolved.filter((r) => r.integrity).length;
-      console.log(`written ${out}`);
-      console.log(`planHash ${res.plan.planHash}`);
-      console.log(`${res.lock.resolved.length} 个引用，${withHash} 个带 integrity`);
+      if (args.json) {
+        console.log(
+          JSON.stringify(
+            { out, lock: res.lock, planHash: res.plan.planHash, warnings: res.warnings },
+            null,
+            2,
+          ),
+        );
+      } else {
+        for (const w of res.warnings) console.warn(`warn  ${w}`);
+        const withHash = res.lock.resolved.filter((r) => r.integrity).length;
+        console.log(`written ${out}`);
+        console.log(`planHash ${res.plan.planHash}`);
+        console.log(`${res.lock.resolved.length} 个引用，${withHash} 个带 integrity`);
+      }
     } catch (err) {
       console.error(`x ${(err as Error).message}`);
       process.exit(2);
@@ -1079,6 +1091,31 @@ const marketSearchCmd = defineCommand({
   },
 });
 
+const marketRateCmd = defineCommand({
+  meta: { name: 'rate', description: '给市场里的一个版本评分（1..5，一个账号一票）' },
+  args: {
+    ref: { type: 'positional', required: true, description: 'name@version' },
+    score: { type: 'positional', required: true, description: '1..5 的整数' },
+    comment: { type: 'string' },
+    url: { type: 'string' },
+    token: { type: 'string' },
+  },
+  async run({ args }) {
+    try {
+      const res = await rateVersion(String(args.ref), Number(args.score), {
+        ...(args.url ? { url: String(args.url) } : {}),
+        ...(args.token ? { token: String(args.token) } : {}),
+        ...(args.comment ? { comment: String(args.comment) } : {}),
+      });
+      const avg = res.rating.average === null ? '—' : res.rating.average.toFixed(1);
+      console.log(`✓ ${res.name}@${res.version} 已评分：${args.score}/5（均分 ${avg}，${res.rating.count} 人）`);
+    } catch (err) {
+      console.error(`x ${(err as Error).message}`);
+      process.exit(1);
+    }
+  },
+});
+
 const marketYankCmd = defineCommand({
   meta: { name: 'yank', description: '下架自己发布的一个版本（移到 quarantine，索引同步移除）' },
   args: {
@@ -1122,6 +1159,7 @@ const market = defineCommand({
     login: marketLoginCmd,
     publish: marketPublishCmd,
     search: marketSearchCmd,
+    rate: marketRateCmd,
     yank: marketYankCmd,
     whoami: marketWhoami,
   },

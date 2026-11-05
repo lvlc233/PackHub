@@ -160,7 +160,7 @@
 | REG-09 | vendored 目录入版本目录 | `resources/skills/...` 一起复制 | [done] | `publish.ts` |
 | REG-10 | Pages 带归档 | CI 复制 `packs/**/*.phub` | [done] | `registry.yml` |
 | REG-11 | 多 registry 配置 | `--index` 接受配置里的 registry 名；`search --all` 合并所有索引 | [done] | `resolveRegistry`、`registryIndexes` |
-| REG-12 | 市场元数据 | 市场记录下载量、审核状态、下架原因；没有评分/评论 | [part] | `@packhub/market` |
+| REG-12 | 市场元数据 | 下载量、评分/评论（一账号一票）、审核状态、下架原因 | [part] | 单机 JSON，无多实例/审核工作流 |
 | REG-13 | 下架/可见性变更 | `market yank` 移入 quarantine、索引移除、下载 410 | [done] | `market/server.ts`、`market.test` |
 
 ## 7 HUB ｜只读发布端
@@ -178,7 +178,7 @@
 | HUB-09 | 镜像 | Dockerfile 只读端 | [done] | `Dockerfile` |
 | HUB-10 | 写接口 | Hub 保持只读；写端在独立 `@packhub/market`（上传/发布） | [done] | `market/server.ts` |
 | HUB-11 | 账号/组织 | 市场账号即 scope；token 只显示一次，本机 0600 保存 | [done] | `market/store.ts`、`client.ts` |
-| HUB-12 | 搜索/统计 | 市场 `/api/search` 带下载量；无评分/评论 | [part] | `market/server.ts` |
+| HUB-12 | 搜索/统计 | 市场 `/api/search` 带下载量与均分/评论 | [part] | 没有趋势统计与审核队列 |
 
 ## 8 SYN ｜全局 harness 同步
 
@@ -207,7 +207,7 @@
 |---|---|---|---|---|
 | CLI-01 | 单一入口 | `packhub --help` 列子命令 | [done] | `cli.ts` |
 | CLI-02 | 子命令覆盖 | plan/install/verify/lock/publish/sync 等可用 | [done] | `main` |
-| CLI-03 | JSON 输出 | plan/run/install/verify/rollback/uninstall/search/discover/doctor/versions/audit/market 有 `--json`；add/lock 仍人类文本 | [part] | — |
+| CLI-03 | JSON 输出 | plan/run/install/verify/rollback/uninstall/lock/search/discover/doctor/versions/audit/market 有 `--json`；add 仍人类文本 | [part] | — |
 | CLI-04 | 退出码 | 0 成功、1 失败、2 用法；但部分路径用 1 | [part] | 未统一 |
 | CLI-05 | 结构化编辑 | `init`、`resource add`、`slot swap` 保留注释 | [done] | `authoring.ts` |
 | CLI-06 | 搜索 | `discover` 搜资源目录/npm 并可直接写进清单；`search --all` 跨 registry | [done] | `discover`、`catalog.ts` |
@@ -258,10 +258,10 @@
 | OPS-03 | registry 门禁 | `registry:check` 通过 | [done] | CI |
 | OPS-04 | 干净安装 CI | `registry:verify-all`（需网络） | [done] | workflow |
 | OPS-05 | 单文件分发 | `build:local` 出 bundle + npm pack | [done] | `scripts/build-local.mjs` |
-| OPS-06 | Hub 镜像 | Dockerfile | [done] | `Dockerfile` |
+| OPS-06 | Hub 镜像 | 多阶段构建，构建末尾 `pnpm prune --prod` 去掉开发依赖 | [done] | `Dockerfile` |
 | OPS-07 | 文档 | README + authoring + contract + ui | [done] | — |
 | OPS-08 | 版本策略 | 0.0.1 / v0 无兼容承诺 | [done] | contract |
-| OPS-09 | 性能基准 | `pnpm bench` 生成 200 资源包量计划耗时；CI 用 `bench:check` 卡预算 | [done] | `scripts/bench.ts` |
+| OPS-09 | 性能基准 | `bench` 量 200 资源的计划与安装（约 300ms 量级）；CI 卡预算；overlay 全树遍历仍无基准 | [part] | `scripts/bench.ts` |
 | OPS-10 | Windows 矩阵 | CI 加 `test-windows` 全量跑一遍 | [done] | `.github/workflows/registry.yml` |
 | OPS-11 | 依赖安全 | CI 跑 `pnpm audit --audit-level high` | [done] | `.github/workflows/registry.yml` |
 
@@ -286,7 +286,7 @@
 
 1. **资源级 `packhub://` 的发布形态**：安装期可以取用，但 `lock` / `publish` 要求先 vendored；还没有“把引用包一起打进 `.phub`”的自动展开。
 2. **全局 MCP 只有 codex**（SYN-12）：DSH 的 profile patch 与 Claude 的 user config 还没有 adapter；当前会被明确拒绝，不会写半套。
-3. **市场生产化**（REG-12 / HUB-12）：单机 JSON 存储、自动审核、无评分/评论；发布校验在服务进程内跑，生产应放进沙箱或只收 CI 报告。
+3. **市场生产化**（REG-12 / HUB-12）：评分/评论已补；仍是单机 JSON 存储、自动审核，发布校验在服务进程内跑，生产应放进沙箱或只收 CI 报告。
 4. **CLI 机器接口**（CLI-03 / CLI-04）：`--json` 与退出码没有全命令统一；脚本调用仍要按命令记。
 5. **界面回归**（UI-07 / UI-08）：有焦点可见、跳过导航与 reduced-motion，没有 axe/键盘全流程审计，也没有 390px 的自动化回归。
 6. **重负载**（OPS-06 / X-06）：计划层有 200 资源基准；大包真装、overlay 全树遍历没有基准；Docker 镜像仍带 devDependencies。

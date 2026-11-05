@@ -20,6 +20,8 @@ export interface MarketDb {
   reviews: Record<string, { status: 'approved' | 'pending' | 'rejected'; note?: string; at: string }>;
   /** name@version → 下架原因；下架后版本目录移到 quarantine */
   yanked: Record<string, string>;
+  /** name@version → 每个账号一票的评分与评论 */
+  ratings: Record<string, Record<string, { score: number; comment?: string; at: string }>>;
 }
 
 const API = 'packhub.dev/market/v0';
@@ -31,7 +33,7 @@ export function dbPath(root: string): string {
 export function loadDb(root: string): MarketDb {
   const file = dbPath(root);
   if (!existsSync(file)) {
-    return { apiVersion: API, accounts: {}, stats: {}, reviews: {}, yanked: {} };
+    return { apiVersion: API, accounts: {}, stats: {}, reviews: {}, yanked: {}, ratings: {} };
   }
   try {
     const parsed = JSON.parse(readFileSync(file, 'utf8')) as Partial<MarketDb>;
@@ -41,9 +43,10 @@ export function loadDb(root: string): MarketDb {
       stats: parsed.stats ?? {},
       reviews: parsed.reviews ?? {},
       yanked: parsed.yanked ?? {},
+      ratings: parsed.ratings ?? {},
     };
   } catch {
-    return { apiVersion: API, accounts: {}, stats: {}, reviews: {}, yanked: {} };
+    return { apiVersion: API, accounts: {}, stats: {}, reviews: {}, yanked: {}, ratings: {} };
   }
 }
 
@@ -108,6 +111,46 @@ export function recordReview(root: string, pack: string, version: string, status
   saveDb(root, db);
 }
 
+export interface RatingSummary {
+  count: number;
+  average: number | null;
+  comments: { by: string; score: number; comment?: string }[];
+}
+
+export function ratePack(
+  root: string,
+  pack: string,
+  version: string,
+  accountId: string,
+  score: number,
+  comment?: string,
+): void {
+  if (!Number.isInteger(score) || score < 1 || score > 5) throw new Error('评分必须是 1..5 的整数');
+  const db = loadDb(root);
+  const key = `${pack}@${version}`;
+  const list = db.ratings[key] ?? {};
+  list[accountId] = { score, ...(comment ? { comment } : {}), at: new Date().toISOString() };
+  db.ratings[key] = list;
+  saveDb(root, db);
+}
+
+export function ratingSummary(root: string, pack: string, version: string): RatingSummary {
+  const db = loadDb(root);
+  const list = db.ratings[`${pack}@${version}`] ?? {};
+  const rows = Object.entries(list);
+  const names = new Map(Object.values(db.accounts).map((a) => [a.id, a.name]));
+  return {
+    count: rows.length,
+    average: rows.length ? rows.reduce((n, [, r]) => n + r.score, 0) / rows.length : null,
+    comments: rows
+      .filter(([, r]) => r.comment)
+      .map(([id, r]) => ({
+        by: names.get(id) ?? id,
+        score: r.score,
+        ...(r.comment ? { comment: r.comment } : {}),
+      })),
+  };
+}
 export function bumpDownload(root: string, pack: string, version: string): number {
   const db = loadDb(root);
   const key = `${pack}@${version}`;

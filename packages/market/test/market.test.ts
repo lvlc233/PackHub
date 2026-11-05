@@ -8,6 +8,7 @@ import {
   publishToMarket,
   register,
   searchMarket,
+  rateVersion,
   startMarket,
   yankVersion,
   type RunningMarket,
@@ -85,6 +86,17 @@ describe('市场写端', () => {
     await res.arrayBuffer();
     const after = await searchMarket(market.url, '规范');
     expect(after[0]?.downloads).toBe(1);
+
+    // 评分：一个账号一票，搜索里带均分
+    const rated = await rateVersion(`${published.name}@${published.version}`, 5, {
+      url: market.url,
+      token: session.token,
+      comment: '安装一次就通了',
+    });
+    expect(rated.rating.count).toBe(1);
+    expect(rated.rating.average).toBe(5);
+    const withRating = await searchMarket(market.url, '规范');
+    expect(withRating[0]?.rating?.average).toBe(5);
 
     // 已有 token 可以登录（复用）
     const relogin = await login(market.url, session.token);

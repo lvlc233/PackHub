@@ -10,6 +10,7 @@ import { loadPack, planFor } from '../packages/kernel/src/index.ts';
 
 const args = process.argv.slice(2);
 const check = args.includes('--check');
+const withInstall = args.includes('--install');
 const count = Number(args.find((a) => /^\d+$/.test(a)) ?? 200);
 const budgetMs = Number(process.env.PACKHUB_BENCH_BUDGET_MS ?? 1500);
 const rounds = 10;
@@ -34,12 +35,16 @@ ${lines.join('\n')}
 
 const samples: number[] = [];
 let actionCount = 0;
+let lastPlan: ReturnType<typeof planFor>['plan'];
+let lastCtx: ReturnType<typeof loadPack> | undefined;
 for (let i = 0; i < rounds; i++) {
   const start = performance.now();
   const ctx = loadPack(dir);
-  const { plan } = planFor(ctx);
-  actionCount = plan?.actions.length ?? 0;
+  const result = planFor(ctx);
+  actionCount = result.plan?.actions.length ?? 0;
   samples.push(performance.now() - start);
+  lastPlan = result.plan;
+  lastCtx = ctx;
 }
 samples.sort((a, b) => a - b);
 const median = samples[Math.floor(samples.length / 2)]!;
@@ -47,8 +52,18 @@ const p95 = samples[Math.floor(samples.length * 0.95)]!;
 console.log(
   `${count} 个资源 · ${actionCount} 个动作 · 中位 ${median.toFixed(1)}ms · p95 ${p95.toFixed(1)}ms · 预算 ${budgetMs}ms`,
 );
-rmSync(dir, { recursive: true, force: true });
 if (check && median > budgetMs) {
   console.error(`计划耗时超过预算：${median.toFixed(1)}ms > ${budgetMs}ms`);
   process.exit(1);
+}
+
+if (withInstall && lastPlan && lastCtx) {
+  const { installPack } = await import('../packages/runtime/src/index.ts');
+  const project = mkdtempSync(join(tmpdir(), 'packhub-bench-proj-'));
+  const start = performance.now();
+  const result = await installPack(lastCtx, lastPlan, { root: project, packRoot: dir });
+  const ms = performance.now() - start;
+  const bad = result.outcomes.filter((o) => o.status !== 'done' && o.status !== 'noop').length;
+  console.log(`安装 ${count} 个资源：${ms.toFixed(0)}ms · 失败 ${bad}`);
+  rmSync(project, { recursive: true, force: true });
 }

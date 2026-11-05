@@ -9,6 +9,8 @@ COPY packages ./packages
 COPY apps ./apps
 RUN pnpm install --frozen-lockfile
 RUN pnpm --filter @packhub/web build
+# 镜像只跑只读端：去掉 vitest/typescript 这类只在开发时用的依赖
+RUN pnpm prune --prod
 
 FROM node:22-bookworm-slim
 WORKDIR /app

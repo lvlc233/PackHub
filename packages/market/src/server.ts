@@ -22,6 +22,8 @@ import {
   bumpDownload,
   createAccount,
   loadDb,
+  ratePack,
+  ratingSummary,
   recordReview,
   saveDb,
 } from './store.ts';
@@ -136,7 +138,11 @@ export async function startMarket(opts: MarketOptions): Promise<RunningMarket> {
         .map((p) => {
           const latest = String(p.latest ?? '');
           const key = `${String(p.name)}@${latest}`;
-          return { ...p, downloads: db.stats[key]?.downloads ?? 0 };
+          return {
+            ...p,
+            downloads: db.stats[key]?.downloads ?? 0,
+            rating: ratingSummary(root, String(p.name), latest),
+          };
         });
       return sendJson(res, 200, { packs: hits });
     }
@@ -166,6 +172,7 @@ export async function startMarket(opts: MarketOptions): Promise<RunningMarket> {
           : null,
         review: db.reviews[`${name}@${version}`] ?? null,
         downloads: db.stats[`${name}@${version}`]?.downloads ?? 0,
+        rating: ratingSummary(root, name, version),
       });
     }
 
@@ -247,6 +254,31 @@ export async function startMarket(opts: MarketOptions): Promise<RunningMarket> {
       } finally {
         rmSync(work, { recursive: true, force: true });
       }
+    }
+
+    if (url.pathname === '/api/ratings' && req.method === 'POST') {
+      const account = accountForToken(root, bearer(req));
+      if (!account) return sendJson(res, 401, { error: 'token 无效' });
+      const body = JSON.parse((await readBody(req, 64 * 1024)).toString('utf8') || '{}') as {
+        name?: string;
+        version?: string;
+        score?: number;
+        comment?: string;
+      };
+      const name = body.name ?? '';
+      const version = body.version ?? '';
+      if (!/^[a-z0-9-]+\/[a-z0-9-]+$/.test(name) || !/^\d+\.\d+\.\d+/.test(version)) {
+        return sendJson(res, 400, { error: 'name / version 不合法' });
+      }
+      if (!existsSync(join(root, 'packs', name, version))) {
+        return sendJson(res, 404, { error: '没有这个版本' });
+      }
+      try {
+        ratePack(root, name, version, account.id, Number(body.score), body.comment);
+      } catch (err) {
+        return sendJson(res, 422, { error: (err as Error).message });
+      }
+      return sendJson(res, 200, { name, version, rating: ratingSummary(root, name, version) });
     }
 
     if (url.pathname === '/api/yank' && req.method === 'POST') {

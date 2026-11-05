@@ -7,9 +7,12 @@ export {
   scopeOf,
   recordReview,
   bumpDownload,
+  ratePack,
+  ratingSummary,
   dbPath,
   type MarketAccount,
   type MarketDb,
+  type RatingSummary,
 } from './store.ts';
 export {
   register,
@@ -17,10 +20,12 @@ export {
   publishToMarket,
   searchMarket,
   yankVersion,
+  rateVersion,
   readSessions,
   saveSession,
   defaultSession,
   sessionPath,
   type MarketSession,
   type MarketPack,
+  type RatingResult,
 } from './client.ts';

@@ -27,7 +27,8 @@
     "registry:verify-all": "node --experimental-strip-types scripts/registry/verify-all.mjs",
     "check": "pnpm typecheck && pnpm test",
     "bench": "node --experimental-strip-types scripts/bench.ts",
-    "bench:check": "node --experimental-strip-types scripts/bench.ts 200 --check"
+    "bench:check": "node --experimental-strip-types scripts/bench.ts 200 --check",
+    "bench:install": "node --experimental-strip-types scripts/bench.ts 200 --install"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

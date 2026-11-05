@@ -139,6 +139,7 @@ export interface MarketPack {
   trust?: string;
   downloads?: number;
   keywords?: string[];
+  rating?: { count: number; average: number | null };
 }
 
 export async function searchMarket(url: string, keyword: string): Promise<MarketPack[]> {
@@ -170,4 +171,36 @@ export async function yankVersion(
   });
   if (!res.ok) throw new Error(`下架失败：${await readError(res)}`);
   return (await res.json()) as { name: string; version: string };
+}
+
+export interface RatingResult {
+  name: string;
+  version: string;
+  rating: { count: number; average: number | null; comments: unknown[] };
+}
+
+/** 给自己打一次分（1..5，一个账号一票，可带评论）。 */
+export async function rateVersion(
+  ref: string,
+  score: number,
+  opts: { url?: string; token?: string; comment?: string } = {},
+): Promise<RatingResult> {
+  const session = opts.url || opts.token ? undefined : defaultSession();
+  const base = (opts.url ?? session?.url ?? '').replace(/\/+$/, '');
+  const token = opts.token ?? session?.token;
+  if (!base || !token) throw new Error('要指定 --url 与 --token（或用已保存的登录）');
+  const at = ref.lastIndexOf('@');
+  if (at <= 0) throw new Error('用法：packhub market rate <name>@<version> <1..5>');
+  const res = await fetch(`${base}/api/ratings`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      name: ref.slice(0, at),
+      version: ref.slice(at + 1),
+      score,
+      ...(opts.comment ? { comment: opts.comment } : {}),
+    }),
+  });
+  if (!res.ok) throw new Error(`评分失败：${await readError(res)}`);
+  return (await res.json()) as RatingResult;
 }
