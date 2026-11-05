@@ -41,8 +41,11 @@ describe('卸载', () => {
     const ctx = loadPack(dir);
     const { plan } = planFor(ctx);
     mkdirSync(join(dir, '.packhub'), { recursive: true });
-    writeFileSync(join(dir, '.packhub/installing.lock'), '12345', 'utf8');
-    await expect(installPack(ctx, plan!)).rejects.toThrow(/另一个安装正在进行.*12345/);
+    // 活着的持有者才该挡住并发；崩溃留下的死 pid 会被自动收回（见 guards.test）
+    writeFileSync(join(dir, '.packhub/installing.lock'), String(process.pid), 'utf8');
+    await expect(installPack(ctx, plan!)).rejects.toThrow(
+      new RegExp(`另一个安装正在进行.*${process.pid}`),
+    );
     rmSync(dir, { recursive: true, force: true });
   });
 });

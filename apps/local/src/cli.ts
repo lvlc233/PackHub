@@ -1,4 +1,4 @@
-﻿import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { defineCommand, type CommandDef } from 'citty';
@@ -56,7 +56,8 @@ import {
   inspectPack,
   withLockPins,
   lockPack,
-  defaultRegistryIndex,
+  resolveRegistry,
+  registryIndexes,
   syncPack,
   removeSynced,
   doctorGlobal,
@@ -484,9 +485,7 @@ const add = defineCommand({
       packDir = resolved.dir;
       label = resolved.label;
     } else {
-      const indexRef = args.index
-        ? String(args.index)
-        : defaultRegistryIndex();
+      const indexRef = resolveRegistry(args.index ? String(args.index) : undefined);
       if (!indexRef) {
         console.error(
           '用 registry 名称安装需要一个索引：加 --index <路径|URL>，或设 PACKHUB_INDEX，或在 ~/.packhub/config.json 里配 defaultRegistry',
@@ -648,7 +647,7 @@ const update = defineCommand({
   meta: { name: 'update', description: '把已装的包升级到 registry 上的新版本' },
   args: {
     name: { type: 'positional', required: true },
-    index: { type: 'string', required: true },
+    index: { type: 'string', description: '索引路径、URL 或本机配置里的 registry 名（默认取默认 registry）' },
     dir: { type: 'string', default: '.' },
     version: { type: 'string' },
     target: { type: 'string', description: '默认沿用上次安装的 target' },
@@ -658,9 +657,14 @@ const update = defineCommand({
     'deep-verify': { type: 'boolean', default: false, description: '更新后也跑 command / mcp-ready（会执行包里的命令）' },
   },
   async run({ args }) {
+    const indexRef = resolveRegistry(args.index ? String(args.index) : undefined);
+    if (!indexRef) {
+      console.error('没有索引：加 --index <路径|URL|registry 名>，或设 PACKHUB_INDEX');
+      process.exit(2);
+    }
     const res = await updatePack({
       name: String(args.name),
-      index: String(args.index),
+      index: indexRef,
       projectDir: resolve(String(args.dir)),
       target: String(args.target),
       overwrite: Boolean(args.overwrite),
@@ -1282,16 +1286,30 @@ const licenses = defineCommand({
   args: {
     dir: { type: 'positional', required: false, default: '.' },
     strict: { type: 'boolean', default: false, description: '缺许可证就以非零码退出' },
+    deny: { type: 'string', description: '拒绝的 SPDX 列表（逗号分隔），命中就失败' },
   },
   run({ args }) {
     const dir = resolve(String(args.dir));
     const ctx = loadPack(dir);
     if (reportIssues(ctx.issues)) process.exit(2);
     const findings = inspectLicenses(dir, ctx.manifest);
+    const denied = new Set(
+      String(args.deny ?? '')
+        .split(',')
+        .map((s) => s.trim().toUpperCase())
+        .filter(Boolean),
+    );
     let missing = 0;
+    let blocked = 0;
     for (const f of findings) {
       if (!f.vendored) {
         console.log(`- ${f.resource.padEnd(20)} 远程（许可在上游仓库）`);
+        continue;
+      }
+      const spdx = (f.spdx ?? '').toUpperCase();
+      if (denied.size > 0 && spdx && [...denied].some((d) => spdx.includes(d))) {
+        blocked++;
+        console.log(`x ${f.resource.padEnd(20)} ${f.spdx} · ${f.file}（命中拒绝列表）`);
         continue;
       }
       if (f.file) {
@@ -1303,8 +1321,12 @@ const licenses = defineCommand({
     }
     if (missing > 0) {
       console.log(`\n${missing} 个 vendored 资源缺少许可证文件；不确定能不能再分发时先去上游确认`);
-      if (args.strict) process.exit(1);
     }
+    if (blocked > 0) {
+      console.log(`\n${blocked} 个资源命中拒绝的许可证：${[...denied].join(', ')}`);
+      process.exit(1);
+    }
+    if (missing > 0 && args.strict) process.exit(1);
   },
 });
 
@@ -1479,21 +1501,29 @@ const search = defineCommand({
   meta: { name: 'search', description: '在 registry 索引里按关键词找包' },
   args: {
     keyword: { type: 'positional', required: false, description: '名称 / 标题 / 描述 / 关键词' },
-    index: { type: 'string', description: '索引路径或 URL（默认取 PACKHUB_INDEX / 本机配置）' },
+    index: { type: 'string', description: '索引路径、URL 或本机配置里的 registry 名（默认取 PACKHUB_INDEX / 本机配置）' },
+    all: { type: 'boolean', default: false, description: '搜所有配置过的 registry' },
     json: { type: 'boolean', default: false },
   },
   async run({ args }) {
-    const indexRef = args.index ? String(args.index) : defaultRegistryIndex();
-    if (!indexRef) {
-      console.error('没有索引：加 --index <路径|URL>，或设 PACKHUB_INDEX');
+    const refs = args.all
+      ? registryIndexes()
+      : [resolveRegistry(args.index ? String(args.index) : undefined)].filter((r): r is string => Boolean(r));
+    if (refs.length === 0) {
+      console.error('没有索引：加 --index <路径|URL|registry 名>，或设 PACKHUB_INDEX，或在 ~/.packhub/config.json 配 registries');
       process.exit(2);
     }
     const keyword = String(args.keyword ?? '').toLowerCase();
-    const index = await readIndex(indexRef);
-    const hits = index.packs.filter((p) => {
-      const text = [p.name, p.title ?? '', p.description ?? '', (p.keywords ?? []).join(' ')].join(' ').toLowerCase();
-      return !keyword || text.includes(keyword);
-    });
+    const hits: (import('@packhub/runtime').IndexEntry & { registry?: string })[] = [];
+    for (const ref of refs) {
+      const index = await readIndex(ref);
+      for (const p of index.packs.filter((x) => {
+        const text = [x.name, x.title ?? '', x.description ?? '', (x.keywords ?? []).join(' ')].join(' ').toLowerCase();
+        return !keyword || text.includes(keyword);
+      })) {
+        hits.push(refs.length > 1 ? { ...p, registry: ref } : p);
+      }
+    }
     if (args.json) {
       console.log(JSON.stringify(hits, null, 2));
       return;
@@ -1698,6 +1728,37 @@ const serve = defineCommand({
   },
 });
 
+const completion = defineCommand({
+  meta: { name: 'completion', description: '输出 shell 补全脚本（bash / zsh / pwsh）' },
+  args: {
+    shell: { type: 'positional', required: true, description: 'bash | zsh | pwsh' },
+  },
+  run({ args }) {
+    const names = Object.keys((main.subCommands ?? {}) as Record<string, unknown>)
+      .filter((n) => n !== 'completion')
+      .sort();
+    const shell = String(args.shell);
+    if (shell === 'bash') {
+      console.log(`# packhub bash completion\ncomplete -W "${names.join(' ')}" packhub`);
+      return;
+    }
+    if (shell === 'zsh') {
+      console.log(
+        `# packhub zsh completion\n_packhub() { local -a cmds; cmds=(${names.map((n) => `'${n}'`).join(' ')}); _describe 'command' cmds }\ncompdef _packhub packhub`,
+      );
+      return;
+    }
+    if (shell === 'pwsh' || shell === 'powershell') {
+      console.log(
+        `# packhub PowerShell completion\nRegister-ArgumentCompleter -Native -CommandName packhub -ScriptBlock {\n  param($wordToComplete, $commandAst, $cursorPosition)\n  $cmds = @(${names.map((n) => `'${n}'`).join(', ')})\n  $cmds | Where-Object { $_ -like "$wordToComplete*" } | ForEach-Object {\n    [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)\n  }\n}`,
+      );
+      return;
+    }
+    console.error(`不支持的 shell：${shell}（bash / zsh / pwsh）`);
+    process.exit(2);
+  },
+});
+
 export const main: CommandDef = defineCommand({
   meta: { name: 'packhub', version: '0.0.1', description: 'Agent 能力的整合包工具' },
   subCommands: {
@@ -1734,5 +1795,6 @@ export const main: CommandDef = defineCommand({
     keygen,
     sign,
     'verify-sig': verifySig,
+    completion,
   },
 });

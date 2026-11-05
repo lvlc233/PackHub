@@ -20,6 +20,7 @@ import * as tar from 'tar';
 import type { Plan, PlanAction } from '@packhub/kernel';
 import { canonicalize, deepMerge, diffActions, isPlainObject, sha256 } from '@packhub/kernel';
 import { download, resolvePypiSdist } from './download.ts';
+import { isSafeArchiveEntry } from './pack.ts';
 import { resolveToken } from './credentials.ts';
 
 export interface ApplyOptions {
@@ -117,14 +118,34 @@ const INSTALL_LOCK = '.packhub/installing.lock';
 const VERSIONS_DIR = '.packhub/versions';
 const ACTIVE_FILE = '.packhub/active.json';
 
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    // EPERM 说明进程在、只是无权发信号；只有 ESRCH 才能确认它没了
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
 /** 同一目录同时只允许一个安装：O_EXCL 创建锁文件，天然原子。 */
 function acquireLock(root: string): () => void {
   const file = join(root, INSTALL_LOCK);
   mkdirSync(dirname(file), { recursive: true });
-  try {
+  const take = (): (() => void) => {
     const fd = openSync(file, 'wx');
     writeFileSync(fd, String(process.pid));
     closeSync(fd);
+    return () => {
+      try {
+        unlinkSync(file);
+      } catch {
+        /* 已释放 */
+      }
+    };
+  };
+  try {
+    return take();
   } catch {
     let holder = '未知';
     try {
@@ -132,17 +153,20 @@ function acquireLock(root: string): () => void {
     } catch {
       /* 读不到就用未知 */
     }
+    const pid = Number(holder);
+    // 崩溃留下的锁：pid 已经不在了就自动收回，不再让人手工删文件
+    if (Number.isInteger(pid) && pid > 0 && !pidAlive(pid)) {
+      try {
+        unlinkSync(file);
+        return take();
+      } catch {
+        /* 竞争失败，走下面的报错 */
+      }
+    }
     throw new Error(
       `另一个安装正在进行（${INSTALL_LOCK}，pid=${holder}）；确认没有进程在跑后删掉该文件重试`,
     );
   }
-  return () => {
-    try {
-      unlinkSync(file);
-    } catch {
-      /* 已释放 */
-    }
-  };
 }
 
 /** 一次安装 = 一个 generation；退回就是拿它的快照覆盖回去。 */
@@ -936,8 +960,8 @@ async function applyAction(
           file: from,
           cwd: to,
           strip: action.strip ?? 0,
-          // 归档内部路径不得逃出 to
-          filter: (path) => !path.split('/').includes('..'),
+          // 归档内部路径不得逃出 to；符号链接/硬链接也一律不落地
+          filter: (path, entry) => isSafeArchiveEntry(path, entry),
         });
       }
       written.push(action.to);
@@ -1580,8 +1604,14 @@ function findOwnershipConflicts(plan: Plan, key: string, root: string): string[]
   }
   const out: string[] = [];
   for (const rel of touchedPaths(plan)) {
-    const owner = owners.get(rel);
-    if (owner && !isSharedPath(rel)) out.push(`${rel}（${owner}）`);
+    if (isSharedPath(rel)) continue;
+    // 目录整体归一个包时，另一个包往目录里写文件同样算冲突
+    for (const [owned, owner] of owners) {
+      if (rel === owned || rel.startsWith(`${owned}/`) || owned.startsWith(`${rel}/`)) {
+        out.push(`${rel}（${owner} 拥有 ${owned}）`);
+        break;
+      }
+    }
   }
   return out;
 }

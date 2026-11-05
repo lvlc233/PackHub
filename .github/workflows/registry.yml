@@ -36,11 +36,32 @@ jobs:
       - name: 内核测试
         run: pnpm check
 
+      - name: 计划层性能预算
+        run: pnpm bench:check
+
+      - name: 依赖漏洞审计（high 及以上阻断）
+        run: pnpm audit --audit-level high
+
       - name: registry 校验（schema · pin · 锁一致性 · 版本不可变）
         run: pnpm registry:check
 
       - name: 真装一遍并校验（干净环境，需要联网取资源）
         run: pnpm registry:verify-all
+
+  test-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Windows 全量测试（路径、权限位、命令垫片）
+        run: pnpm check
 
   publish-index:
     needs: verify

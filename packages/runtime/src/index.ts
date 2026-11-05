@@ -93,6 +93,7 @@ export {
 export {
   packArchive,
   unpackArchive,
+  isSafeArchiveEntry,
   type PackArchiveOptions,
   type PackArchiveResult,
 } from './pack.ts';
@@ -150,6 +151,8 @@ export {
   configPath,
   readConfig,
   defaultRegistryIndex,
+  resolveRegistry,
+  registryIndexes,
   type PackhubConfig,
   type RegistryEntry,
 } from './config.ts';

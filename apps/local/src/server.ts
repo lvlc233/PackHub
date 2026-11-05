@@ -1,4 +1,4 @@
-﻿import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { buildPlan, loadPack, parseManifest, planFor, validateGraph, type TargetId } from '@packhub/kernel';

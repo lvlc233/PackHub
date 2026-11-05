@@ -49,12 +49,18 @@ export async function packArchive(
   return { file: out, entries: unique, bytes: statSync(out).size };
 }
 
+/** 拒绝逃出目标目录的路径与链接条目；解包与测试共用同一条规则。 */
+export function isSafeArchiveEntry(path: string, entry?: unknown): boolean {
+  const type = (entry as { type?: string } | undefined)?.type;
+  return !path.split('/').includes('..') && type !== 'SymbolicLink' && type !== 'Link';
+}
+
 /** 解包 `.phub` 到目录（strip 0：归档内就是 Pack 根）。 */
 export async function unpackArchive(file: string, dest: string): Promise<void> {
   mkdirSync(dest, { recursive: true });
   await tar.x({
     file,
     cwd: dest,
-    filter: (path) => !path.split('/').includes('..'),
+    filter: (path, entry) => isSafeArchiveEntry(path, entry),
   });
 }

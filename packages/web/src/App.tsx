@@ -171,6 +171,9 @@ export function App() {
 
   return (
     <div className="app">
+      <a className="sr-only" href="#main">
+        跳到主内容
+      </a>
       <aside className="sidebar">
         <div className="brand">
           <span className="brand-mark">P</span>
@@ -205,7 +208,7 @@ export function App() {
         <p className="sidebar-foot">判断都在内核里，这里只是门面</p>
       </aside>
 
-      <main className="main">
+      <main className="main" id="main">
         {(error || actionError) && <p className="alert">{actionError ?? error}</p>}
 
         {!detail && loading && <div className="skeleton" />}

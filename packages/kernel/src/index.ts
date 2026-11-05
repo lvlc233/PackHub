@@ -1,4 +1,4 @@
-﻿import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type { Issue, Manifest, Plan, ResourceSpec } from './types.ts';
