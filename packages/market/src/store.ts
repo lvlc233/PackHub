@@ -5,8 +5,16 @@ import { join } from 'node:path';
 import type { DatabaseSync as Database } from 'node:sqlite';
 
 // 走 require 而不是静态 import：Vite 5 的内置模块表不认识 node:sqlite，
-// 测试里静态导入会被当成普通 npm 包去解析。
-const { DatabaseSync } = createRequire(import.meta.url)('node:sqlite') as typeof import('node:sqlite');
+// 测试里静态导入会被当成普通 npm 包去解析。同时延迟到第一次用市场库再加栽，
+// 普通 CLI 命令不该被 SQLite 的实验警告打扰。
+type DatabaseCtor = typeof import('node:sqlite').DatabaseSync;
+let DatabaseClass: DatabaseCtor | undefined;
+function databaseClass(): DatabaseCtor {
+  if (!DatabaseClass) {
+    DatabaseClass = createRequire(import.meta.url)('node:sqlite').DatabaseSync as DatabaseCtor;
+  }
+  return DatabaseClass;
+}
 
 export interface MarketAccount {
   id: string;
@@ -93,7 +101,7 @@ interface LegacyMarketDb extends Partial<MarketDb> {}
  */
 function withDb<T>(root: string, fn: (db: Database) => T): T {
   mkdirSync(join(root, '.market'), { recursive: true });
-  const db = new DatabaseSync(dbPath(root));
+  const db = new (databaseClass())(dbPath(root));
   try {
     db.exec('PRAGMA busy_timeout = 5000');
     db.exec(SCHEMA);
