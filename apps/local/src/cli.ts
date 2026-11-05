@@ -49,6 +49,8 @@ import {
   doctorGlobal,
   loadCatalog,
   searchNpm,
+  inspectCache,
+  cleanCache,
   type SyncTarget,
 } from '@packhub/runtime';
 
@@ -410,6 +412,19 @@ const add = defineCommand({
     const projectDir = resolve(String(args.dir));
     const target = String(args.source);
     const targetEnv = String(args.target);
+    // packhub://scope/name@version 是 registry 引用的规范写法，与 scope/name + --version 等价
+    let registryName = target;
+    let registryVersion = args.version ? String(args.version) : undefined;
+    if (target.startsWith('packhub://')) {
+      const body = target.slice('packhub://'.length);
+      const at = body.lastIndexOf('@');
+      if (at <= 0) {
+        console.error('packhub:// 引用要带版本：packhub://scope/name@1.2.3');
+        process.exit(2);
+      }
+      registryName = body.slice(0, at);
+      registryVersion = body.slice(at + 1);
+    }
     // dry-run 不往项目里落任何东西：取包与解包都在临时目录完成
     const workBase = args['dry-run'] ? mkdtempSync(join(tmpdir(), 'packhub-add-')) : projectDir;
 
@@ -438,15 +453,15 @@ const add = defineCommand({
         );
         process.exit(2);
       }
-      packDir = join(workBase, '.packhub/packs', target);
-      console.log(`→ 取 ${target}${args.version ? `@${args.version}` : ''} …`);
+      packDir = join(workBase, '.packhub/packs', registryName);
+      console.log(`→ 取 ${registryName}${registryVersion ? `@${registryVersion}` : ''} …`);
       const fetched = await fetchPack({
-        name: target,
+        name: registryName,
         index: indexRef,
-        ...(args.version ? { version: String(args.version), allowUnlisted: true } : {}),
+        ...(registryVersion ? { version: registryVersion, allowUnlisted: true } : {}),
         dest: packDir,
       });
-      label = `${target}@${fetched.version}`;
+      label = `${registryName}@${fetched.version}`;
     }
 
     const rawCtx = loadPack(packDir);
@@ -1169,6 +1184,55 @@ const search = defineCommand({
   },
 });
 
+const cacheLs = defineCommand({
+  meta: { name: 'ls', description: '看缓存里有什么、谁还在用' },
+  args: {
+    dir: { type: 'positional', required: false, default: '.' },
+    json: { type: 'boolean', default: false },
+  },
+  run({ args }) {
+    const report = inspectCache(resolve(String(args.dir)));
+    if (args.json) {
+      console.log(JSON.stringify(report, null, 2));
+      return;
+    }
+    if (report.entries.length === 0) {
+      console.log('缓存是空的');
+      return;
+    }
+    for (const entry of report.entries) {
+      console.log(
+        `${entry.referenced ? '●' : '○'} ${entry.path.padEnd(48)} ${entry.kind.padEnd(8)} ${Math.max(1, Math.round(entry.bytes / 1024))} KB`,
+      );
+    }
+    console.log(`\n共 ${Math.max(1, Math.round(report.totalBytes / 1024))} KB；○ 是没有任何已装版本引用的缓存`);
+  },
+});
+
+const cacheClean = defineCommand({
+  meta: { name: 'clean', description: '删掉没有被已装版本引用的缓存（先 dry-run 看清单）' },
+  args: {
+    dir: { type: 'positional', required: false, default: '.' },
+    'dry-run': { type: 'boolean', default: false },
+  },
+  run({ args }) {
+    const res = cleanCache(resolve(String(args.dir)), { dryRun: Boolean(args['dry-run']) });
+    if (res.removed.length === 0) {
+      console.log('没有可回收的缓存');
+      return;
+    }
+    for (const p of res.removed) console.log(`  × ${p}`);
+    console.log(
+      `\n${res.dryRun ? '[dry-run] 将删除' : '已删除'} ${res.removed.length} 项，释放约 ${Math.max(1, Math.round(res.freedBytes / 1024))} KB`,
+    );
+  },
+});
+
+const cache = defineCommand({
+  meta: { name: 'cache', description: '查看与回收 .packhub/cache' },
+  subCommands: { ls: cacheLs, clean: cacheClean },
+});
+
 const discover = defineCommand({
   meta: { name: 'discover', description: '搜 MCP / skill / CLI 候选，并把选中的写进清单' },
   args: {
@@ -1322,6 +1386,7 @@ export const main: CommandDef = defineCommand({
     serve,
     search,
     discover,
+    cache,
     add,
     sync,
     resource,

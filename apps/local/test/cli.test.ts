@@ -35,6 +35,15 @@ describe('cli 端到端：add → verify → uninstall', () => {
     expect(added.out).toContain('装上');
     expect(existsSync(join(project, '.packhub/knowledge/style-guide.md'))).toBe(true);
 
+    // packhub:// 与 registry 名称等价，是消费端的规范引用写法
+    const second = mkdtempSync(join(tmpdir(), 'packhub-cli-phub-'));
+    const viaScheme = run(['add', 'packhub://lvlc233/team-conventions@0.0.1', '--dir', second], {
+      PACKHUB_INDEX: index,
+    });
+    expect(viaScheme.status).toBe(0);
+    expect(existsSync(join(second, '.packhub/knowledge/style-guide.md'))).toBe(true);
+    rmSync(second, { recursive: true, force: true });
+
     const verified = run(['verify', project]);
     expect(verified.status).toBe(0);
     expect(verified.out).toContain('1 个包');

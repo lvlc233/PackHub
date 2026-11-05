@@ -30,6 +30,8 @@ export interface ResolveOptions {
   lsRemote?: (repoUrl: string, ref: string) => string | null;
   /** 测试注入：下载并算哈希 */
   hashUrl?: (url: string) => Promise<string>;
+  /** 是否在 lock 时为 github 归档算 sha256（默认算；大仓库会多一次下载） */
+  hashGithub?: boolean;
   /** 测试注入：PyPI sdist */
   pypi?: (name: string, version: string) => Promise<{ url: string; version: string; sha256?: string }>;
 }
@@ -198,19 +200,28 @@ export async function resolveReferences(
       }
 
       if (parsed.kind === 'github') {
-        if (parsed.pin && SHA40.test(parsed.pin)) {
-          resolved.push(keep());
-          continue;
-        }
         const repo = parsed.locator.replace(/^github:/, '');
-        const sha = lsRemote(`https://github.com/${repo}`, parsed.pin ?? 'HEAD');
-        if (!sha) {
-          warnings.push(`${res.id}: 解析不到 ${parsed.pin ?? 'HEAD'} 对应的 commit（网络或仓库不可达）`);
-          resolved.push(keep());
-          continue;
+        let sha = parsed.pin;
+        if (!sha || !SHA40.test(sha)) {
+          const found = lsRemote(`https://github.com/${repo}`, sha ?? 'HEAD');
+          if (!found) {
+            warnings.push(`${res.id}: 解析不到 ${sha ?? 'HEAD'} 对应的 commit（网络或仓库不可达）`);
+            resolved.push(keep());
+            continue;
+          }
+          sha = found;
+        }
+        // 有了 commit 就能算归档字节哈希：github 的 tar.gz 不再是 integrity: null
+        let integrity = res.integrity ?? null;
+        if (!integrity && opts.hashGithub !== false) {
+          try {
+            integrity = await hashUrl(`https://codeload.github.com/${repo}/tar.gz/${sha}`);
+          } catch (err) {
+            warnings.push(`${res.id}: github 归档哈希算不出来（${(err as Error).message}），锁里留 null`);
+          }
         }
         const subpath = parsed.subpath ? `/${parsed.subpath}` : '';
-        resolved.push({ id: res.id, source: `github:${repo}${subpath}@${sha}`, integrity: res.integrity ?? null });
+        resolved.push({ id: res.id, source: `github:${repo}${subpath}@${sha}`, integrity });
         continue;
       }
 

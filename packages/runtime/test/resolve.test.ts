@@ -44,6 +44,8 @@ describe('引用解析', () => {
     expect(byId.get('repo-skill')!.source).toBe(`github:demo/repo/skills/review@${SHA}`);
     expect(byId.get('search')!.source).toBe('npm:@scope/search@1.4.0');
     expect(byId.get('search')!.integrity).toBe('sha512-abc');
+    // github 归档：有了 commit 就能算出 tarball 字节哈希
+    expect(byId.get('repo-skill')!.integrity).toBe('sha256-nope');
     expect(byId.get('rules')!.source).toBe('./rules.md');
 
     // 锁里的计划基于钉死后的清单：fetch 的 uri 带 commit，micro 也带版本
