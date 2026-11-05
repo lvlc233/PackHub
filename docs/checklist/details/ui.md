@@ -10,10 +10,10 @@
 | UI-04 | 打开 `/forms` | 四个形态 demo | 只是 demo，不是产品入口 |
 | UI-05 | 选中 skill-only 包，滚到底部 | Harness 同步卡片：两个 home、勾选、预演/同步/移除 | 含 MCP 的包只提示不支持 |
 | UI-06 | 点安装/校验 | API 执行并回填步骤/状态 | 失败态只在顶部 error |
-| UI-07 | 390px 宽 | 单列顺序；有截图 | 未做系统化断点回归 |
-| UI-08 | 键盘 Tab / 屏幕阅读器 | 焦点可见、跳过导航、reduced-motion；未做 axe/全流程审计 | 需要 axe 与键盘回归 |
-| UI-09 | 后端 500/422 | 部分显示 error，部分静默 | 需要统一错误区 |
-| UI-10 | 直接访问深链 | 按 pathname 分支，无 router | 刷新可用，但无历史/嵌套路由 |
+| UI-07 | 390px 宽 | Chromium 实测无横向溢出；1080px 断点单列 | 没有视觉基线 diff |
+| UI-08 | 键盘 Tab / 屏幕阅读器 | axe 在 390/1280 跑三页，无 serious/critical；焦点可见、跳过导航 | 没有完整键盘走查 |
+| UI-09 | 后端 500/422 | 顶部与同步错误 `role=alert` + `aria-live`；按钮 `aria-busy` | 错误文案未逐条审 |
+| UI-10 | 直接访问深链 | history 路由 pushState/popstate；深链与后退可用 | 没有嵌套路由 |
 
 ## 结论
 

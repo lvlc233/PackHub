@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { httpJson } from './download.ts';
 import { join, resolve } from 'node:path';
 import type { Manifest } from '@packhub/kernel';
 import { parseSource } from '@packhub/kernel';
@@ -24,7 +25,9 @@ function detect(file: string): string | undefined {
   if (/BSD 3-Clause|Redistribution and use in source and binary forms/i.test(text)) return 'BSD';
   if (/Creative Commons Attribution/i.test(text)) return 'CC-BY';
   if (/Mozilla Public License\s+Version 2\.0/i.test(text)) return 'MPL-2.0';
-  if (/GNU GENERAL PUBLIC LICENSE/i.test(text)) return 'GPL';
+  if (/GNU AFFERO GENERAL PUBLIC LICENSE/i.test(text)) return 'AGPL-3.0';
+  if (/GNU LESSER GENERAL PUBLIC LICENSE/i.test(text)) return 'LGPL-3.0';
+  if (/GNU GENERAL PUBLIC LICENSE/i.test(text)) return 'GPL-3.0';
   return undefined;
 }
 
@@ -57,4 +60,68 @@ export function inspectLicenses(dir: string, manifest: Manifest): LicenseFinding
     }
     return out;
   });
+}
+
+export interface LicensePolicy {
+  /** 只允许这些 SPDX（前缀匹配）；为空表示不限制 */
+  allow?: string[];
+  /** 命中即拒绝（前缀匹配，例如 GPL 会拦 GPL-3.0） */
+  deny?: string[];
+  /** 允许 GPL/AGPL 这类强 copyleft */
+  allowCopyleft?: boolean;
+  allowNC?: boolean;
+  allowND?: boolean;
+  /** 猜不出 SPDX 时也拒绝 */
+  requireSpdx?: boolean;
+}
+
+export interface LicenseVerdict {
+  ok: boolean;
+  reason?: string;
+}
+
+function isCopyleft(spdx: string): boolean {
+  return /^(A|L)?GPL/i.test(spdx);
+}
+
+/** 只做策略匹配，不做法律解释：deny 优先，其次 NC/ND、copyleft、allow 白名单。 */
+export function evaluateLicense(spdx: string | undefined, policy: LicensePolicy): LicenseVerdict {
+  if (!spdx) {
+    return policy.requireSpdx
+      ? { ok: false, reason: '猜不出 SPDX，且策略要求明确许可' }
+      : { ok: true, reason: '猜不出 SPDX，按未知处理（策略未强制）' };
+  }
+  const upper = spdx.toUpperCase();
+  for (const denied of policy.deny ?? []) {
+    if (upper.startsWith(denied.toUpperCase())) {
+      return { ok: false, reason: `命中拒绝列表：${denied}` };
+    }
+  }
+  if (/-NC\b/i.test(spdx) && !policy.allowNC) return { ok: false, reason: 'NC（禁止商用）未获允许' };
+  if (/-ND\b/i.test(spdx) && !policy.allowND) return { ok: false, reason: 'ND（禁止演绎）未获允许' };
+  if (isCopyleft(spdx) && !policy.allowCopyleft) {
+    return { ok: false, reason: `${spdx} 是强 copyleft，策略未允许` };
+  }
+  if (policy.allow && policy.allow.length > 0) {
+    const hit = policy.allow.some((a) => upper.startsWith(a.toUpperCase()));
+    if (!hit) return { ok: false, reason: `不在允许列表：${policy.allow.join(', ')}` };
+  }
+  return { ok: true };
+}
+
+/** 远程 npm 资源：从 registry 元数据读 license 字段（拿不到就 undefined）。 */
+export async function npmLicense(
+  source: string,
+  fetcher: (url: string) => Promise<unknown> = (url) =>
+    httpJson(url, { accept: 'application/json' }),
+): Promise<string | undefined> {
+  const parsed = parseSource(source);
+  if (parsed.kind !== 'npm') return undefined;
+  const name = parsed.locator.replace(/^npm:/, '');
+  const version = parsed.pin ?? 'latest';
+  const meta = (await fetcher(
+    `https://registry.npmjs.org/${name}/${encodeURIComponent(version)}`,
+  )) as { license?: string | { type?: string } };
+  if (typeof meta.license === 'string') return meta.license;
+  return meta.license?.type;
 }

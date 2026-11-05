@@ -11,8 +11,8 @@
 | TRU-05 | `packhub trust add/remove/list` | 持久列表，安装默认使用 | 无组织级分发 |
 | TRU-06 | `auth set` 后 `auth list` | 掩码；env 优先；0600 | 无轮换/过期 |
 | TRU-07 | 401 下载失败 | 报错指名变量；URL 去查询串 | 第三方日志可能泄漏 |
-| TRU-08 | `licenses` 扫本地资源 | 找 LICENSE/COPYING，猜 SPDX | 远程资源看不到；不做兼容判断 |
-| TRU-09 | vendored GPL 内容 | `licenses --deny GPL-3.0,...` 命中即失败 | 不是完整 NC/ND 兼容矩阵 |
+| TRU-08 | `licenses` 扫本地资源 | 本地猜 SPDX；`--online` 读 npm registry license | github/https 仍看不到 |
+| TRU-09 | vendored GPL 内容 | 策略 JSON：allow/deny/copyleft/NC/ND/requireSpdx | 不做法律解释 |
 | TRU-10 | `visibility: private` 发布 | registry 门禁拒绝 | unlisted/internal 分发靠 URL/内网 |
 | TRU-11 | 安装操作审计 | add/install/update 写 `~/.packhub/audit.jsonl`，`packhub audit` 查看 | 没有轮转与签名 |
 

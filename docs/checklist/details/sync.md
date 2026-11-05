@@ -7,7 +7,7 @@
 | `dsh` | `PACKHUB_DSH_HOME` 或 `~/.dsh` | `<home>/skills` | `<home>/.packhub/state.json` |
 | `codex` | `PACKHUB_CODEX_HOME` 或 `~/.codex` | `<home>/skills` | `<home>/.packhub/state.json` |
 
-`syncPack` 生成计划时把 `skillsDir` 覆盖成 `skills`，把 `instructionFile` 设为空串，所以不会写全局 `AGENTS.md`，也不写 MCP 配置。
+`syncPack` 按 target 生成路径表：skills 落 `<home>/skills`，instruction 写 `<home>/AGENTS.md`（claude-code 是 `CLAUDE.md`）托管块；codex 额外写 `config.toml` 的 MCP 托管块，DSH/Claude 声明 MCP 时直接拒绝。
 
 ## 只接受什么
 

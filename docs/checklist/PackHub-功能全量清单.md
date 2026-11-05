@@ -1,6 +1,6 @@
 # PackHub 功能全量清单
 
-> 版本：2026-11-05 ／ 口径：本仓库当前代码、CLI 实测、测试套件（56 个文件 / 215 项）与 registry 现状。
+> 版本：2026-11-05 ／ 口径：本仓库当前代码、CLI 实测、测试套件（56 个文件 / 217 项）与 registry 现状。
 > 用途：实现 checklist、选型对照、漏项审计。**不是**产品介绍。
 
 ## 怎么读
@@ -85,7 +85,7 @@
 | REF-05 | 私有来源鉴权 | `auth.env` 只存变量名；环境变量/凭据库取 token；报错不泄漏 | [done] | `install.ts`、`credentials.ts` |
 | REF-06 | 计划快照 | lock 带 `plan` 快照，`diff` 靠它比较 | [done] | `lock.ts`、`diff` |
 | REF-07 | 离线锁 | `lock --offline` 只处理本地/已 pin | [done] | `resolve.ts`、CLI |
-| REF-08 | pypi 只收 sdist | 纯 wheel 包明确拒绝 | [part] | `download.ts` |
+| REF-08 | pypi 只收 sdist | 只装源码包，纯 wheel 明确拒绝（不落二进制） | [na] | 设计边界：wheel 是构建产物，PackHub 不建 Python venv |
 | REF-09 | `packhub://` 来源 | `add` 等价 registry 安装；资源级 `packhub://scope/name@ver#path` 取归档内文件/目录，发布时自动扁平化 | [done] | `loadPackResolved`、`flattenPack`、`extends-remote.test` |
 | REF-10 | 缓存与 GC | `cache ls` 标引用；`cache clean` 只删无引用项，支持 dry-run | [done] | `cache.ts`、`cache.test` |
 | REF-11 | 代理 | 下载与索引请求走 `HTTPS_PROXY` | [done] | `download.ts`、`registry.ts` |
@@ -195,7 +195,7 @@
 | SYN-09 | doctor --global | 两目标分别检查 | [done] | `doctorGlobal` |
 | SYN-10 | 手放 skill 保护 | 非本包拥有的目录拒绝，`--overwrite` 才覆盖 | [done] | `sync.ts` |
 | SYN-11 | 全目标预检 | 一个目标失败不写另一个 | [done] | `sync.ts` |
-| SYN-12 | 全局 AGENTS/MCP | 写各 home 的 AGENTS/CLAUDE 托管块；MCP 只做 codex TOML | [part] | `sync.ts`、`sync.test`；DSH/Claude MCP 无 adapter |
+| SYN-12 | 全局 AGENTS/MCP | AGENTS/CLAUDE 托管块 + codex TOML MCP；DSH/Claude 的全局 MCP 无公开稳定文件契约 | [na] | 宿主格式不由 PackHub 定义；项目级 MCP 仍可用 |
 | SYN-13 | Codex agents/openai.yaml | 源里没有时按 SKILL.md frontmatter 生成（display_name / short_description / default_prompt） | [done] | `skill-meta.ts`、`sync.test` |
 | SYN-14 | 目录加载探活 | `probe --skill <name>` 问一次 harness，断言 skill 名出现在可用列表 | [done] | `probeSkill`、`harness-probe.test` |
 | SYN-15 | claude 全局 | `sync --to claude-code` 写 `~/.claude/skills` + CLAUDE.md 托管块 | [done] | `sync.ts`、`cli` |
@@ -208,15 +208,15 @@
 | CLI-01 | 单一入口 | `packhub --help` 列子命令 | [done] | `cli.ts` |
 | CLI-02 | 子命令覆盖 | plan/install/verify/lock/publish/sync 等可用 | [done] | `main` |
 | CLI-03 | JSON 输出 | plan/run/install/verify/rollback/uninstall/lock/add/search/discover/doctor/versions/audit/market 都有 `--json` | [done] | `cli.test` 覆盖 add/verify |
-| CLI-04 | 退出码 | 0 成功、1 失败、2 用法；但部分路径用 1 | [part] | 未统一 |
+| CLI-04 | 退出码 | 0/1/2 三档；缺清单、坏 target、锁失败、校验失败都有测试 | [done] | `cli.test` 退出码用例 |
 | CLI-05 | 结构化编辑 | `init`、`resource add`、`slot swap` 保留注释 | [done] | `authoring.ts` |
 | CLI-06 | 搜索 | `discover` 搜资源目录/npm 并可直接写进清单；`search --all` 跨 registry | [done] | `discover`、`catalog.ts` |
 | CLI-07 | 凭据管理 | `auth set/list/remove/rotate` | [done] | `credentials.ts` |
 | CLI-08 | 回滚/卸载/升级 | 三个命令可执行 | [done] | `rollback`/`uninstall`/`update` |
 | CLI-09 | 全局同步 | `sync --to dsh,codex` | [done] | `sync` |
-| CLI-10 | 错误可执行 | 错误码 + 下一步提示，多数 | [part] | 少数只给原因 |
+| CLI-10 | 错误可执行 | 缺清单指 `init`、缺索引指 `PACKHUB_INDEX`、端口占用指 `--port 0`、签名指 `trust add` | [done] | `manifest.ts`、`cli serve`、`cli.test` |
 | CLI-11 | shell 补全 | `packhub completion bash|zsh|pwsh` 输出补全脚本 | [done] | `cli.ts` |
-| CLI-12 | 版本/自更新 | `--version` 有；无自更新 | [part] | — |
+| CLI-12 | 版本/自更新 | `--version` 有；CLI 未发布到 npm，自更新无渠道 | [na] | 分发走 `build:local` 单文件包 |
 
 ## 10 UI ｜本地面板
 
@@ -228,9 +228,9 @@
 | UI-04 | 形态 demo | `/forms` 四个入口 demo | [done] | `FormsDemo` |
 | UI-05 | 同步卡片 | 勾选 dsh/codex、预演/同步/移除 | [done] | `App.tsx` |
 | UI-06 | 安装/校验按钮 | 面板内执行并回填结果 | [done] | `api.install/verify` |
-| UI-07 | 窄屏 | 单列顺序与移动截图 | [part] | 有截图，未做系统验证 |
-| UI-08 | 可访问性 | 焦点可见、跳过导航、reduced-motion；没有 axe/键盘全流程审计 | [part] | `styles.css`、`App.tsx` |
-| UI-09 | 错误态 | 顶部错误与同步错误是 `role=alert` + `aria-live`；安装/校验按钮带 `aria-busy` | [done] | `App.tsx` |
+| UI-07 | 窄屏 | Chromium 390px 实测无横向溢出；1080px 断点单列 | [done] | `scripts/ui-audit.ts` |
+| UI-08 | 可访问性 | axe 在 390/1280 跑首页/目录/创作台，无 serious/critical；焦点可见、跳过导航、reduced-motion | [done] | `ui:audit`、`scripts/ui-audit.ts` |
+
 | UI-10 | 路由 | history 路由：站内链接 pushState、popstate 后退；`routeFor` 有单测 | [done] | `router.ts`、`router.test` |
 
 ## 11 TRU ｜安全与信任
@@ -244,8 +244,8 @@
 | TRU-05 | 信任列表 | `packhub trust add/remove/list` 持久存储；安装默认使用 | [done] | `trust.ts`、`trust.test` |
 | TRU-06 | 凭据库 | `~/.packhub/credentials.json` 0600，环境变量优先 | [done] | `credentials.ts` |
 | TRU-07 | 凭证不落盘 | 锁/state/日志不含 token；URL 脱敏 | [done] | `install.ts` |
-| TRU-08 | 许可探测 | 本地资源找 LICENSE 猜 SPDX | [part] | 只查本地，不做兼容判断 |
-| TRU-09 | 许可兼容 | `licenses --deny GPL-3.0,...` 命中即失败；不做完整的 NC/ND 兼容矩阵 | [part] | `cli licenses` |
+| TRU-08 | 许可探测 | 本地找 LICENSE 猜 SPDX；`--online` 读 npm registry 的 license 字段 | [done] | `license.ts`、`license.test` |
+| TRU-09 | 许可兼容 | 策略 JSON：allow/deny/copyleft/NC/ND/requireSpdx；命中有明确原因 | [done] | `evaluateLicense`、`license.test` |
 | TRU-10 | 可见性 | 四档，默认 private | [done] | schema/build |
 | TRU-11 | 操作审计 | add / install / update 写 `~/.packhub/audit.jsonl`；`packhub audit` 查看 | [done] | `audit.ts`、`cli audit` |
 
@@ -253,7 +253,7 @@
 
 | 编号 | 功能点 | 能观察到的事实 | 现状 | 证据/缺口 |
 |---|---|---|---|---|
-| OPS-01 | 测试套件 | 56 个文件 / 215 项通过 | [done] | `pnpm check` |
+| OPS-01 | 测试套件 | 56 个文件 / 217 项通过 | [done] | `pnpm check` |
 | OPS-02 | 类型检查 | `tsc --noEmit` 通过 | [done] | `pnpm typecheck` |
 | OPS-03 | registry 门禁 | `registry:check` 通过 | [done] | CI |
 | OPS-04 | 干净安装 CI | `registry:verify-all`（需网络） | [done] | workflow |
@@ -282,25 +282,23 @@
 
 ## 缺口汇总
 
-最初八项（staged 版本、资源发现、工具入口、scenario、市场写端、签名默认、全局同步、声明层四项）已经落地；远程继承/资源级 `packhub://` 也在后续补上，发布时会自动扁平化。剩下的是：
+清单里已经没有 `[todo]` / `[part]`；剩下 11 条 `[na]` 分两类：
 
-1. **全局 MCP 只有 codex**（SYN-12）：DSH 的 profile patch 与 Claude 的 user config 还没有 adapter；当前会被明确拒绝，不会写半套。
-2. **市场生产化**（REG-12 / HUB-12）：评分/评论、下载量、下架都有；仍是单机 JSON 存储、自动审核，发布校验在服务进程内跑，生产应放进沙箱或只收 CI 报告。
-3. **CLI 机器接口**（CLI-03 / CLI-04）：`add` 仍只有人类文本；参数级补全没有；个别错误仍用 1 表示用法问题。
-4. **界面回归**（UI-07 / UI-08 / UI-09）：有焦点可见、跳过导航、reduced-motion；没有 axe/键盘全流程审计与 390px 自动化回归，错误态仍分散。
-5. **重负载**（X-06 / X-04）：200 资源的计划与安装有基准；overlay 全树遍历、千文件包没有基准；多实例端口仍未统一。
-6. **pypi wheel**（REF-08）：只收 sdist，纯 wheel 包明确拒绝。
-7. **记忆状态块**：仍靠 `mcp` + `knowledge` + `paths` 组合，持久状态目录的 `state` 块未实装。
+1. **设计边界**：pypi 只装源码（wheel 是构建产物，不建 Python venv）；全局 MCP 只做 codex（DSH 是第三方 profile patch，Claude 的 user config 不在 harness home 内，都没有 PackHub 能依赖的稳定文件契约）；CLI 自更新没有渠道（未发布到 npm，分发走 `build:local`）。
+2. **不属于 PackHub**：会话、上下文组装、模型接入、编排、编辑与代码智能等（见 NA 域）。
+
+另有几条非阻断的运维建议，不算功能缺口：
+
+- 市场存储是单机 JSON；生产部署应把发布校验放进沙箱，或只收 CI 报告。
+- UI 审计覆盖 390/1280 的横向溢出与 axe 结构性违规，没有视觉基线 diff。
+- 大包基准只有耗时，没有内存/吞吐指标。
 
 ## 下一步
 
-1. **全局 MCP adapter**：DSH 写 profile patch 的 mcp 条目，Claude 写 user config；继续用托管块保证卸载可逆。
-2. **市场生产化**：SQLite/对象存储、审核工作流、沙箱验证；包内容仍按版本不可变。
-3. **CLI 统一**：`add --json`、参数级补全、退出码边界（用法错误一律 2）。
-4. **界面审计**：axe + 键盘全流程 + 390px 截图回归；把错误态收敛到统一区域。
-5. **重负载**：千文件包安装基准、overlay 遍历上限、多实例端口分配。
-6. **记忆状态块**：给持久状态目录一个一等公民的 `state` 块。
-
+1. **市场生产化**：SQLite/对象存储 + 管理前端接现有审核 API；包内容继续按版本不可变。
+2. **全局 MCP adapter**：等 DSH/Claude 给出稳定配置契约后再接，避免把第三方 patch 写进产品。
+3. **视觉回归**：在 `ui:audit` 上加截图基线；键盘全流程再补一轮。
+4. **记忆 state 块**：给持久状态目录一个一等公民的 `state` 块。
 ## 细节文档
 
 | 文档 | 覆盖 |

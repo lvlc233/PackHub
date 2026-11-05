@@ -41,6 +41,14 @@ jobs:
           pnpm bench:check
           pnpm bench:install
 
+      - name: 构建面板
+        run: pnpm web:build
+
+      - name: UI 审计（390/1280 · axe）
+        run: |
+          pnpm exec playwright install --with-deps chromium
+          pnpm ui:audit
+
       - name: 依赖漏洞审计（high 及以上阻断）
         run: pnpm audit --audit-level high
 

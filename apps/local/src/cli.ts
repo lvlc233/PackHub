@@ -34,6 +34,9 @@ import {
   readSignatures,
   writeSignature,
   inspectLicenses,
+  evaluateLicense,
+  npmLicense,
+  type LicensePolicy,
   doctorPack,
   probeHarness,
   probeSkill,
@@ -1444,54 +1447,88 @@ const probe = defineCommand({
 });
 
 const licenses = defineCommand({
-  meta: { name: 'licenses', description: '列出每个资源的许可证情况（只查 vendored 的本地内容）' },
+  meta: { name: 'licenses', description: '列出每个资源的许可证情况，并可按策略判定' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
     strict: { type: 'boolean', default: false, description: '缺许可证就以非零码退出' },
     deny: { type: 'string', description: '拒绝的 SPDX 列表（逗号分隔），命中就失败' },
+    online: { type: 'boolean', default: false, description: '远程 npm 资源也查 registry 的 license 字段' },
+    policy: { type: 'string', description: '许可策略 JSON：{allow,deny,allowCopyleft,allowNC,allowND,requireSpdx}' },
   },
   async run({ args }) {
     const dir = resolve(String(args.dir));
     const ctx = loadPack(dir);
     if (reportIssues(ctx.issues)) process.exit(2);
     const findings = inspectLicenses(dir, ctx.manifest);
+
+    if (args.online) {
+      for (const f of findings) {
+        if (f.vendored || !f.source.startsWith('npm:')) continue;
+        try {
+          const license = await npmLicense(f.source);
+          if (license) {
+            f.spdx = license;
+            f.file = 'npm registry license';
+          }
+        } catch {
+          /* 查不到就保持未知，策略决定是否拦 */
+        }
+      }
+    }
+
+    let policy: LicensePolicy | undefined;
+    if (args.policy) {
+      try {
+        policy = JSON.parse(readFileSync(resolve(String(args.policy)), 'utf8')) as LicensePolicy;
+      } catch (err) {
+        console.error(`许可策略读不了：${(err as Error).message}`);
+        process.exit(2);
+      }
+    }
     const denied = new Set(
       String(args.deny ?? '')
         .split(',')
         .map((s) => s.trim().toUpperCase())
         .filter(Boolean),
     );
+
     let missing = 0;
     let blocked = 0;
     for (const f of findings) {
-      if (!f.vendored) {
-        console.log(`- ${f.resource.padEnd(20)} 远程（许可在上游仓库）`);
+      if (!f.vendored && !f.spdx) {
+        console.log(`- ${f.resource.padEnd(20)} 远程（加 --online 可查 npm license）`);
         continue;
       }
-      const spdx = (f.spdx ?? '').toUpperCase();
-      if (denied.size > 0 && spdx && [...denied].some((d) => spdx.includes(d))) {
-        blocked++;
-        console.log(`x ${f.resource.padEnd(20)} ${f.spdx} · ${f.file}（命中拒绝列表）`);
-        continue;
-      }
-      if (f.file) {
-        console.log(`✓ ${f.resource.padEnd(20)} ${f.spdx ?? '未知'} · ${f.file}`);
-      } else {
+      const verdict = policy
+        ? evaluateLicense(f.spdx, policy)
+        : evaluateLicense(f.spdx, {
+            allowCopyleft: true,
+            allowNC: true,
+            allowND: true,
+            ...(denied.size ? { deny: [...denied] } : {}),
+          });
+      if (f.vendored && !f.file) {
         missing++;
         console.log(`x ${f.resource.padEnd(20)} 没有 LICENSE/COPYING`);
+        continue;
+      }
+      if (!verdict.ok) {
+        blocked++;
+        console.log(`x ${f.resource.padEnd(20)} ${f.spdx ?? '未知'} · ${f.file ?? f.source}（${verdict.reason}）`);
+      } else {
+        console.log(`✓ ${f.resource.padEnd(20)} ${f.spdx ?? '未知'} · ${f.file ?? f.source}`);
       }
     }
     if (missing > 0) {
       console.log(`\n${missing} 个 vendored 资源缺少许可证文件；不确定能不能再分发时先去上游确认`);
     }
     if (blocked > 0) {
-      console.log(`\n${blocked} 个资源命中拒绝的许可证：${[...denied].join(', ')}`);
+      console.log(`\n${blocked} 个资源未通过许可策略`);
       process.exit(1);
     }
     if (missing > 0 && args.strict) process.exit(1);
   },
 });
-
 const keygen = defineCommand({
   meta: { name: 'keygen', description: '生成一对 ed25519 签名密钥' },
   args: {

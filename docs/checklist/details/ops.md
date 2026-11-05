@@ -12,7 +12,7 @@
 | OPS-06 | `docker build` | 只读 Hub 镜像 | 镜像偏大（含 devDeps） |
 | OPS-07 | 文档入口 | README + authoring + contract + ui + checklist | 版本同步靠人 |
 | OPS-08 | 版本策略 | 产品 0.0.1，格式 v0，无兼容承诺 | 未定 1.0 判据 |
-| OPS-09 | 性能基准 | `bench` 生成 200 资源包量计划；CI 卡预算 | 大包真装与 overlay 遍历无基准 |
+| OPS-09 | 性能基准 | 200 资源 / 200 overlay / 1000 资源安装都有基准；CI 卡预算 | 没有内存/吞吐指标 |
 | OPS-10 | Windows CI | CI 有 `test-windows` 全量作业 | 没有浏览器矩阵 |
 | OPS-11 | 依赖审计 | CI 跑 `pnpm audit --audit-level high` | 许可扫描仍靠人工/`licenses` |
 

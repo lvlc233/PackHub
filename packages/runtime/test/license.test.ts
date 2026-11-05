@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { inspectLicenses, parseManifest } from '../src/index.ts';
+import { evaluateLicense, inspectLicenses, npmLicense, parseManifest } from '../src/index.ts';
 
 const MANIFEST = `apiVersion: packhub.dev/v0
 kind: Pack
@@ -41,5 +41,26 @@ describe('许可证检查', () => {
     expect(byId['no-license']?.file).toBeUndefined();
     expect(byId.remote?.vendored).toBe(false);
     rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe('许可策略', () => {
+  it('deny 优先；GPL 需显式允许；NC/ND 也能拦', () => {
+    expect(evaluateLicense('MIT', {})).toEqual({ ok: true });
+    expect(evaluateLicense('GPL-3.0', {})).toMatchObject({ ok: false });
+    expect(evaluateLicense('GPL-3.0', { allowCopyleft: true })).toEqual({ ok: true });
+    expect(evaluateLicense('MIT', { deny: ['MIT'] })).toMatchObject({ ok: false });
+    expect(evaluateLicense('CC-BY-NC-4.0', { allowCopyleft: true })).toMatchObject({ ok: false });
+    expect(evaluateLicense('CC-BY-NC-4.0', { allowCopyleft: true, allowNC: true })).toEqual({ ok: true });
+    expect(evaluateLicense('Apache-2.0', { allow: ['MIT'] })).toMatchObject({ ok: false });
+    expect(evaluateLicense(undefined, { requireSpdx: true })).toMatchObject({ ok: false });
+  });
+
+  it('远程 npm 的 license 字段能被读出来', async () => {
+    const mit = await npmLicense('npm:demo@1.2.3', async () => ({ license: 'MIT' }));
+    expect(mit).toBe('MIT');
+    const objectForm = await npmLicense('npm:demo@1.2.3', async () => ({ license: { type: 'Apache-2.0' } }));
+    expect(objectForm).toBe('Apache-2.0');
+    expect(await npmLicense('./local', async () => ({ license: 'MIT' }))).toBeUndefined();
   });
 });

@@ -4,7 +4,9 @@
   "version": "0.0.1",
   "packageManager": "pnpm@11.22.0",
   "type": "module",
-  "engines": { "node": ">=22.6" },
+  "engines": {
+    "node": ">=22.6"
+  },
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
@@ -30,11 +32,14 @@
     "bench:check": "node --experimental-strip-types scripts/bench.ts 200 --check",
     "bench:install": "node --experimental-strip-types scripts/bench.ts 200 --install",
     "bench:overlay": "node --experimental-strip-types scripts/bench.ts 200 --overlay --check",
-    "bench:large": "node --experimental-strip-types scripts/bench.ts 1000 --overlay --install"
+    "bench:large": "node --experimental-strip-types scripts/bench.ts 1000 --overlay --install",
+    "ui:audit": "node --experimental-strip-types scripts/ui-audit.ts"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
     "@types/node": "^22.10.2",
     "esbuild": "^0.25.0",
+    "playwright": "^1.64.1",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
   }

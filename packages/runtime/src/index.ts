@@ -57,7 +57,14 @@ export {
   type CacheCleanResult,
 } from './cache.ts';
 export { resolveAddSource, gitArchiveUrl, type ResolvedSource } from './source.ts';
-export { inspectLicenses, type LicenseFinding } from './license.ts';
+export {
+  inspectLicenses,
+  evaluateLicense,
+  npmLicense,
+  type LicenseFinding,
+  type LicensePolicy,
+  type LicenseVerdict,
+} from './license.ts';
 export { doctorPack, type DoctorReport, type DriftFinding } from './doctor.ts';
 export {
   probeHarness,

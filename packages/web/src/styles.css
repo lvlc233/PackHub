@@ -207,6 +207,12 @@ body {
   color: var(--accent-ink);
 }
 
+/* 选中态底色更浅，次要文字要随之加深，否则小字对比度不够 */
+.pack.is-active .pack-sub,
+.pack.is-active .pack-foot {
+  color: var(--ink-2);
+}
+
 .pack-sub {
   font: 11px/1.3 var(--font-mono);
   color: var(--muted);
