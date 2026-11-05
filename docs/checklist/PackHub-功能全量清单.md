@@ -275,7 +275,7 @@
 | X-04 | 并发 | 安装锁；多实例端口未统一 | [part] | — |
 | X-05 | tar 安全 | `..` 与符号/硬链接条目都拒绝落地；单测覆盖过滤规则 | [done] | `isSafeArchiveEntry`、`guards.test` |
 | X-06 | 大仓库性能 | 计划层有 200 资源基准；overlays 全树遍历与真装仍无基准 | [part] | `scripts/bench.ts` |
-| X-07 | 平台兼容 | Windows 为主，CI 为 Linux | [part] | — |
+| X-07 | 平台兼容 | 开发在 Windows；CI 同时跑 Linux 与 Windows | [done] | `.github/workflows/registry.yml` |
 | X-08 | 格式版本 | v0 未知主版本拒绝 | [done] | contract |
 | X-09 | i18n | 中文文档/提示，无多语言 | [na] | — |
 | X-10 | 沙箱 | 不运行 agent，exec 显式批准 | [na] | 不是 runtime |
