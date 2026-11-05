@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+﻿import { describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -61,7 +61,7 @@ describe('深校验', () => {
     const { plan } = planFor(ctx);
     await installPack(ctx, plan!);
 
-    const results = verifyPack(dir, plan!);
+    const results = await verifyPack(dir, plan!);
     expect(results.map((r) => [r.type, r.status])).toEqual([
       ['knowledge-integrity', 'pass'],
       ['command', 'pass'],
@@ -81,7 +81,7 @@ describe('深校验', () => {
       { type: 'knowledge-integrity' as const, resource: 'rules', integrity: hash('# rules\n') },
       { type: 'command' as const, run: ['node', '-e', 'process.exit(2)'] },
     ] };
-    const results = verifyPack(dir, bad);
+    const results = await verifyPack(dir, bad);
     expect(results.map((r) => r.status)).toEqual(['fail', 'fail']);
     rmSync(dir, { recursive: true, force: true });
   });

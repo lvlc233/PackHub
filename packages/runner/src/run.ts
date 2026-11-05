@@ -75,7 +75,7 @@ export async function runPack(packDir: string, opts: RunOptions = {}): Promise<R
       log(`${mark} ${o.actionId.padEnd(16)} ${o.status.padEnd(8)} ${o.message ?? o.target ?? ''}`);
     }
 
-    const checks = verifyPack(ctx.dir, plan);
+    const checks = await verifyPack(ctx.dir, plan);
     for (const c of checks) {
       log(`${c.status === 'pass' ? '✓' : c.status === 'fail' ? 'x' : '-'} [${c.index}] ${c.type} ${c.detail}`);
     }

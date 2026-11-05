@@ -25,14 +25,18 @@ export interface InstalledVerifyOptions {
  * 验一个「已经装进项目」的包：计划来自 state 里的快照，检查根就是项目根。
  * 这条路径不要求项目里有 packhub.yaml —— add 装进来的包，清单在 .packhub/packs/ 下。
  */
-export function verifyInstalled(root: string, opts: InstalledVerifyOptions = {}): InstalledVerifyReport[] {
+export async function verifyInstalled(
+  root: string,
+  opts: InstalledVerifyOptions = {},
+): Promise<InstalledVerifyReport[]> {
   const state = loadState(root);
   const keys = opts.pack ? [opts.pack] : Object.keys(state.packs);
+  const out: InstalledVerifyReport[] = [];
 
-  return keys.map((key) => {
+  for (const key of keys) {
     const record = state.packs[key];
     if (!record) {
-      return {
+      out.push({
         pack: key,
         planHash: '',
         installedAt: '',
@@ -40,17 +44,18 @@ export function verifyInstalled(root: string, opts: InstalledVerifyOptions = {})
           {
             index: 0,
             type: 'file-exists',
-            status: 'skipped' as const,
+            status: 'skipped',
             detail: `state 里没有这个包：${key}`,
           },
         ],
         ok: false,
-      };
+      });
+      continue;
     }
 
     const plan = record.plan;
     if (!plan) {
-      return {
+      out.push({
         pack: key,
         planHash: record.planHash,
         installedAt: record.installedAt,
@@ -58,27 +63,29 @@ export function verifyInstalled(root: string, opts: InstalledVerifyOptions = {})
           {
             index: 0,
             type: 'file-exists',
-            status: 'skipped' as const,
+            status: 'skipped',
             detail: 'state 里没有计划快照（旧版安装），重装一次再验',
           },
         ],
         ok: false,
-      };
+      });
+      continue;
     }
 
     const checks = opts.types
       ? plan.verify.filter((c) => opts.types!.includes(c.type))
       : plan.verify;
-    const results = runChecks(checks, { root, servers: serverSpecs(plan) });
-    return {
+    const results = await runChecks(checks, { root, servers: serverSpecs(plan) });
+    out.push({
       pack: key,
       planHash: record.planHash,
       installedAt: record.installedAt,
       plan,
       results,
       ok: results.every((r) => r.status !== 'fail'),
-    };
-  });
+    });
+  }
+  return out;
 }
 
 /** 目录里是否有安装记录（用于决定 verify 走「项目」还是「Pack」模式）。 */

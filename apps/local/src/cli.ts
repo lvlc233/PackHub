@@ -145,11 +145,11 @@ const verify = defineCommand({
     target: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code | codex' },
     pack: { type: 'string', description: '只验某个已装的包（name@version）' },
   },
-  run({ args }) {
+  async run({ args }) {
     const dir = resolve(String(args.dir));
     // 项目模式：add 装进来的包没有 packhub.yaml，计划和安装根都在 state 里
     if (!existsSync(join(dir, 'packhub.yaml')) && hasInstalledPacks(dir)) {
-      const reports = verifyInstalled(dir, {
+      const reports = await verifyInstalled(dir, {
         ...(args.pack ? { pack: String(args.pack) } : {}),
       });
       let failed = 0;
@@ -177,7 +177,7 @@ const verify = defineCommand({
       reportIssues(issues);
       process.exit(2);
     }
-    const results = verifyPack(ctx.dir, p);
+    const results = await verifyPack(ctx.dir, p);
     for (const r of results) {
       const mark = r.status === 'pass' ? '✓' : r.status === 'fail' ? 'x' : '-';
       console.log(`${mark} [${r.index}] ${r.type.padEnd(18)} ${r.status.padEnd(8)} ${r.detail}`);
@@ -527,7 +527,7 @@ const add = defineCommand({
     // 装完立刻复核：否则「装上了」和「能用」之间又断了一层
     if (!args['no-verify']) {
       const key = `${ctx.manifest.metadata.name}@${ctx.manifest.metadata.version}`;
-      const reports = verifyInstalled(projectDir, {
+      const reports = await verifyInstalled(projectDir, {
         pack: key,
         ...(args['deep-verify'] ? {} : { types: [...SAFE_CHECKS] }),
       });
@@ -581,7 +581,7 @@ const update = defineCommand({
     console.log(`\nplanHash ${res.planHash.slice(0, 22)}…（可用 packhub rollback 退回）`);
 
     if (res.changed && !args['no-verify']) {
-      const reports = verifyInstalled(resolve(String(args.dir)), {
+      const reports = await verifyInstalled(resolve(String(args.dir)), {
         pack: res.to,
         ...(args['deep-verify'] ? {} : { types: [...SAFE_CHECKS] }),
       });

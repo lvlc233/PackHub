@@ -105,7 +105,7 @@ describe('install + verify 闭环（本地资源，离线）', () => {
     expect(existsSync(join(work, '.packhub/config.json'))).toBe(true);
     expect(existsSync(join(work, '.packhub/knowledge/style-guide.md'))).toBe(true);
 
-    const results = verifyPack(ctx.dir, plan!);
+    const results = await verifyPack(ctx.dir, plan!);
     expect(results.filter((r) => r.status === 'fail')).toEqual([]);
 
     const second = await installPack(ctx, plan!);

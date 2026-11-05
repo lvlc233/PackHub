@@ -76,7 +76,7 @@ describe('update 的删除语义', () => {
     expect(state.packs['demo/prune@0.2.0'].written).not.toContain('.packhub/knowledge/extra.md');
 
     const { verifyInstalled } = await import('../src/index.ts');
-    const reports = verifyInstalled(project);
+    const reports = await verifyInstalled(project);
     expect(reports[0]!.planHash).toBe(res.planHash);
     expect(reports[0]!.ok).toBe(true);
 

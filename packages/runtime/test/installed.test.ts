@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+﻿import { describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -34,7 +34,7 @@ describe('在项目根上验已装的包', () => {
     const ctx = loadPack(src);
     await installPack(ctx, planFor(ctx).plan!, { root: project, packRoot: src });
 
-    const reports = verifyInstalled(project);
+    const reports = await verifyInstalled(project);
     expect(reports).toHaveLength(1);
     expect(reports[0]!.pack).toBe('demo/inst@0.0.1');
     expect(reports[0]!.results.map((r) => r.status)).toEqual(['pass']);
@@ -51,9 +51,9 @@ describe('在项目根上验已装的包', () => {
     await installPack(ctx, planFor(ctx).plan!, { root: project, packRoot: src });
     rmSync(join(project, '.packhub/knowledge/rules.md'), { force: true });
 
-    expect(verifyInstalled(project)[0]!.ok).toBe(false);
-    expect(verifyInstalled(project, { pack: 'demo/inst@0.0.1' })[0]!.results[0]!.status).toBe('fail');
-    expect(verifyInstalled(project, { pack: 'demo/missing@1.0.0' })[0]!.ok).toBe(false);
+    expect((await verifyInstalled(project))[0]!.ok).toBe(false);
+    expect((await verifyInstalled(project, { pack: 'demo/inst@0.0.1' }))[0]!.results[0]!.status).toBe('fail');
+    expect((await verifyInstalled(project, { pack: 'demo/missing@1.0.0' }))[0]!.ok).toBe(false);
 
     rmSync(src, { recursive: true, force: true });
     rmSync(project, { recursive: true, force: true });

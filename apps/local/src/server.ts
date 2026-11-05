@@ -1,4 +1,4 @@
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+﻿import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { buildPlan, loadPack, parseManifest, planFor, validateGraph, type TargetId } from '@packhub/kernel';
@@ -192,7 +192,7 @@ async function handleApi(
   if (url.pathname === '/api/verify' && req.method === 'POST') {
     // 项目模式：add 装进来的包没有 packhub.yaml，用 state 里的计划快照验
     if (!existsSync(join(dir, 'packhub.yaml')) && hasInstalledPacks(dir)) {
-      const reports = verifyInstalled(dir);
+      const reports = await verifyInstalled(dir);
       return sendJson(res, 200, {
         installed: reports,
         results: reports.flatMap((r) => r.results),
@@ -202,7 +202,7 @@ async function handleApi(
     const ctx = loadPack(dir);
     const { plan, issues } = planFor(ctx);
     if (!plan) return sendJson(res, 422, { error: '计划生成失败', issues });
-    return sendJson(res, 200, { results: verifyPack(ctx.dir, plan), planHash: plan.planHash });
+    return sendJson(res, 200, { results: await verifyPack(ctx.dir, plan), planHash: plan.planHash });
   }
 
   if (url.pathname === '/api/harness' && req.method === 'GET') {

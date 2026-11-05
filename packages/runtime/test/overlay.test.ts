@@ -57,7 +57,7 @@ describe('overlays：mod 的 mod', () => {
     expect(result.outcomes.filter((o) => o.status === 'failed')).toEqual([]);
     expect(readFileSync(join(dir, '.packhub/knowledge/rules.md'), 'utf8')).toBe('# 本项目改过的规范\n');
 
-    const checks = verifyPack(dir, plan!);
+    const checks = await verifyPack(dir, plan!);
     expect(checks.filter((c) => c.status === 'fail')).toEqual([]);
     rmSync(dir, { recursive: true, force: true });
   });

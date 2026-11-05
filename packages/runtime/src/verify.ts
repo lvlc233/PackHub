@@ -30,16 +30,27 @@ export function serverSpecs(plan: Plan): Record<string, unknown> {
   return out;
 }
 
-export function runChecks(checks: VerifyCheck[], opts: VerifyOptions): CheckResult[] {  return checks.map((check, index) => {
+export async function runChecks(checks: VerifyCheck[], opts: VerifyOptions): Promise<CheckResult[]> {
+  const out: CheckResult[] = [];
+  for (const [index, check] of checks.entries()) {
     try {
-      return { index, type: check.type, ...evaluate(check, opts) };
+      out.push({ index, type: check.type, ...(await evaluate(check, opts)) });
     } catch (err) {
-      return { index, type: check.type, status: 'fail' as CheckStatus, detail: (err as Error).message };
+      out.push({
+        index,
+        type: check.type,
+        status: 'fail',
+        detail: (err as Error).message,
+      });
     }
-  });
+  }
+  return out;
 }
 
-function evaluate(check: VerifyCheck, opts: VerifyOptions): { status: CheckStatus; detail: string } {
+async function evaluate(
+  check: VerifyCheck,
+  opts: VerifyOptions,
+): Promise<{ status: CheckStatus; detail: string }> {
   switch (check.type) {
     case 'file-exists': {
       const file = safe(opts.root, check.path);
@@ -89,11 +100,6 @@ function evaluate(check: VerifyCheck, opts: VerifyOptions): { status: CheckStatu
         return { status: 'skipped', detail: `计划里没有 ${check.resource} 的启动规格` };
       }
       const server = spec as { command?: unknown; args?: unknown; url?: unknown };
-      if (server.url) return { status: 'skipped', detail: 'http 传输的探活还没做（需要真实网络端点）' };
-      if (typeof server.command !== 'string') {
-        return { status: 'skipped', detail: '这个 MCP 没有可启动的 command' };
-      }
-      const args = Array.isArray(server.args) ? server.args.map(String) : [];
       const init = JSON.stringify({
         jsonrpc: '2.0',
         id: 1,
@@ -104,6 +110,48 @@ function evaluate(check: VerifyCheck, opts: VerifyOptions): { status: CheckStatu
           clientInfo: { name: 'packhub', version: '0.0.1' },
         },
       });
+      if (typeof server.url === 'string' && server.url) {
+        // MCP Streamable HTTP：POST 一条 initialize，响应可能是 JSON 或 SSE
+        const timeoutMs = (check.timeout ?? 10) * 1000;
+        let body = '';
+        let status = 0;
+        try {
+          const response = await fetch(server.url, {
+            method: 'POST',
+            headers: {
+              'content-type': 'application/json',
+              accept: 'application/json, text/event-stream',
+            },
+            body: init,
+            signal: AbortSignal.timeout(timeoutMs),
+          });
+          status = response.status;
+          body = await response.text();
+        } catch (err) {
+          return {
+            status: 'fail',
+            detail: `${check.resource} 的 http 探活失败：${(err as Error).message}（${server.url}）`,
+          };
+        }
+        const payload = body.includes('data:')
+          ? body
+              .split(/\r?\n/)
+              .filter((line) => line.startsWith('data:'))
+              .map((line) => line.slice(5).trim())
+              .join('\n')
+          : body;
+        if ((/"result"\s*:/.test(payload) || /"protocolVersion"\s*:/.test(payload)) && status < 400) {
+          return { status: 'pass', detail: `${check.resource} 完成 http initialize 握手（${server.url}）` };
+        }
+        return {
+          status: 'fail',
+          detail: `${check.resource} 的 http 端点没有回应 initialize（HTTP ${status}）`,
+        };
+      }
+      if (typeof server.command !== 'string') {
+        return { status: 'skipped', detail: '这个 MCP 没有可启动的 command 或 url' };
+      }
+      const args = Array.isArray(server.args) ? server.args.map(String) : [];
       const res = spawnSync(server.command, args, {
         cwd: opts.root,
         input: `${init}\n`,

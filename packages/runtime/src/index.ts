@@ -163,6 +163,6 @@ export function installPack(
   });
 }
 
-export function verifyPack(dir: string, plan: Plan): CheckResult[] {
+export function verifyPack(dir: string, plan: Plan): Promise<CheckResult[]> {
   return runChecks(plan.verify, { root: resolve(dir), servers: serverSpecs(plan) });
 }
