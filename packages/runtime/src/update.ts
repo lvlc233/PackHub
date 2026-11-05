@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { fetchPack } from './registry.ts';
 import { loadPack, planFor, installPack, loadState, loadLock, withLockPins } from './index.ts';
+import { loadPackResolved } from './extends.ts';
 import { pruneRemoved } from './install.ts';
 import { diffActions, describeAction } from '@packhub/kernel';
 import type { Plan } from '@packhub/kernel';
@@ -44,7 +45,7 @@ export async function updatePack(opts: UpdateOptions): Promise<UpdateResult> {
     dest,
   });
 
-  const raw = loadPack(dest);
+  const raw = await loadPackResolved(dest, { index: opts.index });
   const lock = loadLock(dest);
   const ctx = withLockPins(raw, lock);
   const errors = ctx.issues.filter((i) => i.severity === 'error');

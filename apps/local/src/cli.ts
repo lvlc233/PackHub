@@ -36,6 +36,7 @@ import {
   doctorPack,
   probeHarness,
   probeSkill,
+  loadPackResolved,
   generateKeyPair,
   signPlan,
   verifySignatures,
@@ -111,8 +112,10 @@ const plan = defineCommand({
     json: { type: 'boolean', default: false },
     target: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code | codex | server' },
   },
-  run({ args }) {
-    const ctx = loadPack(String(args.dir));
+  async run({ args }) {
+    const ctx = await loadPackResolved(String(args.dir), {
+      index: resolveRegistry(args.index ? String(args.index) : undefined),
+    });
     if (reportIssues(ctx.issues)) process.exit(2);
     const { plan: p, issues } = planFor(ctx, { target: String(args.target ?? 'dir') as never });
     if (!p) {
@@ -133,9 +136,12 @@ const install = defineCommand({
     overwrite: { type: 'boolean', default: false, description: '允许覆盖别的包写过的文件' },
     target: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code | codex | server' },
     json: { type: 'boolean', default: false, description: '输出结构化结果（脚本用）' },
+    index: { type: 'string', description: '远程 extends 用的 registry 索引' },
   },
   async run({ args }) {
-    const ctx = loadPack(String(args.dir));
+    const ctx = await loadPackResolved(String(args.dir), {
+      index: resolveRegistry(args.index ? String(args.index) : undefined),
+    });
     if (reportIssues(ctx.issues)) process.exit(2);
     const target = String(args.target ?? 'dir');
     if (!ctx.manifest.metadata.targets.includes(target as never)) {
@@ -203,6 +209,7 @@ const verify = defineCommand({
     target: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code | codex | server' },
     pack: { type: 'string', description: '只验某个已装的包（name@version）' },
     json: { type: 'boolean', default: false, description: '输出结构化结果（脚本用）' },
+    index: { type: 'string', description: '远程 extends 用的 registry 索引' },
   },
   async run({ args }) {
     const dir = resolve(String(args.dir));
@@ -244,7 +251,9 @@ const verify = defineCommand({
       return;
     }
 
-    const ctx = loadPack(dir);
+    const ctx = await loadPackResolved(dir, {
+      index: resolveRegistry(args.index ? String(args.index) : undefined),
+    });
     if (reportIssues(ctx.issues)) process.exit(2);
     const { plan: p, issues } = planFor(ctx, { target: String(args.target ?? 'dir') as never });
     if (!p) {
@@ -273,10 +282,13 @@ const lock = defineCommand({
     dir: { type: 'positional', required: false, default: '.' },
     target: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code | codex | server' },
     offline: { type: 'boolean', default: false, description: '不联网：只锁本地与已 pin 的引用' },
+    index: { type: 'string', description: '远程 extends 用的 registry 索引' },
   },
   async run({ args }) {
     const dir = resolve(String(args.dir));
-    const ctx = loadPack(dir);
+    const ctx = await loadPackResolved(dir, {
+      index: resolveRegistry(args.index ? String(args.index) : undefined),
+    });
     if (reportIssues(ctx.issues)) process.exit(2);
     try {
       const res = await lockPack(ctx, {
@@ -361,7 +373,7 @@ const resourceAdd = defineCommand({
     id: { type: 'string', description: '自定义资源 id（默认从 source 推断）' },
     target: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code | codex | server' },
   },
-  run({ args }) {
+  async run({ args }) {
     const type = String(args.type) as (typeof RESOURCE_TYPES)[number];
     if (!RESOURCE_TYPES.includes(type)) {
       console.error(`未知类型：${type}（可选：${RESOURCE_TYPES.join(' / ')}）`);
@@ -382,7 +394,7 @@ const resourceAdd = defineCommand({
     console.log(`✓ 已追加资源 ${id}（${type}）→ ${file}`);
 
     // 加完立刻重算：格式对不对、能力图缺不缺，当场能看到
-    const ctx = loadPack(dir);
+    const ctx = await loadPackResolved(dir);
     const errors = ctx.issues.filter((i) => i.severity === 'error');
     if (errors.length) {
       for (const e of errors) console.error(`error [${e.code}] ${e.message}`);
@@ -408,19 +420,19 @@ const slotSwap = defineCommand({
     dir: { type: 'string', default: '.' },
     target: { type: 'string', default: 'dir' },
   },
-  run({ args }) {
+  async run({ args }) {
     const dir = resolve(String(args.dir));
     const file = join(dir, 'packhub.yaml');
     if (!existsSync(file)) {
       console.error(`没有 packhub.yaml：${file}`);
       process.exit(2);
     }
-    const before = planFor(loadPack(dir)).plan;
+    const before = planFor(await loadPackResolved(dir)).plan;
 
     setBinding(file, String(args.slot), String(args.resource));
     console.log(`✓ bindings.${String(args.slot)} → ${String(args.resource)}`);
 
-    const ctx = loadPack(dir);
+    const ctx = await loadPackResolved(dir);
     const errors = ctx.issues.filter((i) => i.severity === 'error');
     if (errors.length) {
       for (const e of errors) console.error(`error [${e.code}] ${e.message}`);
@@ -543,7 +555,9 @@ const add = defineCommand({
       label = `${registryName}@${fetched.version}`;
     }
 
-    const rawCtx = loadPack(packDir);
+    const rawCtx = await loadPackResolved(packDir, {
+      index: resolveRegistry(args.index ? String(args.index) : undefined),
+    });
     if (!rawCtx.manifest) {
       reportIssues(rawCtx.issues);
       process.exit(2);
@@ -1337,9 +1351,9 @@ const licenses = defineCommand({
     strict: { type: 'boolean', default: false, description: '缺许可证就以非零码退出' },
     deny: { type: 'string', description: '拒绝的 SPDX 列表（逗号分隔），命中就失败' },
   },
-  run({ args }) {
+  async run({ args }) {
     const dir = resolve(String(args.dir));
-    const ctx = loadPack(dir);
+    const ctx = await loadPackResolved(dir);
     if (reportIssues(ctx.issues)) process.exit(2);
     const findings = inspectLicenses(dir, ctx.manifest);
     const denied = new Set(
@@ -1400,9 +1414,9 @@ const sign = defineCommand({
     dir: { type: 'positional', required: false, default: '.' },
     key: { type: 'string', required: true, description: '私钥 PEM 路径' },
   },
-  run({ args }) {
+  async run({ args }) {
     const dir = resolve(String(args.dir));
-    const ctx = loadPack(dir);
+    const ctx = await loadPackResolved(dir);
     if (reportIssues(ctx.issues)) process.exit(2);
     const { plan, issues } = planFor(ctx, { target: 'dir' });
     if (!plan) {
@@ -1425,9 +1439,9 @@ const verifySig = defineCommand({
     dir: { type: 'positional', required: false, default: '.' },
     trusted: { type: 'string', description: '信任的公钥 id 列表文件（每行一个）' },
   },
-  run({ args }) {
+  async run({ args }) {
     const dir = resolve(String(args.dir));
-    const ctx = loadPack(dir);
+    const ctx = await loadPackResolved(dir);
     if (reportIssues(ctx.issues)) process.exit(2);
     const { plan, issues } = planFor(ctx, { target: 'dir' });
     if (!plan) {
@@ -1513,7 +1527,7 @@ const diff = defineCommand({
     check: { type: 'boolean', default: false, description: '有差异就以非零码退出（CI 用）' },
     target: { type: 'string', default: 'dir' },
   },
-  run({ args }) {
+  async run({ args }) {
     const dir = resolve(String(args.dir));
     const lockPath = join(dir, 'packhub.lock.json');
     if (!existsSync(lockPath)) {
@@ -1524,7 +1538,7 @@ const diff = defineCommand({
       planHash: string;
       plan?: { actions: import('@packhub/kernel').PlanAction[] };
     };
-    const ctx = withLockPins(loadPack(dir), loadLock(dir));
+    const ctx = withLockPins(await loadPackResolved(dir), loadLock(dir));
     if (reportIssues(ctx.issues)) process.exit(2);
     const { plan, issues } = planFor(ctx, { target: String(args.target ?? 'dir') as never });
     if (!plan) {

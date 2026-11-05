@@ -1,6 +1,6 @@
 # PackHub 功能全量清单
 
-> 版本：2026-11-05 ／ 口径：本仓库当前代码、CLI 实测、测试套件（53 个文件 / 204 项）与 registry 现状。
+> 版本：2026-11-05 ／ 口径：本仓库当前代码、CLI 实测、测试套件（54 个文件 / 208 项）与 registry 现状。
 > 用途：实现 checklist、选型对照、漏项审计。**不是**产品介绍。
 
 ## 怎么读
@@ -69,7 +69,7 @@
 | PKG-08 | overlays | 文件级覆盖排在资源之后；两覆盖层冲突报错，盖生成物只警告 | [done] | `plan.ts`、`overlay.test` |
 | PKG-09 | 可见性 | `public/unlisted/internal/private`，默认 private | [done] | `ref`/schema、`build.ts` |
 | PKG-10 | 签名声明 | manifest 可带 `signatures`，也支持独立文件 | [done] | `signature.ts`、`signfile.ts` |
-| PKG-11 | `extends` | 本地父 Pack 可继承：资源/接线合并、同名覆盖、环检测；父包本地 source 会 rebase | [part] | `loadPack` / `mergeManifest`、`extends.test`；远程 `packhub://` 仍报错 |
+| PKG-11 | `extends` | 本地与 `packhub://` 父 Pack 都可继承；远程父包缓存进子包、路径稳定、环检测 | [part] | `loadPackResolved`、`extends*.test`；发布需扁平化 |
 | PKG-12 | server profile | `server` target + 资源级 `targets` 裁剪，未命中进 `excluded`（target-mismatch） | [done] | `plan.ts`、`server-profile.test` |
 | PKG-13 | 本地覆盖 | `.packhub/local.yaml` 覆盖 pin/绑定/paths/vars/env，不进锁 | [done] | `mergeLocalOverrides`、`local-overrides.test` |
 | PKG-14 | PACK.md / CHANGELOG | 发布复制进版本目录；Hub / 市场 API 返回原文，包页渲染 | [done] | `publish.ts`、`hub/server.ts`、`PacksPage` |
@@ -253,7 +253,7 @@
 
 | 编号 | 功能点 | 能观察到的事实 | 现状 | 证据/缺口 |
 |---|---|---|---|---|
-| OPS-01 | 测试套件 | 53 个文件 / 204 项通过 | [done] | `pnpm check` |
+| OPS-01 | 测试套件 | 54 个文件 / 208 项通过 | [done] | `pnpm check` |
 | OPS-02 | 类型检查 | `tsc --noEmit` 通过 | [done] | `pnpm typecheck` |
 | OPS-03 | registry 门禁 | `registry:check` 通过 | [done] | CI |
 | OPS-04 | 干净安装 CI | `registry:verify-all`（需网络） | [done] | workflow |
@@ -284,7 +284,7 @@
 
 上一轮的八项（staged 版本、资源发现、工具入口、scenario、市场写端、签名默认、全局同步、声明层四项）已经落地或收窄。剩下的是：
 
-1. **远程继承与资源级 `packhub://`**（PKG-11 / REF-09）：`extends` 只认本地 `../`；`add packhub://` 已等价 registry 安装，但资源来源还没有下载器。
+1. **资源级 `packhub://`**（REF-09）：`extends` 与 `add` 都能用 `packhub://`，但单个资源把 `packhub://` 当来源时还没有下载器（缺“归档内子路径”的取法）。
 2. **全局 MCP 只有 codex**（SYN-12）：DSH 的 profile patch 与 Claude 的 user config 还没有 adapter；当前会被明确拒绝，不会写半套。
 3. **市场生产化**（REG-12 / HUB-12）：单机 JSON 存储、自动审核、无评分/评论；发布校验在服务进程内跑，生产应放进沙箱或只收 CI 报告。
 4. **CLI 机器接口**（CLI-03 / CLI-04）：`--json` 与退出码没有全命令统一；脚本调用仍要按命令记。
@@ -295,7 +295,7 @@
 
 ## 下一步
 
-1. **远程继承 + 资源级 packhub://**：复用 registry 的版本目录/归档，父 Pack 落到缓存后按本地继承的同一套规则合并；资源级则定义“归档内子路径 + 类型”的取法。
+1. **资源级 packhub://**：定义“归档内子路径 + 类型”的取法（例如 skill 取归档里的某个目录），复用 registry 的版本目录与完整性校验。
 2. **全局 MCP adapter**：DSH 写 profile patch 的 mcp 条目，Claude 写 user config；继续用托管块保证卸载可逆。
 3. **市场生产化**：SQLite/对象存储、审核工作流、评分与评论、沙箱验证；包内容仍按版本不可变。
 4. **CLI 统一**：所有命令一份 `--json` 结构 + 退出码表（0 成功 / 1 业务失败 / 2 用法与校验）。

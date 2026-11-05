@@ -410,7 +410,7 @@ pnpm registry:check
 - 版本切换是产物副本重铺，不是硬链接；保留最近 5 个版本目录，更早的要重新安装。
 - 一个锁只覆盖一个 target；跨 target 安装时，锁只保证引用，目标计划没有被 `planHash` 校验。
 - 没有 SSH 部署与常驻同步 agent。
-- `extends` 只支持本地父 Pack；`packhub://` 形式的远程继承还没有实现。
+- 远程 `extends: packhub://scope/name@ver` 在安装期解析（父包缓存进子包 `.packhub/cache/extends/`）；发布时要求扁平化，带远程 extends 的包会被 `publish` 拒绝。
 - 全局 MCP 只有 codex 的 TOML adapter；DSH / Claude Code 的全局 MCP 仍走项目级安装。
 - 没有工具白名单、上下文范围、写入边界这类隔离能力。
 - `exec` 的外部副作用无法回滚；清单里的 `undo` 只记录，不自动执行。

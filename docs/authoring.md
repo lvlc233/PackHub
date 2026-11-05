@@ -256,7 +256,7 @@ overlays:
 
 ### 继承与本地覆盖
 
-`extends: ../base` 继承一个本地父 Pack：父包的 `resources`、`composition`、`slots`、`bindings`、`paths`、`overrides`、`verify` 一起合并；子包同名资源覆盖父包，`metadata` 与 `requires` 以子包为准；父包的本地 source 会被改写成相对子包的路径，安装时能读。成环直接报 `extends-cycle`；远程 `packhub://…` 形式暂未实现。
+`extends: ../base` 继承一个本地父 Pack；`extends: packhub://scope/name@1.0.0` 从 registry 取远程父包（落在子包 `.packhub/cache/extends/`，路径相对子包，planHash 跨机器一致）。父包的 `resources`、`composition`、`slots`、`bindings`、`paths`、`overrides`、`verify` 一起合并；子包同名资源覆盖父包，`metadata` 与 `requires` 以子包为准；父包的本地 source 会被改写成相对子包的路径，安装时能读。成环报 `extends-cycle`。远程继承要求 `--index` / `PACKHUB_INDEX`；发布前要扁平化，否则 `publish` 会拒绝。
 
 使用者侧的 `.packhub/local.yaml` 不进清单、不进锁，只覆盖这一次安装：
 

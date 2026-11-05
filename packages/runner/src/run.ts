@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path';
 import {
   installPack,
   loadPack,
+  loadPackResolved,
   loadLock,
   planFor,
   readSignatures,
@@ -30,6 +31,8 @@ export interface RunOptions {
   log?: (line: string) => void;
   /** 允许执行清单里的 install.exec（默认不执行） */
   allowExec?: boolean;
+  /** 解析远程 extends 用的 registry 索引；默认取 PACKHUB_INDEX */
+  index?: string;
 }
 
 export interface RunResult {
@@ -55,7 +58,12 @@ export async function runPack(packDir: string, opts: RunOptions = {}): Promise<R
     // 干净环境：不带上一次的安装状态
     rmSync(join(work, '.packhub'), { recursive: true, force: true });
 
-    const ctx = withLockPins(loadPack(work), loadLock(work));
+    const ctx = withLockPins(
+      await loadPackResolved(work, {
+        ...(opts.index ? { index: opts.index } : {}),
+      }),
+      loadLock(work),
+    );
     const errors = ctx.issues.filter((i) => i.severity === 'error');
     if (errors.length > 0) {
       for (const e of errors) log(`error ${e.message}`);

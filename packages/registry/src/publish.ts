@@ -40,6 +40,11 @@ export async function publishPack(packDir: string, opts: PublishOptions): Promis
   const registryRoot = resolve(opts.out ?? opts.registry);
 
   const ctx = loadPack(dir);
+  if (ctx.manifest?.extends?.startsWith('packhub://')) {
+    throw new Error(
+      '远程 extends 的包不能直接发布：先把父包 vendored 进子包（或改成本地继承）再发，否则消费端解析不到父包',
+    );
+  }
   const errors = ctx.issues.filter((i) => i.severity === 'error');
   if (errors.length > 0) {
     throw new Error(`清单有问题，不能发布：${errors.map((e) => e.message).join('; ')}`);

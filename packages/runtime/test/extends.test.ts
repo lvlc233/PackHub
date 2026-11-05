@@ -76,7 +76,7 @@ resources:
     rmSync(project, { recursive: true, force: true });
   });
 
-  it('成环时报错；远程 extends 明确拒绝', () => {
+  it('成环时报错；远程 extends 交给 runtime 展开（kernel 不报错）', () => {
     const root = mkdtempSync(join(tmpdir(), 'packhub-ext-cycle-'));
     const a = join(root, 'a');
     const b = join(root, 'b');
@@ -101,7 +101,9 @@ resources:
       manifest('demo/r', '0.0.1', `extends: packhub://demo/base@1.0.0\n${oneRes}`),
       'utf8',
     );
-    expect(loadPack(remote).issues.map((i) => i.code)).toContain('extends-remote-unsupported');
+    const deferred = loadPack(remote);
+    expect(deferred.issues.filter((i) => i.severity === 'error')).toEqual([]);
+    expect(deferred.manifest.extends).toBe('packhub://demo/base@1.0.0');
     rmSync(root, { recursive: true, force: true });
   });
 });

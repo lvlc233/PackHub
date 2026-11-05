@@ -45,6 +45,10 @@ export {
 } from './authoring.ts';
 export { updatePack, type UpdateOptions, type UpdateResult } from './update.ts';
 export {
+  loadPackResolved,
+  type LoadPackResolvedOptions,
+} from './extends.ts';
+export {
   inspectCache,
   cleanCache,
   type CacheEntry,

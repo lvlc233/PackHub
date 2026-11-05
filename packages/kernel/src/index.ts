@@ -63,11 +63,13 @@ export function loadPack(dir: string, opts: { seen?: string[] } = {}): PackConte
   const inherited: Issue[] = [];
   if (manifest.extends) {
     const spec = manifest.extends;
-    if (!spec.startsWith('./') && !spec.startsWith('../')) {
+    if (spec.startsWith('packhub://')) {
+      // 远程父包需要 registry，kernel 不出网；由 runtime 的 loadPackResolved 展开
+    } else if (!spec.startsWith('./') && !spec.startsWith('../')) {
       inherited.push({
-        code: 'extends-remote-unsupported',
+        code: 'extends-invalid',
         severity: 'error',
-        message: `远程 extends 还没有实现：${spec}（当前只支持 ./ 或 ../ 的本地父 Pack）`,
+        message: `extends 只支持 ./、../ 或 packhub://：${spec}`,
       });
     } else {
       const parentDir = resolve(abs, spec);
@@ -177,7 +179,8 @@ export function mergeLocalOverrides(
 function rebaseLocal(source: string, fromDir: string, toDir: string): string {
   if (!source.startsWith('./') && !source.startsWith('../')) return source;
   const rel = relative(toDir, resolve(fromDir, source)).split(sep).join('/');
-  return rel.startsWith('.') ? rel : `./${rel}`;
+  if (rel.startsWith('../')) return rel;
+  return `./${rel.replace(/^\.\//, '')}`;
 }
 
 /**
