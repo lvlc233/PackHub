@@ -65,10 +65,11 @@ jobs:
       - name: 生成 index.json
         run: pnpm registry:index
 
-      - name: 准备站点产物
+      - name: 准备站点产物（索引 + 归档，归档路径与 index 里的约定一致）
         run: |
           mkdir -p site
           cp registry/index.json site/index.json
+          (cd registry && find packs -type f -name '*.phub' -exec cp --parents {} ../site/ \;)
           echo "PackHub registry" > site/README.txt
 
       - uses: actions/upload-pages-artifact@v3

@@ -1,7 +1,7 @@
 import { cpSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { buildLock, loadPack, planFor } from '@packhub/kernel';
-import { packArchive } from '@packhub/runtime';
+import { loadPack } from '@packhub/kernel';
+import { lockPack, packArchive } from '@packhub/runtime';
 import { runPack, type VerifyReport } from '@packhub/runner';
 
 export interface PublishOptions {
@@ -12,6 +12,10 @@ export interface PublishOptions {
   out?: string;
   /** 允许覆盖已存在的版本目录（默认拒绝：已发布版本不可变） */
   force?: boolean;
+  /** 不联网解析引用（CI 没网时用；锁里会保留未解析的引用） */
+  offline?: boolean;
+  /** 允许 runner 执行清单里的 install.exec（默认不执行） */
+  allowExec?: boolean;
   log?: (line: string) => void;
 }
 
@@ -51,15 +55,19 @@ export async function publishPack(packDir: string, opts: PublishOptions): Promis
   }
 
   // 1) 干净环境跑一遍
-  const { report } = await runPack(dir, { log });
+  const { report } = await runPack(dir, { log, allowExec: opts.allowExec === true });
   if (!report.ok) {
     throw new Error('干净安装或校验未通过，已阻止发布（先修问题，别发布一个装不上的包）');
   }
 
-  // 2) 生成/刷新锁，保证 registry 里的锁与计划一致
-  const { plan } = planFor(ctx);
-  if (!plan) throw new Error('生成计划失败');
-  const lock = buildLock(ctx.manifest, plan);
+  // 2) 解析引用并生成/刷新锁，保证 registry 里的锁与计划一致
+  const { lock, warnings } = await lockPack(ctx, { target: 'dir', offline: opts.offline === true });
+  for (const w of warnings) log(`warn ${w}`);
+  if (report.planHash !== lock.planHash) {
+    throw new Error(
+      'runner 装出来的计划与解析后的锁不一致：先跑 `packhub lock` 把引用钉死（或检查清单是否在锁定后又改过），再发布',
+    );
+  }
 
   const wrote: string[] = [];
   if (!opts.dryRun) {
@@ -69,6 +77,13 @@ export async function publishPack(packDir: string, opts: PublishOptions): Promis
       if (!existsSync(src)) continue;
       writeFileSync(join(versionDir, file), readFileSync(src));
       wrote.push(file);
+    }
+    // vendored 资源也要进版本目录：清单、锁、报告都在这里，别人克隆 registry 后能直接复核
+    for (const sub of ['resources', 'fragments', 'overrides', 'skills', 'glue']) {
+      const src = join(dir, sub);
+      if (!existsSync(src)) continue;
+      cpSync(src, join(versionDir, sub), { recursive: true });
+      wrote.push(`${sub}/`);
     }
     writeFileSync(join(versionDir, 'packhub.lock.json'), JSON.stringify(lock, null, 2) + '\n', 'utf8');
     wrote.push('packhub.lock.json');

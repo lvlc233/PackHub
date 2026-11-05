@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { buildPlan, loadPack, parseManifest, planFor, validateGraph, type TargetId } from '@packhub/kernel';
-import { installPack, loadState, verifyPack } from '@packhub/runtime';
+import { installPack, loadState, verifyPack, verifyInstalled, hasInstalledPacks, syncPack, removeSynced, doctorGlobal, type SyncTarget } from '@packhub/runtime';
 import { collectPackResources, defaultStaticDir } from '@packhub/hub';
 
 export interface ServeOptions {
@@ -190,10 +190,63 @@ async function handleApi(
   }
 
   if (url.pathname === '/api/verify' && req.method === 'POST') {
+    // 项目模式：add 装进来的包没有 packhub.yaml，用 state 里的计划快照验
+    if (!existsSync(join(dir, 'packhub.yaml')) && hasInstalledPacks(dir)) {
+      const reports = verifyInstalled(dir);
+      return sendJson(res, 200, {
+        installed: reports,
+        results: reports.flatMap((r) => r.results),
+        planHash: reports[0]?.planHash ?? '',
+      });
+    }
     const ctx = loadPack(dir);
     const { plan, issues } = planFor(ctx);
     if (!plan) return sendJson(res, 422, { error: '计划生成失败', issues });
     return sendJson(res, 200, { results: verifyPack(ctx.dir, plan), planHash: plan.planHash });
+  }
+
+  if (url.pathname === '/api/harness' && req.method === 'GET') {
+    const reports = doctorGlobal(['dsh', 'codex']);
+    return sendJson(res, 200, {
+      targets: reports.map((r) => ({
+        target: r.target,
+        root: r.root,
+        ok: Boolean(r.report?.ok),
+        packs: r.report?.packs ?? [],
+        error: r.error ?? null,
+      })),
+    });
+  }
+
+  if (url.pathname === '/api/sync' && req.method === 'POST') {
+    const body = await readBody(req);
+    const targets = (Array.isArray(body.to) ? body.to : ['dsh', 'codex'])
+      .map(String)
+      .filter((t): t is SyncTarget => t === 'dsh' || t === 'codex');
+    if (targets.length === 0) return sendJson(res, 400, { error: '至少选一个 harness' });
+    try {
+      const result = await syncPack(dir, {
+        targets,
+        dryRun: body.dryRun === true,
+        overwrite: body.overwrite === true,
+      });
+      return sendJson(res, 200, result);
+    } catch (err) {
+      return sendJson(res, 422, { error: (err as Error).message });
+    }
+  }
+
+  if (url.pathname === '/api/sync/remove' && req.method === 'POST') {
+    const body = await readBody(req);
+    const targets = (Array.isArray(body.to) ? body.to : ['dsh', 'codex'])
+      .map(String)
+      .filter((t): t is SyncTarget => t === 'dsh' || t === 'codex');
+    if (targets.length === 0) return sendJson(res, 400, { error: '至少选一个 harness' });
+    try {
+      return sendJson(res, 200, { results: removeSynced(dir, targets) });
+    } catch (err) {
+      return sendJson(res, 422, { error: (err as Error).message });
+    }
   }
 
   return sendJson(res, 404, { error: `未知接口 ${url.pathname}` });

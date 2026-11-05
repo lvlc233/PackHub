@@ -2,7 +2,7 @@ import { join, resolve } from 'node:path';
 import type { Issue, Manifest, Plan } from './types.ts';
 import { loadManifest } from './manifest.ts';
 import { validateGraph, type Graph } from './graph.ts';
-import { buildPlan, type PlanOptions } from './plan.ts';
+import { buildPlan, TARGET_VARS, type PlanOptions } from './plan.ts';
 
 export * from './types.ts';
 export { parseSource, checkSource, isVolatilePin, type ParsedSource, type SourceKind } from './ref.ts';
@@ -43,8 +43,20 @@ export function planFor(
 ): { plan?: Plan; issues: Issue[] } {
   const errors = ctx.issues.filter((i) => i.severity === 'error');
   if (errors.length) return { issues: errors };
+  const target = opts.target ?? 'dir';
+  if (!(target in TARGET_VARS)) {
+    return {
+      issues: [
+        {
+          code: 'unknown-target',
+          severity: 'error',
+          message: `未知 target：${target}（可选 dir / dsh / claude-code）`,
+        },
+      ],
+    };
+  }
   return buildPlan(ctx.manifest, ctx.graph, {
-    target: opts.target ?? 'dir',
+    target,
     // 默认落点由 buildPlan 按 target 选（TARGET_VARS）；这里只传显式覆盖
     targetVars: { ...(opts.targetVars ?? {}) },
     packDir: ctx.dir,

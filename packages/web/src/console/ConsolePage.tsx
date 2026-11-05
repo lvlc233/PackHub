@@ -236,6 +236,7 @@ export function ConsolePage() {
             <option value="dir">dir</option>
             <option value="claude-code">claude-code</option>
             <option value="dsh">dsh</option>
+            <option value="codex">codex</option>
           </select>
         </label>
         <button className="cs-btn ghost" onClick={download}>
@@ -346,7 +347,7 @@ export function ConsolePage() {
             </label>
             <div className="cs-row">
               <span className="cs-label">targets</span>
-              {['dir', 'claude-code', 'dsh'].map((t) => (
+              {['dir', 'claude-code', 'dsh', 'codex'].map((t) => (
                 <label key={t} className="cs-check">
                   <input
                     type="checkbox"

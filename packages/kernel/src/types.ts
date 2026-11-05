@@ -5,7 +5,7 @@
  */
 
 export type ResourceType = 'mcp' | 'skill' | 'prompt' | 'knowledge' | 'config' | 'tool';
-export type TargetId = 'dir' | 'dsh' | 'claude-code';
+export type TargetId = 'dir' | 'dsh' | 'claude-code' | 'codex';
 
 export interface ResourceSpec {
   id: string;
@@ -51,6 +51,8 @@ export interface ExecSpec {
   args?: string[];
   cwd?: string;
   env?: Record<string, string>;
+  /** 毫秒；默认 120000 */
+  timeout?: number;
   undo?: { command: string; args?: string[] };
 }
 
@@ -59,7 +61,7 @@ export type VerifyCheck =
   | { type: 'command'; run: string[]; expectExit?: number; timeout?: number }
   | { type: 'config-key'; path: string; key: string; equals?: string | number | boolean }
   | { type: 'mcp-ready'; resource: string; timeout?: number }
-  | { type: 'knowledge-integrity'; resource: string };
+  | { type: 'knowledge-integrity'; resource: string; integrity?: string };
 
 export interface SlotSpec {
   /** 占位实现必须提供的能力 */
@@ -124,7 +126,15 @@ export type PlanOp =
       patch?: unknown;
       patchFrom?: string;
     }
-  | { op: 'exec'; command: string; args: string[]; cwd?: string; approval: 'required' }
+  | {
+      op: 'exec';
+      command: string;
+      args: string[];
+      cwd?: string;
+      env?: Record<string, string>;
+      timeout?: number;
+      approval: 'required';
+    }
   | { op: 'instruction'; file: string; blockId: string; content: string };
 
 /** 把元数据分配到 union 的每个成员上（交叉类型不会自动分配，会导致 Omit 丢掉变体字段）。 */

@@ -61,4 +61,36 @@ describe('runner', () => {
     await expect(runPack(dir)).rejects.toThrow(/清单未通过校验/);
     rmSync(dir, { recursive: true, force: true });
   });
+
+  it('带 exec 的包默认不算 verified；allowExec 后才通过', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'packhub-runner-exec-'));
+    writeFileSync(join(dir, 'rules.md'), '# r\n', 'utf8');
+    writeFileSync(
+      join(dir, 'packhub.yaml'),
+      `apiVersion: packhub.dev/v0
+kind: Pack
+metadata: { name: demo/runner-exec, version: 0.0.1, targets: [dir] }
+requires: { packhub: ">=0.0.1 <0.1" }
+resources:
+  - id: rules
+    type: knowledge
+    source: ./rules.md
+install:
+  exec:
+    - command: node
+      args: ["-e", "process.exit(0)"]
+`,
+      'utf8',
+    );
+
+    const blocked = await runPack(dir);
+    expect(blocked.report.outcomes.some((o) => o.status === 'needs-approval')).toBe(true);
+    expect(blocked.report.ok).toBe(false);
+
+    const allowed = await runPack(dir, { allowExec: true });
+    expect(allowed.report.outcomes.every((o) => o.status === 'done' || o.status === 'noop')).toBe(true);
+    expect(allowed.report.ok).toBe(true);
+
+    rmSync(dir, { recursive: true, force: true });
+  });
 });

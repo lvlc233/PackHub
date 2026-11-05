@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, sep } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type {
   Issue,
@@ -49,6 +49,15 @@ export const TARGET_VARS: Record<TargetId, Record<string, string>> = {
     cacheDir: '.packhub/cache',
     // DSH 的 skills 与 MCP 目前挂在 profile（全局），项目级只做"指路"
     skillsDir: '.packhub/skills',
+    knowledgeDir: '.packhub/knowledge',
+    promptsDir: '.packhub/prompts',
+    configFile: '.packhub/config.json',
+    instructionFile: 'AGENTS.md',
+  },
+  codex: {
+    root: '.packhub',
+    cacheDir: '.packhub/cache',
+    skillsDir: '.codex/skills',
     knowledgeDir: '.packhub/knowledge',
     promptsDir: '.packhub/prompts',
     configFile: '.packhub/config.json',
@@ -172,6 +181,16 @@ export function buildPlan(
         break;
       }
       case 'config': {
+        if (parsed.kind !== 'local') {
+          // 远程片段没法在安装期安全读取；以前会静默合并一个空对象，看起来成功其实什么都没做
+          issues.push({
+            code: 'config-source-unsupported',
+            severity: 'error',
+            message: `config 资源只支持本地片段（./fragments/…），现在是 ${res.source}`,
+            path: at,
+          });
+          break;
+        }
         push({
           op: 'merge.config',
           path: targetVars.configFile ?? '.packhub/config.json',
@@ -224,6 +243,15 @@ export function buildPlan(
   for (const [i, ov] of (manifest.overlays ?? []).entries()) {
     const relFrom = ov.from.replace(/^\.\//, '').replace(/\/+$/, '');
     const absFrom = resolve(packDir, relFrom);
+    const base = resolve(packDir);
+    if (absFrom !== base && !absFrom.startsWith(base + sep)) {
+      issues.push({
+        code: 'overlay-outside-pack',
+        severity: 'error',
+        message: `overlays[${i}] 指向包目录之外：${ov.from}`,
+      });
+      continue;
+    }
     if (!existsSync(absFrom)) {
       issues.push({
         code: 'overlay-missing',
@@ -268,15 +296,27 @@ export function buildPlan(
   for (const [i, spec] of (manifest.install?.exec ?? []).entries()) {
     push({
       op: 'exec',
-      command: spec.command,
+      command: interp(spec.command) as string,
       args: interpolate(spec.args ?? [], scope, []) as string[],
-      ...(spec.cwd ? { cwd: spec.cwd as string } : {}),
+      ...(spec.cwd ? { cwd: interp(spec.cwd) as string } : {}),
+      ...(spec.env ? { env: interp(spec.env) as Record<string, string> } : {}),
+      ...(spec.timeout ? { timeout: spec.timeout } : {}),
       approval: 'required',
       actionId: `exec#${i + 1}`,
     });
   }
 
-  const verify = (manifest.verify ?? []).map((check) => interp(check) as VerifyCheck);
+  const verify = (manifest.verify ?? []).map((check) => {
+    const resolved = interp(check) as VerifyCheck;
+    if (resolved.type === 'knowledge-integrity') {
+      // 计划里带上期望哈希，校验时才能核对「装进来的字节」而不是只看文件在不在
+      const integrity =
+        graph.resources.get(resolved.resource)?.integrity ??
+        manifest.resources.find((r) => r.id === resolved.resource)?.integrity;
+      if (integrity) resolved.integrity = integrity;
+    }
+    return resolved;
+  });
   for (const key of new Set(missing)) {
     issues.push({
       code: 'undefined-variable',
@@ -406,7 +446,8 @@ function detectConflicts(
       }
     }
     if (a.op === 'register.mcp') {
-      const composite = `${'.packhub/config.json'}::mcpServers.${a.resource ?? 'mcp'}`;
+      const path = a.path ?? '.packhub/config.json';
+      const composite = `${path}::mcpServers.${a.resource ?? 'mcp'}`;
       configKeys.set(composite, [...(configKeys.get(composite) ?? []), a.actionId]);
     }
   }

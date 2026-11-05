@@ -1,7 +1,8 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { canonicalize, loadPack, planFor, sha256 } from '@packhub/kernel';
+import { canonicalize, loadPack, planFor, sha256, type LockFile } from '@packhub/kernel';
+import { withLockPins } from '@packhub/runtime';
 
 export interface IndexEntry {
   version: string;
@@ -69,7 +70,9 @@ export function buildIndex(registryRoot: string): BuildResult {
 
   const gitShowHead = (relPath: string): string | null => {
     try {
-      return execFileSync('git', ['show', `HEAD:${relPath}`], {
+      // cwd 是 registry 根，路径必须相对它；`HEAD:packs/…` 会被 git 当成仓库根路径而失败。
+      // 用 `HEAD:./` 明确「相对当前目录」，否则这项门禁会静默跳过。
+      return execFileSync('git', ['show', `HEAD:./${relPath}`], {
         cwd: registryRoot,
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'ignore'],
@@ -123,8 +126,13 @@ export function buildIndex(registryRoot: string): BuildResult {
           errors.push(`${packName}@${version}: 缺少 packhub.lock.json（发布必须带锁）`);
           continue;
         }
-        const lock = JSON.parse(readFileSync(lockPath, 'utf8')) as { planHash?: string };
-        const { plan } = planFor(ctx);
+        const lock = JSON.parse(readFileSync(lockPath, 'utf8')) as {
+          planHash?: string;
+          resolved?: { id: string; source: string; integrity: string | null }[];
+        };
+        // 按锁里钉死的 commit/版本算计划，否则「清单写 tag、锁写 commit」会被误判成过期
+        const pinned = withLockPins(ctx, lock as unknown as LockFile);
+        const { plan } = planFor(pinned);
         if (!plan) {
           errors.push(`${packName}@${version}: 生成计划失败`);
           continue;

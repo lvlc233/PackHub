@@ -149,10 +149,27 @@ export async function download(
 
 export const __internals = { npmTarball };
 
+/** 走代理的文本请求：索引、元数据这类小文件用，和 download 共用同一套代理设置。 */
+export async function httpText(url: string, headers: Record<string, string> = {}): Promise<string> {
+  ensureProxy();
+  const res = await undiciFetch(url, { headers, redirect: 'follow' });
+  if (!res.ok) throw new FetchError(`请求失败 ${res.status}：${safeUrl(url)}`, 'http-status');
+  return res.text();
+}
+
+export async function httpJson<T>(url: string, headers: Record<string, string> = {}): Promise<T> {
+  ensureProxy();
+  const res = await undiciFetch(url, { headers, redirect: 'follow' });
+  if (!res.ok) throw new FetchError(`请求失败 ${res.status}：${safeUrl(url)}`, 'http-status');
+  return (await res.json()) as T;
+}
+
 export interface PypiSdist {
   url: string;
   filename: string;
   version: string;
+  /** PyPI 记录的 sha256（hex），用来生成 integrity */
+  sha256?: string;
 }
 
 interface PypiPayload {
@@ -188,6 +205,7 @@ export function pickSdist(payload: PypiPayload): PypiSdist {
     url: sdist.url!,
     filename: sdist.filename!,
     version: payload.info?.version ?? '',
+    ...(sdist.digests?.sha256 ? { sha256: sdist.digests.sha256 } : {}),
   };
 }
 

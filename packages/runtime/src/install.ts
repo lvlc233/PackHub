@@ -12,12 +12,14 @@ import {
   unlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { dirname, join, resolve, sep } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import * as tar from 'tar';
 import type { Plan, PlanAction } from '@packhub/kernel';
-import { canonicalize, deepMerge, isPlainObject, sha256 } from '@packhub/kernel';
+import { canonicalize, deepMerge, diffActions, isPlainObject, sha256 } from '@packhub/kernel';
 import { download, resolvePypiSdist } from './download.ts';
+import { resolveToken } from './credentials.ts';
 
 export interface ApplyOptions {
   /** 目标目录：写到哪里、state 放哪里 */
@@ -54,6 +56,8 @@ export interface ActionOutcome {
 export interface ApplyResult {
   outcomes: ActionOutcome[];
   statePath: string;
+  /** 有动作失败并已按快照回滚：磁盘回到装之前，没有写入 state */
+  rolledBack?: boolean;
 }
 
 interface State {
@@ -122,7 +126,10 @@ interface Generation {
 function generationId(): string {
   const d = new Date();
   const p = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+  // 毫秒 + 4 位随机后缀：同一秒内装两个包不会再撞进同一个快照目录
+  const ms = String(d.getMilliseconds()).padStart(3, '0');
+  const rand = Math.random().toString(36).slice(2, 6).padEnd(4, '0');
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}${ms}-${rand}`;
 }
 
 /** 计划会写到哪些相对路径（含目录）。 */
@@ -213,10 +220,32 @@ export async function applyPlan(plan: Plan, opts: ApplyOptions): Promise<ApplyRe
   }
 
   const statePath = join(opts.root, STATE_FILE);
-  if (!opts.dryRun && outcomes.every((o) => o.status !== 'failed')) {
+  const failed = outcomes.some((o) => o.status === 'failed');
+
+  // 失败不留半套：按本次快照把文件放回去，不写 state，也不留 generation
+  if (!opts.dryRun && failed && gen) {
+    restoreGeneration(opts.root, gen);
+    const snapDir = join(opts.root, STATE_DIR, 'snapshots');
+    rmSync(join(snapDir, gen.id), { recursive: true, force: true });
+    // 失败的 generation 不留下空壳目录
+    if (existsSync(snapDir) && readdirSync(snapDir).length === 0) {
+      rmSync(snapDir, { recursive: true, force: true });
+    }
+    return { outcomes, statePath, rolledBack: true };
+  }
+
+  if (!opts.dryRun && !failed) {
     const state = loadState(opts.root);
     state.apiVersion = 'packhub.dev/state/v0';
-    const previous = state.packs[key]?.written ?? [];
+    // 升级到新版本时把同名的旧记录并进来：written 取并集，旧 key 不留
+    const oldKeys = Object.keys(state.packs).filter(
+      (k) => k !== key && (k.split('@')[0] ?? '') === plan.pack.name,
+    );
+    const previous = [
+      ...(state.packs[key]?.written ?? []),
+      ...oldKeys.flatMap((k) => state.packs[k]?.written ?? []),
+    ];
+    for (const k of oldKeys) delete state.packs[k];
     state.packs[key] = {
       planHash: plan.planHash,
       installedAt: new Date().toISOString(),
@@ -272,23 +301,7 @@ export function rollbackPack(root: string, generation?: string): RollbackResult 
     const dir = join(root, STATE_DIR, 'snapshots', gen.id);
     if (!existsSync(dir)) throw new Error(`快照已不在：${gen.id}（可能超过保留数量）`);
 
-    const restored: string[] = [];
-    for (const rel of gen.existed) {
-      const src = join(dir, 'files', rel);
-      if (!existsSync(src)) continue;
-      const abs = within(root, rel);
-      mkdirSync(dirname(abs), { recursive: true });
-      cpSync(src, abs, { recursive: true, force: true });
-      restored.push(rel);
-    }
-
-    const removed: string[] = [];
-    for (const rel of [...gen.created].sort((a, b) => b.length - a.length)) {
-      const abs = within(root, rel);
-      if (!existsSync(abs)) continue;
-      rmSync(abs, { recursive: true, force: true });
-      removed.push(rel);
-    }
+    const { restored, removed } = restoreGeneration(root, gen);
 
     const stateBackup = join(dir, 'state.json');
     const statePath = join(root, STATE_FILE);
@@ -306,6 +319,32 @@ export function rollbackPack(root: string, generation?: string): RollbackResult 
   } finally {
     release();
   }
+}
+
+/** 按 generation 快照恢复文件系统；回退与失败回滚共用。 */
+function restoreGeneration(
+  root: string,
+  gen: Generation,
+): { restored: string[]; removed: string[] } {
+  const dir = join(root, STATE_DIR, 'snapshots', gen.id);
+  const restored: string[] = [];
+  for (const rel of gen.existed) {
+    const src = join(dir, 'files', rel);
+    if (!existsSync(src)) continue;
+    const abs = within(root, rel);
+    mkdirSync(dirname(abs), { recursive: true });
+    cpSync(src, abs, { recursive: true, force: true });
+    restored.push(rel);
+  }
+
+  const removed: string[] = [];
+  for (const rel of [...gen.created].sort((a, b) => b.length - a.length)) {
+    const abs = within(root, rel);
+    if (!existsSync(abs)) continue;
+    rmSync(abs, { recursive: true, force: true });
+    removed.push(rel);
+  }
+  return { restored, removed };
 }
 
 export interface RemoveResult {
@@ -377,6 +416,12 @@ export function removePack(root: string, packKey?: string): RemoveResult {
         rmSync(abs, { recursive: true, force: true });
         removed.push(rel);
       }
+      // 从 registry 装进来的包会留一份清单副本；卸载时一起清掉
+      const packName = key.split('@')[0] ?? '';
+      if (packName) {
+        const copy = within(root, join(STATE_DIR, 'packs', packName));
+        if (existsSync(copy)) rmSync(copy, { recursive: true, force: true });
+      }
       delete state.packs[key];
     }
 
@@ -407,9 +452,11 @@ async function applyAction(
       const headers: Record<string, string> = {};
       const auth = 'auth' in action ? action.auth : undefined;
       if (auth) {
-        const token = process.env[auth.env];
+        const token = resolveToken(auth.env);
         if (!token) {
-          throw new Error(`需要 ${auth.env} 才能下载 ${hostOf(action.uri)}（未设置该环境变量）`);
+          throw new Error(
+            `需要 ${auth.env} 才能下载 ${hostOf(action.uri)}（用 packhub auth set ${auth.env} <token> 存起来，或设同名环境变量）`,
+          );
         }
         const scheme = auth.scheme ?? 'bearer';
         headers.Authorization =
@@ -460,11 +507,27 @@ async function applyAction(
           message: `需要 --allow-exec 才会执行：${action.command} ${action.args.join(' ')}`,
         };
       }
+      const cwd = action.cwd ? within(opts.root, action.cwd) : within(opts.root, '.');
+      if (!existsSync(cwd)) throw new Error(`exec 的工作目录不存在：${action.cwd ?? '.'}`);
+      if (opts.dryRun) {
+        return { actionId: action.actionId, op: action.op, status: 'done', target: action.command };
+      }
+      const result = runCommand(action.command, action.args, cwd, {
+        ...process.env,
+        ...(action.env ?? {}),
+      }, action.timeout ?? 120_000);
+      if (result.status !== 0) {
+        const tail = (result.stderr || result.stdout).trim().split(/\r?\n/).slice(-1)[0] ?? '';
+        throw new Error(
+          `exec 退出码 ${String(result.status)}${tail ? `：${tail}` : ''}（${action.command} ${action.args.join(' ')}）`,
+        );
+      }
       return {
         actionId: action.actionId,
         op: action.op,
-        status: 'skipped',
-        message: 'exec 执行还没有实装，只保留审批语义',
+        status: 'done',
+        target: action.command,
+        message: action.args.join(' '),
       };
     }
     case 'link.skill': {
@@ -601,14 +664,6 @@ async function applyAction(
       };
     }
 
-    case 'unpack':
-      return {
-        actionId: action.actionId,
-        op: action.op,
-        status: 'skipped',
-        message: '这条 unpack 缺少来源',
-      };
-
     default: {
       const unknown = action as { op: PlanAction['op']; actionId: string };
       return {
@@ -621,9 +676,31 @@ async function applyAction(
   }
 }
 
+/**
+ * 执行安装期命令。Windows 上 npx/npm 是 .cmd 垫片，只能过 shell；
+ * 命令来自清单作者，默认不执行，要 --allow-exec 才走到这里。
+ */
+function runCommand(
+  command: string,
+  args: string[],
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+  timeout: number,
+): { status: number | null; stdout: string; stderr: string } {
+  const options = { cwd, env, timeout, encoding: 'utf8' as const, windowsHide: true };
+  if (process.platform === 'win32') {
+    const quote = (s: string): string =>
+      /[\s"&|<>^]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    const line = [command, ...args].map(quote).join(' ');
+    const res = spawnSync(process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', line], options);
+    return { status: res.status, stdout: res.stdout ?? '', stderr: res.stderr ?? '' };
+  }
+  const res = spawnSync(command, args, options);
+  return { status: res.status, stdout: res.stdout ?? '', stderr: res.stderr ?? '' };
+}
+
 /** 报错只留 host + path，不把可能带凭证的查询串打出来。 */
-function hostOf(uri: string): string {
-  try {
+function hostOf(uri: string): string {  try {
     const u = new URL(uri);
     return `${u.host}${u.pathname}`;
   } catch {
@@ -766,6 +843,132 @@ export function pruneEmpty(value: unknown): Record<string, unknown> {
 function isSharedPath(rel: string): boolean {
   if (/\.(json|jsonc)$/i.test(rel)) return true;
   return !rel.includes('/') && /\.md$/i.test(rel);
+}
+
+export interface PruneResult {
+  /** 真正从磁盘删掉/撤销的路径 */
+  removed: string[];
+  /** 新版本仍然需要，保留 */
+  kept: string[];
+  /** 无法安全撤销、留给人工确认的项 */
+  warnings: string[];
+}
+
+/**
+ * 升级时清掉「旧计划有、新计划没有」的产物。
+ * 只删这个包自己的输出；共享配置文件按上次安装记的 undo 还原，指令文件只摘自己的块。
+ */
+export function pruneRemoved(
+  root: string,
+  previous: Plan,
+  next: Plan,
+  previousActions: ActionOutcome[] = [],
+): PruneResult {
+  const { removed: gone } = diffActions(previous.actions, next.actions);
+  const produced = new Set(touchedPaths(next));
+  for (const action of next.actions) {
+    if (action.op === 'fetch') produced.add(action.dest);
+  }
+  const newMcp = new Set(
+    next.actions.filter((a) => a.op === 'register.mcp').map((a) => a.resource ?? 'mcp'),
+  );
+  const newBlocks = new Set(
+    next.actions.filter((a) => a.op === 'instruction').map((a) => `${a.file}::${a.blockId}`),
+  );
+  const outcomes = new Map(previousActions.map((o) => [o.actionId, o]));
+  const removed: string[] = [];
+  const kept: string[] = [];
+  const warnings: string[] = [];
+
+  /** 新计划还要产出这个路径（或它的子路径）时不能删。 */
+  const stillProduced = (rel: string): boolean =>
+    [...produced].some((p) => p === rel || rel.startsWith(`${p}/`) || p.startsWith(`${rel}/`));
+
+  for (const action of gone) {
+    if (action.op === 'write' || action.op === 'link.skill' || action.op === 'unpack' || action.op === 'fetch') {
+      const rel = action.op === 'fetch' ? action.dest : action.to;
+      if (isSharedPath(rel) || stillProduced(rel)) {
+        kept.push(rel);
+        continue;
+      }
+      const abs = within(root, rel);
+      if (existsSync(abs)) {
+        rmSync(abs, { recursive: true, force: true });
+        removed.push(rel);
+      }
+      continue;
+    }
+
+    if (action.op === 'merge.config') {
+      if (stillProduced(action.path)) {
+        kept.push(action.path);
+        continue;
+      }
+      const outcome = outcomes.get(action.actionId);
+      if (!outcome?.undo) {
+        warnings.push(`无法撤销配置合并：${action.path}（旧 state 没有 undo 记录）`);
+        continue;
+      }
+      const abs = within(root, action.path);
+      if (!existsSync(abs)) continue;
+      const data = JSON.parse(readFileSync(abs, 'utf8')) as Record<string, unknown>;
+      for (const op of outcome.undo.ops) {
+        if (op.had) setPath(data, op.path, op.value);
+        else deletePath(data, op.path);
+      }
+      const pruned = pruneEmpty(data);
+      if (Object.keys(pruned).length === 0) rmSync(abs, { force: true });
+      else writeFileSync(abs, JSON.stringify(pruned, null, 2) + '\n', 'utf8');
+      removed.push(action.path);
+      continue;
+    }
+
+    if (action.op === 'register.mcp') {
+      const outcome = outcomes.get(action.actionId);
+      const server = outcome?.resource ?? action.resource ?? 'mcp';
+      if (newMcp.has(server)) {
+        kept.push(action.path ?? '.packhub/config.json');
+        continue;
+      }
+      const path = action.path ?? '.packhub/config.json';
+      const abs = within(root, path);
+      if (!existsSync(abs)) continue;
+      const data = JSON.parse(readFileSync(abs, 'utf8')) as Record<string, unknown>;
+      const servers = { ...(data.mcpServers as Record<string, unknown> | undefined) };
+      delete servers[server];
+      if (Object.keys(servers).length === 0) delete data.mcpServers;
+      else data.mcpServers = servers;
+      const pruned = pruneEmpty(data);
+      if (Object.keys(pruned).length === 0) rmSync(abs, { force: true });
+      else writeFileSync(abs, JSON.stringify(pruned, null, 2) + '\n', 'utf8');
+      removed.push(path);
+      continue;
+    }
+
+    if (action.op === 'instruction') {
+      if (newBlocks.has(`${action.file}::${action.blockId}`)) {
+        kept.push(action.file);
+        continue;
+      }
+      const abs = within(root, action.file);
+      if (!existsSync(abs)) continue;
+      const text = stripBlock(readFileSync(abs, 'utf8'), action.blockId);
+      if (text.trim() === '') rmSync(abs, { force: true });
+      else writeFileSync(abs, text, 'utf8');
+      removed.push(action.file);
+    }
+  }
+
+  if (removed.length > 0) {
+    const state = loadState(root);
+    const record = state.packs[`${next.pack.name}@${next.pack.version}`];
+    if (record) {
+      record.written = record.written.filter((w) => !removed.includes(w));
+      writeFileSync(join(root, STATE_FILE), JSON.stringify(state, null, 2) + '\n', 'utf8');
+    }
+  }
+
+  return { removed, kept, warnings };
 }
 
 /** 这次安装要写的路径里，哪些已经被别的包占了。 */

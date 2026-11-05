@@ -1,10 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   api,
   type CheckResult,
+  type HarnessStatus,
   type InstallOutcome,
   type PackDetail,
   type PackSummary,
+  type SyncResult,
 } from './api.ts';
 import { Icon } from './Icon.tsx';
 import { usePack } from './usePack.ts';
@@ -51,12 +53,67 @@ export function App() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [harness, setHarness] = useState<HarnessStatus[]>([]);
+  const [syncTargets, setSyncTargets] = useState<string[]>(['dsh', 'codex']);
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [syncLog, setSyncLog] = useState<SyncResult | null>(null);
+  const [syncError, setSyncError] = useState<string | null>(null);
+
+  const loadHarness = async (): Promise<void> => {
+    try {
+      const data = await api.harness();
+      setHarness(data.targets);
+    } catch {
+      setHarness([]);
+    }
+  };
+
+  useEffect(() => {
+    void loadHarness();
+  }, []);
+
+  const runSync = async (dryRun: boolean): Promise<void> => {
+    if (!selected) return;
+    if (syncTargets.length === 0) {
+      setSyncError('至少选一个 harness');
+      return;
+    }
+    setSyncBusy(true);
+    setSyncError(null);
+    setSyncLog(null);
+    try {
+      const res = await api.sync(selected, syncTargets, dryRun);
+      setSyncLog(res);
+      await loadHarness();
+    } catch (err) {
+      setSyncError((err as Error).message);
+    } finally {
+      setSyncBusy(false);
+    }
+  };
+
+  const runRemove = async (): Promise<void> => {
+    if (!selected || syncTargets.length === 0) return;
+    setSyncBusy(true);
+    setSyncError(null);
+    setSyncLog(null);
+    try {
+      await api.syncRemove(selected, syncTargets);
+      await loadHarness();
+    } catch (err) {
+      setSyncError((err as Error).message);
+    } finally {
+      setSyncBusy(false);
+    }
+  };
 
   const manifest = detail?.manifest ?? null;
   const plan = detail?.plan ?? null;
   const issues = (detail?.issues ?? []).filter((i) => i.severity === 'error');
   const installedKey = manifest ? `${manifest.metadata.name}@${manifest.metadata.version}` : '';
   const installed = installedKey ? detail?.state?.[installedKey] : undefined;
+  const canSync =
+    !!manifest && manifest.resources.length > 0 && manifest.resources.every((r) => r.type === 'skill');
 
   const statusOf = useMemo(() => {
     const map = new Map<string, InstallOutcome>();
@@ -361,6 +418,87 @@ export function App() {
                     </>
                   ) : (
                     <p className="hint">安装后这里会列出实际写入的文件。</p>
+                  )}
+                </section>
+
+                <section className="card" aria-label="Harness 同步">
+                  <div className="card-head">
+                    <h2 className="card-title">Harness 同步</h2>
+                    <span className="count">全局 skills</span>
+                  </div>
+                  {!canSync ? (
+                    <p className="hint">
+                      这个包包含非 skill 资源。全局同步只接受 skill-only Pack；MCP / 配置 / 知识请用
+                      target 安装。
+                    </p>
+                  ) : (
+                    <>
+                      <p className="hint">只写 skills/；不碰全局 AGENTS.md 与 MCP 配置。</p>
+                      <div className="harness-targets">
+                        {harness.length === 0 && <p className="hint">读取 harness 状态…</p>}
+                        {harness.map((h) => (
+                          <label className="harness-target" key={h.target}>
+                            <input
+                              type="checkbox"
+                              checked={syncTargets.includes(h.target)}
+                              disabled={!h.ok || syncBusy}
+                              onChange={(e) =>
+                                setSyncTargets((prev) =>
+                                  e.target.checked
+                                    ? [...prev, h.target]
+                                    : prev.filter((t) => t !== h.target),
+                                )
+                              }
+                            />
+                            <span className="harness-name">{h.target}</span>
+                            <span className="harness-root mono" title={h.root}>
+                              {h.root}
+                            </span>
+                            <span className={`badge ${h.ok ? 'badge-ok' : 'badge-bad'}`}>
+                              {h.ok ? (h.packs.length > 0 ? `${h.packs.length} 个包` : '就绪') : '不可用'}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                      {harness.some((h) => !h.ok) && (
+                        <p className="hint">
+                          不可用的 harness 目录不存在；装好宿主，或用 PACKHUB_DSH_HOME / PACKHUB_CODEX_HOME。
+                        </p>
+                      )}
+                      <div className="harness-actions">
+                        <button className="btn btn-soft" onClick={() => void runSync(true)} disabled={syncBusy}>
+                          预演
+                        </button>
+                        <button className="btn btn-primary" onClick={() => void runSync(false)} disabled={syncBusy}>
+                          {syncBusy ? '同步中…' : '同步'}
+                        </button>
+                        <button className="btn btn-soft" onClick={() => void runRemove()} disabled={syncBusy}>
+                          移除
+                        </button>
+                      </div>
+                      {syncError && <p className="alert">{syncError}</p>}
+                      {syncLog && (
+                        <div className="harness-result">
+                          <p className="hint mono">{syncLog.pack}</p>
+                          {syncLog.results.map((r) => (
+                            <div className="harness-result-row" key={r.target}>
+                              <span className="harness-name">{r.target}</span>
+                              <span className="mono">
+                                {r.planHash ? `${r.planHash.slice(0, 18)}…` : '—'}
+                              </span>
+                              <span className="harness-outcomes">
+                                {(r.outcomes ?? []).map((o) => (
+                                  <span className={`pill pill-${o.status}`} key={o.actionId}>
+                                    {STATUS_LABEL[o.status] ?? o.status}
+                                  </span>
+                                ))}
+                                {!r.outcomes && <span className="hint">预演</span>}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </>
                   )}
                 </section>
               </div>

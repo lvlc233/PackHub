@@ -4,10 +4,12 @@ import { join, resolve } from 'node:path';
 import {
   installPack,
   loadPack,
+  loadLock,
   planFor,
   readSignatures,
   verifyPack,
   verifySignatures,
+  withLockPins,
 } from '@packhub/runtime';
 
 export interface VerifyReport {
@@ -26,6 +28,8 @@ export interface RunOptions {
   out?: string;
   /** 打印每一步（CI 里有用） */
   log?: (line: string) => void;
+  /** 允许执行清单里的 install.exec（默认不执行） */
+  allowExec?: boolean;
 }
 
 export interface RunResult {
@@ -51,19 +55,23 @@ export async function runPack(packDir: string, opts: RunOptions = {}): Promise<R
     // 干净环境：不带上一次的安装状态
     rmSync(join(work, '.packhub'), { recursive: true, force: true });
 
-    const ctx = loadPack(work);
+    const ctx = withLockPins(loadPack(work), loadLock(work));
     const errors = ctx.issues.filter((i) => i.severity === 'error');
     if (errors.length > 0) {
       for (const e of errors) log(`error ${e.message}`);
       throw new Error(`清单未通过校验：${errors.map((e) => e.message).join('; ')}`);
     }
+    if (!ctx.manifest.metadata.targets.includes('dir')) {
+      throw new Error('发布门禁只验证 dir target，但清单没有声明 dir');
+    }
 
     const { plan, issues } = planFor(ctx);
     if (!plan) throw new Error(`生成不了计划：${issues.map((i) => i.message).join('; ')}`);
 
-    const result = await installPack(ctx, plan);
+    const result = await installPack(ctx, plan, { allowExec: opts.allowExec === true });
     for (const o of result.outcomes) {
-      const mark = o.status === 'failed' ? 'x' : o.status === 'skipped' ? '-' : '✓';
+      const mark =
+        o.status === 'failed' ? 'x' : o.status === 'needs-approval' ? '!' : o.status === 'skipped' ? '-' : '✓';
       log(`${mark} ${o.actionId.padEnd(16)} ${o.status.padEnd(8)} ${o.message ?? o.target ?? ''}`);
     }
 
@@ -72,8 +80,11 @@ export async function runPack(packDir: string, opts: RunOptions = {}): Promise<R
       log(`${c.status === 'pass' ? '✓' : c.status === 'fail' ? 'x' : '-'} [${c.index}] ${c.type} ${c.detail}`);
     }
 
-    const failedActions = result.outcomes.filter((o) => o.status === 'failed').length;
-    const ok = failedActions === 0 && checks.every((c) => c.status !== 'fail');
+    // 只有每一步都 done/noop、每项检查都 pass，才算这份报告通过。
+    // needs-approval / skipped 意味着安装并未真正完成，不能标 verified。
+    const incomplete = result.outcomes.filter((o) => o.status !== 'done' && o.status !== 'noop').length;
+    const checksOk = checks.every((c) => c.status === 'pass');
+    const ok = incomplete === 0 && checksOk;
     const pack = `${ctx.manifest.metadata.name}@${ctx.manifest.metadata.version}`;
 
     const allSigs = [...readSignatures(dir), ...(ctx.manifest.signatures ?? [])];
@@ -99,7 +110,7 @@ export async function runPack(packDir: string, opts: RunOptions = {}): Promise<R
 
     if (opts.out) writeFileSync(opts.out, JSON.stringify(report, null, 2) + '\n', 'utf8');
     log(`${ok ? 'verified' : 'not ok'}（${checks.length} 项校验）`);
-    return { report, installed: failedActions === 0 };
+    return { report, installed: incomplete === 0 };
   } finally {
     rmSync(work, { recursive: true, force: true });
   }

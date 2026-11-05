@@ -1,6 +1,5 @@
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { copyFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { download } from './download.ts';
 import { unpackArchive } from './pack.ts';
 
@@ -58,20 +57,14 @@ export async function resolveAddSource(
     const url = gitArchiveUrl(target);
     const archive = join(dest, 'source.tar.gz');
     await download(url, archive);
-    const staging = mkdtempSync(join(tmpdir(), 'packhub-git-'));
-    try {
-      await unpackArchive(archive, staging);
-      // 归档顶层是一个目录，剥一层；直接解到 dest 更容易找 pack 根
-      await unpackArchive(archive, dest);
-      const root = findPackRoot(dest);
-      if (!root) throw new Error('这个仓库里没有 packhub.yaml（可以放在根目录或一层子目录）');
-      return { dir: root, kind: 'git', label: target };
-    } finally {
-      rmSync(staging, { recursive: true, force: true });
-    }
+    // 归档顶层是一个目录，直接解到 dest，再找 packhub.yaml（根或一层子目录）
+    await unpackArchive(archive, dest);
+    const root = findPackRoot(dest);
+    if (!root) throw new Error('这个仓库里没有 packhub.yaml（可以放在根目录或一层子目录）');
+    return { dir: root, kind: 'git', label: target };
   }
 
   throw new Error(`无法识别的来源：${target}（支持 .phub、git+https://…，或配合 --index 用 scope/name）`);
 }
 
-export const __sourceInternals = { findPackRoot, dirname };
+export const __sourceInternals = { findPackRoot };

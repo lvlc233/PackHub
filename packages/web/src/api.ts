@@ -79,6 +79,26 @@ export interface PackDetail {
   >;
 }
 
+export interface HarnessStatus {
+  target: 'dsh' | 'codex';
+  root: string;
+  ok: boolean;
+  packs: string[];
+  error: string | null;
+}
+
+export interface SyncTargetResult {
+  target: string;
+  root: string;
+  planHash?: string;
+  outcomes?: InstallOutcome[];
+}
+
+export interface SyncResult {
+  pack: string;
+  results: SyncTargetResult[];
+}
+
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
@@ -103,4 +123,21 @@ export const api = {
     fetch(`/api/verify?dir=${encodeURIComponent(dir)}`, { method: 'POST', body: '{}' }).then((r) =>
       json<{ results: CheckResult[]; planHash: string }>(r),
     ),
+
+  harness: (): Promise<{ targets: HarnessStatus[] }> =>
+    fetch('/api/harness').then((r) => json<{ targets: HarnessStatus[] }>(r)),
+
+  sync: (dir: string, to: string[], dryRun = false): Promise<SyncResult> =>
+    fetch(`/api/sync?dir=${encodeURIComponent(dir)}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ to, dryRun }),
+    }).then((r) => json<SyncResult>(r)),
+
+  syncRemove: (dir: string, to: string[]): Promise<{ results: { target: string; removed: string[] }[] }> =>
+    fetch(`/api/sync/remove?dir=${encodeURIComponent(dir)}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ to }),
+    }).then((r) => json<{ results: { target: string; removed: string[] }[] }>(r)),
 };

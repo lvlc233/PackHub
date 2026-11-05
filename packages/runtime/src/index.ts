@@ -1,7 +1,7 @@
 import { resolve } from 'node:path';
 import type { Plan } from '@packhub/kernel';
 import { applyPlan, type ApplyOptions, type ApplyResult } from './install.ts';
-import { runChecks, type CheckResult } from './verify.ts';
+import { runChecks, serverSpecs, type CheckResult } from './verify.ts';
 import type { PackContext } from '@packhub/kernel';
 
 /** 内核的契约与判定在这里再导出一遍：调用方只依赖 runtime 也不会缺东西。 */
@@ -80,7 +80,63 @@ export {
   type RegistryIndex,
   type IndexEntry,
 } from './registry.ts';
+export {
+  credentialsPath,
+  readCredentials,
+  setToken,
+  removeToken,
+  listTokens,
+  resolveToken,
+  mask,
+  type CredentialEntry,
+  type CredentialFile,
+  type TokenInfo,
+} from './credentials.ts';
 export { runChecks, type CheckResult, type CheckStatus, type VerifyOptions } from './verify.ts';
+export {
+  verifyInstalled,
+  hasInstalledPacks,
+  type InstalledVerifyReport,
+  type InstalledVerifyOptions,
+} from './installed.ts';
+export {
+  inspectPack,
+  loadLock,
+  withLockPins,
+  type PackInspection,
+  type InspectionIssue,
+} from './consume.ts';
+export {
+  resolveReferences,
+  pinManifest,
+  lockPack,
+  type ResolvedReference,
+  type ResolveOptions,
+  type ResolveReport,
+  type LockPackOptions,
+  type LockPackResult,
+} from './resolve.ts';
+export {
+  configPath,
+  readConfig,
+  defaultRegistryIndex,
+  type PackhubConfig,
+  type RegistryEntry,
+} from './config.ts';
+export {
+  syncPack,
+  removeSynced,
+  doctorGlobal,
+  harnessRoot,
+  globalTargetVars,
+  readSkillFrontmatter,
+  type SyncTarget,
+  type SyncOptions,
+  type SyncTargetResult,
+  type SyncRemoveResult,
+  type GlobalDoctorResult,
+  type SkillFrontmatter,
+} from './sync.ts';
 
 /** 把计划落到目标目录（执行面：写盘、下载、可选执行命令）。 */
 export function installPack(
@@ -96,5 +152,5 @@ export function installPack(
 }
 
 export function verifyPack(dir: string, plan: Plan): CheckResult[] {
-  return runChecks(plan.verify, { root: resolve(dir) });
+  return runChecks(plan.verify, { root: resolve(dir), servers: serverSpecs(plan) });
 }

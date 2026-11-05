@@ -960,3 +960,66 @@ h1 {
     margin-left: 6px;
   }
 }
+
+.harness-targets {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0 12px;
+}
+
+.harness-target {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #475467;
+}
+
+.harness-target input {
+  margin: 0;
+  accent-color: #5b5bd6;
+}
+
+.harness-name {
+  font-weight: 600;
+  color: #101828;
+  min-width: 34px;
+}
+
+.harness-root {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: #667085;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.harness-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.harness-result {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #eaecf0;
+  display: grid;
+  gap: 6px;
+}
+
+.harness-result-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.harness-outcomes {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}

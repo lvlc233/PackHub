@@ -15,6 +15,8 @@ export interface ParsedSource {
 
 /** 这些 pin 不算「锁住」：解析时会漂移。 */
 const VOLATILE = new Set(['latest', 'main', 'master', 'HEAD', '*', '']);
+/** 版本范围同样会漂：今天解析到 1.4.0，明天可能是 1.5.0。 */
+const RANGE = /[\^~<>]|\|\||\s|\bx\b/i;
 
 export function parseSource(raw: string): ParsedSource {
   if (raw.startsWith('./') || raw.startsWith('../')) {
@@ -61,7 +63,8 @@ function splitPin(body: string): [string, string | undefined] {
 
 export function isVolatilePin(pin: string | undefined): boolean {
   if (pin === undefined) return true;
-  return VOLATILE.has(pin);
+  if (VOLATILE.has(pin)) return true;
+  return RANGE.test(pin);
 }
 
 /** 检查一个 source 是否足以复现：发布版要求可锁、https 要求 integrity。 */

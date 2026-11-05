@@ -1,14 +1,18 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { download } from './download.ts';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { basename, dirname, join, resolve } from 'node:path';
+import { download, httpText } from './download.ts';
 import { unpackArchive } from './pack.ts';
 
 export interface IndexEntry {
   name: string;
   title?: string;
+  description?: string;
   latest: string;
   versions: string[];
   trust?: 'verified' | 'community';
+  keywords?: string[];
+  resourceCount?: number;
   install?: string;
 }
 
@@ -35,9 +39,7 @@ export async function readIndex(indexRef: string): Promise<RegistryIndex> {
   if (isUrl(indexRef)) {
     const base = dirname(new URL(indexRef).pathname);
     void base;
-    const res = await fetch(indexRef);
-    if (!res.ok) throw new RegistryError(`拉索引失败 ${res.status}：${indexRef}`, 'bad-index');
-    text = await res.text();
+    text = await httpText(indexRef, { accept: 'application/json' });
   } else {
     if (!existsSync(indexRef)) throw new RegistryError(`索引不存在：${indexRef}`, 'bad-index');
     text = readFileSync(indexRef, 'utf8');
@@ -86,6 +88,7 @@ export async function fetchPack(opts: {
   const archiveUrl = `${base}/${rel}`;
 
   mkdirSync(opts.dest, { recursive: true });
+  clearContents(opts.dest);
   const localArchive = join(opts.dest, 'pack.phub');
 
   if (isUrl(archiveUrl)) {
@@ -104,4 +107,20 @@ export async function fetchPack(opts: {
 
 function require_sep(): string {
   return process.platform === 'win32' ? '\\' : '/';
+}
+
+/**
+ * 清空一个「我们自己的」缓存目录里的内容，再解新归档。
+ * 只删目录内的条目，不删目录本身；遇到盘符根/用户目录这种明显不该清的目标直接拒绝，
+ * 避免 update 在两个版本之间留下上一版的文件，也避免误删。
+ */
+function clearContents(dir: string): void {
+  const abs = resolve(dir);
+  const protectedDirs = new Set([resolve('/'), resolve(homedir()), resolve(process.cwd())]);
+  const bad = !basename(abs) || /^[a-zA-Z]:[\\/]?$/.test(abs) || abs === resolve('/') || protectedDirs.has(abs);
+  if (bad) throw new Error(`拒绝清空这个目录：${abs}`);
+  if (!existsSync(abs)) return;
+  for (const entry of readdirSync(abs)) {
+    rmSync(join(abs, entry), { recursive: true, force: true });
+  }
 }
