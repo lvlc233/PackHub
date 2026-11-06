@@ -120,39 +120,4 @@ bindings:
   });
 });
 
-describe('paths 统一路径', () => {
-  const manifest = `apiVersion: packhub.dev/v0
-kind: Pack
-metadata: { name: demo/paths, version: 0.0.1, targets: [dir] }
-requires: { packhub: ">=0.0.1 <0.1" }
-paths:
-  memory: .packhub/state/memory
-resources:
-  - id: mem
-    type: mcp
-    source: npm:memory-server@0.9.0
-    transport: stdio
-    config:
-      args: ["--store", "\${paths.memory}"]
-verify:
-  - type: file-exists
-    path: "\${paths.memory}/index.json"
-`;
 
-  it('资源参数与校验里的 ${paths.x} 都被求值', () => {
-    const dir = pack(manifest);
-    const { plan } = planFor(loadPack(dir));
-    const mcp = plan!.actions.find((a) => a.op === 'register.mcp');
-    const args = mcp && 'spec' in mcp ? (mcp.spec as { args?: string[] }).args : [];
-    expect(args).toEqual(['--store', '.packhub/state/memory']);
-    expect(plan!.verify[0]).toMatchObject({ path: '.packhub/state/memory/index.json' });
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  it('绝对路径或越界路径被拒', () => {
-    const dir = pack(manifest.replace('.packhub/state/memory', '../outside'));
-    const { issues } = planFor(loadPack(dir));
-    expect(issues.map((i) => i.code)).toContain('bad-path');
-    rmSync(dir, { recursive: true, force: true });
-  });
-});

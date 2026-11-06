@@ -65,15 +65,14 @@
 | PKG-02 | 六类资源 | `mcp/skill/prompt/knowledge/config/tool` 都有示例与安装语义 | [done] | `types.ts`、`authoring.md` |
 | PKG-03 | target 声明 | `dir/dsh/claude-code/codex` 可声明；未声明的 target 安装被拒 | [done] | `plan.ts`、CLI target 检查 |
 | PKG-04 | 槽位与绑定 | 未绑定候选进 `excluded`；契约不满足报错；换绑只改一行 | [done] | `graph.ts`、`slot.test` |
-| PKG-05 | 路径表 | `${paths.x}` 可插值；绝对路径/`..` 被拒 | [done] | `graph.ts`、`plan.ts` |
-| PKG-06 | composition | env 注入、needs 检查、order 与 dependsOn 一致性 | [done] | `graph.ts`、`plan.ts` |
+| PKG-06 | composition | env 注入、order 与 dependsOn 一致性 | [done] | `graph.ts`、`plan.ts` |
 | PKG-07 | overrides | 资源级覆盖 pin/参数，不改上游清单 | [done] | `graph.ts` |
 | PKG-08 | overlays | 文件级覆盖排在资源之后；两覆盖层冲突报错，盖生成物只警告 | [done] | `plan.ts`、`overlay.test` |
 | PKG-09 | 可见性 | `public/unlisted/internal/private`，默认 private | [done] | `ref`/schema、`build.ts` |
 | PKG-10 | 签名声明 | manifest 可带 `signatures`，也支持独立文件 | [done] | `signature.ts`、`signfile.ts` |
 | PKG-11 | `extends` | 本地与 `packhub://` 父 Pack 都可继承；远程父包缓存、路径稳定、环检测；publish 自动扁平化 | [done] | `loadPackResolved`、`flattenPack`、`extends*.test` |
-| PKG-12 | server profile | `server` target + 资源级 `targets` 裁剪，未命中进 `excluded`（target-mismatch） | [done] | `plan.ts`、`server-profile.test` |
-| PKG-13 | 本地覆盖 | `.packhub/local.yaml` 覆盖 pin/绑定/paths/vars/env，不进锁 | [done] | `mergeLocalOverrides`、`local-overrides.test` |
+| PKG-12 | 资源级 target 裁剪 | 资源 `targets` 未命中时进 `excluded`（target-mismatch） | [done] | `plan.ts`、`target-trim.test` |
+| PKG-13 | 本地覆盖 | `.packhub/local.yaml` 覆盖 pin/绑定/vars/env，不进锁 | [done] | `mergeLocalOverrides`、`local-overrides.test` |
 | PKG-14 | PACK.md / CHANGELOG | 发布复制进版本目录；Hub / 市场 API 返回原文，包页渲染 | [done] | `publish.ts`、`hub/server.ts`、`PacksPage` |
 | PKG-15 | 持久状态目录 | `state` 块声明目录与 `retain`；`${state.x}` 可插值；安装建目录，升级/卸载默认保留 | [done] | `plan.ts`、`state.test`、`authoring.md` |
 
@@ -101,7 +100,7 @@
 | PLN-01 | 八个动作原语 | fetch/unpack/write/link.skill/register.mcp/merge.config/exec/instruction 可生成 | [done] | `plan.ts` |
 | PLN-02 | 稳定动作 id | `<op>#n` 同类按序编号；同清单两次生成一致 | [done] | `plan.ts` |
 | PLN-03 | 依赖与顺序 | dependsOn 拓扑；`composition.order` 与 dependsOn 矛盾报错 | [done] | `graph.ts` |
-| PLN-04 | 能力检查 | `needs` 无 provider → `unmet-need`；`composition.needs` 检查 bind | [done] | `graph.ts` |
+| PLN-04 | 能力检查 | `needs` 无 provider → `unmet-need` | [done] | `graph.ts` |
 | PLN-05 | 槽位排除 | 未绑定候选进 `excluded`，不进动作 | [done] | `graph.ts`、`plan.ts` |
 | PLN-06 | 冲突检测 | 输出冲突、覆盖层冲突、配置键冲突；shadows 只警告 | [done] | `plan.ts` |
 | PLN-07 | planHash | 规范化 JSON 的 sha256；跨机器可复现 | [done] | `util.ts`、实测 |
@@ -319,7 +318,7 @@ ole=alert + ria-live；安装/校验按钮带 ria-busy | [done] | App.tsx |
 | CON-18 | 上传后生成资源行 | 上传成功自动追加 knowledge 行 | [done] | — |
 | CON-19 | 高级资源字段 | provides/needs/dependsOn/transport/config/targets/optional/auth/integrity 可编辑 | [done] | 行内「+」展开 |
 | CON-20 | 槽位与 bindings | 声明 slot 契约、选择绑定实现 | [done] | 高级 JSON 编辑 |
-| CON-21 | composition 编辑 | env/order/needs 可编辑 | [done] | env 行格式 + needs JSON |
+| CON-21 | composition 编辑 | env 可编辑 | [done] | env 行格式 |
 | CON-22 | overrides/overlays | 覆盖 pin 与文件层可编辑 | [done] | 高级 JSON 编辑 |
 | CON-23 | verify 编辑 | 增删 file-exists/config-key/command/scenario | [done] | verify JSON 编辑 |
 | CON-24 | install.exec 编辑 | 可加命令，明确标注默认不执行 | [done] | exec JSON 编辑 |

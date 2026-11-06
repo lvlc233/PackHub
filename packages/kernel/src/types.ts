@@ -5,7 +5,7 @@
  */
 
 export type ResourceType = 'mcp' | 'skill' | 'prompt' | 'knowledge' | 'config' | 'tool';
-export type TargetId = 'dir' | 'dsh' | 'claude-code' | 'codex' | 'server';
+export type TargetId = 'dir' | 'dsh' | 'claude-code' | 'codex';
 
 export interface ResourceSpec {
   id: string;
@@ -26,16 +26,9 @@ export interface ResourceSpec {
   optional?: boolean;
 }
 
-export interface CompositionNeed {
-  capability: string;
-  requires: string[];
-  bind?: string;
-}
-
 export interface Composition {
   env?: Record<string, string | number | boolean>;
   order?: string[];
-  needs?: CompositionNeed[];
 }
 
 /** 持久状态目录：装进项目、升级与卸载默认保留（记忆、索引、会话存档）。 */
@@ -120,8 +113,6 @@ export interface Manifest {
   slots?: Record<string, SlotSpec>;
   /** 槽位 → 资源 id；只有被绑定的实现会进计划 */
   bindings?: Record<string, string>;
-  /** 包统一管理的路径表，资源里用 ${paths.x} 引用 */
-  paths?: Record<string, string>;
   /** 持久状态目录；资源里用 ${state.<id>} 引用 */
   state?: StateDirSpec[];
   overrides?: { resource: string; source?: string; config?: Record<string, unknown> }[];

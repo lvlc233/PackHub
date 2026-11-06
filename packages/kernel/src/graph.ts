@@ -95,19 +95,6 @@ function resolveSlots(manifest: Manifest, issues: Issue[]): { active: Set<string
   return { active, excluded };
 }
 
-/** 路径表必须是相对路径，且不许逃出目标目录。 */
-function checkPaths(manifest: Manifest, issues: Issue[]): void {
-  for (const [name, value] of Object.entries(manifest.paths ?? {})) {
-    if (/^([a-zA-Z]:[\\/]|[\\/])/.test(value) || value.split(/[\\/]/).includes('..')) {
-      issues.push({
-        code: 'bad-path',
-        severity: 'error',
-        message: `paths.${name} 必须是目标目录内的相对路径：${value}`,
-      });
-    }
-  }
-}
-
 /** 资源与接线校验：这是 Pack 区别于「资源合集」的硬门槛。 */
 export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue[] } {
   const issues: Issue[] = [];
@@ -115,7 +102,6 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
 
   const overrideOf = new Map((manifest.overrides ?? []).map((o) => [o.resource, o]));
   const { active, excluded } = resolveSlots(manifest, issues);
-  checkPaths(manifest, issues);
 
   // requires.agent 只做提示：写错名字不阻断安装，但要让人看见
   const agent = manifest.requires?.agent;
@@ -128,7 +114,7 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
   }
   if (
     agent &&
-    ['dir', 'dsh', 'claude-code', 'codex', 'server'].includes(agent) &&
+    ['dir', 'dsh', 'claude-code', 'codex'].includes(agent) &&
     !manifest.metadata.targets.includes(agent as TargetId)
   ) {
     issues.push({
@@ -227,43 +213,6 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
           severity: 'error',
           message: `资源 ${res.id} 需要 ${need}，但没有任何资源 provides 它`,
           path: `resources.${res.id}.needs`,
-        });
-      }
-    }
-  }
-
-  // composition.needs：绑定必须真实存在且能提供该 capability
-  for (const entry of manifest.composition?.needs ?? []) {
-    const hits = providers.get(entry.capability) ?? [];
-    if (hits.length === 0) {
-      issues.push({
-        code: 'unmet-capability',
-        severity: 'error',
-        message: `composition 要求能力 ${entry.capability}，没有资源提供`,
-      });
-    }
-    if (entry.bind !== undefined) {
-      const bound = resources.get(entry.bind);
-      if (!bound) {
-        issues.push({
-          code: 'bad-bind',
-          severity: 'error',
-          message: `bind 指向不存在的资源：${entry.bind}`,
-        });
-      } else if (!(bound.provides ?? []).includes(entry.capability)) {
-        issues.push({
-          code: 'bad-bind',
-          severity: 'error',
-          message: `资源 ${entry.bind} 未声明 provides ${entry.capability}`,
-        });
-      }
-    }
-    for (const req of entry.requires) {
-      if (!providers.has(req)) {
-        issues.push({
-          code: 'unmet-requirement',
-          severity: 'error',
-          message: `composition 要求 ${entry.capability} 依赖 ${req}，但没有资源提供`,
         });
       }
     }

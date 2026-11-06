@@ -60,16 +60,6 @@ export const TARGET_VARS: Record<TargetId, Record<string, string>> = {
     configFile: '.packhub/config.json',
     instructionFile: 'AGENTS.md',
   },
-  // server：只物化到项目内，不接宿主的指令面（CI / 容器里用）
-  server: {
-    root: '.packhub',
-    cacheDir: '.packhub/cache',
-    skillsDir: '.packhub/skills',
-    knowledgeDir: '.packhub/knowledge',
-    promptsDir: '.packhub/prompts',
-    binDir: '.packhub/bin',
-    configFile: '.packhub/config.json',
-  },
   codex: {
     root: '.packhub',
     cacheDir: '.packhub/cache',
@@ -92,7 +82,6 @@ export function buildPlan(
   const scope: Record<string, unknown> = {
     vars: manifest.vars ?? {},
     target: targetVars,
-    paths: manifest.paths ?? {},
   };
 
   const missing: string[] = [];

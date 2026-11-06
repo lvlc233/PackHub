@@ -121,7 +121,6 @@ export function loadPack(dir: string, opts: { seen?: string[] } = {}): PackConte
 export interface LocalOverrides {
   overrides?: Manifest['overrides'];
   bindings?: Record<string, string>;
-  paths?: Record<string, string>;
   vars?: Record<string, string | number | boolean>;
   composition?: { env?: Record<string, string | number | boolean> };
 }
@@ -164,7 +163,6 @@ export function mergeLocalOverrides(
       ...manifest,
       overrides: [...(manifest.overrides ?? []), ...overrides],
       bindings: { ...(manifest.bindings ?? {}), ...(raw.bindings ?? {}) },
-      paths: { ...(manifest.paths ?? {}), ...(raw.paths ?? {}) },
       vars: { ...(manifest.vars ?? {}), ...(raw.vars ?? {}) },
       composition: {
         ...(manifest.composition ?? {}),
@@ -185,7 +183,7 @@ function rebaseLocal(source: string, fromDir: string, toDir: string): string {
 
 /**
  * extends 合并规则：子包同名资源覆盖父包；metadata 与 requires 以子包为准；
- * composition.env / slots / bindings / paths 两边合并；resources / verify 保留父包在前。
+ * composition.env / slots / bindings 两边合并；resources / verify 保留父包在前。
  */
 export function mergeManifest(
   base: Manifest,
@@ -217,7 +215,6 @@ export function mergeManifest(
   const order = [
     ...new Set([...(base.composition?.order ?? []), ...(child.composition?.order ?? [])]),
   ];
-  const needs = [...(base.composition?.needs ?? []), ...(child.composition?.needs ?? [])];
   // 状态目录按 id 合并：子包同名覆盖父包，未重名的都保留
   const stateById = new Map<string, NonNullable<Manifest['state']>[number]>();
   for (const spec of base.state ?? []) stateById.set(spec.id, spec);
@@ -229,12 +226,10 @@ export function mergeManifest(
     extends: undefined,
     resources,
     vars: { ...(base.vars ?? {}), ...(child.vars ?? {}) },
-    paths: { ...(base.paths ?? {}), ...(child.paths ?? {}) },
     ...(state.length > 0 ? { state } : {}),
     composition: {
       ...(Object.keys(mergeEnv).length ? { env: mergeEnv } : {}),
       ...(order.length ? { order } : {}),
-      ...(needs.length ? { needs } : {}),
     },
     slots: { ...(base.slots ?? {}), ...(child.slots ?? {}) },
     bindings: { ...(base.bindings ?? {}), ...(child.bindings ?? {}) },
@@ -267,7 +262,7 @@ export function planFor(
         {
           code: 'unknown-target',
           severity: 'error',
-          message: `未知 target：${target}（可选 dir / dsh / claude-code）`,
+          message: `未知 target：${target}（可选 dir / dsh / claude-code / codex）`,
         },
       ],
     };

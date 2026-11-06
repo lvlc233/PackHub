@@ -3,7 +3,6 @@
 ## 路径
 
 - 所有落盘路径都经过 `within(root, rel)`：`resolve(base, rel)` 后再检查是否在 `base` 内；`..` 与绝对路径越界会被拒。
-- `paths:` 在 `graph.ts` 里额外拒绝盘符路径、以 `/`/`\` 开头、含 `..` 段。
 - `overlays.from` 额外检查不能逃出包目录。
 - `fetchPack` 的本地归档路径按平台换分隔符；registry 的相对路径统一用 `/`。
 

@@ -22,12 +22,6 @@ slots:
 bindings:
   lint: markdownlint
 
-composition:
-  needs:
-    - capability: skill:doc_review
-      requires: [doc:lint, knowledge:review_rubric, prompt:reader_brief]
-      bind: doc-review
-
 resources:
   - id: markdownlint
     type: mcp

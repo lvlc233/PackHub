@@ -26,7 +26,7 @@
 **升 v1 的判据**（三条都满足才升，届时提供 `packhub migrate`，内核同时读 v0/v1 一段时间）：
 
 1. 资源类型集合固定，不再增删；
-2. `composition`（env / order / needs / bind）语义固定；
+2. `composition`（env / order）语义固定；
 3. `lock` 里每个引用都有 integrity，不再出现 `null`。
 
 ---

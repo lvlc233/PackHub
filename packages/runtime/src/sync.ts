@@ -284,7 +284,6 @@ function launchSpec(ctx: PackContext, res: ResourceSpec, target: SyncTarget): Ho
   const scope = {
     vars: ctx.manifest.vars ?? {},
     target: globalTargetVars(target),
-    paths: ctx.manifest.paths ?? {},
   };
   const config = interpolate(res.config ?? {}, scope) as Record<string, unknown>;
   return buildMcpSpec(res, config) as HostMcpSpec;

@@ -44,15 +44,15 @@ resources:
     source: ./fragments/agent.yaml
 ```
 
-`metadata.targets` 是必填字段，声明这个包支持装到哪些环境：`dir`（普通项目）、`dsh`、`claude-code`、`codex`、`server`（CI / 容器）。
+`metadata.targets` 是必填字段，声明这个包支持装到哪些环境：`dir`（普通项目）、`dsh`、`claude-code`、`codex`。
 
 它有三个后果：
 
 - `--target` 不在里面，命令直接拒绝，不是警告；
-- `run` / `publish` 要求里面必须有 `dir`——发布门禁只验证 `dir`，所以只声明 `[server]` 的包发不出去；
+- `run` / `publish` 要求里面必须有 `dir`——发布门禁只验证 `dir`，没声明 `dir` 的包发不出去；
 - `lock` 会为每个声明的 target 各存一份计划快照（`lock.plans`），声明越多，锁越大，索引校验也多几轮。
 
-资源上还能写 `targets: [dir]`，在这个范围内再裁一层：包声明了 `server`，某条资源仍可以只允许 `dir`，在 `server` 上它进 `excluded`（reason `target-mismatch`）。
+资源上还能写 `targets: [dir]`，在这个范围内再裁一层：包声明了 `dsh`，某条资源仍可以只允许 `dir`，在 `dsh` 上它进 `excluded`（reason `target-mismatch`）。
 
 ## 概念
 
@@ -189,7 +189,6 @@ packhub --version        # 打出版本号就是装好了
 | `dsh` | `.packhub/` + `AGENTS.md` 托管块 |
 | `claude-code` | `.claude/skills/` + `.mcp.json` + `CLAUDE.md` 托管块 |
 | `codex` | 项目内 `.codex/skills/` + `AGENTS.md` 托管块 |
-| `server` | 只物化到 `.packhub/`，不写宿主指令面；给 CI / 容器 |
 
 不写 `--target` 就是 `dir`：文件都进 `.packhub/`，宿主侧一个落点都不写——装完命令成功、校验也过，但 Claude Code 看不到任何东西。
 
@@ -284,7 +283,7 @@ packhub add [OPTIONS] <SOURCE>
 | `--index` | `PACKHUB_INDEX` | registry 的 index.json，本地路径或 URL |
 | `--version` | latest | registry 包的版本 |
 | `--dir` | `.` | 项目目录 |
-| `--target` | `dir` | `dir` / `dsh` / `claude-code` / `codex` / `server` |
+| `--target` | `dir` | `dir` / `dsh` / `claude-code` / `codex` |
 | `--dry-run` | false | 只打印，不写盘 |
 | `--overwrite` | false | 覆盖别的包写过的文件 |
 | `--allow-stale-lock` | false | 锁与清单对不上也继续装 |

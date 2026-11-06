@@ -60,10 +60,6 @@ composition:
     REVIEW_ROOT: ${vars.projectRoot}
     REVIEW_STRICT: "${vars.strict}"
   order: [agent-config, repo-search, review-rules]
-  needs:
-    - capability: skill:code_review
-      requires: [tool:repo_search, knowledge:house_style]
-      bind: review-rules
 
 verify:
   - type: mcp-ready

@@ -7,34 +7,35 @@
       "type": "mcp",
       "source": "npm:@dougis/markdown-lint-mcp@1.0.5",
       "integrity": "sha512-iTgEVu7K9hu+Ovu6k13xp5XYJWAHyUl9N0428QchgWShTY7F5JeDEGZHzfzYU0/7ysNL/S1x+DxPAcnRvwzsWg==",
-      "resolvedAt": "2026-11-05T06:03:35.105Z"
+      "resolvedAt": "2026-11-06T19:34:55.153Z"
     },
     {
       "id": "review-rubric",
       "type": "knowledge",
       "source": "./resources/review-rubric.md",
       "integrity": null,
-      "resolvedAt": "2026-11-05T06:03:35.105Z"
+      "resolvedAt": "2026-11-06T19:34:55.153Z"
     },
     {
       "id": "reader-brief",
       "type": "prompt",
       "source": "./resources/reader-brief.md",
       "integrity": null,
-      "resolvedAt": "2026-11-05T06:03:35.105Z"
+      "resolvedAt": "2026-11-06T19:34:55.153Z"
     },
     {
       "id": "doc-review",
       "type": "skill",
       "source": "./skills/doc-review",
       "integrity": null,
-      "resolvedAt": "2026-11-05T06:03:35.105Z"
+      "resolvedAt": "2026-11-06T19:34:55.153Z"
     }
   ],
   "planHash": "sha256-XNfyonXFbb58Xn7u2B4SFWtBH8HOn9aMZH3UEbDHItM=",
   "generatedBy": "packhub/0.0.1",
   "plan": {
     "target": "dir",
+    "planHash": "sha256-XNfyonXFbb58Xn7u2B4SFWtBH8HOn9aMZH3UEbDHItM=",
     "actions": [
       {
         "op": "register.mcp",
@@ -117,5 +118,279 @@
       }
     ],
     "excluded": []
+  },
+  "plans": {
+    "dir": {
+      "target": "dir",
+      "planHash": "sha256-XNfyonXFbb58Xn7u2B4SFWtBH8HOn9aMZH3UEbDHItM=",
+      "actions": [
+        {
+          "op": "register.mcp",
+          "spec": {
+            "transport": "stdio",
+            "command": "npx",
+            "args": [
+              "-y",
+              "@dougis/markdown-lint-mcp@1.0.5"
+            ]
+          },
+          "path": ".packhub/config.json",
+          "resource": "markdownlint",
+          "actionId": "register.mcp#1"
+        },
+        {
+          "op": "write",
+          "from": "./resources/review-rubric.md",
+          "to": ".packhub/knowledge/review-rubric.md",
+          "resource": "review-rubric",
+          "actionId": "write#1"
+        },
+        {
+          "op": "write",
+          "from": "./resources/reader-brief.md",
+          "to": ".packhub/prompts/reader-brief.md",
+          "resource": "reader-brief",
+          "actionId": "write#2"
+        },
+        {
+          "op": "link.skill",
+          "from": "./skills/doc-review",
+          "to": ".packhub/skills/doc-review",
+          "resource": "doc-review",
+          "actionId": "link.skill#1"
+        }
+      ],
+      "verify": [
+        {
+          "type": "file-exists",
+          "path": ".packhub/skills/doc-review/SKILL.md"
+        },
+        {
+          "type": "file-exists",
+          "path": ".packhub/skills/doc-review/scripts/check-structure.mjs"
+        },
+        {
+          "type": "file-exists",
+          "path": ".packhub/skills/doc-review/scripts/check-links.mjs"
+        },
+        {
+          "type": "file-exists",
+          "path": ".packhub/knowledge/review-rubric.md"
+        },
+        {
+          "type": "file-exists",
+          "path": ".packhub/prompts/reader-brief.md"
+        },
+        {
+          "type": "config-key",
+          "path": ".packhub/config.json",
+          "key": "mcpServers.markdownlint.command",
+          "equals": "npx"
+        },
+        {
+          "type": "command",
+          "run": [
+            "node",
+            ".packhub/skills/doc-review/scripts/check-structure.mjs",
+            "--self-test"
+          ]
+        },
+        {
+          "type": "command",
+          "run": [
+            "node",
+            ".packhub/skills/doc-review/scripts/check-links.mjs",
+            "--self-test"
+          ]
+        }
+      ],
+      "excluded": []
+    },
+    "dsh": {
+      "target": "dsh",
+      "planHash": "sha256-xXAG7/QGymAGw7LRuv2Y0j6PgqKQ6q4omJgbZZ4CUbg=",
+      "actions": [
+        {
+          "op": "register.mcp",
+          "spec": {
+            "transport": "stdio",
+            "command": "npx",
+            "args": [
+              "-y",
+              "@dougis/markdown-lint-mcp@1.0.5"
+            ]
+          },
+          "path": ".packhub/config.json",
+          "resource": "markdownlint",
+          "actionId": "register.mcp#1"
+        },
+        {
+          "op": "write",
+          "from": "./resources/review-rubric.md",
+          "to": ".packhub/knowledge/review-rubric.md",
+          "resource": "review-rubric",
+          "actionId": "write#1"
+        },
+        {
+          "op": "write",
+          "from": "./resources/reader-brief.md",
+          "to": ".packhub/prompts/reader-brief.md",
+          "resource": "reader-brief",
+          "actionId": "write#2"
+        },
+        {
+          "op": "link.skill",
+          "from": "./skills/doc-review",
+          "to": ".packhub/skills/doc-review",
+          "resource": "doc-review",
+          "actionId": "link.skill#1"
+        },
+        {
+          "op": "instruction",
+          "file": "AGENTS.md",
+          "blockId": "lvlc233/doc-review",
+          "content": "这个项目装了一个整合包：**文档验收：先机械检查，再冷读**（0.1.0）。\n\n文档写完后先跑结构、链接和 Markdown 格式检查，再让独立读者按“目的内是否答得出、路径是否走得通”做一次冷读，最后只修阻断项。\n\n可用的能力：\n- `markdownlint`（mcp） → doc:lint\n- `review-rubric`（knowledge） → knowledge:review_rubric\n- `reader-brief`（prompt） → prompt:reader_brief\n- `doc-review`（skill） → skill:doc_review\n\n文件位置：\n- skills：`.packhub/skills`\n- 知识：`.packhub/knowledge`\n- 提示词：`.packhub/prompts`\n- 工具入口：`.packhub/bin`\n- 配置：`.packhub/config.json`",
+          "actionId": "instruction#1"
+        }
+      ],
+      "verify": [
+        {
+          "type": "file-exists",
+          "path": ".packhub/skills/doc-review/SKILL.md"
+        },
+        {
+          "type": "file-exists",
+          "path": ".packhub/skills/doc-review/scripts/check-structure.mjs"
+        },
+        {
+          "type": "file-exists",
+          "path": ".packhub/skills/doc-review/scripts/check-links.mjs"
+        },
+        {
+          "type": "file-exists",
+          "path": ".packhub/knowledge/review-rubric.md"
+        },
+        {
+          "type": "file-exists",
+          "path": ".packhub/prompts/reader-brief.md"
+        },
+        {
+          "type": "config-key",
+          "path": ".packhub/config.json",
+          "key": "mcpServers.markdownlint.command",
+          "equals": "npx"
+        },
+        {
+          "type": "command",
+          "run": [
+            "node",
+            ".packhub/skills/doc-review/scripts/check-structure.mjs",
+            "--self-test"
+          ]
+        },
+        {
+          "type": "command",
+          "run": [
+            "node",
+            ".packhub/skills/doc-review/scripts/check-links.mjs",
+            "--self-test"
+          ]
+        }
+      ],
+      "excluded": []
+    },
+    "claude-code": {
+      "target": "claude-code",
+      "planHash": "sha256-BLbK22V2yYPwRM04PiwXbXoxu6jsX/rM/XLRe0pCdjg=",
+      "actions": [
+        {
+          "op": "register.mcp",
+          "spec": {
+            "transport": "stdio",
+            "command": "npx",
+            "args": [
+              "-y",
+              "@dougis/markdown-lint-mcp@1.0.5"
+            ]
+          },
+          "path": ".mcp.json",
+          "resource": "markdownlint",
+          "actionId": "register.mcp#1"
+        },
+        {
+          "op": "write",
+          "from": "./resources/review-rubric.md",
+          "to": ".packhub/knowledge/review-rubric.md",
+          "resource": "review-rubric",
+          "actionId": "write#1"
+        },
+        {
+          "op": "write",
+          "from": "./resources/reader-brief.md",
+          "to": ".packhub/prompts/reader-brief.md",
+          "resource": "reader-brief",
+          "actionId": "write#2"
+        },
+        {
+          "op": "link.skill",
+          "from": "./skills/doc-review",
+          "to": ".claude/skills/doc-review",
+          "resource": "doc-review",
+          "actionId": "link.skill#1"
+        },
+        {
+          "op": "instruction",
+          "file": "CLAUDE.md",
+          "blockId": "lvlc233/doc-review",
+          "content": "这个项目装了一个整合包：**文档验收：先机械检查，再冷读**（0.1.0）。\n\n文档写完后先跑结构、链接和 Markdown 格式检查，再让独立读者按“目的内是否答得出、路径是否走得通”做一次冷读，最后只修阻断项。\n\n可用的能力：\n- `markdownlint`（mcp） → doc:lint\n- `review-rubric`（knowledge） → knowledge:review_rubric\n- `reader-brief`（prompt） → prompt:reader_brief\n- `doc-review`（skill） → skill:doc_review\n\n文件位置：\n- skills：`.claude/skills`\n- 知识：`.packhub/knowledge`\n- 提示词：`.packhub/prompts`\n- 工具入口：`.packhub/bin`\n- 配置：`.mcp.json`",
+          "actionId": "instruction#1"
+        }
+      ],
+      "verify": [
+        {
+          "type": "file-exists",
+          "path": ".claude/skills/doc-review/SKILL.md"
+        },
+        {
+          "type": "file-exists",
+          "path": ".claude/skills/doc-review/scripts/check-structure.mjs"
+        },
+        {
+          "type": "file-exists",
+          "path": ".claude/skills/doc-review/scripts/check-links.mjs"
+        },
+        {
+          "type": "file-exists",
+          "path": ".packhub/knowledge/review-rubric.md"
+        },
+        {
+          "type": "file-exists",
+          "path": ".packhub/prompts/reader-brief.md"
+        },
+        {
+          "type": "config-key",
+          "path": ".mcp.json",
+          "key": "mcpServers.markdownlint.command",
+          "equals": "npx"
+        },
+        {
+          "type": "command",
+          "run": [
+            "node",
+            ".claude/skills/doc-review/scripts/check-structure.mjs",
+            "--self-test"
+          ]
+        },
+        {
+          "type": "command",
+          "run": [
+            "node",
+            ".claude/skills/doc-review/scripts/check-links.mjs",
+            "--self-test"
+          ]
+        }
+      ],
+      "excluded": []
+    }
   }
 }

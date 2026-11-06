@@ -7,7 +7,7 @@
 | PLN-01 | 构造含六类资源 + overlay + exec 的包 | 十种动作都能生成（含 `link.bin` / `state.dir`）；`instruction` 在 dsh/codex/claude 下自动追加 | `probe` 不是 plan 动作 |
 | PLN-02 | 同一清单跑两次 `plan --json` | `actionId` 稳定；`planHash` 相同 | 无 |
 | PLN-03 | 写 `dependsOn` 成环；写 `composition.order` 与依赖矛盾 | `dependency-cycle` / `order-violates-dependency` | 顺序算法只做拓扑，不并行 |
-| PLN-04 | 写 `needs` 无提供方；`composition.needs.bind` 不存在 | `unmet-need` / `bad-bind` | 能力名没有集中注册表 |
+| PLN-04 | 写 `needs` 无提供方 | `unmet-need` | 能力名没有集中注册表 |
 | PLN-05 | 槽位两个候选只绑一个 | 未绑定进 `excluded`；动作里没有 | 单候选无法演示 swap |
 | PLN-06 | 两动作写同一文件；两 config 改同一键；overlay 盖生成物 | 前两者 error，最后 warning | 跨包冲突不在 plan 内 |
 | PLN-07 | 两台机器跑同一清单（同 target） | `planHash` 一致；实测 Windows 与 registry 记录一致 | 依赖 Node 的 JSON 规范化，无版本号 |

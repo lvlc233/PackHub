@@ -76,14 +76,12 @@ interface FormState {
 
 interface AdvancedState {
   compositionEnv: string;
-  compositionNeeds: string;
   slots: string;
   bindings: string;
   overrides: string;
   overlays: string;
   verify: string;
   exec: string;
-  paths: string;
   vars: string;
   state: string;
 }
@@ -120,20 +118,18 @@ const EMPTY_FORM: FormState = {
 
 const EMPTY_ADVANCED: AdvancedState = {
   compositionEnv: '',
-  compositionNeeds: '',
   slots: '',
   bindings: '',
   overrides: '',
   overlays: '',
   verify: '',
   exec: '',
-  paths: '',
   vars: '',
   state: '',
 };
 
 const RES_TYPES = ['knowledge', 'prompt', 'skill', 'tool', 'mcp', 'config'];
-const TARGETS = ['dir', 'claude-code', 'dsh', 'codex', 'server'];
+const TARGETS = ['dir', 'claude-code', 'dsh', 'codex'];
 
 const uid = (): string => Math.random().toString(36).slice(2, 8);
 
@@ -290,11 +286,6 @@ function toYaml(
   lines.push('requires:', '  packhub: ">=0.0.1 <0.1"');
   if (form.agent.trim()) lines.push(`  agent: ${q(form.agent.trim())}`);
 
-  const paths = safeJson<Record<string, string>>(advanced.paths, {});
-  if (Object.keys(paths).length > 0) {
-    lines.push('paths:');
-    for (const [k, v] of Object.entries(paths)) lines.push(`  ${k}: ${q(String(v))}`);
-  }
   const vars = safeJson<Record<string, unknown>>(advanced.vars, {});
   if (Object.keys(vars).length > 0) {
     lines.push('vars:');
@@ -338,8 +329,6 @@ function toYaml(
       /* 格式错误由 advancedErrors 提示，这里不写半截 */
     }
   }
-  const needs = safeJson<unknown[]>(advanced.compositionNeeds, []);
-  if (needs.length > 0) composition.push(`  needs: ${JSON.stringify(needs)}`);
   if (composition.length > 0) lines.push('composition:', ...composition);
 
   const slots = safeJson<Record<string, unknown>>(advanced.slots, {});
@@ -410,14 +399,13 @@ export function ConsolePage() {
         errors[key] = (err as Error).message;
       }
     };
-    check('compositionNeeds', advanced.compositionNeeds, 'array');
+    check('compositionEnv', advanced.compositionEnv, 'object');
     check('slots', advanced.slots, 'object');
     check('bindings', advanced.bindings, 'object');
     check('overrides', advanced.overrides, 'array');
     check('overlays', advanced.overlays, 'array');
     check('verify', advanced.verify, 'array');
     check('exec', advanced.exec, 'array');
-    check('paths', advanced.paths, 'object');
     check('vars', advanced.vars, 'object');
     check('state', advanced.state, 'array');
     if (advanced.compositionEnv.trim()) {
@@ -697,14 +685,12 @@ export function ConsolePage() {
       const install = (data.install ?? {}) as Record<string, unknown>;
       setAdvanced({
         compositionEnv: envLines(composition.env),
-        compositionNeeds: composition.needs ? JSON.stringify(composition.needs, null, 2) : '',
         slots: data.slots ? JSON.stringify(data.slots, null, 2) : '',
         bindings: data.bindings ? JSON.stringify(data.bindings, null, 2) : '',
         overrides: data.overrides ? JSON.stringify(data.overrides, null, 2) : '',
         overlays: data.overlays ? JSON.stringify(data.overlays, null, 2) : '',
         verify: data.verify ? JSON.stringify(data.verify, null, 2) : '',
         exec: install.exec ? JSON.stringify(install.exec, null, 2) : '',
-        paths: data.paths ? JSON.stringify(data.paths, null, 2) : '',
         vars: data.vars ? JSON.stringify(data.vars, null, 2) : '',
         state: data.state ? JSON.stringify(data.state, null, 2) : '',
       });
@@ -1037,7 +1023,6 @@ export function ConsolePage() {
       : path.includes('overrides') ? 'adv-overrides'
       : path.includes('slots') ? 'adv-slots'
       : path.includes('bindings') ? 'adv-bindings'
-      : path.includes('paths') ? 'adv-paths'
       : path.includes('vars') ? 'adv-vars'
       : '';
     if (!field) return;
@@ -1513,7 +1498,7 @@ export function ConsolePage() {
           </div>
 
           <details className="cs-adv" id="adv-composition">
-            <summary>composition（env / needs）</summary>
+            <summary>composition（env）</summary>
             <div className="cs-advgrid">
               <label className="cs-span">
                 env（每行 KEY=value）
@@ -1523,15 +1508,6 @@ export function ConsolePage() {
                   onChange={(e) => setAdvanced({ ...advanced, compositionEnv: e.target.value })}
                 />
                 {advancedErrors.compositionEnv && <span className="cs-field-error">{advancedErrors.compositionEnv}</span>}
-              </label>
-              <label className="cs-span">
-                needs（JSON 数组）
-                <textarea
-                  rows={3}
-                  value={advanced.compositionNeeds}
-                  onChange={(e) => setAdvanced({ ...advanced, compositionNeeds: e.target.value })}
-                />
-                {advancedErrors.compositionNeeds && <span className="cs-field-error">{advancedErrors.compositionNeeds}</span>}
               </label>
             </div>
           </details>
@@ -1682,18 +1658,9 @@ export function ConsolePage() {
             </div>
           </details>
 
-          <details className="cs-adv" id="adv-paths">
-            <summary>paths / vars / state（路径、变量与持久状态）</summary>
+          <details className="cs-adv">
+            <summary>vars / state（变量与持久状态）</summary>
             <div className="cs-advgrid">
-              <label>
-                paths（JSON 对象）
-                <textarea
-                  rows={3}
-                  value={advanced.paths}
-                  onChange={(e) => setAdvanced({ ...advanced, paths: e.target.value })}
-                />
-                {advancedErrors.paths && <span className="cs-field-error">{advancedErrors.paths}</span>}
-              </label>
               <label id="adv-vars">
                 vars（JSON 对象）
                 <textarea

@@ -205,10 +205,6 @@ composition:
     REVIEW_ROOT: ${vars.projectRoot}
     STRICT: "${vars.strict}"
   order: [agent-config, repo-search, review-rules]   # 省略则按 dependsOn 拓扑排序
-  needs:                             # 整个 Pack 层面的依赖声明
-    - capability: skill:code_review
-      requires: [tool:repo_search, knowledge:house_style]
-      bind: review-rules             # 绑定到具体实现，锁住行为
 
 verify:                              # 发布时必须有；本地可先留一条
   - { type: mcp-ready, resource: repo-search, timeout: 30 }
@@ -258,7 +254,7 @@ overlays:
 
 ### 继承与本地覆盖
 
-`extends: ../base` 继承一个本地父 Pack；`extends: packhub://scope/name@1.0.0` 从 registry 取远程父包（落在子包 `.packhub/cache/extends/`，路径相对子包，planHash 跨机器一致）。单个资源也可以引用已发布包里的文件或目录：`source: "packhub://scope/name@1.0.0#docs/guide.md"`（skill 则指向目录）；安装期同样落进 `.packhub/cache/packhub/`，`lock` 与 `publish` 要求先 vendored。父包的 `resources`、`composition`、`slots`、`bindings`、`paths`、`overrides`、`verify` 一起合并；子包同名资源覆盖父包，`metadata` 与 `requires` 以子包为准；父包的本地 source 会被改写成相对子包的路径，安装时能读。成环报 `extends-cycle`。远程继承要求 `--index` / `PACKHUB_INDEX`；`packhub publish` 会自动扁平化（外部文件复制到 `external/`，清单去掉 `extends`）；直接调用 `publishPack` 时先 `flattenPack`。
+`extends: ../base` 继承一个本地父 Pack；`extends: packhub://scope/name@1.0.0` 从 registry 取远程父包（落在子包 `.packhub/cache/extends/`，路径相对子包，planHash 跨机器一致）。单个资源也可以引用已发布包里的文件或目录：`source: "packhub://scope/name@1.0.0#docs/guide.md"`（skill 则指向目录）；安装期同样落进 `.packhub/cache/packhub/`，`lock` 与 `publish` 要求先 vendored。父包的 `resources`、`composition`、`slots`、`bindings`、`overrides`、`verify` 一起合并；子包同名资源覆盖父包，`metadata` 与 `requires` 以子包为准；父包的本地 source 会被改写成相对子包的路径，安装时能读。成环报 `extends-cycle`。远程继承要求 `--index` / `PACKHUB_INDEX`；`packhub publish` 会自动扁平化（外部文件复制到 `external/`，清单去掉 `extends`）；直接调用 `publishPack` 时先 `flattenPack`。
 
 使用者侧的 `.packhub/local.yaml` 不进清单、不进锁，只覆盖这一次安装：
 
@@ -295,8 +291,6 @@ requires:
 slots:
   voice:
     contract: [audio:speak]        # 占这个位的实现必须提供什么
-paths:
-  state: .packhub/state            # 包统一发号施令的路径
 resources:
   - id: tts-a
     type: tool
@@ -312,7 +306,7 @@ bindings:
   voice: tts-b                     # 只装这个；tts-a 记为 excluded
 verify:
   - type: file-exists
-    path: "${paths.state}/voice.json"
+    path: ".packhub/state/voice.json"
 ```
 
 规则：
@@ -321,11 +315,6 @@ verify:
 - **契约要满足**：绑定的实现必须 `provides` 覆盖 `slot.contract`，否则报 `slot-contract-unmet`。
 - **有候选但没绑定** → `slot-unbound`（不猜你装哪个）。
 - 换实现：`packhub slot swap voice tts-a`，只改 `bindings` 一行，并打印计划差异（卸掉谁、装上谁）。
-
-**路径（paths）** 解决“资源各读各的默认位置”。包里统一声明，资源里用 `${paths.x}` 引用，生成计划时求值：
-
-- 必须是目标目录内的相对路径；`../` 或绝对路径直接报 `bad-path`。
-- 可以用在资源 `config`、`composition.env`、`verify`、`overlays` 的路径里。
 
 能力名统一写成 `命名空间:名字`（`audio:speak`、`memory:read`、`tool:repo_search`），槽位契约与 `provides` / `needs` 用同一套写法。
 
@@ -529,13 +518,11 @@ verify:
 | `unpinned-source` | 引用没锁到不可变版本 | 写版本号 / commit |
 | `http-missing-integrity` | https 资源没哈希 | 安装或 lock 时补，或手填 |
 | `unmet-need` | 有资源要某项能力，没人提供 | 加提供方，或删掉这条 need |
-| `unmet-capability` | `composition.needs` 里的能力没人提供 | 同上 |
-| `bad-bind` | 绑定的资源没提供该能力 | 改 `bind` 指向正确的 id |
 | `pin-conflict` | 同一个源被锁到两个版本 | 用 `overrides` 显式定夺 |
 | `order-violates-dependency` | `composition.order` 与 `dependsOn` 矛盾 | 调顺序或删 order |
 | `dependency-cycle` | 依赖成环 | 去掉一条反向依赖 |
 | `config-source-unsupported` | config 资源用了非本地来源 | 把片段放进包内（`./fragments/…`）再引用 |
-| `unknown-target` | `--target` 写了不支持的值 | 用 `dir` / `dsh` / `claude-code` / `codex` / `server` |
+| `unknown-target` | `--target` 写了不支持的值 | 用 `dir` / `dsh` / `claude-code` / `codex` |
 
 ---
 

@@ -6,7 +6,7 @@ import { loadPack, planFor } from '../src/index.ts';
 
 const MANIFEST = `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/profile, version: 0.0.1, targets: [dir, server] }
+metadata: { name: demo/profile, version: 0.0.1, targets: [dir, dsh] }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: shared
@@ -18,8 +18,8 @@ resources:
     targets: [dir]
 `;
 
-describe('server profile 与资源级 target 裁剪', () => {
-  it('server 只装通用资源，client-only 明确进 excluded', () => {
+describe('资源级 target 裁剪', () => {
+  it('dsh 只装通用资源，dir-only 的进 excluded', () => {
     const dir = mkdtempSync(join(tmpdir(), 'packhub-profile-'));
     writeFileSync(join(dir, 'packhub.yaml'), MANIFEST, 'utf8');
     writeFileSync(join(dir, 'shared.md'), '# shared\n', 'utf8');
@@ -28,22 +28,20 @@ describe('server profile 与资源级 target 裁剪', () => {
     const ctx = loadPack(dir);
     expect(ctx.issues.filter((i) => i.severity === 'error')).toEqual([]);
 
-    const server = planFor(ctx, { target: 'server' }).plan!;
-    const serverFiles = server.actions
+    const dsh = planFor(ctx, { target: 'dsh' }).plan!;
+    const dshFiles = dsh.actions
       .filter((a) => a.op === 'write')
       .map((a) => ('to' in a ? a.to : ''));
-    expect(serverFiles).toEqual(['.packhub/knowledge/shared.md']);
-    expect(server.excluded).toContainEqual({
+    expect(dshFiles).toEqual(['.packhub/knowledge/shared.md']);
+    expect(dsh.excluded).toContainEqual({
       resource: 'desktop-only',
       slot: '',
       reason: 'target-mismatch',
     });
-    // server 不接宿主指令面
-    expect(server.actions.some((a) => a.op === 'instruction')).toBe(false);
 
-    const client = planFor(ctx, { target: 'dir' }).plan!;
+    const local = planFor(ctx, { target: 'dir' }).plan!;
     expect(
-      client.actions
+      local.actions
         .filter((a) => a.op === 'write')
         .map((a) => ('to' in a ? a.to : ''))
         .sort(),

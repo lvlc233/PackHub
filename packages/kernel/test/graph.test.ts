@@ -60,15 +60,6 @@ describe('validateGraph', () => {
     expect(validateGraph(manifest).issues.map((i) => i.code)).toContain('order-violates-dependency');
   });
 
-  it('bind 指向未提供该能力的资源时报错', () => {
-    const manifest = load(
-      base({
-        composition: { needs: [{ capability: 'tool:search', requires: ['skill:b'], bind: 'skill-b' }] },
-      }),
-    );
-    expect(validateGraph(manifest).issues.map((i) => i.code)).toContain('bad-bind');
-  });
-
   it('重复 id 报错', () => {
     const manifest = load(
       base({
