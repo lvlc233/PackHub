@@ -75,6 +75,18 @@ importers:
         specifier: ^2.6.1
         version: 2.9.1
 
+  packages/launcher:
+    dependencies:
+      '@packhub/kernel':
+        specifier: workspace:*
+        version: link:../kernel
+      '@packhub/runtime':
+        specifier: workspace:*
+        version: link:../runtime
+      citty:
+        specifier: ^0.1.6
+        version: 0.1.6
+
   packages/market:
     dependencies:
       '@packhub/kernel':

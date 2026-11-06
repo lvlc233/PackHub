@@ -17,6 +17,7 @@
     "test:hub": "vitest run packages/hub/test",
     "typecheck": "tsc --noEmit --pretty false",
     "packhub": "node --experimental-strip-types apps/local/src/bin.ts",
+    "pal": "node --experimental-strip-types packages/launcher/src/bin.ts",
     "serve": "node --experimental-strip-types apps/local/src/bin.ts serve .",
     "web:dev": "pnpm --filter @packhub/web dev",
     "web:build": "pnpm --filter @packhub/web build",

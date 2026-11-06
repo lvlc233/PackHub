@@ -1,0 +1,15 @@
+{
+  "name": "@packhub/launcher",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "bin": { "pal": "./src/bin.ts" },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@packhub/kernel": "workspace:*",
+    "@packhub/runtime": "workspace:*",
+    "citty": "^0.1.6"
+  }
+}
