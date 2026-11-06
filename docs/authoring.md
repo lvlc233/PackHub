@@ -1,4 +1,4 @@
-# 作者怎么做一个 Pack
+# 作者怎么做一个 Pack[待更新]
 
 术语与 [README](../README.md) 一致：“资源”指 `packhub.yaml` 里的一条声明，不是上游制品。
 
