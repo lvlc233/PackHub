@@ -18,6 +18,7 @@
     "typecheck": "tsc --noEmit --pretty false",
     "packhub": "node --experimental-strip-types apps/local/src/bin.ts",
     "pal": "node --experimental-strip-types packages/launcher/src/bin.ts",
+    "build:pal-desktop": "node scripts/pal/build-desktop.mjs",
     "serve": "node --experimental-strip-types apps/local/src/bin.ts serve .",
     "web:dev": "pnpm --filter @packhub/web dev",
     "web:build": "pnpm --filter @packhub/web build",

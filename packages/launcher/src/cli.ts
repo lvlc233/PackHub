@@ -3,6 +3,8 @@ import { createInstance, listInstances, readInstance, removeInstance, type Insta
 import { materializePack } from './materialize.ts';
 import { refreshStatuses, startInstance, stopInstance } from './start.ts';
 import { activeEntries, setActive } from './active.ts';
+import { startPalServer } from './server.ts';
+import { spawn } from 'node:child_process';
 
 function printRecord(rec: InstanceRecord): void {
   console.log(`${rec.id}\t${rec.status}\t${rec.harness}\t${rec.pack.name}@${rec.pack.version}`);
@@ -194,7 +196,37 @@ const current = defineCommand({
   },
 });
 
+const serve = defineCommand({
+  meta: { name: 'serve', description: '起本地界面：实例列表、创建、启停、日志' },
+  args: {
+    port: { type: 'string', default: '0', description: '端口；0 表示让系统挑' },
+    host: { type: 'string', default: '127.0.0.1' },
+    open: { type: 'boolean', default: false, description: '用 Edge 应用窗口打开' },
+    json: { type: 'boolean', default: false },
+  },
+  async run({ args }) {
+    const server = await startPalServer({
+      port: Number(args.port ?? 0),
+      host: String(args.host ?? '127.0.0.1'),
+    });
+    if (args.json) {
+      console.log(JSON.stringify({ url: server.url }));
+    } else {
+      console.log(`PAL 界面：${server.url}`);
+    }
+    if (args.open) openAppWindow(server.url);
+  },
+});
+
+function openAppWindow(url: string): void {
+  const child =
+    process.platform === 'win32'
+      ? spawn('msedge', [`--app=${url}`], { detached: true, stdio: 'ignore', windowsHide: false })
+      : spawn(process.platform === 'darwin' ? 'open' : 'xdg-open', [url], { detached: true, stdio: 'ignore' });
+  child.unref();
+}
+
 export const main = defineCommand({
   meta: { name: 'pal', version: '0.0.1', description: '实例配置内核' },
-  subCommands: { create, list, show, remove, start, stop, status, use, current },
+  subCommands: { create, list, show, remove, start, stop, status, use, current, serve },
 });

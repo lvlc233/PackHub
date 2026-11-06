@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PAL</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand"><span class="mark"></span>PAL<small>实例启动器</small></div>
+      <div class="spacer"></div>
+      <button id="refresh" class="ghost" type="button">刷新</button>
+      <button id="new" class="primary" type="button">新建实例</button>
+    </header>
+
+    <main class="shell">
+      <aside class="side">
+        <div class="side-head">
+          <span>实例</span>
+          <span id="count" class="muted">0</span>
+        </div>
+        <ul id="list" class="list" aria-live="polite"></ul>
+        <p id="empty" class="empty" hidden>还没有实例。<button id="empty-new" class="link" type="button">新建一个</button></p>
+      </aside>
+
+      <section id="detail" class="detail" aria-live="polite">
+        <div class="blank">
+          <p>选一个实例看详情；也可以直接新建。</p>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="create">
+      <form id="create-form">
+        <h2>新建实例</h2>
+        <label>Pack
+          <input name="pack" list="pack-options" required placeholder="输入或从索引里挑：lvlc233/doc-review、./x.phub、examples/…" />
+          <datalist id="pack-options"></datalist>
+        </label>
+        <div class="row2">
+          <label>实例名
+            <input name="name" required placeholder="demo" />
+          </label>
+          <label>宿主
+            <select name="harness">
+              <option value="dsh">dsh</option>
+              <option value="claude-code">claude-code</option>
+              <option value="codex">codex</option>
+              <option value="dir">dir</option>
+            </select>
+          </label>
+        </div>
+        <label>registry 索引（可选）
+          <input name="index" placeholder="路径或 URL；留空用 PACKHUB_INDEX" />
+        </label>
+        <p id="create-msg" class="msg" hidden></p>
+        <p class="hint" id="create-hint" hidden></p>
+        <div class="actions">
+          <button type="button" id="cancel" class="ghost">取消</button>
+          <button type="submit" id="submit" class="primary">创建</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="logs">
+      <div class="logs-head">
+        <h2 id="logs-title">启动日志</h2>
+        <button id="logs-close" class="ghost" type="button">关闭</button>
+      </div>
+      <pre id="logs-body"></pre>
+    </dialog>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
