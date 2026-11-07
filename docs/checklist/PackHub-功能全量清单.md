@@ -1,6 +1,6 @@
-# PackHub 功能全量清单[待更新]
+﻿# PackHub 功能全量清单[待更新]
 
-> 版本：2026-11-07 ／ 口径：本仓库当前代码、CLI 实测、测试套件（72 个文件 / 297 项）与 registry 现状。
+> 版本：2026-11-07 ／ 口径：本仓库当前代码、CLI 实测、测试套件（73 个文件 / 301 项）与 registry 现状。
 > 用途：实现 checklist、选型对照、漏项审计。**不是**产品介绍。
 
 ## 怎么读
@@ -428,3 +428,4 @@ PAL 域剩下的缺口（不算阻断）：
 | [details/ops.md](details/ops.md) | 测试、构建、CI、镜像、版本、性能 |
 | [details/windows.md](details/windows.md) | 路径、BOM、代理、PowerShell、tar |
 | [details/pal.md](details/pal.md) | 实例根布局、启停与看护、错误码、HTTP 面、dsh MCP 接线、界面刷新策略、CI |
+

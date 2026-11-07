@@ -575,7 +575,12 @@ async function refresh() {
     state.instances = list.instances;
     state.broken = list.broken ?? [];
     state.active = list.active ?? {};
-    state.harnesses = harnesses;
+    // 后续轮询不探测版本：把已经探测到的版本留着，别让界面上的版本时有时无
+    const knownVersions = new Map(state.harnesses.map((h) => [h.id, h.version]));
+    state.harnesses = harnesses.map((h) => {
+      const previous = knownVersions.get(h.id);
+      return h.version || !previous ? h : { ...h, version: previous };
+    });
     if (state.selected && !state.instances.some((rec) => rec.id === state.selected)) {
       state.selected = null;
       state.health = null;

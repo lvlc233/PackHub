@@ -131,6 +131,14 @@ export function discoverHarness(id: TargetId, opts: DiscoverOptions = {}): Harne
   const cacheKey = `${id}|${binary ?? ''}|${opts.probeVersion === false ? 'noprobe' : 'probe'}`;
   const cached = cache.get(cacheKey);
   if (cached) return cached;
+  // 本次进程已经探测过版本：跳过探测的调用也复用那份结果，界面上版本不会闪一下就没
+  if (opts.probeVersion === false) {
+    const probed = cache.get(`${id}|${binary ?? ''}|probe`);
+    if (probed?.version) {
+      cache.set(cacheKey, probed);
+      return probed;
+    }
+  }
 
   const base: HarnessInfo = {
     id,
