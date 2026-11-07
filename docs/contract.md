@@ -26,7 +26,7 @@
 **升 v1 的判据**（三条都满足才升，届时提供 `packhub migrate`，内核同时读 v0/v1 一段时间）：
 
 1. 资源类型集合固定，不再增删；
-2. `composition`（env / order）语义固定；
+2. `slots` / `bindings` 的语义固定；
 3. `lock` 里每个引用都有 integrity，不再出现 `null`。
 
 ---
@@ -153,7 +153,7 @@
 
 ## 4. Index（`packhub.dev/index/v0`）
 
-registry 的静态清单，站点与 `search` 只读它。
+registry 的索引，`search` / `add` / `update` 只读它。
 
 ```jsonc
 {
@@ -187,7 +187,6 @@ registry 的静态清单，站点与 `search` 只读它。
 1. 一个 `<name>@<version>` 一经发布，目录内容只增不改；要改就发新版本。
 2. `install` 字段由生成器统一拼，不允许作者自定义。它假设使用者已经配好默认 registry（`PACKHUB_INDEX` 或 `~/.packhub/config.json`），否则需要自己加 `--index`。
 3. `index.json` 由 `scripts/registry/build-index.mjs` 生成，不手写。
-4. Pages/静态站发布时必须把 `packs/**/*.phub` 一起带出去：`index.json` 只写相对路径，归档不在站点里这条命令就必然 404。
 
 ---
 
@@ -232,18 +231,7 @@ registry/packs/<scope>/<name>/
 
 ---
 
-## 6. 本地 HTTP API（`packhub serve`）
-
-| 方法 | 路径 | 返回 |
-|---|---|---|
-| GET | `/api/packs` | `{ root, packs: PackSummary[] }` |
-| GET | `/api/pack?dir=` | `{ manifest, issues, plan, state }` |
-| POST | `/api/install?dir=` | `{ outcomes, planHash, statePath }` |
-| POST | `/api/verify?dir=` | `{ results, planHash }`；目录里只有 state 时返回 `{ installed: [{pack, results}], results, planHash }` |
-
-约束：只绑 `127.0.0.1`；`dir` 必须落在服务根目录内；不提供远程安装（安装永远发生在用户机器上）。
-
-## 6.5 市场写端 API（`@packhub/market`）
+## 6. 市场写端 API（`@packhub/market`）
 
 Hub 保持只读；写操作在独立服务里，包格式不变。
 
@@ -297,6 +285,6 @@ Hub 保持只读；写操作在独立服务里，包格式不变。
 └── packs/<scope>/<name>/<version>.phub     # 归档路径是约定，不写进索引
 ```
 
-- `reference` 模式只打 `packhub.yaml` + `packhub.lock.json`（有签名时再加 `packhub.signatures.json`），安装时联网取制品。
-- `vendored` 模式把全部顶层条目一起打进去（跳过 `.packhub`、`node_modules`、`.git`、`dist`、旧归档），离线可装（内网场景用这个）。
+- 打包（封装）只做 Pack 目录 → `.phub`：输入是清单、锁与随包内容，不生成安装计划，也不改资源或接线。默认 `vendored`（自包含，离线可装）；`reference` 需显式指定，只打 `packhub.yaml` + `packhub.lock.json`（有签名时再加 `packhub.signatures.json`），安装时联网取制品。
+- `vendored` 模式把全部顶层条目一起打进去（跳过 `.packhub`、`node_modules`、`.git`、`dist`、旧归档）。清单里有 `./` 来源时，`reference` 直接拒绝：那些字节不在归档里，装到 `write` 那步必然失败。
 - `packhub add <name> --index <路径|URL>`：读索引 → 取 `<base>/packs/<name>/<latest>.phub` → 解包到 `.packhub/packs/<name>/` → 生成计划 → 装进项目。索引与归档的相对位置固定，避免两处真相。

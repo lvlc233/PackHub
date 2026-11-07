@@ -23,13 +23,6 @@ describe('parseSource', () => {
     expect(parsed.pin).toBe('9f2c1ab');
   });
 
-  it('解析 packhub 引用与范围', () => {
-    const parsed = parseSource('packhub://lvlc233/base-review@^0.3');
-    expect(parsed.kind).toBe('packhub');
-    expect(parsed.locator).toBe('packhub:lvlc233/base-review');
-    expect(parsed.pin).toBe('^0.3');
-  });
-
   it('识别本地与 https', () => {
     expect(parseSource('./resources/a.md').kind).toBe('local');
     expect(parseSource('https://example.com/a.md').kind).toBe('http');

@@ -64,34 +64,6 @@ resources:
     expect(link && 'from' in link ? link.from : '').toBe('.packhub/cache/skills/rules/skills/code-review');
   });
 
-  it('composition.env 会生成一条 merge.config，并插值 vars', async () => {
-    const { parseManifest } = await import('@packhub/kernel');
-    const { validateGraph } = await import('@packhub/kernel');
-    const { buildPlan, DIR_TARGET_VARS } = await import('@packhub/kernel');
-
-    const manifest = parseManifest(`apiVersion: packhub.dev/v0
-kind: Pack
-metadata:
-  name: t/env
-  version: 0.0.1
-  targets: [dir]
-requires:
-  packhub: ">=0.0.1 <0.1"
-vars:
-  root: /repo
-resources:
-  - id: k
-    type: knowledge
-    source: ./k.md
-composition:
-  env:
-    ROOT: "\${vars.root}"
-`).manifest!;
-    const { graph } = validateGraph(manifest);
-    const { plan } = buildPlan(manifest, graph, { target: 'dir', targetVars: DIR_TARGET_VARS });
-    const envAction = plan!.actions.find((a) => a.op === 'merge.config');
-    expect(envAction && 'patch' in envAction ? envAction.patch : null).toEqual({ env: { ROOT: '/repo' } });
-  });
 });
 
 describe('install + verify 闭环（本地资源，离线）', () => {
@@ -117,7 +89,7 @@ describe('install + verify 闭环（本地资源，离线）', () => {
     const ctx = loadPack(work);
     const { plan } = planFor(ctx);
     const lock = buildLock(ctx.manifest, plan!);
-    expect(lock.pack).toBe('lvlc233/team-conventions@0.0.1');
+    expect(lock.pack).toBe(`lvlc233/team-conventions@${ctx.manifest.metadata.version}`);
     expect(lock.planHash).toBe(plan!.planHash);
     expect(lock.resolved).toHaveLength(ctx.manifest.resources.length);
     expect(lock.resolved.every((r) => r.integrity === null)).toBe(true);

@@ -13,7 +13,7 @@ const skipNetwork = process.argv.includes('--skip-network');
 
 function needsNetwork(dir) {
   const text = readFileSync(join(dir, 'packhub.yaml'), 'utf8');
-  return /source:\s*["']?(npm|pypi|github|https?):/m.test(text) || /extends:\s*["']?packhub:\/\//m.test(text);
+  return /source:\s*["']?(npm|pypi|github|https?):/m.test(text);
 }
 
 const names = existsSync(EXAMPLES)

@@ -83,7 +83,7 @@ resources:
 
 **source** 是定位符、pin 和 `integrity` 的组合。清单里通常写成一整条 `source`，解析后由锁拆开记录：
 
-- 定位符决定去哪找：本地路径、可访问的 URL、`npm:`、`pypi:`、`github:`，或自部署的 `packhub://`；
+- 定位符决定去哪找：本地路径、可访问的 URL、`npm:`、`pypi:`、`github:`；
 - pin 决定装哪一版，跟在 `@` 后面；
 - `integrity` 是内容哈希，用来确认拿到的字节没变。
 
@@ -105,8 +105,6 @@ resources:
 | `slots.<名>` | 包 | `{ contract?: 能力名[], note?: string }` | 声明这个包必须提供什么能力。它和 `needs` 类似，区别是 `needs` 说某条资源需要什么，`slots` 说这个包需要什么；一个槽位只能绑一个实现（一条资源） | `slot-contract-unmet`（绑定实现缺契约能力） |
 | `bindings.<槽位>` | 包 | 资源 id | 选这个实现来填那个位置 | `slot-unbound`（有候选没选）、`binding-unknown-slot`、`binding-wrong-slot`、`binding-unknown-resource` |
 | `slot` | 资源 | 槽位名 | 占位声明，可以理解为 `slots` 的显式实现：资源里写了 `slot: <名>` 才可能被这个槽位选中 | `unknown-slot`（槽位没声明） |
-| `composition.order` | 包 | 资源 id 数组 | 显式指定安装顺序、通常不用管 | `bad-order`（引用了不存在的资源）、`order-violates-dependency`（与 `dependsOn` 冲突） |
-| `composition.env` | 包 | `{ 名: 字符串/数字/布尔 }` | 注入所有资源的共享环境变量 | — |
 | `state` | 包 | `[{ id, path?, retain?, description? }]` | 持久状态目录，资源里用 `${state.id}` 引用 | `duplicate-state-id`、`bad-state-path` |
 | `vars` | 包 | `{ 名: 标量 }` | 包级变量，资源里用 `${vars.名}` 引用 | `undefined-variable`（引用了没声明的） |
 
@@ -123,12 +121,6 @@ bindings:
 vars:
   projectRoot: "."
   strict: true
-
-composition:
-  env:
-    REVIEW_ROOT: ${vars.projectRoot}
-    REVIEW_STRICT: "${vars.strict}"
-  order: [agent-config, repo-search, review-rules]
 
 resources:
   - id: markdownlint
@@ -158,7 +150,7 @@ resources:
 
 三条容易踩的：
 
-1. `needs` 只查有没有，不管先后；先后由 `dependsOn` 或 `composition.order` 决定。两者都不写时按清单顺序。
+1. `needs` 只查有没有，不管先后；先后由 `dependsOn` 决定，没写依赖的资源按清单顺序。
 2. 槽位两侧成对：资源上的 `slot` 只是报名，决定装谁的是 `bindings`。没有 `bindings` 不会自动挑一个候选——它们进 `excluded`（reason `unbound-slot`），同时报 `slot-unbound`。
 3. 被排除的资源提供的能力不算数：提供方是在槽位筛选和 `optional` 剔除之后才统计的，所以未绑定的候选不会给别人兜底。
 
@@ -279,7 +271,7 @@ packhub add [OPTIONS] <SOURCE>
 
 | 参数 | 默认 | 说明 |
 |---|---|---|
-| `<SOURCE>` | — | `scope/name`、`packhub://scope/name@1.2.3`、`./x.phub`、`git+https://github.com/o/r@ref` |
+| `<SOURCE>` | — | `scope/name`、`./x.phub`、`git+https://github.com/o/r@ref` |
 | `--index` | `PACKHUB_INDEX` | registry 的 index.json，本地路径或 URL |
 | `--version` | latest | registry 包的版本 |
 | `--dir` | `.` | 项目目录 |
@@ -307,7 +299,6 @@ packhub install [OPTIONS] [DIR]
 | `--allow-exec` | false | 允许执行 `install.exec` |
 | `--overwrite` | false | 覆盖别的包写过的文件 |
 | `--target` | `dir` | 同上 |
-| `--index` | — | 远程 `extends` 用的索引 |
 | `--json` | false | 结构化输出 |
 
 **run**
@@ -351,7 +342,6 @@ packhub verify [OPTIONS] [DIR]
 | `DIR` | `.` | 项目根（用 state 的计划快照）或包目录 |
 | `--target` | `dir` | 同上 |
 | `--pack` | — | 只验某个包（`name@version`） |
-| `--index` | — | 远程 `extends` 用的索引 |
 | `--json` | false | 结构化输出 |
 
 **update**
@@ -421,7 +411,7 @@ packhub resource add mcp "npm:@modelcontextprotocol/server-filesystem@1.0.0" --d
 
 `discover` 读的是 registry 里的 `resources.json`；`--add` 会推断 id，重名加后缀，之后照常 `plan` / `install`。
 
-`source` 能写几种：`npm:`、`pypi:`、`github:owner/repo/子路径@ref`、`https://`、`./` 本地路径，以及 `packhub://scope/name@ver#path`——最后这种从已发布的包里取文件或目录，安装时要求先把被引用的内容 vendored 进包。
+`source` 能写几种：`npm:`、`pypi:`、`github:owner/repo/子路径@ref`、`https://`、`./` 本地路径。v0 不做跨包引用与继承。
 
 资源齐了，先把版本固定下来：
 
@@ -431,10 +421,13 @@ packhub lock my-pack    # 分支→commit、范围→具体版本、文件→sha
 
 私有来源的 token 别写进清单：`auth.env` 填变量名，值放环境变量，或用 `packhub auth set` 存起来。锁、state 和日志里都不会出现它的值。
 
+整合与锁定之后才是打包：`packhub pack my-pack` 把 Pack 目录封成 `.phub`。默认自包含（本地内容一起进归档）；`--reference` 是显式降级，只打清单与锁，要求所有来源都能在安装时远程取到。打包不做整合，也不生成安装计划。
+
 然后验证、发布：
 
 ```bash
 packhub run my-pack        # 干净目录装一遍 + 全量校验
+packhub pack my-pack       # 封成 .phub（默认自包含）
 packhub publish my-pack    # 通过之后写 registry
 ```
 
@@ -452,7 +445,7 @@ registry/
     └── <version>/              # 版本目录：清单、锁、签名、报告
 ```
 
-静态站要连 `packs/**/*.phub` 一起发，只发索引会让安装 404。
+registry 目录本身就是分发单元：客户端读 `index.json`，再按索引里的相对路径取 `packs/**/*.phub`。
 
 ## 代码分层
 | 包 | 负责 |

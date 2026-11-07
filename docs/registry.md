@@ -6,7 +6,7 @@
 |---|---|---|---|
 | 内容平面 | 静态目录（git / 对象存储 + CDN） | 存版本目录、`.phub` 归档、`index.json`；发布后不可变 | 不执行包、不接收上传 |
 | 写平面 | `@packhub/market`（独立服务） | 账号、上传、审核、下架、评分、统计 | 不在服务器上执行上传者的代码 |
-| 读平面 | `@packhub/hub`（只读 HTTP）+ CLI | 索引、包页数据、计划预览；`add` / `search` / `update` | 不执行安装 |
+| 读平面 | `@packhub/hub`（只读 HTTP）+ CLI | 索引、包/资源数据、计划预览；`add` / `search` / `update` | 不执行安装 |
 
 三者的交点只有不可变的版本目录与归档；谁写的、谁读的都不改包格式。
 
@@ -65,12 +65,12 @@
 - 路由：`/api/registry`、`/api/registry/pack`、`/api/registry/resources`、`/api/plan`、`/api/health`。
 - 鉴权：只绑回环；对外监听必须配 `--token` / `PACKHUB_HUB_TOKEN` / `--user-header`，否则拒绝启动（fail-closed）。除 `/api/health` 外都要鉴权，接受 `Authorization: Bearer` 或 `x-packhub-token`。
 - 限流：每 IP 每分钟 240，超了 429；每次请求写一行审计。
-- 缓存：JSON 与静态文件带 ETag / Cache-Control，条件请求 304。
-- 部署：静态站必须把 `packs/**/*.phub` 一起发出去，否则 `add` 会 404。
+- 缓存：JSON 带 ETag / Cache-Control，条件请求 304。
+- 分发：没有静态站产物；registry 目录（`index.json` + `packs/**/*.phub`）放哪都行，由 CLI 直接读或自行托管 HTTP。
 
 ## 7. 来源、鉴权与私有仓库
 
-来源形态：`npm:`、`pypi:`、`github:`、`https:`、`packhub://`、`./`；`add` 另外接受 `.phub` 与 `git+https://`。
+来源形态：`npm:`、`pypi:`、`github:`、`https:`、`./`；`add` 另外接受 `.phub` 与 `git+https://`。v0 不做跨包引用（`packhub://` 已移除）。
 
 私有来源（authoring 里那句「私有仓库鉴权没有支持」已删；这里的写法是实际行为）：
 
@@ -97,7 +97,7 @@
 - `.phub` = tar.gz，解包后就是 Pack 根。
   - reference 模式：清单 + 锁（+ 有签名时的 `packhub.signatures.json`）。
   - vendored 模式：再加全部顶层条目（跳过 `.packhub`、`node_modules`、`.git`、`dist`、旧归档）。
-- `packhub pack` 会先 flatten，再按 `--vendored` 打；带本地 `./` 来源却没用 `--vendored` 时直接拒绝（`pack.ts` 的 `LocalSourceNotVendoredError`）。
+- `packhub pack` 默认自包含（`vendored`）；`--reference` 只打清单与锁，带本地 `./` 来源时直接拒绝（`pack.ts` 的 `LocalSourceNotVendoredError`）。
 - 缓存按来源落在 `.packhub/cache/`；`packhub cache ls` 标引用、`cache clean [--dry-run]` 只删没被任何已装计划引用的项。
 - 离线：`registry:verify-all:offline` / `verify:examples:offline` 会跳过有远程引用的包；`lock --offline` 只处理本地与已 pin 的引用。
 

@@ -26,15 +26,13 @@ resources:
 }
 
 describe('.packhub/local.yaml', () => {
-  it('覆盖资源 source 与环境变量，不改清单本身', async () => {
+  it('覆盖资源 source，不改清单本身', async () => {
     const dir = pack();
     writeFileSync(
       join(dir, '.packhub/local.yaml'),
       `overrides:
   - resource: rules
     source: ./alt.md
-composition:
-  env: { FLAVOR: local }
 `,
       'utf8',
     );

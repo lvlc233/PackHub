@@ -1,11 +1,11 @@
-# 示例：不含 MCP / Skill 的 Pack（README 4.2 的要求）
+﻿# 示例：不含 MCP / Skill 的 Pack（README 4.2 的要求）
 # 只由知识与配置组成，验证「Pack 不要求必须包含 MCP 或 Skill」。
 apiVersion: packhub.dev/v0
 kind: Pack
 
 metadata:
   name: lvlc233/team-conventions
-  version: 0.0.1
+  version: 0.0.2
   title: 团队约定包
   description: 一份团队代码规范、一套提交信息约定、一个 EditorConfig 片段。装完即可被 Agent 引用。
   license: CC-BY-4.0
@@ -30,9 +30,6 @@ resources:
     type: config
     source: ./fragments/editorconfig.yaml
 
-composition:
-  env:
-    CONVENTIONS_DIR: ${vars.conventionsDir}
 
 vars:
   conventionsDir: ".packhub/conventions"

@@ -18,12 +18,12 @@ function dirs(p) {
     .sort();
 }
 
-/** 清单里有没有安装期必须联网取的东西（远程 source / 远程 extends）。 */
+/** 清单里有没有安装期必须联网取的东西（远程 source）。 */
 function needsNetwork(dir) {
   const file = join(dir, 'packhub.yaml');
   if (!existsSync(file)) return false;
   const text = readFileSync(file, 'utf8');
-  return /source:\s*["']?(npm|pypi|github|https?):/m.test(text) || /extends:\s*["']?packhub:\/\//m.test(text);
+  return /source:\s*["']?(npm|pypi|github|https?):/m.test(text);
 }
 
 const targets = [];

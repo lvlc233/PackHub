@@ -1,4 +1,4 @@
-# 示例：一个真正「接起来」的 Pack —— 代码审查
+﻿# 示例：一个真正「接起来」的 Pack —— 代码审查
 # 演示：MCP + Skill + Knowledge + Config 四类资源、能力图、env 插值、可验证。
 apiVersion: packhub.dev/v0
 kind: Pack
@@ -55,11 +55,6 @@ resources:
     type: config
     source: ./fragments/agent.yaml
 
-composition:
-  env:
-    REVIEW_ROOT: ${vars.projectRoot}
-    REVIEW_STRICT: "${vars.strict}"
-  order: [agent-config, repo-search, review-rules]
 
 verify:
   - type: mcp-ready

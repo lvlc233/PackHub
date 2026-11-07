@@ -1,45 +1,35 @@
 {
   "apiVersion": "packhub.dev/lock/v0",
-  "pack": "lvlc233/team-conventions@0.0.1",
+  "pack": "lvlc233/team-conventions@0.0.2",
   "resolved": [
     {
       "id": "style-guide",
       "type": "knowledge",
       "source": "./resources/style-guide.md",
       "integrity": null,
-      "resolvedAt": "2026-11-03T12:39:27.895Z"
+      "resolvedAt": "2026-11-07T14:11:50.740Z"
     },
     {
       "id": "commit-rules",
       "type": "prompt",
       "source": "./resources/commit-rules.md",
       "integrity": null,
-      "resolvedAt": "2026-11-03T12:39:27.895Z"
+      "resolvedAt": "2026-11-07T14:11:50.740Z"
     },
     {
       "id": "editor-config",
       "type": "config",
       "source": "./fragments/editorconfig.yaml",
       "integrity": null,
-      "resolvedAt": "2026-11-03T12:39:27.895Z"
+      "resolvedAt": "2026-11-07T14:11:50.740Z"
     }
   ],
-  "planHash": "sha256-Ziroi+N/p2MnsX+2wGX9yoPZrL/m8m+KQmpTOhNgdDs=",
+  "planHash": "sha256-XrELNaf/f9lkeaY06NvZc3WeR3KRRH8V8QxOnTjtkuA=",
   "generatedBy": "packhub/0.0.1",
   "plan": {
     "target": "dir",
+    "planHash": "sha256-XrELNaf/f9lkeaY06NvZc3WeR3KRRH8V8QxOnTjtkuA=",
     "actions": [
-      {
-        "op": "merge.config",
-        "path": ".packhub/config.json",
-        "strategy": "json-merge",
-        "patch": {
-          "env": {
-            "CONVENTIONS_DIR": ".packhub/conventions"
-          }
-        },
-        "actionId": "merge.config#1"
-      },
       {
         "op": "write",
         "from": "./resources/style-guide.md",
@@ -60,7 +50,7 @@
         "strategy": "yaml-merge",
         "patchFrom": "./fragments/editorconfig.yaml",
         "resource": "editor-config",
-        "actionId": "merge.config#2"
+        "actionId": "merge.config#1"
       }
     ],
     "verify": [

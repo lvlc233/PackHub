@@ -1,6 +1,6 @@
 {
   "apiVersion": "packhub.dev/index/v0",
-  "generatedAt": "2026-11-07T13:19:39.305Z",
+  "generatedAt": "2026-11-07T14:11:51.088Z",
   "packs": [
     {
       "name": "lvlc233/doc-review",
@@ -61,15 +61,15 @@
       "name": "lvlc233/team-conventions",
       "title": "团队约定包",
       "description": "一份团队代码规范、一套提交信息约定、一个 EditorConfig 片段。装完即可被 Agent 引用。",
-      "latest": "0.0.1",
+      "latest": "0.0.2",
       "versions": [
-        "0.0.1"
+        "0.0.2"
       ],
       "targets": [
         "dir"
       ],
       "trust": "verified",
-      "verifiedAt": "2026-11-03T17:17:15.919Z",
+      "verifiedAt": "2026-11-07T14:11:50.733Z",
       "signers": [],
       "keywords": [
         "conventions",

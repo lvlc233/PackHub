@@ -16,9 +16,6 @@ resources:
   - id: cfg
     type: config
     source: ./cfg.yaml
-composition:
-  env:
-    MEMORY_DIR: \${state.memory}
 ${extra}`,
     'utf8',
   );
@@ -46,9 +43,6 @@ describe('持久状态目录（state 块）', () => {
     ]);
     // 目录动作排在资源之前：后面的动作可以直接用这个目录
     expect(plan.actions[0]!.op).toBe('state.dir');
-
-    const merge = plan.actions.find((a) => a.op === 'merge.config')!;
-    expect(merge).toMatchObject({ patch: { env: { MEMORY_DIR: '.packhub/state/memory' } } });
     rmSync(dir, { recursive: true, force: true });
   });
 

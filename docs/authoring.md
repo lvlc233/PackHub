@@ -162,7 +162,7 @@ resources:
   - id: repo-search                  # Pack 内唯一
     type: mcp                        # mcp / skill / prompt / knowledge / config / tool
     source: npm:@modelcontextprotocol/server-everything@0.6.2
-    transport: stdio                 # 可省，默认 stdio
+    transport: stdio                 # 必填：stdio / http
     config:
       command: npx
       args: ["-y", "@modelcontextprotocol/server-everything@0.6.2"]
@@ -186,12 +186,6 @@ resources:
   - id: agent-config
     type: config
     source: ./fragments/agent.yaml   # 合并进目标配置，不覆盖其它键
-
-composition:
-  env:                               # 写进目标 config 的 env，所有资源共享
-    REVIEW_ROOT: ${vars.projectRoot}
-    STRICT: "${vars.strict}"
-  order: [agent-config, repo-search, review-rules]   # 省略则按 dependsOn 拓扑排序
 
 verify:                              # 发布时必须有；本地可先留一条
   - { type: mcp-ready, resource: repo-search, timeout: 30 }
@@ -241,9 +235,7 @@ overlays:
 
 ### 本地覆盖
 
-v0 不做 `extends` 与组合继承；同一个包内要换实现，用 `slots` / `bindings`。
-
-单个资源可以直接引用已发布包里的文件或目录：`source: "packhub://scope/name@1.0.0#docs/guide.md"`（skill 则指向目录）；安装期落进 `.packhub/cache/packhub/`，`lock` 与 `publish` 要求先把内容 vendored 进包。
+v0 不做 `extends`、`packhub://` 跨包引用与组合继承；同一个包内要换实现，用 `slots` / `bindings`。
 
 使用者侧的 `.packhub/local.yaml` 不进清单、不进锁，只覆盖这一次安装：
 
@@ -423,7 +415,6 @@ pypi:six@1.16.0                           # PyPI sdist（必须 pin 版本，只
 github:owner/repo/sub/path@<40位 commit>  # GitHub 仓库/子目录，codeload tarball
 https://…/x.tar.gz                        # 任意 https 归档（GitLab/Gitea/内网均可）
 https://…/note.md                         # 任意 https 单文件（knowledge / prompt）
-packhub://scope/name@1.2.3#docs/x.md      # 已发布包里的文件/目录（先 vendored 才能发）
 ./resources/x.md                          # 本地，随包 vendored
 ```
 
@@ -433,7 +424,6 @@ packhub://scope/name@1.2.3#docs/x.md      # 已发布包里的文件/目录（�
 | `pypi:` | Python 工具 / skill（只收 sdist） | 查元数据 → 下载 sdist → 解包 |
 | `github:` | 仓库里的 skill 目录、工具、文档 | 下载 tarball → 解包 → 按子路径挂载 |
 | `https: … .tar.gz` | 公司 GitLab / Gitea 的 archive、任何归档 | 下载 → 解包（`skill` / `tool` 必须给归档；单文件给 `knowledge` / `prompt`） |
-| `packhub://scope/name@ver#path` | 复用已发布包里的文件/目录 | 从 registry 取归档 → 解出该路径；`lock` / `publish` 前要 vendored |
 | `./…` | 本地草稿、必须随包分发的内容 | 直接复制（发布前要 vendored 进版本目录） |
 
 **40 位 commit 的来源**：GitHub commit 页地址中的那串；或 `git rev-parse HEAD`；或 `git ls-remote https://github.com/o/r refs/heads/main`。不接受 `@main`、`@latest`，它们会漂移。
@@ -510,7 +500,6 @@ verify:
 | `http-missing-integrity` | https 资源没哈希 | 安装或 lock 时补，或手填 |
 | `unmet-need` | 有资源要某项能力，没人提供 | 加提供方，或删掉这条 need |
 | `pin-conflict` | 同一个源被锁到两个版本 | 用 `overrides` 显式定夺 |
-| `order-violates-dependency` | `composition.order` 与 `dependsOn` 矛盾 | 调顺序或删 order |
 | `dependency-cycle` | 依赖成环 | 去掉一条反向依赖 |
 | `config-source-unsupported` | config 资源用了非本地来源 | 把片段放进包内（`./fragments/…`）再引用 |
 | `unknown-target` | `--target` 写了不支持的值 | 用 `dir` / `dsh` / `claude-code` / `codex` |

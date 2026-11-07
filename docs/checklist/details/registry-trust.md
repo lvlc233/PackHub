@@ -60,9 +60,9 @@ registry/
 - `internal` 放内网 registry，同一格式；
 - `private` 不发布。
 
-## Pages / CDN
+## 分发
 
-CI 把 `index.json` 与 `packs/**/*.phub` 一起作为站点产物；只传索引会让安装命令 404。Hub 只读，部署层做鉴权/限流/审计。
+registry 是不可变的目录树：`index.json` + `packs/**/*.phub` 放在哪都行（git、对象存储、内网盘），客户端按相对路径取。没有页面、没有静态站产物；读端只有 Hub 的 JSON API 与 CLI。Hub 只读，鉴权/限流/审计在它自己身上。
 
 ## 缺口
 
