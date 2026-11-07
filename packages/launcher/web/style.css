@@ -229,6 +229,7 @@ button:disabled { opacity: 0.55; cursor: default; }
 }
 .badge.running { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
 .badge.broken { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, transparent); }
+.badge.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
 
 .kv {
   margin: 16px 0 0;
@@ -322,3 +323,56 @@ input, select {
 }
 
 #logs { width: min(760px, calc(100vw - 32px)); }
+
+/* ---------- 坏记录 / 体检 / 提示 ---------- */
+
+.broken-box {
+  margin: 0 12px 14px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, var(--line));
+  border-radius: 8px;
+  background: var(--surface);
+  font-size: 12px;
+}
+.broken-box h3 { margin: 0 0 6px; font-size: 12px; color: var(--danger); font-weight: 600; }
+.broken-box ul { margin: 0; padding-left: 14px; display: grid; gap: 6px; }
+.broken-box .hint { margin: 8px 0 0; }
+
+.health {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+.health h3 { margin: 0 0 8px; font-size: 13px; }
+.health .ok { color: var(--ok); font-weight: 600; }
+.health .bad { color: var(--danger); font-weight: 600; }
+.health .checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.health .check { display: grid; grid-template-columns: 88px 1fr; gap: 8px; align-items: baseline; }
+.health .check-name { color: var(--muted); }
+.health .check.fail .check-detail { color: var(--danger); }
+.health .check.warn .check-detail { color: var(--warn); }
+.health .drift { margin: 8px 0 0; padding-left: 16px; color: var(--muted); font-size: 12px; }
+
+.msg { white-space: pre-wrap; }
+
+code {
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+
+label.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--text);
+  font-size: 13px;
+}
+label.check input { margin-top: 3px; }
+
+.logs-tools { display: flex; align-items: center; gap: 8px; }
+.logs-tools select { max-width: 240px; }

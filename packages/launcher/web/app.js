@@ -1,177 +1,361 @@
+/* PAL 本地界面：只做增量更新。
+ * 轮询不重建 DOM：列表按 id 复用节点，详情按字段赋新值，
+ * 展开态/选区/正在输入的内容都不受刷新影响。 */
+
 const $ = (sel) => document.querySelector(sel);
+
+const STATUS_TEXT = {
+  installing: '安装中',
+  installed: '已安装',
+  running: '运行中',
+  stopped: '已停止',
+  broken: '异常',
+  failed: '失败',
+};
 
 const state = {
   instances: [],
+  broken: [],
   active: {},
+  harnesses: [],
+  packs: { index: null, packs: [], local: [] },
   selected: null,
-  busy: false,
+  busy: null,
   error: null,
+  health: null,
+  offline: false,
+  rows: new Map(),
+  detailKey: '',
 };
 
 async function api(path, options = {}) {
+  const { method = 'GET', body } = options;
   const res = await fetch(path, {
-    headers: { 'content-type': 'application/json' },
-    ...options,
+    method,
+    headers: {
+      'x-pal-client': 'pal-ui',
+      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
-  return body;
+  const text = await res.text();
+  let data = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { error: text.slice(0, 400) };
+  }
+  if (!res.ok) {
+    const err = new Error(data.error || `HTTP ${res.status}`);
+    err.hint = data.hint || '';
+    err.code = data.code || '';
+    throw err;
+  }
+  return data;
 }
 
-function esc(value) {
+function setText(el, value) {
+  const text = value == null ? '' : String(value);
+  if (el.textContent !== text) el.textContent = text;
+}
+
+function setHidden(el, hidden) {
+  if (el.hidden !== hidden) el.hidden = hidden;
+}
+
+function setDisabled(el, disabled) {
+  if (el.disabled !== disabled) el.disabled = disabled;
+}
+
+function harnessOf(id) {
+  return state.harnesses.find((item) => item.id === id);
+}
+
+/* ---------- 列表 ---------- */
+
+function renderList() {
+  const list = $('#list');
+  const ids = state.instances.map((rec) => rec.id);
+  const sameOrder =
+    state.rows.size === ids.length && ids.every((id) => state.rows.has(id));
+  if (!sameOrder) {
+    // 只在「实例集合变了」时重建节点
+    for (const node of list.children) node.remove();
+    state.rows.clear();
+    for (const rec of state.instances) {
+      const li = document.createElement('li');
+      li.className = 'item';
+      li.dataset.id = rec.id;
+      li.tabIndex = 0;
+      li.innerHTML = '<span class="name"></span><span class="dot" aria-hidden="true"></span><span class="meta"></span>';
+      li.addEventListener('click', () => select(rec.id));
+      li.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          select(rec.id);
+        }
+      });
+      list.append(li);
+      state.rows.set(rec.id, {
+        li,
+        name: li.querySelector('.name'),
+        dot: li.querySelector('.dot'),
+        meta: li.querySelector('.meta'),
+      });
+    }
+    // 重建后补一遍顺序（集合变了但顺序也可能变）
+    for (const rec of state.instances) list.append(state.rows.get(rec.id).li);
+  }
+
+  $('#count').textContent = String(state.instances.length);
+  setHidden($('#empty'), state.instances.length > 0);
+
+  for (const rec of state.instances) {
+    const row = state.rows.get(rec.id);
+    if (!row) continue;
+    setText(row.name, rec.name);
+    setText(row.meta, `${rec.harness} · ${rec.pack.name}@${rec.pack.version}`);
+    const dotClass = `dot ${rec.status}`;
+    if (row.dot.className !== dotClass) row.dot.className = dotClass;
+    const selected = rec.id === state.selected ? 'true' : 'false';
+    if (row.li.getAttribute('aria-selected') !== selected) row.li.setAttribute('aria-selected', selected);
+  }
+
+  const brokenBox = $('#broken-box');
+  setHidden(brokenBox, state.broken.length === 0);
+  if (state.broken.length > 0) {
+    const html = state.broken
+      .map((bad) => `<li><span class="mono">${escapeHtml(bad.dir)}</span><br><span class="muted">${escapeHtml(bad.reason)}</span></li>`)
+      .join('');
+    const holder = $('#broken-list');
+    if (holder.innerHTML !== html) holder.innerHTML = html;
+  }
+}
+
+function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]);
 }
 
-const STATUS_TEXT = { running: '运行中', installed: '已安装', stopped: '已停止', broken: '异常', planned: '计划' };
-
-function statusOf(rec) {
-  return STATUS_TEXT[rec.status] ?? rec.status;
-}
-
-async function load() {
-  const [instances, active] = await Promise.all([api('/api/instances'), api('/api/active')]);
-  state.instances = instances;
-  state.active = Object.fromEntries(active.map((entry) => [entry.harness, entry.id]));
-  const ids = new Set(instances.map((i) => i.id));
-  if (state.selected && !ids.has(state.selected)) state.selected = null;
-  if (!state.selected && instances.length > 0) state.selected = instances[0].id;
-  render();
-}
-
-function render() {
-  const list = $('#list');
-  $('#count').textContent = String(state.instances.length);
-  $('#empty').hidden = state.instances.length > 0;
-  list.innerHTML = state.instances
-    .map((rec) => {
-      const selected = rec.id === state.selected;
-      return `<li class="item" data-id="${esc(rec.id)}" aria-selected="${selected}" tabindex="0">
-        <span class="name">${esc(rec.name)}</span>
-        <span class="dot ${esc(rec.status)}" aria-hidden="true"></span>
-        <span class="meta">${esc(rec.harness)} · ${esc(rec.pack.name)}@${esc(rec.pack.version)}</span>
-      </li>`;
-    })
-    .join('');
-
-  for (const item of list.querySelectorAll('.item')) {
-    const select = () => {
-      state.selected = item.dataset.id;
-      render();
-    };
-    item.addEventListener('click', select);
-    item.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault();
-        select();
-      }
-    });
-  }
-
+function select(id) {
+  if (state.selected === id) return;
+  state.selected = id;
+  state.health = null;
+  clearError();
+  renderList();
   renderDetail();
 }
 
+/* ---------- 详情 ---------- */
+
+function currentRecord() {
+  return state.instances.find((rec) => rec.id === state.selected);
+}
+
 function renderDetail() {
-  const el = $('#detail');
-  const rec = state.instances.find((entry) => entry.id === state.selected);
+  const rec = currentRecord();
+  const card = $('#card');
+  setHidden(card, !rec);
+  setHidden($('#blank'), Boolean(rec));
   if (!rec) {
-    el.innerHTML = '<div class="blank"><p>选一个实例看详情；也可以直接新建。</p></div>';
+    if (state.offline) {
+      $('#blank').innerHTML =
+        '<p>连不上 PAL 服务。</p><p class="hint">服务可能已经退出；重新运行 <code>pal serve</code> 后点刷新。</p><p><button type="button" id="retry">重试连接</button></p>';
+      $('#retry')?.addEventListener('click', () => refresh());
+    } else {
+      $('#blank').innerHTML = '<p>选一个实例看详情；也可以直接新建。</p>';
+    }
     return;
   }
-  const isActive = state.active[rec.harness] === rec.id;
-  const running = rec.status === 'running';
-  const url = rec.url
-    ? `<dd><span class="url">${esc(rec.url)}<button class="ghost" data-act="open" type="button">打开</button></span></dd>`
-    : '<dd class="muted">—</dd>';
-  el.innerHTML = `
-    <article class="card">
-      <div class="title-row">
-        <h1>${esc(rec.name)}</h1>
-        <span class="badge ${esc(rec.status)}">${statusOf(rec)}</span>
-        <span class="muted">${esc(rec.harness)}</span>
-        ${isActive ? '<span class="badge">当前</span>' : ''}
-      </div>
-      <dl class="kv">
-        <dt>Pack</dt><dd>${esc(rec.pack.name)}@${esc(rec.pack.version)}</dd>
-        <dt>实例根</dt><dd class="mono">${esc(rec.root)}</dd>
-        <dt>home</dt><dd class="mono">${esc(rec.home ?? '—')}</dd>
-        <dt>端口</dt><dd>${rec.port ?? '—'}</dd>
-        <dt>地址</dt>${url}
-      </dl>
-      <div class="actions-row">
-        ${running
-          ? '<button class="primary" data-act="stop" type="button">停止</button>'
-          : '<button class="primary" data-act="start" type="button">启动</button>'}
-        <button data-act="use" type="button" ${isActive ? 'disabled' : ''}>设为当前</button>
-        <button data-act="logs" type="button">启动日志</button>
-        <span style="flex:1"></span>
-        <button class="danger" data-act="remove" type="button">删除</button>
-      </div>
-      ${running && rec.url ? '<p class="hint">点「打开」在浏览器里用这个实例；停止后端口会释放。</p>' : ''}
-      ${rec.status === 'broken' ? '<p class="hint">进程已经不在了。可以重新启动，或删掉重建。</p>' : ''}
-      ${state.error ? `<p class="msg" role="alert">${esc(state.error)}</p>` : ''}
-    </article>`;
 
-  el.querySelectorAll('[data-act]').forEach((button) => {
-    button.addEventListener('click', () => act(button.dataset.act, rec));
-  });
+  const harness = harnessOf(rec.harness);
+  const running = rec.status === 'running';
+  const startable = harness ? harness.startable : true;
+  const isActive = state.active[rec.harness] === rec.id;
+
+  setText($('#d-name'), rec.name);
+  setText($('#d-status'), STATUS_TEXT[rec.status] ?? rec.status);
+  $('#d-status').className = `badge ${rec.status}`;
+  setText($('#d-harness'), rec.harness);
+  setHidden($('#d-active'), !isActive);
+  setText($('#d-pack'), `${rec.pack.name}@${rec.pack.version}`);
+  setText($('#d-root'), rec.root);
+  setText($('#d-home'), rec.home || '—');
+  setText($('#d-port'), rec.port ?? '—');
+  setText($('#d-url'), rec.url || '—');
+  setText($('#d-hver'), rec.harnessVersion || (harness?.version ?? '—'));
+  setText(
+    $('#d-exit'),
+    rec.lastExit
+      ? `code ${rec.lastExit.code ?? '-'} · ${rec.lastExit.at.replace('T', ' ').slice(0, 19)}${rec.lastExit.restarts ? ` · 重起 ${rec.lastExit.restarts} 次` : ''}`
+      : '—',
+  );
+
+  // 有更新：索引里 latest 与装的不一样
+  const latest = state.packs.packs.find((pack) => pack.name === rec.pack.name)?.latest;
+  const hasUpdate = Boolean(latest && latest !== rec.pack.version);
+  setHidden($('#d-update'), !hasUpdate);
+  if (hasUpdate) setText($('#d-update'), `可更新到 ${latest}`);
+
+  setDisabled($('#d-open'), !rec.url);
+  setHidden($('#d-open'), !rec.url);
+  setDisabled($('#d-start'), running || !startable || Boolean(state.busy));
+  setDisabled($('#d-stop'), !running || Boolean(state.busy));
+  setDisabled($('#d-restart'), !startable || Boolean(state.busy));
+  setDisabled($('#d-use'), isActive || Boolean(state.busy));
+  setDisabled($('#d-remove'), Boolean(state.busy));
+
+  const notes = [];
+  if (!startable && harness?.reason) notes.push(`${harness.reason}`);
+  if (harness && !harness.available && startable) notes.push(`宿主没装：找不到 ${rec.harness}，先装或用 PAL_*_BIN 指定路径。`);
+  if (rec.status === 'broken') notes.push('进程已经不在了。可以重起，或删掉重建。');
+  if (rec.status === 'failed' && rec.lastError) notes.push(`上次失败：${rec.lastError.message}`);
+  if (rec.managed === false) notes.push('接管来的目录：删除只摘记录，不动这个目录。');
+  setHidden($('#d-note'), notes.length === 0);
+  if (notes.length > 0) $('#d-note').textContent = notes.join(' ');
+
+  const errorEl = $('#d-error');
+  setHidden(errorEl, !state.error);
+  if (state.error) errorEl.textContent = state.error;
+
+  renderHealth();
 }
 
-async function act(action, rec) {
-  if (state.busy) return;
+function renderHealth() {
+  const box = $('#d-healthbox');
+  const report = state.health;
+  setHidden(box, !report);
+  if (!report) return;
+  const rows = report.checks
+    .map(
+      (check) =>
+        `<li class="check ${check.status}"><span class="check-name">${escapeHtml(check.name)}</span><span class="check-detail">${escapeHtml(check.detail)}</span></li>`,
+    )
+    .join('');
+  const drift = report.drift;
+  const driftHtml =
+    drift && (drift.missing.length || drift.changed.length)
+      ? `<ul class="drift">${drift.missing
+          .map((file) => `<li>缺：<span class="mono">${escapeHtml(file)}</span></li>`)
+          .concat(drift.changed.map((file) => `<li>改过：<span class="mono">${escapeHtml(file)}</span></li>`))
+          .join('')}</ul>`
+      : '';
+  const html = `<h3>体检 ${report.ok ? '<span class="ok">通过</span>' : '<span class="bad">有故障</span>'}</h3><ul class="checks">${rows}</ul>${driftHtml}`;
+  if (box.innerHTML !== html) box.innerHTML = html;
+}
+
+function clearError() {
+  state.error = null;
+  setHidden($('#d-error'), true);
+}
+
+function showError(err, action) {
+  const parts = [action ? `${action}失败：${err.message}` : err.message];
+  if (err.hint) parts.push(err.hint);
+  state.error = parts.join('\n');
+  setHidden($('#d-error'), false);
+  $('#d-error').textContent = state.error;
+}
+
+/* ---------- 操作 ---------- */
+
+async function act(name) {
+  const rec = currentRecord();
+  if (!rec || state.busy) return;
+  clearError();
+  if (name === 'open') {
+    window.open(`/api/instances/${encodeURIComponent(rec.id)}/open`, '_blank', 'noopener');
+    return;
+  }
+  const routes = {
+    start: `/api/instances/${encodeURIComponent(rec.id)}/start`,
+    stop: `/api/instances/${encodeURIComponent(rec.id)}/stop`,
+    restart: `/api/instances/${encodeURIComponent(rec.id)}/restart`,
+    use: `/api/instances/${encodeURIComponent(rec.id)}/active`,
+  };
+  const labels = { start: '启动', stop: '停止', restart: '重起', use: '设为当前' };
   try {
-    if (action === 'open') {
-      window.open(rec.url, '_blank', 'noopener');
+    if (name === 'logs') {
+      await openLogs(rec);
       return;
     }
-    state.busy = true;
-    if (action === 'start') {
-      await api(`/api/instances/${encodeURIComponent(rec.id)}/start`, { method: 'POST' });
-    } else if (action === 'stop') {
-      await api(`/api/instances/${encodeURIComponent(rec.id)}/stop`, { method: 'POST' });
-    } else if (action === 'use') {
-      await api(`/api/instances/${encodeURIComponent(rec.id)}/active`, { method: 'POST' });
-    } else if (action === 'remove') {
-      if (!window.confirm(`删除实例 ${rec.name}？实例根会一起删掉。`)) return;
-      await api(`/api/instances/${encodeURIComponent(rec.id)}`, { method: 'DELETE' });
-      if (state.selected === rec.id) state.selected = null;
-    } else if (action === 'logs') {
-      await showLogs(rec);
+    if (name === 'health') {
+      state.busy = name;
+      renderDetail();
+      state.health = await api(`/api/instances/${encodeURIComponent(rec.id)}/health`);
+      state.busy = null;
+      renderDetail();
       return;
     }
-    state.error = null;
-    await load();
+    if (name === 'remove') {
+      askRemove(rec);
+      return;
+    }
+    const path = routes[name];
+    if (!path) return;
+    state.busy = name;
+    renderDetail();
+    await api(path, { method: 'POST' });
+    await refresh();
   } catch (err) {
-    state.error = err.message;
-    render();
+    showError(err, labels[name]);
+    if (name === 'health') state.health = null;
   } finally {
-    state.busy = false;
+    state.busy = null;
+    renderDetail();
   }
 }
 
-let logsTimer = null;
+/* ---------- 删除确认 ---------- */
 
-async function showLogs(rec) {
-  const body = await api(`/api/instances/${encodeURIComponent(rec.id)}/logs`);
-  $('#logs-title').textContent = `${rec.name} · 启动日志`;
-  $('#logs-body').textContent = body.log || '还没有启动记录。';
-  if (!$('#logs').open) $('#logs').showModal();
-  clearInterval(logsTimer);
-  logsTimer = setInterval(async () => {
-    try {
-      const next = await api(`/api/instances/${encodeURIComponent(rec.id)}/logs`);
-      const el = $('#logs-body');
-      const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
-      el.textContent = next.log || '还没有启动记录。';
-      if (atBottom) el.scrollTop = el.scrollHeight;
-    } catch {
-      /* 轮询失败不打扰 */
-    }
-  }, 2000);
+let removing = null;
+
+function askRemove(rec) {
+  removing = rec;
+  $('#confirm-title').textContent = `删除 ${rec.name}`;
+  $('#confirm-body').textContent = rec.managed
+    ? 'Pack 装进去的文件会先卸掉；勾选「保留数据」就把整个实例根挪进归档区，否则连根删掉。'
+    : '这是接管来的目录：只会摘掉 PAL 的记录，目录里的东西一个都不动。';
+  $('#confirm-keep').checked = false;
+  $('#confirm-keep').disabled = !rec.managed;
+  $('#confirm').showModal();
 }
 
-function stopLogs() {
-  clearInterval(logsTimer);
-  logsTimer = null;
+$('#confirm-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const rec = removing;
+  if (!rec) return;
+  const keep = $('#confirm-keep').checked ? '?keepData=1' : '';
+  $('#confirm').close();
+  try {
+    state.busy = 'remove';
+    renderDetail();
+    await api(`/api/instances/${encodeURIComponent(rec.id)}${keep}`, { method: 'DELETE' });
+    if (state.selected === rec.id) state.selected = null;
+    state.health = null;
+    await refresh();
+  } catch (err) {
+    showError(err, '删除');
+  } finally {
+    state.busy = null;
+    removing = null;
+    renderDetail();
+  }
+});
+$('#confirm-cancel').addEventListener('click', () => $('#confirm').close());
+
+/* ---------- 新建 ---------- */
+
+let packsLoaded = false;
+
+async function loadPacks() {
+  if (packsLoaded) return state.packs;
+  try {
+    state.packs = await api('/api/packs');
+  } catch (err) {
+    state.packs = { index: null, packs: [], local: [], error: err.message };
+  }
+  packsLoaded = true;
+  return state.packs;
 }
 
 async function openCreate() {
@@ -182,34 +366,81 @@ async function openCreate() {
   $('#create').showModal();
   form.querySelector('input[name="pack"]').focus();
 
-  const hint = $('#create-hint');
+  fillHarnessSelect();
+  const packs = await loadPacks();
   const options = $('#pack-options');
-  options.innerHTML = '';
-  hint.hidden = true;
-  try {
-    const data = await api('/api/packs');
-    if (data.index && data.packs.length > 0) {
-      options.innerHTML = data.packs
-        .map((pack) => `<option value="${esc(pack.name)}">${esc(pack.title || pack.latest)}</option>`)
-        .join('');
-      hint.textContent = `索引里有 ${data.packs.length} 个包，可以直接输入名字挑（${data.index}）。`;
-      hint.hidden = false;
-    } else if (!data.index) {
-      hint.textContent = '没有配置 registry 索引（PACKHUB_INDEX 或 ~/.packhub/config.json）；也可以直接填 Pack 目录、.phub 或 git+https。';
-      hint.hidden = false;
-    }
-  } catch (err) {
-    hint.textContent = err.message;
-    hint.hidden = false;
-  }
+  const names = [
+    ...packs.packs.map((pack) => pack.name),
+    ...(packs.local ?? []),
+  ];
+  options.innerHTML = names.map((name) => `<option value="${escapeHtml(name)}"></option>`).join('');
+
+  const pick = $('#pack-pick');
+  pick.innerHTML =
+    '<option value="">（手填上面的 Pack）</option>' +
+    packs.packs.map((pack) => `<option value="${escapeHtml(pack.name)}">${escapeHtml(pack.title || pack.name)}</option>`).join('');
+  pick.onchange = () => {
+    if (!pick.value) return;
+    form.querySelector('input[name="pack"]').value = pick.value;
+    fillVersions(pick.value);
+  };
+
+  const hint = $('#create-hint');
+  const bits = [];
+  if (packs.index) bits.push(`索引：${packs.index}（${packs.packs.length} 个包）`);
+  else bits.push('没有 registry 索引；可以直接填 Pack 目录、.phub 或 git+https。');
+  if (packs.local?.length) bits.push(`本地 ${packs.local.length} 个 Pack 目录可选。`);
+  hint.textContent = bits.join(' ');
+  hint.hidden = false;
 }
 
-$('#new').addEventListener('click', openCreate);
-$('#empty-new')?.addEventListener('click', openCreate);
-$('#cancel').addEventListener('click', () => $('#create').close());
-$('#refresh').addEventListener('click', load);
-$('#logs-close').addEventListener('click', () => $('#logs').close());
-$('#logs').addEventListener('close', stopLogs);
+function fillVersions(packName) {
+  const version = $('#pack-version');
+  const pack = state.packs.packs.find((item) => item.name === packName);
+  const versions = pack?.versions?.length ? pack.versions : [];
+  version.innerHTML = ['<option value="">latest</option>']
+    .concat(versions.map((v) => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`))
+    .join('');
+  if (pack?.latest) version.value = '';
+}
+
+function harnessLabel(h) {
+  if (h.kind === 'project') return `${h.id}（${h.id === 'dir' ? '项目目录' : '只装配 home'}）`;
+  return h.available ? h.id : `${h.id}（未安装）`;
+}
+
+function fillHarnessSelect() {
+  const selectEl = $('#harness-select');
+  if (selectEl.options.length === 0 && state.harnesses.length > 0) {
+    selectEl.innerHTML = state.harnesses
+      .map((h) => `<option value="${escapeHtml(h.id)}">${escapeHtml(harnessLabel(h))}</option>`)
+      .join('');
+    // 默认选一个真能起的宿主（dsh），别让人一进来就选中只装配 home 的
+    const preferred = state.harnesses.find((h) => h.id === 'dsh' && h.startable)
+      ?? state.harnesses.find((h) => h.startable)
+      ?? state.harnesses[0];
+    if (preferred) selectEl.value = preferred.id;
+  }
+  const update = () => {
+    const harness = harnessOf(selectEl.value);
+    const note = $('#harness-note');
+    if (!harness) {
+      note.hidden = true;
+      return;
+    }
+    const bits = [];
+    if (harness.version) bits.push(`版本 ${harness.version}`);
+    if (harness.kind === 'project') {
+      if (harness.reason) bits.push(harness.reason);
+    } else if (!harness.available) {
+      bits.push('这台机器上没找到命令：实例能建，但起不来');
+    }
+    note.textContent = bits.join('；');
+    note.hidden = bits.length === 0;
+  };
+  selectEl.onchange = update;
+  update();
+}
 
 $('#create-form').addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -217,21 +448,26 @@ $('#create-form').addEventListener('submit', async (event) => {
   const payload = {
     pack: String(form.get('pack') ?? '').trim(),
     name: String(form.get('name') ?? '').trim(),
-    harness: String(form.get('harness') ?? 'dir'),
-    index: String(form.get('index') ?? '').trim(),
+    harness: String(form.get('harness') ?? 'dsh'),
   };
+  const version = String(form.get('version') ?? '').trim();
+  if (version) payload.version = version;
+  const fromHome = String(form.get('fromHome') ?? '').trim();
+  if (fromHome) payload.fromHome = fromHome;
+  if (state.packs.index) payload.index = state.packs.index;
+
   const msg = $('#create-msg');
   const submit = $('#submit');
   msg.hidden = true;
   submit.disabled = true;
   submit.textContent = '创建中…';
   try {
-    const rec = await api('/api/instances', { method: 'POST', body: JSON.stringify(payload) });
+    const rec = await api('/api/instances', { method: 'POST', body: payload });
     $('#create').close();
     state.selected = rec.id;
-    await load();
+    await refresh();
   } catch (err) {
-    msg.textContent = err.message;
+    msg.textContent = err.hint ? `${err.message}\n${err.hint}` : err.message;
     msg.hidden = false;
   } finally {
     submit.disabled = false;
@@ -239,8 +475,145 @@ $('#create-form').addEventListener('submit', async (event) => {
   }
 });
 
-load();
+/* ---------- 日志 ---------- */
+
+let logsTimer = null;
+let logsRec = null;
+
+async function openLogs(rec) {
+  logsRec = rec;
+  $('#logs-title').textContent = `${rec.name} · 启动日志`;
+  const body = await api(`/api/instances/${encodeURIComponent(rec.id)}/logs`);
+  applyLogs(body);
+  if (!$('#logs').open) $('#logs').showModal();
+  clearInterval(logsTimer);
+  logsTimer = setInterval(async () => {
+    if (!logsRec || document.hidden) return;
+    try {
+      const next = await api(
+        `/api/instances/${encodeURIComponent(logsRec.id)}/logs${logsFileQuery()}`,
+      );
+      applyLogs(next, true);
+    } catch {
+      /* 轮询失败不打扰 */
+    }
+  }, 1500);
+}
+
+function logsFileQuery() {
+  const file = $('#logs-file').value;
+  return file ? `?file=${encodeURIComponent(file)}` : '';
+}
+
+function applyLogs(body, keepScroll = false) {
+  const el = $('#logs-body');
+  const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
+  const next = body.text || '还没有启动输出。';
+  if (el.textContent !== next) el.textContent = next;
+  if (keepScroll && atBottom) el.scrollTop = el.scrollHeight;
+  else if (!keepScroll) el.scrollTop = el.scrollHeight;
+
+  const select = $('#logs-file');
+  const files = body.files ?? [];
+  const want = files.map((file) => file.name).join('|');
+  if (select.dataset.want !== want) {
+    select.dataset.want = want;
+    select.innerHTML = files.map((file) => `<option value="${escapeHtml(file.name)}">${escapeHtml(file.name)}</option>`).join('');
+    select.value = body.file;
+  }
+}
+
+$('#logs-file').addEventListener('change', async () => {
+  if (!logsRec) return;
+  try {
+    applyLogs(await api(`/api/instances/${encodeURIComponent(logsRec.id)}/logs${logsFileQuery()}`));
+  } catch (err) {
+    showError(err, '读日志');
+  }
+});
+
+$('#logs-close').addEventListener('click', () => $('#logs').close());
+$('#logs').addEventListener('close', () => {
+  clearInterval(logsTimer);
+  logsTimer = null;
+  logsRec = null;
+});
+
+/* ---------- 刷新与轮询 ---------- */
+
+let inflight = false;
+let probed = false;
+
+async function refresh() {
+  if (inflight) return;
+  inflight = true;
+  try {
+    // 版本只在第一次探测：之后每次轮询都不该再 spawn 宿主
+    const probe = probed ? '0' : '1';
+    const [list, harnesses] = await Promise.all([
+      api('/api/instances'),
+      api(`/api/harnesses?probe=${probe}`),
+    ]);
+    probed = true;
+    state.offline = false;
+    state.instances = list.instances;
+    state.broken = list.broken ?? [];
+    state.active = list.active ?? {};
+    state.harnesses = harnesses;
+    if (state.selected && !state.instances.some((rec) => rec.id === state.selected)) {
+      state.selected = null;
+      state.health = null;
+    }
+    if (!state.selected && state.instances.length > 0) state.selected = state.instances[0].id;
+    // 更新提示要索引里的 latest；只取一次，不跟轮询
+    if (!packsLoaded) void loadPacks().then(() => {
+      if (!dialogOpen()) renderDetail();
+    });
+    renderList();
+    renderDetail();
+  } catch (err) {
+    state.offline = true;
+    if (!currentRecord()) {
+      $('#blank').hidden = false;
+      $('#blank').innerHTML =
+        '<p>连不上 PAL 服务。</p><p class="hint">服务可能已经退出；重新运行 <code>pal serve</code> 后点刷新。</p><p><button type="button" id="retry">重试连接</button></p>';
+      $('#retry')?.addEventListener('click', () => refresh());
+    } else {
+      showError(err, '刷新');
+    }
+  } finally {
+    inflight = false;
+  }
+}
+
+function dialogOpen() {
+  return Boolean(document.querySelector('dialog[open]'));
+}
+
 setInterval(() => {
-  if (document.hidden || $('dialog[open]')) return;
-  load().catch(() => {});
-}, 3000);
+  if (document.hidden || dialogOpen() || state.busy) return;
+  void refresh();
+}, 2500);
+
+$('#new').addEventListener('click', openCreate);
+$('#empty-new')?.addEventListener('click', openCreate);
+$('#cancel').addEventListener('click', () => $('#create').close());
+$('#refresh').addEventListener('click', () => refresh());
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') return;
+  if ((event.ctrlKey || event.metaKey) && event.key === 'r') {
+    event.preventDefault();
+    void refresh();
+  }
+});
+
+$('#d-open').addEventListener('click', () => act('open'));
+$('#d-start').addEventListener('click', () => act('start'));
+$('#d-stop').addEventListener('click', () => act('stop'));
+$('#d-restart').addEventListener('click', () => act('restart'));
+$('#d-use').addEventListener('click', () => act('use'));
+$('#d-health').addEventListener('click', () => act('health'));
+$('#d-logs').addEventListener('click', () => act('logs'));
+$('#d-remove').addEventListener('click', () => act('remove'));
+
+void refresh();

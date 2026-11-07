@@ -1,31 +1,100 @@
 import type { TargetId } from '@packhub/kernel';
 
+/** 启动时能拿到的上下文，交给适配器拼参数。 */
+export interface StartContext {
+  /** 本次分配的端口；宿主必须监听它 */
+  port: number;
+  /** 实例根 */
+  root: string;
+  /** 实例自己的 home 段（宿主没有则为 undefined） */
+  home?: string;
+  /** dsh 这类宿主的额外补丁文件（MCP 接线用） */
+  patchFile?: string;
+}
+
+export interface StartTemplate {
+  /** 可执行文件名（走 PATH 发现，或 PAL_<HARNESS>_BIN 覆盖） */
+  command: string;
+  /** 由上下文拼参数；不经过 shell */
+  args: (ctx: StartContext) => string[];
+  /** 从启动输出里认地址 */
+  url: RegExp;
+  /** 等地址的默认超时 */
+  readyTimeoutMs?: number;
+}
+
 /** 每个宿主在实例根里怎么放 home 段、用哪个环境变量指过去、能不能直接起。 */
 export interface HarnessAdapter {
+  label: string;
   /** 实例内的 home 目录（相对实例根）；dir 没有 */
   homeDir?: string;
   /** 把宿主指到这个 home 的环境变量 */
   homeEnv?: string;
-  /** 启动命令；没有就说明这一版还不支持直接起 */
-  start?: { command: string; args: string[]; url?: RegExp };
+  /** 宿主可执行文件名 */
+  executable?: string;
+  /** 探测版本用的参数 */
+  versionArgs?: string[];
+  /** 启动模板；没有就说明这个宿主没有可托管的常驻服务 */
+  start?: StartTemplate;
+  /** 不能启动时给用户看的原因（不是错误码，是能力说明） */
+  noStartReason?: string;
 }
 
 export const ADAPTERS: Record<TargetId, HarnessAdapter> = {
-  dir: {},
+  dir: {
+    label: '普通项目',
+    noStartReason: 'dir 实例是一个项目目录，没有可启动的宿主进程；用 packhub 直接在这个目录里工作。',
+  },
   dsh: {
+    label: 'DeepSeek Harness',
     homeDir: 'home/dsh',
     homeEnv: 'DSH_HOME',
-    start: { command: 'dsh', args: ['--profile', 'web', '--no-open', '--port', '0'], url: /(https?:\/\/\S+)/ },
+    executable: 'dsh',
+    versionArgs: ['--version'],
+    // --patch 必须在 web 子命令之前：之后会被当成 web app 自己的参数。
+    start: {
+      command: 'dsh',
+      args: (ctx) => [
+        '--profile',
+        'web',
+        ...(ctx.patchFile ? ['--patch', ctx.patchFile] : []),
+        '--no-open',
+        '--port',
+        String(ctx.port),
+      ],
+      url: /(https?:\/\/\S+)/,
+      readyTimeoutMs: 30_000,
+    },
   },
   'claude-code': {
+    label: 'Claude Code',
     homeDir: 'home/claude',
     homeEnv: 'CLAUDE_CONFIG_DIR',
+    executable: 'claude',
+    versionArgs: ['--version'],
+    noStartReason:
+      'Claude Code 是终端交互程序，没有可托管的常驻服务；PAL 只负责给它装配 home（技能、MCP、指令）。',
   },
   codex: {
+    label: 'Codex',
     homeDir: 'home/codex',
     homeEnv: 'CODEX_HOME',
+    executable: 'codex',
+    versionArgs: ['--version'],
+    noStartReason: 'Codex 是终端交互程序，没有可托管的常驻服务；PAL 只负责给它装配 home。',
   },
 };
+
+export const HARNESS_IDS = Object.keys(ADAPTERS) as TargetId[];
+
+export function isHarnessId(value: string): value is TargetId {
+  return (HARNESS_IDS as string[]).includes(value);
+}
+
+/** 给调用方拼启动参数；没有启动模板就是不可启动。 */
+export function startArgsFor(harness: TargetId, ctx: StartContext): string[] | undefined {
+  return ADAPTERS[harness].start?.args(ctx);
+}
 
 /**
  * 装进实例时把资源落到实例自己的 home 段，而不是项目内的 .packhub/。
@@ -47,7 +116,7 @@ export function parseStartUrl(text: string, harness: TargetId): { url: string; p
   if (!pattern) return undefined;
   const hit = text.match(pattern);
   if (!hit?.[1]) return undefined;
-  const url = hit[1];
+  const url = hit[1].replace(/[),.;]+$/, '');
   try {
     const port = Number(new URL(url).port);
     return Number.isFinite(port) && port > 0 ? { url, port } : { url };

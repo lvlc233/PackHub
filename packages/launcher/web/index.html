@@ -22,10 +22,47 @@
         </div>
         <ul id="list" class="list" aria-live="polite"></ul>
         <p id="empty" class="empty" hidden>还没有实例。<button id="empty-new" class="link" type="button">新建一个</button></p>
+        <div id="broken-box" class="broken-box" hidden>
+          <h3>读不了的记录</h3>
+          <ul id="broken-list"></ul>
+          <p class="hint">现场已挪进隔离区，没有删：<code>pal recover</code></p>
+        </div>
       </aside>
 
-      <section id="detail" class="detail" aria-live="polite">
-        <div class="blank">
+      <section class="detail" aria-live="polite">
+        <article id="card" class="card" hidden>
+          <div class="title-row">
+            <h1 id="d-name"></h1>
+            <span id="d-status" class="badge"></span>
+            <span id="d-harness" class="muted"></span>
+            <span id="d-active" class="badge" hidden>当前</span>
+            <span id="d-update" class="badge warn" hidden></span>
+          </div>
+          <dl class="kv">
+            <dt>Pack</dt><dd id="d-pack"></dd>
+            <dt>实例根</dt><dd id="d-root" class="mono"></dd>
+            <dt>home</dt><dd id="d-home" class="mono"></dd>
+            <dt>端口</dt><dd id="d-port"></dd>
+            <dt>地址</dt><dd id="d-url"></dd>
+            <dt>宿主版本</dt><dd id="d-hver"></dd>
+            <dt>最近退出</dt><dd id="d-exit"></dd>
+          </dl>
+          <div class="actions-row">
+            <button id="d-open" class="primary" type="button">打开</button>
+            <button id="d-start" type="button">启动</button>
+            <button id="d-stop" type="button">停止</button>
+            <button id="d-restart" type="button">重起</button>
+            <button id="d-use" type="button">设为当前</button>
+            <button id="d-health" type="button">体检</button>
+            <button id="d-logs" type="button">日志</button>
+            <span class="spacer"></span>
+            <button id="d-remove" class="danger" type="button">删除</button>
+          </div>
+          <p id="d-note" class="hint" hidden></p>
+          <p id="d-error" class="msg" role="alert" hidden></p>
+          <div id="d-healthbox" class="health" hidden></div>
+        </article>
+        <div id="blank" class="blank">
           <p>选一个实例看详情；也可以直接新建。</p>
         </div>
       </section>
@@ -35,24 +72,32 @@
       <form id="create-form">
         <h2>新建实例</h2>
         <label>Pack
-          <input name="pack" list="pack-options" required placeholder="输入或从索引里挑：lvlc233/doc-review、./x.phub、examples/…" />
+          <input name="pack" list="pack-options" required placeholder="索引里的名字、./x.phub、git+https、本地目录" />
           <datalist id="pack-options"></datalist>
         </label>
+        <div class="row2">
+          <label>从索引挑
+            <select id="pack-pick">
+              <option value="">（手填上面的 Pack）</option>
+            </select>
+          </label>
+          <label>版本
+            <select name="version" id="pack-version">
+              <option value="">latest</option>
+            </select>
+          </label>
+        </div>
         <div class="row2">
           <label>实例名
             <input name="name" required placeholder="demo" />
           </label>
           <label>宿主
-            <select name="harness">
-              <option value="dsh">dsh</option>
-              <option value="claude-code">claude-code</option>
-              <option value="codex">codex</option>
-              <option value="dir">dir</option>
-            </select>
+            <select name="harness" id="harness-select"></select>
           </label>
         </div>
-        <label>registry 索引（可选）
-          <input name="index" placeholder="路径或 URL；留空用 PACKHUB_INDEX" />
+        <p id="harness-note" class="hint" hidden></p>
+        <label>沿用已有 home（可选）
+          <input name="fromHome" placeholder="C:\Users\me\.dsh —— 带模型凭据与 AGENTS.md 过来，不覆盖 Pack 的文件" />
         </label>
         <p id="create-msg" class="msg" hidden></p>
         <p class="hint" id="create-hint" hidden></p>
@@ -63,10 +108,28 @@
       </form>
     </dialog>
 
+    <dialog id="confirm">
+      <form id="confirm-form">
+        <h2 id="confirm-title">删除实例</h2>
+        <p id="confirm-body" class="hint"></p>
+        <label class="check">
+          <input type="checkbox" id="confirm-keep" />
+          <span>保留数据（home、会话、凭据；Pack 装进去的文件仍然会卸掉）</span>
+        </label>
+        <div class="actions">
+          <button type="button" id="confirm-cancel" class="ghost">取消</button>
+          <button type="submit" id="confirm-ok" class="danger">删除</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="logs">
       <div class="logs-head">
         <h2 id="logs-title">启动日志</h2>
-        <button id="logs-close" class="ghost" type="button">关闭</button>
+        <div class="logs-tools">
+          <select id="logs-file" aria-label="日志文件"></select>
+          <button id="logs-close" class="ghost" type="button">关闭</button>
+        </div>
       </div>
       <pre id="logs-body"></pre>
     </dialog>

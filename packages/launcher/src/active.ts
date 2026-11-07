@@ -1,56 +1,43 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { instancesRoot, readInstance, type InstanceRecord } from './index.ts';
+import {
+  readActiveMap,
+  readInstance,
+  requireInstance,
+  writeActiveMap,
+  type InstanceRecord,
+} from './index.ts';
 
 /** 每个宿主记住"当前用哪一份实例配置"；只是默认值，不排斥同时起多个。 */
-type ActiveMap = Record<string, string>;
-
-function activePath(): string {
-  return join(instancesRoot(), '.active.json');
-}
+export type ActiveMap = Record<string, string>;
 
 export function readActive(): ActiveMap {
-  const file = activePath();
-  if (!existsSync(file)) return {};
-  try {
-    const data = JSON.parse(readFileSync(file, 'utf8')) as ActiveMap;
-    return data && typeof data === 'object' ? data : {};
-  } catch {
-    return {};
-  }
-}
-
-function writeActive(map: ActiveMap): void {
-  mkdirSync(instancesRoot(), { recursive: true });
-  writeFileSync(activePath(), JSON.stringify(map, null, 2) + '\n', 'utf8');
+  return readActiveMap();
 }
 
 export function setActive(idOrName: string): InstanceRecord {
-  const rec = readInstance(idOrName);
-  if (!rec) throw new Error(`没有这个实例：${idOrName}`);
-  const map = readActive();
+  const rec = requireInstance(idOrName);
+  const map = readActiveMap();
   map[rec.harness] = rec.id;
-  writeActive(map);
+  writeActiveMap(map);
   return rec;
 }
 
 export function clearActive(harness?: string): void {
-  const map = readActive();
+  const map = readActiveMap();
   if (harness) {
     delete map[harness];
   } else {
     for (const key of Object.keys(map)) delete map[key];
   }
-  writeActive(map);
+  writeActiveMap(map);
 }
 
 /** 某个宿主当前选中的实例。 */
 export function activeInstance(harness: string): InstanceRecord | undefined {
-  const id = readActive()[harness];
+  const id = readActiveMap()[harness];
   return id ? readInstance(id) : undefined;
 }
 
 export function activeEntries(): Array<{ harness: string; record?: InstanceRecord }> {
-  const map = readActive();
+  const map = readActiveMap();
   return Object.entries(map).map(([harness, id]) => ({ harness, record: readInstance(id) }));
 }

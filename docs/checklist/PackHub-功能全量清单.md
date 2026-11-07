@@ -1,6 +1,6 @@
 # PackHub 功能全量清单[待更新]
 
-> 版本：2026-11-05 ／ 口径：本仓库当前代码、CLI 实测、测试套件（63 个文件 / 254 项）与 registry 现状。
+> 版本：2026-11-07 ／ 口径：本仓库当前代码、CLI 实测、测试套件（72 个文件 / 293 项）与 registry 现状。
 > 用途：实现 checklist、选型对照、漏项审计。**不是**产品介绍。
 
 ## 怎么读
@@ -29,6 +29,7 @@
 | OPS | 工程与运维 | 测试、构建、CI、镜像、文档 |
 | X | 跨切面 | Windows、编码、代理、并发、性能 |
 | CON | 创作台 | `/console` 从建草稿到保存、安装、发布的端到端 |
+| PAL | 实例启动器 | 把 Pack 装进独立实例根，按宿主起停、看护、体检；`packages/launcher` + `apps/pal-desktop` |
 | AUD | 全系统审计 | 命令/参数/状态/发布/市场/同步的漏项，见 [系统全量审计](系统全量审计.md) |
 | NA | 不属于本项目的部分 | 防止把“没有”当“漏做” |
 
@@ -349,12 +350,50 @@ ole=alert + ria-live；安装/校验按钮带 ria-busy | [done] | App.tsx |
 | CON-49 | 写入边界 | 保存/发布只能落在 serve root 内 | [done] | `safeDir` |
 | CON-50 | 操作反馈 | 保存/安装/发布有进行中与结果 | [done] | `delivery` 状态 |
 | CON-51 | 持久状态编辑 | 高级区 state JSON 可编辑、进 YAML、YAML 反向回填；ui:audit 断言写盘 | [done] | `ConsolePage`、`ui:audit` |
+## 15 PAL ｜实例启动器
+
+PAL 是 `packages/launcher` 里的实例内核 + Windows 壳（`apps/pal-desktop`）。它把 Pack 装进独立的实例根，并按宿主起停进程；细节见 [details/pal.md](details/pal.md)。
+
+| 编号 | 功能点 | 能观察到的事实 | 现状 | 证据/缺口 |
+|---|---|---|---|---|
+| PAL-01 | 实例记录 | `instance.json` 记 id/name/harness/harnessVersion/pack/root/home/planHash/status/ports[]/managed/lastExit | [done] | `launcher/src/index.ts` |
+| PAL-02 | 建实例 | `pal create` 从 Pack 建目录；先落 `installing`，失败进 `.failed` 并写原因 | [done] | `createInstance`、`test/instance.test.ts` |
+| PAL-03 | 失败清理 | 复用已有目录时不删目录；只有自己造的根才移走 | [done] | `test/instance.test.ts` |
+| PAL-04 | 删除 | 先停进程再卸包；`--keep-data` 归档；接管目录只摘记录 | [done] | `removeInstance`、`test` |
+| PAL-05 | 启动 | 不拼 shell；日志走 fd；等地址超时贴日志尾部 | [done] | `start.ts`、`test/start.test.ts` |
+| PAL-06 | pid 与退出码 | 记真正在监听的 pid（Windows 垫片不再记成 cmd）；退出码/信号进 `lastExit` | [done] | `portOwner`、`attachSupervisor` |
+| PAL-07 | 端口 | 自动挑空闲端口；冲突报占用者 pid/进程名 | [done] | `port.ts` |
+| PAL-08 | 日志 | 每次启动归档 `start.<时间>.log`，读日志脱敏，保留 5 份 | [done] | `logs.ts`、`secrets.ts` |
+| PAL-09 | 凭据 | 地址里的 token 存 `secrets.json`（0600），记录与 API 只见脱敏地址；打开走 302 | [done] | `secrets.ts`、`server.ts` |
+| PAL-10 | 来源校验 | 跨源写请求、缺客户端头的写请求一律 403 | [done] | `isTrustedRequest`、`test/server.test.ts` |
+| PAL-11 | 错误语义 | 未知实例 404、未知宿主 400、已运行 409，带 code/hint | [done] | `errors.ts`、`test/server.test.ts` |
+| PAL-12 | 宿主发现 | `pal doctor` / `/api/harnesses` 报可用性与版本；不可启动给说明 | [done] | `harness.ts` |
+| PAL-13 | dsh MCP 接线 | Pack 的 mcp 资源写成 `--patch` 层，dsh 启动时真连上 MCP server | [done] | `mcp.ts`、`test/mcp.test.ts` 与实机日志 |
+| PAL-14 | 实例流转 | `adopt` 接管、`clone` 复制、`rename` 改名、`migrate` 挪目录 | [done] | `index.ts`、`test/instance.test.ts` |
+| PAL-14b | 沿用已有 home | `create --from-home` 只补空缺地搬凭据与用户指令，不盖掉 Pack 写的文件；`sessions` 等不搬 | [done] | `seedHome`、`test/instance.test.ts` |
+| PAL-15 | 模板 | `export` 出可复现模板 JSON，`import` 按引用重建；不可复现的明确拒绝 | [done] | `exportTemplate`、`readTemplate` |
+| PAL-16 | 健康检查 | 记录/锁/进程/端口/home/基线/MCP 七项 | [done] | `health.ts`、`test/health.test.ts` |
+| PAL-17 | 基线 | 建实例写 `baseline.json`（Pack 装的每个文件 + sha256），体检报缺失/改动 | [done] | `writeBaseline`、`baselineDrift` |
+| PAL-18 | 删除时目录被占 | 重试删除，仍不行就改名进归档，不把半个实例留在列表 | [done] | `removeTreeWithRetry` |
+| PAL-19 | 界面 | 实例列表/详情增量更新（不整块重渲）、包与版本选择、更新提示、体检面板、删除保留数据 | [done] | `web/app.js` |
+| PAL-20 | 取包缓存 | 按来源 + 版本分目录，重取先清空；失败不留半份 | [done] | `materialize.ts`、`test/materialize.test.ts` |
+| PAL-21 | 打包与 CI | `pal:bundle` 出单文件 pal.cjs；`pal:smoke` 端到端冒烟；workflow 覆盖 .NET 壳与分发 | [done] | `scripts/pal/*`、`.github/workflows/pal.yml` |
+| PAL-22 | 看护 | `on-failure` 重起（只在 `pal serve` 活着时生效，有退避与次数上限） | [part] | 壳退出后没有系统级看护 |
+| PAL-23 | 运行时管理 | 分发版自带 node.exe；多实例共用 | [part] | 没有运行时版本切换 |
+| PAL-24 | 界面的实例流转 | adopt/clone/migrate 只有 CLI，界面里没有入口 | [todo] | `web/app.js` 只做建/起停/删 |
+
 ## 缺口汇总
 
-清单里已经没有 `[todo]` / `[part]`；剩下 11 条 `[na]` 分两类：
+清单里已经没有 `[todo]` / `[part]` 之外的空项；`[na]` 分两类：
 
-1. **设计边界**：pypi 只装源码（wheel 是构建产物，不建 Python venv）；全局 MCP 在 DSH 上不做（profile patch 是第三方宿主私有格式），Claude Code 走其稳定 CLI；CLI 自更新没有渠道（未发布到 npm，分发走 `build:local`）。
+1. **设计边界**：pypi 只装源码（wheel 是构建产物，不建 Python venv）；CLI 自更新没有渠道（未发布到 npm，分发走 `build:local`）。
 2. **不属于 PackHub**：会话、上下文组装、模型接入、编排、编辑与代码智能等（见 NA 域）。
+
+PAL 域剩下的缺口（不算阻断）：
+
+- PAL-22：`on-failure` 重起只在 `pal serve` 活着时生效；壳退出后没有系统级看护。
+- PAL-23：分发版自带 node.exe，但没有运行时版本切换。
+- PAL-24：adopt / clone / migrate 只有 CLI，界面里没有入口。
 
 另有几条非阻断的运维建议，不算功能缺口：
 
@@ -367,7 +406,7 @@ ole=alert + ria-live；安装/校验按钮带 ria-busy | [done] | App.tsx |
 ## 下一步
 
 1. **市场多实例化**：SQLite 与 `/admin` 已落地；下一步是对象存储/多实例与团队私有 registry。
-2. **全局 MCP**：Claude Code 已接宿主 CLI；DSH 等宿主给出稳定契约后再接，避免把第三方 patch 写进产品。
+2. **全局 MCP**：Claude Code 接宿主 CLI（`claude mcp add --scope user`）；DSH 走 `--patch` 层，由 PAL 从 Pack 的 mcp 资源生成，不写宿主 profile 文件；其余宿主等有稳定契约再接。
 3. **视觉回归**：`ui:audit` 已加截图基线（按平台）；还剩键盘全流程与 Linux 基线。
 4. **记忆 state 块**：已落地（`state` 声明 + `state.dir` 动作 + 保留/删除策略）。
 ## 细节文档
@@ -387,3 +426,4 @@ ole=alert + ria-live；安装/校验按钮带 ria-busy | [done] | App.tsx |
 | [details/trust.md](details/trust.md) | 签名、凭据、许可、可见性、审计 |
 | [details/ops.md](details/ops.md) | 测试、构建、CI、镜像、版本、性能 |
 | [details/windows.md](details/windows.md) | 路径、BOM、代理、PowerShell、tar |
+| [details/pal.md](details/pal.md) | 实例根布局、启停与看护、错误码、HTTP 面、dsh MCP 接线、界面刷新策略、CI |
