@@ -307,13 +307,16 @@ export function buildPlan(
         }
         break;
       }
-      default:
+      default: {
+        // 加资源类型时这里会编译失败：逼着同时补安装动作，别让新类型静默进不了计划
+        const unhandled: never = res.type;
         issues.push({
           code: 'unknown-resource-type',
           severity: 'error',
-          message: `未知资源类型：${String(res.type)}`,
+          message: `未知资源类型：${String(unhandled)}`,
           path: at,
         });
+      }
     }
   }
 

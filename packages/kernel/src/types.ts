@@ -1,10 +1,17 @@
 /** PackHub v0.0.1 数据模型。
  *
  * 权威定义在 `schema/packhub.v0.schema.json`；这里的类型是它的人工镜像，
- * 由 `tests/schema.test.ts` 用 examples/ 做一致性兜底。改 Schema 时必须同步改这里。
+ * 由 `test/resource-types.test.ts` 比对 schema 的 enum 兜底。改 Schema 时必须同步改这里。
  */
 
-export type ResourceType = 'mcp' | 'skill' | 'prompt' | 'knowledge' | 'config' | 'tool';
+/** 资源类型的唯一来源：CLI、资源目录、面板都从这里取，不要再各写一份。 */
+export const RESOURCE_TYPES = ['mcp', 'skill', 'prompt', 'knowledge', 'config', 'tool'] as const;
+export type ResourceType = (typeof RESOURCE_TYPES)[number];
+
+export function isResourceType(value: unknown): value is ResourceType {
+  return typeof value === 'string' && (RESOURCE_TYPES as readonly string[]).includes(value);
+}
+
 export type TargetId = 'dir' | 'dsh' | 'claude-code' | 'codex';
 
 export interface ResourceSpec {
@@ -88,6 +95,7 @@ export interface SlotSpec {
   note?: string;
 }
 
+// 清单
 export interface Manifest {
   apiVersion: 'packhub.dev/v0';
   kind: 'Pack';

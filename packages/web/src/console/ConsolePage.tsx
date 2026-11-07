@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { parse as parseYaml } from 'yaml';
+import { RESOURCE_TYPES } from '../resourceTypes.ts';
 import './console.css';
 
 interface PackEntry {
@@ -128,7 +129,6 @@ const EMPTY_ADVANCED: AdvancedState = {
   state: '',
 };
 
-const RES_TYPES = ['knowledge', 'prompt', 'skill', 'tool', 'mcp', 'config'];
 const TARGETS = ['dir', 'claude-code', 'dsh', 'codex'];
 
 const uid = (): string => Math.random().toString(36).slice(2, 8);
@@ -1052,7 +1052,7 @@ export function ConsolePage() {
             value={r.type}
             onChange={(e) => updateResource(i, { type: e.target.value })}
           >
-            {RES_TYPES.map((t) => (
+            {RESOURCE_TYPES.map((t) => (
               <option key={t} value={t}>
                 {t}
               </option>

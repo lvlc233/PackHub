@@ -26,6 +26,7 @@ import {
   mergeLocalOverrides,
   readLocalOverrides,
   validateGraph,
+  RESOURCE_TYPES,
   type Issue,
   type Plan,
   type TargetId,
@@ -397,8 +398,6 @@ verify:
     console.log('要发布到公共 registry 时，把 metadata.visibility 改成 public（或 unlisted 直链分发）');
   },
 });
-
-const RESOURCE_TYPES = ['mcp', 'skill', 'prompt', 'knowledge', 'config', 'tool'] as const;
 
 const resourceAdd = defineCommand({
   meta: { name: 'add', description: '往 packhub.yaml 追加一个资源（结构化编辑，保留注释）' },
@@ -2037,7 +2036,7 @@ const discover = defineCommand({
     catalog: { type: 'string', description: '资源目录（文件或 URL；默认取 index 同目录的 resources.json）' },
     index: { type: 'string', description: '索引路径或 URL，用来找同目录的 resources.json' },
     npm: { type: 'boolean', default: false, description: '同时查 npm registry（联网）' },
-    type: { type: 'string', description: '只看某一类：mcp / skill / prompt / knowledge / config / tool' },
+    type: { type: 'string', description: `只看某一类：${RESOURCE_TYPES.join(' / ')}` },
     limit: { type: 'string', default: '10' },
     add: { type: 'string', description: '把第几个结果写进清单（从 1 开始）' },
     dir: { type: 'string', default: '.', description: 'Pack 目录（配合 --add）' },

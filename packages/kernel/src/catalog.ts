@@ -1,4 +1,4 @@
-import type { Issue, ResourceType, TargetId } from './types.ts';
+import { RESOURCE_TYPES, isResourceType, type Issue, type ResourceType, type TargetId } from './types.ts';
 
 /** 资源目录里的一条候选：不是 Pack，只是「可以装进 Pack 的东西」。 */
 export interface CatalogEntry {
@@ -17,8 +17,6 @@ export interface ResourceCatalog {
   apiVersion: 'packhub.dev/resources/v0';
   resources: CatalogEntry[];
 }
-
-const TYPES: ResourceType[] = ['mcp', 'skill', 'prompt', 'knowledge', 'config', 'tool'];
 
 /** 只做结构校验；source 能不能解析留给 plan（目录可能收着暂不可用的候选）。 */
 export function parseCatalog(raw: unknown): { catalog?: ResourceCatalog; issues: Issue[] } {
@@ -54,11 +52,11 @@ export function parseCatalog(raw: unknown): { catalog?: ResourceCatalog; issues:
       issues.push({ code: 'catalog-entry', severity: 'error', message: `resources[${i}] 缺少 source` });
       continue;
     }
-    if (!TYPES.includes(e.type as ResourceType)) {
+    if (!isResourceType(e.type)) {
       issues.push({
         code: 'catalog-entry',
         severity: 'error',
-        message: `resources[${i}].type 不合法：${String(e.type)}（可选 ${TYPES.join(' / ')}）`,
+        message: `resources[${i}].type 不合法：${String(e.type)}（可选 ${RESOURCE_TYPES.join(' / ')}）`,
       });
       continue;
     }
