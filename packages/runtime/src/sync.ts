@@ -1,11 +1,11 @@
-import { existsSync, readFileSync, statSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { loadPack, planFor, buildMcpSpec, interpolate, type PackContext, type Plan, type ResourceSpec } from '@packhub/kernel';
 import { applyPlan, loadState, saveState, removePack, type ActionOutcome } from './install.ts';
 import { doctorPack, type DoctorReport } from './doctor.ts';
 import { readSkillFrontmatter } from './skill-meta.ts';
+import { assertHarnessRoot, harnessRoot, harnessSpec, type SyncTarget } from './harnesses.ts';
 import {
   addClaudeMcp,
   claudeAvailable,
@@ -15,7 +15,7 @@ import {
   type HostMcpSpec,
 } from './host-mcp.ts';
 
-export type SyncTarget = 'dsh' | 'codex' | 'claude-code';
+export type { SyncTarget } from './harnesses.ts';
 
 export interface SyncOptions {
   targets: SyncTarget[];
@@ -46,51 +46,31 @@ export interface GlobalDoctorResult {
   error?: string;
   /** 这个 harness 没装（home 不存在）：默认检查全部目标时不算失败 */
   skipped?: boolean;
-}
-
-/** 全局 harness 的落点：优先环境变量，测试与多环境都靠它隔离。 */
-export function harnessRoot(target: SyncTarget): string {
-  const env =
-    target === 'dsh'
-      ? process.env.PACKHUB_DSH_HOME
-      : target === 'codex'
-        ? process.env.PACKHUB_CODEX_HOME
-        : process.env.PACKHUB_CLAUDE_HOME;
-  if (env) return resolve(env);
-  return join(homedir(), target === 'dsh' ? '.dsh' : target === 'codex' ? '.codex' : '.claude');
+  /** 面板用：这张表里的落点能力 */
+  label?: string;
+  homeEnv?: string;
+  supportsMcp?: boolean;
 }
 
 /**
  * 全局同步的路径表：root 是 harness home，skills 直接落在它的 skills/ 下。
- * codex 的 MCP 配置是 TOML；其余 harness 暂只同步 skills 与指令块。
+ * 具体落点从 harness 注册表读：config.toml（toml 宿主）或 .packhub/config.json，指令块文件名也由表决定。
  */
 export function globalTargetVars(target: SyncTarget = 'dsh'): Record<string, string> {
+  const spec = harnessSpec(target);
   return {
     root: '.packhub',
     cacheDir: '.packhub/cache',
-    skillsDir: 'skills',
+    skillsDir: spec.skillsDir,
     knowledgeDir: 'knowledge',
     promptsDir: 'prompts',
     binDir: 'bin',
-    configFile: target === 'codex' ? 'config.toml' : '.packhub/config.json',
-    instructionFile: target === 'claude-code' ? 'CLAUDE.md' : 'AGENTS.md',
+    configFile: spec.mcp === 'toml' ? 'config.toml' : '.packhub/config.json',
+    instructionFile: spec.instructionFile,
   };
 }
 
 export { readSkillFrontmatter, type SkillFrontmatter } from './skill-meta.ts';
-
-function assertHarnessRoot(target: SyncTarget, root: string): void {
-  if (!existsSync(root)) {
-    const hint =
-      target === 'codex'
-        ? '（先安装 Codex，或设 PACKHUB_CODEX_HOME）'
-        : target === 'claude-code'
-          ? '（先安装 Claude Code，或设 PACKHUB_CLAUDE_HOME）'
-          : '（先安装 DSH，或设 PACKHUB_DSH_HOME）';
-    throw new Error(`${target} 的 home 不存在：${root}${hint}`);
-  }
-  if (!statSync(root).isDirectory()) throw new Error(`${target} 的 home 不是目录：${root}`);
-}
 
 /**
  * 把一个 skill-only Pack 同步到各 harness 的全局 skills/。
@@ -115,9 +95,10 @@ export async function syncPack(
   }
   const mcp = resources.filter((r) => r.type === 'mcp');
   for (const target of opts.targets) {
-    if (mcp.length > 0 && target === 'dsh') {
+    const spec = harnessSpec(target);
+    if (mcp.length > 0 && spec.mcp === 'none') {
       throw new Error(
-        `dsh: 没有可依赖的全局 MCP 配置契约（profile patch 是 DSH 私有的）；${mcp.map((r) => r.id).join(', ')} 需要项目级安装，或同步到 codex / claude-code`,
+        `${target}: ${spec.mcpReason ?? '没有可依赖的全局 MCP 契约'}；${mcp.map((r) => r.id).join(', ')} 需要项目级安装，或同步到声明了 MCP 落点的宿主`,
       );
     }
   }
@@ -155,7 +136,7 @@ export async function syncPack(
         );
       }
     }
-    if (target === 'codex' && mcp.length > 0) {
+    if (harnessSpec(target).mcp === 'toml' && mcp.length > 0) {
       const configFile = join(root, 'config.toml');
       if (existsSync(configFile)) {
         const text = readFileSync(configFile, 'utf8');
@@ -169,7 +150,7 @@ export async function syncPack(
         }
       }
     }
-    if (target === 'claude-code' && mcp.length > 0) {
+    if (harnessSpec(target).mcp === 'claude-cli' && mcp.length > 0) {
       if (!claudeAvailable()) {
         throw new Error(
           'claude-code: 找不到可用的 claude 命令（先安装 Claude Code，或用 PACKHUB_CLAUDE_BIN 指定），无法注册全局 MCP',
@@ -193,11 +174,12 @@ export async function syncPack(
   const results: SyncTargetResult[] = [];
   for (const target of opts.targets) {
     const root = harnessRoot(target);
+    const spec = harnessSpec(target);
     const { plan } = planFor(ctx, {
-      target,
+      target: spec.planTarget,
       targetVars: globalTargetVars(target),
       // claude 的全局 MCP 交给它自己的 CLI，计划里只落 skills 与指令块
-      ...(target === 'claude-code' ? { skipResourceTypes: ['mcp' as const] } : {}),
+      ...(spec.mcp === 'claude-cli' ? { skipResourceTypes: ['mcp' as const] } : {}),
     });
     if (!plan) throw new Error(`${target}: 生成不了计划`);
     if (opts.dryRun) {
@@ -205,7 +187,7 @@ export async function syncPack(
         target,
         root,
         planHash: plan.planHash,
-        ...(mcp.length > 0 && target === 'claude-code'
+        ...(mcp.length > 0 && spec.mcp === 'claude-cli'
           ? { mcp: mcp.map((r) => ({ id: r.id, status: 'planned' as const })) }
           : {}),
       });
@@ -225,10 +207,10 @@ export async function syncPack(
 
     let mcpResults: HostMcpResult[] | undefined;
     if (mcp.length > 0) {
-      if (target === 'claude-code') {
+      if (spec.mcp === 'claude-cli') {
         mcpResults = registerClaudeMcp(ctx, mcp, target, root);
       } else {
-        // codex：register.mcp 已经写进 config.toml，按动作结果判 added / kept
+        // toml 宿主：register.mcp 已经写进 config.toml，按动作结果判 added / kept
         mcpResults = mcp.map((r) => {
           const outcome = res.outcomes.find((o) => o.op === 'register.mcp' && o.resource === r.id);
           return { id: r.id, status: outcome?.status === 'done' ? 'added' : 'kept' };
@@ -313,15 +295,22 @@ export function removeSynced(packDir: string, targets: SyncTarget[]): SyncRemove
 /** 全局漂移检查：分别看每个 harness 的 state。 */
 export function doctorGlobal(targets: SyncTarget[]): GlobalDoctorResult[] {
   return targets.map((target) => {
-    const root = harnessRoot(target);
-    if (!existsSync(root)) {
-      return { target, root, skipped: true, error: `${target} 的 home 不存在：${root}` };
+    const spec = harnessSpec(target);
+    const base = {
+      target,
+      root: harnessRoot(target),
+      label: spec.label,
+      homeEnv: spec.homeEnv,
+      supportsMcp: spec.mcp !== 'none',
+    };
+    if (!existsSync(base.root)) {
+      return { ...base, skipped: true, error: `${target} 的 home 不存在：${base.root}（设 ${spec.homeEnv} 可指定）` };
     }
     try {
-      assertHarnessRoot(target, root);
-      return { target, root, report: doctorPack(root) };
+      assertHarnessRoot(target, base.root);
+      return { ...base, report: doctorPack(base.root) };
     } catch (err) {
-      return { target, root, error: (err as Error).message };
+      return { ...base, error: (err as Error).message };
     }
   });
 }

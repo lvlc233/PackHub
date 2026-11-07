@@ -8,6 +8,8 @@
 | `codex` | `PACKHUB_CODEX_HOME` 或 `~/.codex` | `<home>/skills` | `<home>/.packhub/state.json` |
 | `claude-code` | `PACKHUB_CLAUDE_HOME` 或 `~/.claude` | `<home>/skills` | `<home>/.packhub/state.json` |
 
+目标名单只有一处：`packages/runtime/src/harnesses.ts` 的 `HARNESSES`（home 环境变量、skills 落点、指令文件、MCP 能力都在一条表项里）；CLI、HTTP 与面板都从它读。`--to .` 按包声明的 `metadata.targets` 展开（移除时用全部已注册）。加宿主 = 加一条表项，外加 kernel 里对应的安装 target。
+
 `syncPack` 按 target 生成路径表：skills 落 `<home>/skills`，instruction 写 `<home>/AGENTS.md`（claude-code 是 `CLAUDE.md`）托管块；codex 额外写 `config.toml` 的 MCP 托管块，claude-code 调 `claude mcp add/remove --scope user`，DSH 声明 MCP 时直接拒绝（profile patch 是宿主私有格式）。
 
 ## 只接受什么

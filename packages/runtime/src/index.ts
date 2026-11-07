@@ -109,6 +109,9 @@ export {
   packArchive,
   unpackArchive,
   isSafeArchiveEntry,
+  vendoredEntries,
+  localSources,
+  LocalSourceNotVendoredError,
   type PackArchiveOptions,
   type PackArchiveResult,
 } from './pack.ts';
@@ -183,7 +186,6 @@ export {
   syncPack,
   removeSynced,
   doctorGlobal,
-  harnessRoot,
   globalTargetVars,
   readSkillFrontmatter,
   type SyncTarget,
@@ -193,6 +195,16 @@ export {
   type GlobalDoctorResult,
   type SkillFrontmatter,
 } from './sync.ts';
+export {
+  HARNESSES,
+  syncTargets,
+  isSyncTarget,
+  harnessSpec,
+  harnessRoot,
+  assertHarnessRoot,
+  resolveSyncTargets,
+  type HarnessSpec,
+} from './harnesses.ts';
 
 /** 把计划落到目标目录（执行面：写盘、下载、可选执行命令）。 */
 export function installPack(

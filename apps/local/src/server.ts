@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { buildPlan, loadPack, parseManifest, planFor, validateGraph, type TargetId } from '@packhub/kernel';
-import { installPack, loadState, verifyPack, verifyInstalled, hasInstalledPacks, syncPack, removeSynced, doctorGlobal, type SyncTarget } from '@packhub/runtime';
+import { installPack, loadState, verifyPack, verifyInstalled, hasInstalledPacks, syncPack, removeSynced, doctorGlobal, resolveSyncTargets, syncTargets, type SyncTarget } from '@packhub/runtime';
 import { collectPackResources, defaultStaticDir } from '@packhub/hub';
 import { publishPack, writeIndex } from '@packhub/registry';
 
@@ -308,11 +308,14 @@ async function handleApi(
   }
 
   if (url.pathname === '/api/harness' && req.method === 'GET') {
-    const reports = doctorGlobal(['dsh', 'codex', 'claude-code']);
+    const reports = doctorGlobal(syncTargets());
     return sendJson(res, 200, {
       targets: reports.map((r) => ({
         target: r.target,
+        label: r.label ?? r.target,
         root: r.root,
+        homeEnv: r.homeEnv ?? '',
+        supportsMcp: r.supportsMcp === true,
         ok: Boolean(r.report?.ok),
         packs: r.report?.packs ?? [],
         error: r.error ?? null,
@@ -322,10 +325,12 @@ async function handleApi(
 
   if (url.pathname === '/api/sync' && req.method === 'POST') {
     const body = await readBody(req);
-    const targets = (Array.isArray(body.to) ? body.to : ['dsh', 'codex'])
-      .map(String)
-      .filter((t): t is SyncTarget => t === 'dsh' || t === 'codex' || t === 'claude-code');
-    if (targets.length === 0) return sendJson(res, 400, { error: '至少选一个 harness' });
+    let targets: SyncTarget[];
+    try {
+      targets = resolveSyncTargets(String(body.to ?? '.'), manifestTargets(dir));
+    } catch (err) {
+      return sendJson(res, 400, { error: (err as Error).message });
+    }
     try {
       const result = await syncPack(dir, {
         targets,
@@ -340,10 +345,13 @@ async function handleApi(
 
   if (url.pathname === '/api/sync/remove' && req.method === 'POST') {
     const body = await readBody(req);
-    const targets = (Array.isArray(body.to) ? body.to : ['dsh', 'codex'])
-      .map(String)
-      .filter((t): t is SyncTarget => t === 'dsh' || t === 'codex' || t === 'claude-code');
-    if (targets.length === 0) return sendJson(res, 400, { error: '至少选一个 harness' });
+    let targets: SyncTarget[];
+    try {
+      // 移除按全部已注册目标解析：包改了清单也应该能删干净
+      targets = resolveSyncTargets(String(body.to ?? '.'));
+    } catch (err) {
+      return sendJson(res, 400, { error: (err as Error).message });
+    }
     try {
       return sendJson(res, 200, { results: removeSynced(dir, targets) });
     } catch (err) {
@@ -352,6 +360,15 @@ async function handleApi(
   }
 
   return sendJson(res, 404, { error: `未知接口 ${url.pathname}` });
+}
+
+/** 读清单里声明的 targets，给 `--to .` 展开用；清单坏了就回落到全部已注册目标。 */
+function manifestTargets(dir: string): string[] {
+  try {
+    return loadPack(dir).manifest?.metadata.targets ?? [];
+  } catch {
+    return [];
+  }
 }
 
 function listPacks(root: string): { dir: string }[] {

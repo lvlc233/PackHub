@@ -76,7 +76,7 @@ verify:
   it('pack 输出结构化结果，publish 写版本目录与索引', () => {
     const packDir = mkdtempSync(join(tmpdir(), 'packhub-cli-pack-'));
     makePack(packDir);
-    const packed = run(['pack', packDir, '--json']);
+    const packed = run(['pack', packDir, '--json', '--vendored']);
     expect(packed.status).toBe(0);
     const packedBody = JSON.parse(packed.out.slice(packed.out.indexOf('{'), packed.out.lastIndexOf('}') + 1)) as {
       file: string;
@@ -304,6 +304,65 @@ resources:
     expect(removed.status).toBe(0);
     expect(existsSync(join(dsh, 'skills/hello'))).toBe(false);
     expect(existsSync(join(codex, 'skills/hello'))).toBe(false);
+
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  it('sync --to . 按包声明的 targets 展开；未知目标退出 2', () => {
+    const base = mkdtempSync(join(tmpdir(), 'packhub-cli-sync-all-'));
+    const packDir = join(base, 'pack');
+    const homes = {
+      PACKHUB_DSH_HOME: join(base, 'dsh'),
+      PACKHUB_CODEX_HOME: join(base, 'codex'),
+      PACKHUB_CLAUDE_HOME: join(base, 'claude'),
+    };
+    mkdirSync(join(packDir, 'skills/hello'), { recursive: true });
+    for (const home of Object.values(homes)) mkdirSync(home, { recursive: true });
+    writeFileSync(
+      join(packDir, 'skills/hello/SKILL.md'),
+      '---\nname: hello\ndescription: Hello.\n---\n\n# Hello\n',
+      'utf8',
+    );
+    writeFileSync(
+      join(packDir, 'packhub.yaml'),
+      `apiVersion: packhub.dev/v0
+kind: Pack
+metadata:
+  name: demo/cli-sync-all
+  version: 0.1.0
+  targets: [dsh, codex, claude-code]
+requires:
+  packhub: ">=0.0.1 <0.1"
+resources:
+  - id: hello
+    type: skill
+    source: ./skills/hello
+`,
+      'utf8',
+    );
+
+    const dry = run(['sync', packDir, '--to', '.', '--dry-run'], homes);
+    expect(dry.status).toBe(0);
+    for (const target of ['dsh', 'codex', 'claude-code']) expect(dry.out).toContain(target);
+
+    const bad = run(['sync', packDir, '--to', 'opencode'], homes);
+    expect(bad.status).toBe(2);
+    expect(bad.out).toContain('未知 target');
+
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  it('doctor --global 把没装的 harness 标 skipped，不算失败', () => {
+    const base = mkdtempSync(join(tmpdir(), 'packhub-cli-doctor-'));
+    const dsh = join(base, 'dsh');
+    mkdirSync(dsh, { recursive: true });
+    const res = run(['doctor', '--global'], {
+      PACKHUB_DSH_HOME: dsh,
+      PACKHUB_CODEX_HOME: join(base, 'missing-codex'),
+      PACKHUB_CLAUDE_HOME: join(base, 'missing-claude'),
+    });
+    expect(res.status).toBe(0);
+    expect(res.out).toContain('跳过');
 
     rmSync(base, { recursive: true, force: true });
   });

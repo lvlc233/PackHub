@@ -52,6 +52,7 @@ import {
   listVersions,
   activatePack,
   packArchive,
+  LocalSourceNotVendoredError,
   fetchPack,
   readIndex,
   updatePack,
@@ -81,6 +82,7 @@ import {
   auditPath,
   appendAudit,
   readAudit,
+  resolveSyncTargets,
   type SyncTarget,
 } from '@packhub/runtime';
 
@@ -1075,27 +1077,29 @@ const publish = defineCommand({
 });
 
 const sync = defineCommand({
-  meta: { name: 'sync', description: '把 skill-only Pack 同步到 dsh / codex / claude-code 的全局 skills/' },
+  meta: { name: 'sync', description: '把本地 skill / mcp 同步到各宿主 home 的全局落点（--to 支持 .）' },
   args: {
     dir: { type: 'positional', required: true, description: 'Pack 目录' },
-    to: { type: 'string', required: true, description: '目标，逗号分隔：dsh,codex,claude-code' },
+    to: { type: 'string', required: true, description: '目标，逗号分隔；. 表示包声明的全部（--remove 时为全部已注册）' },
     'dry-run': { type: 'boolean', default: false },
     remove: { type: 'boolean', default: false, description: '从目标 harness 移除这个包' },
     overwrite: { type: 'boolean', default: false, description: '允许覆盖别的包占用的 skill 目录' },
     json: { type: 'boolean', default: false, description: '输出结构化结果（脚本用）' },
   },
   async run({ args }) {
-    const targets = String(args.to)
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (targets.length === 0 || targets.some((t) => t !== 'dsh' && t !== 'codex' && t !== 'claude-code')) {
-      console.error(`--to 只接受 dsh / codex / claude-code：${targets.join(',')}`);
+    const dir = resolve(String(args.dir));
+    let targets: SyncTarget[];
+    try {
+      // `.` 按包声明的 targets 展开；移除时不看声明，避免包改了清单就删不掉
+      const declared = args.remove ? [] : (loadPack(dir).manifest?.metadata.targets ?? []);
+      targets = resolveSyncTargets(String(args.to), declared);
+    } catch (err) {
+      console.error(`x ${(err as Error).message}`);
       process.exit(2);
     }
     try {
       if (args.remove) {
-        const results = removeSynced(String(args.dir), targets as SyncTarget[]);
+        const results = removeSynced(dir, targets);
         if (args.json) {
           console.log(JSON.stringify({ removed: results }, null, 2));
           return;
@@ -1106,8 +1110,8 @@ const sync = defineCommand({
         }
         return;
       }
-      const { pack, results } = await syncPack(String(args.dir), {
-        targets: targets as SyncTarget[],
+      const { pack, results } = await syncPack(dir, {
+        targets,
         dryRun: Boolean(args['dry-run']),
         overwrite: Boolean(args.overwrite),
       });
@@ -1458,21 +1462,25 @@ const doctor = defineCommand({
   args: {
     dir: { type: 'positional', required: false, default: '.' },
     json: { type: 'boolean', default: false },
-    global: { type: 'boolean', default: false, description: '检查全局 harness（dsh / codex / claude-code）' },
+    global: { type: 'boolean', default: false, description: '检查全局 harness' },
     targets: {
       type: 'string',
-      default: 'dsh,codex,claude-code',
-      description: '全局检查目标，逗号分隔（dsh / codex / claude-code）',
+      default: '.',
+      description: '全局检查目标，逗号分隔；. 表示全部已注册',
     },
   },
   run({ args }) {
     if (args.global) {
-      const targets = String(args.targets)
-        .split(',')
-        .map((s) => s.trim())
-        .filter((t) => t === 'dsh' || t === 'codex' || t === 'claude-code') as SyncTarget[];
+      let targets: SyncTarget[];
+      try {
+        targets = resolveSyncTargets(String(args.targets));
+      } catch (err) {
+        console.error(`x ${(err as Error).message}`);
+        process.exit(2);
+      }
       const results = doctorGlobal(targets);
-      const failed = results.some((r) => (r.error && !r.skipped) || !r.report?.ok);
+      // skipped 是「这个 harness 没装」，不是失败；只有真读过状态却不 ok 才算失败
+      const failed = results.some((r) => !r.skipped && (r.error !== undefined || !r.report?.ok));
       if (args.json) {
         console.log(JSON.stringify(results, null, 2));
         if (failed) process.exit(1);
@@ -1816,20 +1824,36 @@ const pack = defineCommand({
     dir: { type: 'positional', required: false, default: '.' },
     out: { type: 'string', description: '输出路径，默认 <dir>/pack.phub' },
     vendored: { type: 'boolean', default: false, description: '把本地资源一起打进去（离线可装）' },
+    index: { type: 'string', description: '展开 extends 用的 registry 索引' },
     json: { type: 'boolean', default: false, description: '输出结构化结果（脚本用）' },
   },
   async run({ args }) {
     const dir = resolve(String(args.dir));
-    const res = await packArchive(dir, {
-      vendored: Boolean(args.vendored),
-      ...(args.out ? { out: resolve(String(args.out)) } : {}),
+    // 先把远程 extends / 包目录外的本地资源展开：归档只带包目录，不展开就会装不上。
+    const flat = await flattenPack(dir, {
+      index: resolveRegistry(args.index ? String(args.index) : undefined),
     });
-    if (args.json) {
-      console.log(JSON.stringify({ ...res, vendored: Boolean(args.vendored) }, null, 2));
-      return;
+    for (const w of flat.warnings) console.warn(`warn  ${w}`);
+    try {
+      const res = await packArchive(flat.dir, {
+        vendored: Boolean(args.vendored),
+        ...(args.out ? { out: resolve(String(args.out)) } : {}),
+      });
+      if (args.json) {
+        console.log(JSON.stringify({ ...res, vendored: Boolean(args.vendored) }, null, 2));
+        return;
+      }
+      console.log(`✓ ${res.file}（${Math.max(1, Math.round(res.bytes / 1024))} KB）`);
+      console.log(`包含：${res.entries.join('、')}${args.vendored ? '' : '（reference 模式，装的时候要联网取资源）'}`);
+    } catch (err) {
+      if (err instanceof LocalSourceNotVendoredError) {
+        console.error(`x ${err.message}`);
+        process.exit(2);
+      }
+      throw err;
+    } finally {
+      flat.cleanup();
     }
-    console.log(`✓ ${res.file}（${Math.max(1, Math.round(res.bytes / 1024))} KB）`);
-    console.log(`包含：${res.entries.join('、')}${args.vendored ? '' : '（reference 模式，装的时候要联网取资源）'}`);
   },
 });
 

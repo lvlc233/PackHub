@@ -242,7 +242,7 @@ packhub run ./my-pack           # 带 install.exec 的包要 --allow-exec
 
 ```bash
 packhub sync ./my-pack --to dsh,codex,claude-code # 指定安装目标的全局
-packhub sync ./my-pack --to . # 安装pack所支持的所有目标的全局位置。
+packhub sync ./my-pack --to . # 按包声明的 targets 展开（只取已注册的宿主）
 ```
 
 ### 覆盖
@@ -332,7 +332,7 @@ packhub sync [OPTIONS] <DIR> --to <targets>
 | 参数 | 默认 | 说明 |
 |---|---|---|
 | `DIR` | — | 包目录（必填） |
-| `--to` | 必填 | 逗号分隔：`dsh`、`codex`、`claude-code` |
+| `--to` | 必填 | 逗号分隔：`dsh`、`codex`、`claude-code`；`.` 表示包声明的全部（没声明时用全部已注册） |
 | `--dry-run` | false | 只打印 |
 | `--remove` | false | 从目标移除这个包 |
 | `--overwrite` | false | 覆盖别的包占用的 skill 目录 |

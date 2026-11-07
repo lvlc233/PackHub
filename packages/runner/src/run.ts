@@ -2,6 +2,7 @@ import { cpSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
+  flattenPack,
   installPack,
   loadPack,
   loadPackResolved,
@@ -52,9 +53,19 @@ export async function runPack(packDir: string, opts: RunOptions = {}): Promise<R
   }
 
   const log = opts.log ?? (() => {});
+  // 清单本身不合法时先按原样报错：flatten 的报错会把它包成「无法扁平化」，读者看不出是哪一条。
+  const initial = loadPack(dir);
+  const initialErrors = initial.issues.filter((i) => i.severity === 'error');
+  if (initialErrors.length > 0) {
+    for (const e of initialErrors) log(`error ${e.message}`);
+    throw new Error(`清单未通过校验：${initialErrors.map((e) => e.message).join('; ')}`);
+  }
+  // 再展开远程 extends 与包目录外的本地资源：门禁要在「别人拿到的那个自包含包」上跑。
+  const flat = await flattenPack(dir, { ...(opts.index ? { index: opts.index } : {}) });
+  for (const w of flat.warnings) log(`warn ${w}`);
   const work = mkdtempSync(join(tmpdir(), 'packhub-run-'));
   try {
-    cpSync(dir, work, { recursive: true });
+    cpSync(flat.dir, work, { recursive: true });
     // 干净环境：不带上一次的安装状态
     rmSync(join(work, '.packhub'), { recursive: true, force: true });
 
@@ -95,7 +106,7 @@ export async function runPack(packDir: string, opts: RunOptions = {}): Promise<R
     const ok = incomplete === 0 && checksOk;
     const pack = `${ctx.manifest.metadata.name}@${ctx.manifest.metadata.version}`;
 
-    const allSigs = [...readSignatures(dir), ...(ctx.manifest.signatures ?? [])];
+    const allSigs = [...readSignatures(flat.dir), ...(ctx.manifest.signatures ?? [])];
     const signatures = allSigs.map((s) => {
       const check = verifySignatures([s], pack, plan.planHash)[0];
       return { key: s.key, ok: check?.ok ?? false };
@@ -121,5 +132,6 @@ export async function runPack(packDir: string, opts: RunOptions = {}): Promise<R
     return { report, installed: incomplete === 0 };
   } finally {
     rmSync(work, { recursive: true, force: true });
+    flat.cleanup();
   }
 }

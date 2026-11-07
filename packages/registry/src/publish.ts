@@ -10,7 +10,7 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { loadPack } from '@packhub/kernel';
-import { lockPack, packArchive } from '@packhub/runtime';
+import { lockPack, packArchive, vendoredEntries } from '@packhub/runtime';
 import { runPack, type VerifyReport } from '@packhub/runner';
 
 export interface PublishOptions {
@@ -142,12 +142,13 @@ export async function publishPack(packDir: string, opts: PublishOptions): Promis
         writeFileSync(join(versionDir, file), readFileSync(src));
         wrote.push(file);
       }
-      // vendored 资源也要进版本目录：清单、锁、报告都在这里，别人克隆 registry 后能直接复核
-      for (const sub of ['resources', 'fragments', 'overrides', 'skills', 'glue']) {
-        const src = join(dir, sub);
-        if (!existsSync(src)) continue;
-        cpSync(src, join(versionDir, sub), { recursive: true });
-        wrote.push(`${sub}/`);
+      // vendored 资源也要进版本目录：清单、锁、报告都在这里，别人克隆 registry 后能直接复核。
+      // 条目与 .phub 用同一份清单（vendoredEntries），避免「归档里有、版本目录没有」这类只在 CI 才炸的偏差。
+      for (const entry of vendoredEntries(dir)) {
+        if (FILES.includes(entry)) continue;
+        const src = join(dir, entry);
+        cpSync(src, join(versionDir, entry), { recursive: true });
+        wrote.push(entry);
       }
       writeFileSync(join(versionDir, 'packhub.lock.json'), JSON.stringify(lock, null, 2) + '\n', 'utf8');
       wrote.push('packhub.lock.json');

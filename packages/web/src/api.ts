@@ -80,8 +80,13 @@ export interface PackDetail {
 }
 
 export interface HarnessStatus {
-  target: 'dsh' | 'codex' | 'claude-code';
+  /** 同步 target；由服务端的 harness 注册表决定，面板不再写死名单 */
+  target: string;
+  label: string;
   root: string;
+  homeEnv: string;
+  /** 这个宿主有没有可用的全局 MCP 落点 */
+  supportsMcp: boolean;
   ok: boolean;
   packs: string[];
   error: string | null;

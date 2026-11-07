@@ -54,7 +54,7 @@ export function App() {
   const [copied, setCopied] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [harness, setHarness] = useState<HarnessStatus[]>([]);
-  const [syncTargets, setSyncTargets] = useState<string[]>(['dsh', 'codex', 'claude-code']);
+  const [syncTargets, setSyncTargets] = useState<string[]>([]);
   const [syncBusy, setSyncBusy] = useState(false);
   const [syncLog, setSyncLog] = useState<SyncResult | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -63,6 +63,8 @@ export function App() {
     try {
       const data = await api.harness();
       setHarness(data.targets);
+      // 默认勾选服务端注册表里的全部目标；用户取消过的不在他重新加载时被强行勾回
+      setSyncTargets((prev) => (prev.length > 0 ? prev : data.targets.map((t) => t.target)));
     } catch {
       setHarness([]);
     }
@@ -438,13 +440,13 @@ export function App() {
                   </div>
                   {!canSync ? (
                     <p className="hint">
-                      这个包包含不能全局同步的资源。支持 skill（全部 harness）与 mcp（codex / claude-code）；配置 /
+                      这个包包含不能全局同步的资源。支持 skill（全部 harness）与 mcp（声明了全局 MCP 落点的 harness）；配置 /
                       知识 / 工具请用 target 安装。
                     </p>
                   ) : (
                     <>
                       <p className="hint">
-                        写 skills/ 与各 home 的 AGENTS.md 托管块；mcp 在 codex 写 config.toml，在 claude-code 走它的 user scope。
+                        写 skills/ 与各 home 的指令托管块；mcp 交给有 MCP 落点的 harness（TOML 托管块或宿主 CLI）。
                       </p>
                       <div className="harness-targets">
                         {harness.length === 0 && <p className="hint">读取 harness 状态…</p>}
@@ -453,7 +455,7 @@ export function App() {
                             <input
                               type="checkbox"
                               checked={syncTargets.includes(h.target)}
-                              disabled={!h.ok || syncBusy || (hasMcp && h.target === 'dsh')}
+                              disabled={!h.ok || syncBusy || (hasMcp && !h.supportsMcp)}
                               onChange={(e) =>
                                 setSyncTargets((prev) =>
                                   e.target.checked
@@ -474,7 +476,8 @@ export function App() {
                       </div>
                       {harness.some((h) => !h.ok) && (
                         <p className="hint">
-                          不可用的 harness 目录不存在；装好宿主，或用 PACKHUB_DSH_HOME / PACKHUB_CODEX_HOME / PACKHUB_CLAUDE_HOME。
+                          不可用的 harness 目录不存在；装好宿主，或用
+                          {harness.filter((h) => h.homeEnv).map((h) => ` ${h.homeEnv}`).join(' /')} 指定 home。
                         </p>
                       )}
                       <div className="harness-actions">
