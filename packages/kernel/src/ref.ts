@@ -1,3 +1,5 @@
+// 做资源来源解析
+
 import type { Issue } from './types.ts';
 
 export type SourceKind = 'npm' | 'pypi' | 'github' | 'http' | 'packhub' | 'local';

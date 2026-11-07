@@ -1,4 +1,4 @@
-﻿# PackHub 功能全量清单[待更新]
+# PackHub 功能全量清单[待更新]
 
 > 版本：2026-11-07 ／ 口径：本仓库当前代码、CLI 实测、测试套件（73 个文件 / 301 项）与 registry 现状。
 > 用途：实现 checklist、选型对照、漏项审计。**不是**产品介绍。
@@ -414,18 +414,21 @@ PAL 域剩下的缺口（不算阻断）：
 
 | 文档 | 覆盖 |
 |---|---|
-| [details/pack-format.md](details/pack-format.md) | manifest、资源类型、槽位、覆盖、可见性、`extends` |
-| [details/ref-lock.md](details/ref-lock.md) | source 类型、pin、integrity、解析、私有来源、缓存 |
-| [details/plan.md](details/plan.md) | 十种动作、顺序、冲突、planHash、target 变量 |
 | [details/install-state.md](details/install-state.md) | 安装、快照、state、回滚、升级、所有权 |
 | [details/verify.md](details/verify.md) | 检查类型、严格判定、runner、探针 |
 | [details/registry-trust.md](details/registry-trust.md) | 发布、索引、不可变、trust、签名、可见性 |
-| [details/hub.md](details/hub.md) | 只读 API、页面、鉴权、限流、审计、镜像 |
 | [details/sync.md](details/sync.md) | 全局 harness 同步的落点、state、安全与缺口 |
-| [details/cli.md](details/cli.md) | 命令覆盖、JSON、退出码、结构化编辑 |
-| [details/ui.md](details/ui.md) | 面板、目录、创作台、同步卡片、可访问性 |
-| [details/trust.md](details/trust.md) | 签名、凭据、许可、可见性、审计 |
-| [details/ops.md](details/ops.md) | 测试、构建、CI、镜像、版本、性能 |
 | [details/windows.md](details/windows.md) | 路径、BOM、代理、PowerShell、tar |
 | [details/pal.md](details/pal.md) | 实例根布局、启停与看护、错误码、HTTP 面、dsh MCP 接线、界面刷新策略、CI |
+
+## 退出码
+
+| 码 | 含义 | 例子 |
+|---|---|---|
+| `0` | 成功 | plan 生成；install 全部 done/noop；verify 无 fail |
+| `1` | 业务失败 | 动作 failed 并回滚；verify 有 fail；publish 门禁拒绝 |
+| `2` | 用法或输入不合法 | 没有索引；target 未声明；schema/锁核对失败；`--to` 值不认识 |
+
+`--json` 输出成功结果；失败仍走 stderr（结构化错误还没统一）。
+
 

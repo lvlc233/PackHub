@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import packhubSchema from '../../../schema/packhub.v0.schema.json' with { type: 'json' };
 import resourcesSchema from '../../../schema/resources.v0.schema.json' with { type: 'json' };
 import { HARNESS_IDS, TARGET_IDS } from '../src/types.ts';
-import { TARGET_VARS } from '../src/plan.ts';
+import { TARGET_VARS } from '../src/targets.ts';
 
 /** 安装 target 只有一份 TS 常量；schema 的 enum 与落点表用这个测试盯着。 */
 function manifestTargets(): string[] {

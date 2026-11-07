@@ -1,3 +1,5 @@
+// 加载、并解析packhub.ymal(清单)，进行jav校验并转化为内存数据。[ok]
+
 import { readFileSync } from 'node:fs';
 import { parse as parseYaml } from 'yaml';
 import Ajv, { type ValidateFunction } from 'ajv';

@@ -7,13 +7,15 @@ import type { Issue, Manifest, Plan, ResourceSpec } from './types.ts';
 import { TARGET_IDS } from './types.ts';
 import { loadManifest } from './manifest.ts';
 import { validateGraph, type Graph } from './graph.ts';
-import { buildPlan, TARGET_VARS, type PlanOptions } from './plan.ts';
+import { buildPlan, type PlanOptions } from './plan.ts';
+import { TARGET_VARS } from './targets.ts';
 
 export * from './types.ts';
 export { parseSource, checkSource, isVolatilePin, type ParsedSource, type SourceKind } from './ref.ts';
 export { loadManifest, parseManifest, type LoadResult } from './manifest.ts';
 export { validateGraph, type Graph } from './graph.ts';
-export { buildPlan, buildMcpSpec, DIR_TARGET_VARS, TARGET_VARS, type PlanOptions, type TargetVars } from './plan.ts';
+export { buildPlan, buildMcpSpec, type PlanOptions } from './plan.ts';
+export { DIR_TARGET_VARS, TARGET_VARS, type TargetVars } from './targets.ts';
 export { buildLock } from './lock.ts';
 export {
   parseCatalog,

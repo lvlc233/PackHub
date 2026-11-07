@@ -504,6 +504,5 @@ packhub market yank my-team/x@0.1.0 --url http://127.0.0.1:8789
 ## 继续读
 
 需要动手写包时看 [authoring.md](docs/authoring.md)；
-需要实现另一个读取方时看 [contract.md](docs/contract.md)；
-改界面时看 [ui.md](docs/ui.md)。
+需要实现另一个读取方时看 [contract.md](docs/contract.md)。
 要看全部功能点、现状与缺口，见 [PackHub 功能全量清单](docs/checklist/PackHub-功能全量清单.md)。

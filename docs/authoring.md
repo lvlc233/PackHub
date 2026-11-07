@@ -1,18 +1,6 @@
-# 作者怎么做一个 Pack[待更新]
 
-术语与 [README](../README.md) 一致：“资源”指 `packhub.yaml` 里的一条声明，不是上游制品。
 
-三条路，按成本从低到高。现在能用的只有前两条。
-
-| 方式 | 适合 | 现状 |
-|---|---|---|
-| 手写 `packhub.yaml` + schema 补全 | 已经知道要装什么 | 可用 |
-| `packhub resource add` 增量追加 | 边试边加，不想手抄格式 | 可用 |
-| 可视化编辑器（D） | 不熟悉 YAML 的人 | 只有 demo |
-
----
-
-## 〇、packhub.yaml 长什么样
+## packhub.yaml 长什么样
 
 ### 最小可用（13 行）
 
@@ -34,7 +22,6 @@ resources:                        # 至少一项
     source: ./resources/style-guide.md   # 从哪来；决定这份清单能不能被别人复现
 ```
 
-四个必填块：`apiVersion` + `kind`、`metadata`（name / version / targets）、`requires.packhub`、`resources[]`。`resources` 里至少一项，每项要 `id` / `type` / `source`。
 
 ---
 
@@ -405,8 +392,8 @@ packhub install my-pack --target dsh           # .packhub/skills + AGENTS.md 托
 packhub install my-pack --target codex         # .codex/skills + AGENTS.md 托管块
 packhub install my-pack --target dir           # 只物化到 .packhub（默认）
 
-# 7.5 skill-only 的包同步到全局 harness（只动 skills/）
-packhub sync my-pack --to dsh,codex
+# 7.5 把 skill（和声明了落点的 mcp）同步到全局 harness
+packhub sync my-pack --to dsh,codex   # --to . 表示包声明的全部目标
 ```
 
 `resource add` 做的是**结构化编辑**：追加一个资源节点、保留注释、推断 id（重名自动加 `-2`），然后立刻跑一遍清单校验和计划生成。它不做类型推断——`type` 必须由你给，因为同一个 npm 包既可能是 `mcp` 也可能是 `tool`。
@@ -449,7 +436,7 @@ https://…/note.md                         # 任意 https 单文件（knowledge
 
 **PyPI 来源**：`source: pypi:six@1.16.0`（必须 pin 版本）。安装时先查 `https://pypi.org/pypi/<name>/<version>/json`，取 **sdist 的 .tar.gz** 再按 skill / tool 解包。只有 wheel 的包会被拒绝：wheel 是 zip，PackHub 不安装二进制。内网镜像可以把 `HTTPS_PROXY` 指向镜像。
 
-**公司 GitLab / Gitea 来源**：使用 archive 下载链接（形如 `https://gitlab.example.com/g/p/-/archive/<sha>/p-<sha>.tar.gz`），配置 `integrity`，`type` 用 `skill` 或 `tool`。私有仓库的鉴权目前没有支持（不带 token），内网场景建议直接把内容 vendored 进包。
+**公司 GitLab / Gitea 来源**：使用 archive 下载链接（形如 `https://gitlab.example.com/g/p/-/archive/<sha>/p-<sha>.tar.gz`），配置 `integrity`，`type` 用 `skill` 或 `tool`。
 
 规则：**发布版必须指向不可变的版本或 commit**。`@main`、`@latest`、`^1.0.0` / `~1.2` 这类范围、无 integrity 的 https 都会在 `plan` 阶段被拒（范围今天解析到 1.4.0，明天可能是 1.5.0，不算锁住）。
 `packhub lock` 会联网把分支/范围/单文件解析成 commit、具体版本与 sha256；解析不到就保留原样并给 warning，不假装锁住。`--offline` 可以只锁本地与已 pin 的引用。
