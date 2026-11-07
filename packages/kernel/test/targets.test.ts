@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import packhubSchema from '../../../schema/packhub.v0.schema.json' with { type: 'json' };
 import resourcesSchema from '../../../schema/resources.v0.schema.json' with { type: 'json' };
-import { TARGET_IDS } from '../src/types.ts';
+import { HARNESS_IDS, TARGET_IDS } from '../src/types.ts';
 import { TARGET_VARS } from '../src/plan.ts';
 
 /** 安装 target 只有一份 TS 常量；schema 的 enum 与落点表用这个测试盯着。 */
@@ -24,6 +24,11 @@ function catalogTargets(): string[] {
 }
 
 describe('安装 target 单源', () => {
+  it('HARNESS_IDS 是不含 dir 的宿主名单，TARGET_IDS 由它派生', () => {
+    expect([...TARGET_IDS]).toEqual(['dir', ...HARNESS_IDS]);
+    expect(HARNESS_IDS).not.toContain('dir');
+  });
+
   it('schema 的三处 target enum 与 TARGET_IDS 一致', () => {
     expect(manifestTargets()).toEqual([...TARGET_IDS]);
     expect(resourceTargets()).toEqual([...TARGET_IDS]);

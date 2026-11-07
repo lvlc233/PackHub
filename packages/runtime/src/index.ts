@@ -197,6 +197,7 @@ export {
 } from './sync.ts';
 export {
   HARNESSES,
+  GLOBAL_LAYOUT,
   syncTargets,
   isSyncTarget,
   harnessSpec,
@@ -204,6 +205,7 @@ export {
   assertHarnessRoot,
   resolveSyncTargets,
   type HarnessSpec,
+  type GlobalSpec,
 } from './harnesses.ts';
 
 /** 把计划落到目标目录（执行面：写盘、下载、可选执行命令）。 */

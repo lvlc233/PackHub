@@ -12,9 +12,25 @@ export function isResourceType(value: unknown): value is ResourceType {
   return typeof value === 'string' && (RESOURCE_TYPES as readonly string[]).includes(value);
 }
 
-/** 安装 target 的规范顺序；CLI 帮助、错误信息、面板都从这里取。 */
-export const TARGET_IDS = ['dir', 'dsh', 'claude-code', 'codex'] as const;
+/**
+ * 宿主（harness）名的唯一来源。dir 不是宿主，是中性物化形态，放在下一个常量里。
+ * 加宿主：这里加一个名字，下面 TARGET_IDS 自动带上；落点表 / runtime 全局表 / launcher 适配器
+ * 都按 HarnessId / TargetId 建 Record，缺一条编译不过。
+ */
+export const HARNESS_IDS = ['dsh', 'claude-code', 'codex'] as const;
+export type HarnessId = (typeof HARNESS_IDS)[number];
+
+/** 安装 target = 中性物化形态 dir + 各宿主；CLI 帮助、错误信息、面板都从这里取。 */
+export const TARGET_IDS = ['dir', ...HARNESS_IDS] as const;
 export type TargetId = (typeof TARGET_IDS)[number];
+
+export function isHarnessId(value: unknown): value is HarnessId {
+  return typeof value === 'string' && (HARNESS_IDS as readonly string[]).includes(value);
+}
+
+export function isTargetId(value: unknown): value is TargetId {
+  return typeof value === 'string' && (TARGET_IDS as readonly string[]).includes(value);
+}
 
 export interface ResourceSpec {
   id: string;

@@ -1,18 +1,16 @@
 import { existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
-import type { TargetId } from '@packhub/kernel';
+import { HARNESS_IDS, isHarnessId, type HarnessId } from '@packhub/kernel';
 
 /**
- * 一个 harness 的全局同步落点与能力。加一个宿主 = 在这里加一条
- * （外加 kernel 里对应的安装 target）；CLI / HTTP / 面板都从这张表读，不再各自维护名单。
+ * 一个宿主的全局落点与能力。
+ *
+ * 这张表按 kernel 的 `HarnessId` 建 Record：kernel 加一个宿主，这里不补一条就编译失败。
+ * 值可以是 null，表示这个 target 明确不做全局同步——加宿主时必须显式选一边，不能默认漏掉。
  */
-export interface HarnessSpec {
-  /** 同步 target 名，也是 `--to` 的取值 */
-  id: string;
+export interface GlobalSpec {
   label: string;
-  /** 生成安装计划用的 target */
-  planTarget: TargetId;
   /** home 的环境变量名 */
   homeEnv: string;
   /** 默认 home（相对用户目录） */
@@ -33,11 +31,13 @@ export interface HarnessSpec {
   mcpReason?: string;
 }
 
-export const HARNESSES = [
-  {
-    id: 'dsh',
+export interface HarnessSpec extends GlobalSpec {
+  id: HarnessId;
+}
+
+export const GLOBAL_LAYOUT: Record<HarnessId, GlobalSpec | null> = {
+  dsh: {
     label: 'DSH',
-    planTarget: 'dsh',
     homeEnv: 'PACKHUB_DSH_HOME',
     homeDir: '.dsh',
     skillsDir: 'skills',
@@ -45,44 +45,45 @@ export const HARNESSES = [
     mcp: 'none',
     mcpReason: '没有可依赖的全局 MCP 配置契约（profile patch 是 DSH 私有的）',
   },
-  {
-    id: 'codex',
-    label: 'Codex',
-    planTarget: 'codex',
-    homeEnv: 'PACKHUB_CODEX_HOME',
-    homeDir: '.codex',
-    skillsDir: 'skills',
-    instructionFile: 'AGENTS.md',
-    mcp: 'toml',
-  },
-  {
-    id: 'claude-code',
+  'claude-code': {
     label: 'Claude Code',
-    planTarget: 'claude-code',
     homeEnv: 'PACKHUB_CLAUDE_HOME',
     homeDir: '.claude',
     skillsDir: 'skills',
     instructionFile: 'CLAUDE.md',
     mcp: 'claude-cli',
   },
-] as const satisfies readonly HarnessSpec[];
+  codex: {
+    label: 'Codex',
+    homeEnv: 'PACKHUB_CODEX_HOME',
+    homeDir: '.codex',
+    skillsDir: 'skills',
+    instructionFile: 'AGENTS.md',
+    mcp: 'toml',
+  },
+};
 
-export type SyncTarget = (typeof HARNESSES)[number]['id'];
+/** 能把 skill / mcp 同步到全局的宿主；顺序跟 kernel 的 HARNESS_IDS 一致。 */
+export const HARNESSES: HarnessSpec[] = HARNESS_IDS.filter((id) => GLOBAL_LAYOUT[id] !== null).map(
+  (id) => ({ id, ...(GLOBAL_LAYOUT[id] as GlobalSpec) }),
+);
 
-/** 已注册的同步目标，按表顺序。 */
+export type SyncTarget = HarnessId;
+
+/** 已注册的同步目标，按 kernel 的顺序。 */
 export function syncTargets(): SyncTarget[] {
   return HARNESSES.map((harness) => harness.id);
 }
 
 export function isSyncTarget(value: string): value is SyncTarget {
-  return HARNESSES.some((harness) => harness.id === value);
+  return isHarnessId(value) && GLOBAL_LAYOUT[value] !== null;
 }
 
-/** 按 id 取表项；未知时给可选项。 */
+/** 按 id 取表项；未知或明确不支持全局同步时给可选项。 */
 export function harnessSpec(target: string): HarnessSpec {
-  const spec = HARNESSES.find((harness) => harness.id === target) as HarnessSpec | undefined;
+  const spec = HARNESSES.find((harness) => harness.id === target);
   if (!spec) {
-    throw new Error(`未知 harness：${target}（已注册：${syncTargets().join(', ')}）`);
+    throw new Error(`未知 harness：${target}（可同步的：${syncTargets().join(', ')}）`);
   }
   return spec;
 }

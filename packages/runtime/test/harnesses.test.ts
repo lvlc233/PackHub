@@ -2,21 +2,32 @@ import { describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
-import { TARGET_VARS } from '@packhub/kernel';
-import { assertHarnessRoot, harnessRoot, harnessSpec, isSyncTarget, resolveSyncTargets, syncTargets } from '../src/index.ts';
+import { HARNESS_IDS, TARGET_VARS } from '@packhub/kernel';
+import {
+  GLOBAL_LAYOUT,
+  assertHarnessRoot,
+  harnessRoot,
+  harnessSpec,
+  isSyncTarget,
+  resolveSyncTargets,
+  syncTargets,
+} from '../src/index.ts';
 
 describe('harness 注册表', () => {
-  it('每个宿主的全局落点与 kernel 的项目落点不打架', () => {
-    for (const id of syncTargets()) {
+  it('每个 kernel 宿主的全局落点与项目落点不打架', () => {
+    for (const id of HARNESS_IDS) {
+      const layout = GLOBAL_LAYOUT[id];
+      expect(layout, `kernel 有 ${id}，runtime 却给了 null`).not.toBeNull();
+      if (!layout) continue;
       const project = TARGET_VARS[id];
       // 指令文件名必须同一个：两份表各写一遍是漂移的起点
-      expect(harnessSpec(id).instructionFile).toBe(project.instructionFile);
+      expect(layout.instructionFile).toBe(project.instructionFile);
       // skills 目录可以不同（全局相对 home），但最末一段必须是同一个约定
-      expect(basename(harnessSpec(id).skillsDir)).toBe(basename(project.skillsDir));
+      expect(basename(layout.skillsDir)).toBe(basename(project.skillsDir));
     }
   });
   it('目标名单来自一张表，未知值不进名单', () => {
-    expect(syncTargets()).toEqual(['dsh', 'codex', 'claude-code']);
+    expect(syncTargets()).toEqual(HARNESS_IDS.filter((id) => GLOBAL_LAYOUT[id] !== null));
     expect(isSyncTarget('dsh')).toBe(true);
     expect(isSyncTarget('opencode')).toBe(false);
   });

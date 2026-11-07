@@ -176,7 +176,7 @@ export async function syncPack(
     const root = harnessRoot(target);
     const spec = harnessSpec(target);
     const { plan } = planFor(ctx, {
-      target: spec.planTarget,
+      target,
       targetVars: globalTargetVars(target),
       // claude 的全局 MCP 交给它自己的 CLI，计划里只落 skills 与指令块
       ...(spec.mcp === 'claude-cli' ? { skipResourceTypes: ['mcp' as const] } : {}),
