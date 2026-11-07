@@ -12,7 +12,9 @@ export function isResourceType(value: unknown): value is ResourceType {
   return typeof value === 'string' && (RESOURCE_TYPES as readonly string[]).includes(value);
 }
 
-export type TargetId = 'dir' | 'dsh' | 'claude-code' | 'codex';
+/** 安装 target 的规范顺序；CLI 帮助、错误信息、面板都从这里取。 */
+export const TARGET_IDS = ['dir', 'dsh', 'claude-code', 'codex'] as const;
+export type TargetId = (typeof TARGET_IDS)[number];
 
 export interface ResourceSpec {
   id: string;

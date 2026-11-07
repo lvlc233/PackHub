@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { parse as parseYaml } from 'yaml';
-import { RESOURCE_TYPES } from '../resourceTypes.ts';
+import { RESOURCE_TYPES, TARGETS } from '../resourceTypes.ts';
 import './console.css';
 
 interface PackEntry {
@@ -128,8 +128,6 @@ const EMPTY_ADVANCED: AdvancedState = {
   vars: '',
   state: '',
 };
-
-const TARGETS = ['dir', 'claude-code', 'dsh', 'codex'];
 
 const uid = (): string => Math.random().toString(36).slice(2, 8);
 
@@ -1257,10 +1255,11 @@ export function ConsolePage() {
         <label className="cs-target">
           target
           <select value={target} onChange={(e) => setTarget(e.target.value)}>
-            <option value="dir">dir</option>
-            <option value="claude-code">claude-code</option>
-            <option value="dsh">dsh</option>
-            <option value="codex">codex</option>
+            {TARGETS.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
           </select>
         </label>
         <button className="cs-btn ghost" onClick={resetDraft}>

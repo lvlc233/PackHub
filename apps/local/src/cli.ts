@@ -27,6 +27,7 @@ import {
   readLocalOverrides,
   validateGraph,
   RESOURCE_TYPES,
+  TARGET_IDS,
   type Issue,
   type Plan,
   type TargetId,
@@ -119,7 +120,7 @@ const plan = defineCommand({
   args: {
     dir: { type: 'positional', required: false, default: '.' },
     json: { type: 'boolean', default: false },
-    target: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code | codex' },
+    target: { type: 'string', default: 'dir', description: `${TARGET_IDS.join(' | ')}` },
     index: { type: 'string', description: '远程 extends / packhub:// 用的 registry 索引' },
   },
   async run({ args }) {
@@ -140,14 +141,14 @@ const plan = defineCommand({
 const install = defineCommand({
   meta: {
     name: 'install',
-    description: '执行计划（--target：dir / dsh / claude-code / codex）',
+    description: `执行计划（--target：${TARGET_IDS.join(' / ')}）`,
   },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
     'dry-run': { type: 'boolean', default: false },
     'allow-exec': { type: 'boolean', default: false },
     overwrite: { type: 'boolean', default: false, description: '允许覆盖别的包写过的文件' },
-    target: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code | codex' },
+    target: { type: 'string', default: 'dir', description: `${TARGET_IDS.join(' | ')}` },
     json: { type: 'boolean', default: false, description: '输出结构化结果（脚本用）' },
     index: { type: 'string', description: '远程 extends 用的 registry 索引' },
   },
@@ -219,7 +220,7 @@ const verify = defineCommand({
   meta: { name: 'verify', description: '跑 manifest 的检查；在项目根跑时用 state 里的计划快照' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
-    target: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code | codex' },
+    target: { type: 'string', default: 'dir', description: `${TARGET_IDS.join(' | ')}` },
     pack: { type: 'string', description: '只验某个已装的包（name@version）' },
     json: { type: 'boolean', default: false, description: '输出结构化结果（脚本用）' },
     index: { type: 'string', description: '远程 extends 用的 registry 索引' },
@@ -293,7 +294,7 @@ const lock = defineCommand({
   meta: { name: 'lock', description: '解析引用（npm/github/https/pypi）并生成 packhub.lock.json（每个已声明 target 一份计划）' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
-    target: { type: 'string', default: 'dir', description: '主 target（dir | dsh | claude-code | codex）；其余声明过的 target 也会锁' },
+    target: { type: 'string', default: 'dir', description: `主 target（${TARGET_IDS.join(' | ')}）；其余声明过的 target 也会锁` },
     offline: { type: 'boolean', default: false, description: '不联网：只锁本地与已 pin 的引用' },
     index: { type: 'string', description: '远程 extends 用的 registry 索引' },
     json: { type: 'boolean', default: false, description: '输出锁与 planHash（脚本用）' },
@@ -414,7 +415,7 @@ const resourceAdd = defineCommand({
     },
     dir: { type: 'string', default: '.', description: 'Pack 目录' },
     id: { type: 'string', description: '自定义资源 id（默认从 source 推断）' },
-    target: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code | codex' },
+    target: { type: 'string', default: 'dir', description: `${TARGET_IDS.join(' | ')}` },
   },
   async run({ args }) {
     const type = String(args.type) as (typeof RESOURCE_TYPES)[number];
@@ -522,7 +523,7 @@ const add = defineCommand({
     index: { type: 'string', description: 'registry 的 index.json（本地路径或 URL；也可用 PACKHUB_INDEX）' },
     version: { type: 'string', description: 'registry 包的版本，默认 latest' },
     dir: { type: 'string', default: '.', description: '项目目录' },
-    target: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code | codex' },
+    target: { type: 'string', default: 'dir', description: `${TARGET_IDS.join(' | ')}` },
     'dry-run': { type: 'boolean', default: false },
     overwrite: { type: 'boolean', default: false },
     'allow-stale-lock': {

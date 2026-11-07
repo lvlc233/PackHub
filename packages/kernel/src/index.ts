@@ -1,7 +1,10 @@
+// index.ts	入口与合并
+
 import { existsSync, readFileSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type { Issue, Manifest, Plan, ResourceSpec } from './types.ts';
+import { TARGET_IDS } from './types.ts';
 import { loadManifest } from './manifest.ts';
 import { validateGraph, type Graph } from './graph.ts';
 import { buildPlan, TARGET_VARS, type PlanOptions } from './plan.ts';
@@ -10,7 +13,7 @@ export * from './types.ts';
 export { parseSource, checkSource, isVolatilePin, type ParsedSource, type SourceKind } from './ref.ts';
 export { loadManifest, parseManifest, type LoadResult } from './manifest.ts';
 export { validateGraph, type Graph } from './graph.ts';
-export { buildPlan, buildMcpSpec, DIR_TARGET_VARS, TARGET_VARS, type PlanOptions } from './plan.ts';
+export { buildPlan, buildMcpSpec, DIR_TARGET_VARS, TARGET_VARS, type PlanOptions, type TargetVars } from './plan.ts';
 export { buildLock } from './lock.ts';
 export {
   parseCatalog,
@@ -262,7 +265,7 @@ export function planFor(
         {
           code: 'unknown-target',
           severity: 'error',
-          message: `未知 target：${target}（可选 dir / dsh / claude-code / codex）`,
+          message: `未知 target：${target}（可选 ${TARGET_IDS.join(' / ')}）`,
         },
       ],
     };

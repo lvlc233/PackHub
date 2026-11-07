@@ -1,10 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
-import { assertHarnessRoot, harnessRoot, isSyncTarget, resolveSyncTargets, syncTargets } from '../src/index.ts';
+import { basename, join, resolve } from 'node:path';
+import { TARGET_VARS } from '@packhub/kernel';
+import { assertHarnessRoot, harnessRoot, harnessSpec, isSyncTarget, resolveSyncTargets, syncTargets } from '../src/index.ts';
 
 describe('harness 注册表', () => {
+  it('每个宿主的全局落点与 kernel 的项目落点不打架', () => {
+    for (const id of syncTargets()) {
+      const project = TARGET_VARS[id];
+      // 指令文件名必须同一个：两份表各写一遍是漂移的起点
+      expect(harnessSpec(id).instructionFile).toBe(project.instructionFile);
+      // skills 目录可以不同（全局相对 home），但最末一段必须是同一个约定
+      expect(basename(harnessSpec(id).skillsDir)).toBe(basename(project.skillsDir));
+    }
+  });
   it('目标名单来自一张表，未知值不进名单', () => {
     expect(syncTargets()).toEqual(['dsh', 'codex', 'claude-code']);
     expect(isSyncTarget('dsh')).toBe(true);

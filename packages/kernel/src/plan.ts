@@ -18,15 +18,28 @@ import type { Graph } from './graph.ts';
 
 export interface PlanOptions {
   target: TargetId;
-  /** adapter 提供的路径变量（相对 Pack 目录） */
-  targetVars: Record<string, string>;
+  /** 覆盖落点变量（全局同步用不同的 skillsDir 等）；只允许 TargetVars 里的键 */
+  targetVars: Partial<TargetVars>;
   packDir?: string;
   /** 这些类型的资源交给宿主/外部适配器处理，不进计划（例如全局同步时的 MCP） */
   skipResourceTypes?: ResourceType[];
 }
 
-/** dir adapter 的默认路径约定：物化到 .packhub，不碰宿主的配置文件。 */
-export const DIR_TARGET_VARS: Record<string, string> = {
+/** 安装计划用到的落点变量；新增字段时所有 target 都会编译报错，逼着补全。 */
+export interface TargetVars {
+  root: string;
+  cacheDir: string;
+  skillsDir: string;
+  knowledgeDir: string;
+  promptsDir: string;
+  binDir: string;
+  configFile: string;
+  /** 指令文件名；dir 没有（只物化到 .packhub，不碰宿主指令面） */
+  instructionFile?: string;
+}
+
+/** 默认约定：物化到 .packhub，不碰宿主的配置文件。 */
+const BASE_TARGET_VARS: TargetVars = {
   root: '.packhub',
   cacheDir: '.packhub/cache',
   skillsDir: '.packhub/skills',
@@ -36,41 +49,28 @@ export const DIR_TARGET_VARS: Record<string, string> = {
   configFile: '.packhub/config.json',
 };
 
+/** 在默认约定上只写差量：一眼能看出哪个宿主不一样。 */
+const withDefaults = (patch: Partial<TargetVars>): TargetVars => ({ ...BASE_TARGET_VARS, ...patch });
+
+export const DIR_TARGET_VARS: TargetVars = withDefaults({});
+
 /** 各宿主的投影落点：从"物化"变成"接进 agent 会读的位置"。 */
-export const TARGET_VARS: Record<TargetId, Record<string, string>> = {
+export const TARGET_VARS = {
   dir: DIR_TARGET_VARS,
-  'claude-code': {
-    root: '.packhub',
-    cacheDir: '.packhub/cache',
+  dsh: withDefaults({
+    // DSH 的 skills 与 MCP 目前挂在 profile（全局），项目级只做"指路"
+    instructionFile: 'AGENTS.md',
+  }),
+  'claude-code': withDefaults({
     skillsDir: '.claude/skills',
-    knowledgeDir: '.packhub/knowledge',
-    promptsDir: '.packhub/prompts',
-    binDir: '.packhub/bin',
     configFile: '.mcp.json',
     instructionFile: 'CLAUDE.md',
-  },
-  dsh: {
-    root: '.packhub',
-    cacheDir: '.packhub/cache',
-    // DSH 的 skills 与 MCP 目前挂在 profile（全局），项目级只做"指路"
-    skillsDir: '.packhub/skills',
-    knowledgeDir: '.packhub/knowledge',
-    promptsDir: '.packhub/prompts',
-    binDir: '.packhub/bin',
-    configFile: '.packhub/config.json',
-    instructionFile: 'AGENTS.md',
-  },
-  codex: {
-    root: '.packhub',
-    cacheDir: '.packhub/cache',
+  }),
+  codex: withDefaults({
     skillsDir: '.codex/skills',
-    knowledgeDir: '.packhub/knowledge',
-    promptsDir: '.packhub/prompts',
-    binDir: '.packhub/bin',
-    configFile: '.packhub/config.json',
     instructionFile: 'AGENTS.md',
-  },
-};
+  }),
+} satisfies Record<TargetId, TargetVars>;
 
 export function buildPlan(
   manifest: Manifest,
@@ -78,7 +78,7 @@ export function buildPlan(
   opts: PlanOptions,
 ): { plan?: Plan; issues: Issue[] } {
   const issues: Issue[] = [];
-  const targetVars = { ...(TARGET_VARS[opts.target] ?? DIR_TARGET_VARS), ...opts.targetVars };
+  const targetVars: TargetVars = { ...TARGET_VARS[opts.target], ...opts.targetVars };
   const scope: Record<string, unknown> = {
     vars: manifest.vars ?? {},
     target: targetVars,
@@ -100,7 +100,7 @@ export function buildPlan(
       continue;
     }
     stateIds.add(spec.id);
-    const rawPath = spec.path ?? `${targetVars.root ?? '.packhub'}/state/${spec.id}`;
+    const rawPath = spec.path ?? `${targetVars.root}/state/${spec.id}`;
     const resolvedPath = interp(rawPath);
     const rel = typeof resolvedPath === 'string' ? resolvedPath : String(rawPath);
     const normalized = normalizeStatePath(rel);
@@ -143,7 +143,7 @@ export function buildPlan(
   if (packEnv && Object.keys(packEnv).length > 0) {
     push({
       op: 'merge.config',
-      path: targetVars.configFile ?? '.packhub/config.json',
+      path: targetVars.configFile,
       strategy: 'json-merge',
       patch: { env: interp(packEnv) },
     });
@@ -171,7 +171,7 @@ export function buildPlan(
         push({
           op: 'register.mcp',
           spec: buildMcpSpec(res, interp(res.config ?? {}) as Record<string, unknown>),
-          path: targetVars.configFile ?? '.packhub/config.json',
+          path: targetVars.configFile,
           resource: id,
         });
         break;
@@ -250,7 +250,7 @@ export function buildPlan(
         }
         push({
           op: 'merge.config',
-          path: targetVars.configFile ?? '.packhub/config.json',
+          path: targetVars.configFile,
           strategy: strategyFor(res.source),
           patchFrom: parsed.locator,
           resource: id,
@@ -611,7 +611,7 @@ function looksLikeArchive(url: string): boolean {
 function instructionBlock(
   manifest: Manifest,
   graph: Graph,
-  targetVars: Record<string, string>,
+  targetVars: TargetVars,
   statePaths: Record<string, string>,
 ): string {
   const active = manifest.resources.filter((r) => graph.resources.has(r.id));
