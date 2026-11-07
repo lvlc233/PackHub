@@ -55,7 +55,7 @@ resources:                    # ← 唯一的列表
 ```
 
 - **判定**：能被 `npx` / `uvx` 启动、通过 stdio 或 http 通信的 MCP Server。
-- **安装期**：只生成 `register.mcp`，写进目标环境的 MCP 配置；制品由目标环境在运行时获取。`transport` 必填。
+- **安装期**：只生成 `register.mcp`，写进目标环境的 MCP 配置；制品由目标环境在运行时获取。`transport` 可省，默认 `stdio`；http 服务必须显式写 `transport: http`。
 - **安装后的位置**：`.packhub/config.json` 的 `mcpServers.<id>`。
 - **verify 写什么**：`config-key`（确认 command 写对了）；`mcp-ready` 会真发一次 initialize（stdio 与 http 都支持）。
 
@@ -154,7 +154,7 @@ requires:
   packhub: ">=0.0.1 <0.1"            # 平台版本范围；发布时必填
   agent: ">=0.0.1"                   # 可选：目标 Agent 版本
 
-vars:                                # 可被 ${vars.x} 引用；0.0.2 只读，不支持安装期覆盖
+vars:                                # 可被 ${vars.x} 引用；安装期可用 .packhub/local.yaml 覆盖
   projectRoot: "."
   strict: true
 
@@ -162,7 +162,7 @@ resources:
   - id: repo-search                  # Pack 内唯一
     type: mcp                        # mcp / skill / prompt / knowledge / config / tool
     source: npm:@modelcontextprotocol/server-everything@0.6.2
-    transport: stdio                 # mcp 必填
+    transport: stdio                 # 可省，默认 stdio
     config:
       command: npx
       args: ["-y", "@modelcontextprotocol/server-everything@0.6.2"]
@@ -256,7 +256,7 @@ composition:
   env: { FLAVOR: local }
 ```
 
-`packhub add` 与 `packhub plan` 都会读它；清单本身不被改写。覆盖后的计划如果与锁里的 `planHash` 对不上，`add` 仍会按锁核对——这是有意的：本地覆盖是使用者的显式选择，不是绕过来源校验的后门。
+`packhub add` 会读它；`packhub plan` 只按清单本身算，不叠加覆盖。清单本身不被改写。锁核对发生在应用本地覆盖**之前**：覆盖不会绕过来源与锁校验，但覆盖之后的计划也不再与锁比对——这是使用者的显式选择。
 
 ### 包说明与变更记录
 
@@ -334,7 +334,7 @@ state:
 | `verify.json` | `pnpm registry:verify` | 干净环境里的校验报告，`verified` 的唯一依据 |
 | `registry/index.json` | `pnpm registry:index` | 站点与 `search` 读的清单 |
 
-> **本页是维护对象，不是一次性说明。** 所有 `yaml` 代码块都由 `packages/runtime/test/docs-examples.test.ts` 提取并实际跑 `loadPack` + `planFor`：完整清单必须零错误，六段资源示例必须能单独生成计划、且六种类型都要覆盖。改文档时如果示例不能跑，测试会红。
+> **本页是维护对象，不是一次性说明。** 所有 `yaml` 代码块都由 `packages/kernel/test/docs-examples.test.ts` 提取并实际跑 `loadPack` + `planFor`：完整清单必须零错误，六段资源示例必须能单独生成计划、且六种类型都要覆盖。改文档时如果示例不能跑，测试会红。
 >
 > 加新示例的规矩：资源片段以 `- id:` 开头、单独成块；不要用编造得看不出来的 pin（commit 可以是假哈希，但**格式必须合法**，因为它们会被真的解析）。
 
@@ -415,21 +415,25 @@ packhub sync my-pack --to dsh,codex   # --to . 表示包声明的全部目标
 
 ### `source`：决定可复现性
 
-现在实际可用的是五类（`packhub://` 只在 schema 里声明，还没有下载实现）：
+现在实际可用的来源：
 
 ```
 npm:@scope/pkg@1.2.3                      # npm 包（MCP server 常用）
+pypi:six@1.16.0                           # PyPI sdist（必须 pin 版本，只有 wheel 的拒绝）
 github:owner/repo/sub/path@<40位 commit>  # GitHub 仓库/子目录，codeload tarball
 https://…/x.tar.gz                        # 任意 https 归档（GitLab/Gitea/内网均可）
 https://…/note.md                         # 任意 https 单文件（knowledge / prompt）
+packhub://scope/name@1.2.3#docs/x.md      # 已发布包里的文件/目录（先 vendored 才能发）
 ./resources/x.md                          # 本地，随包 vendored
 ```
 
 | 来源 | 适合 | 安装动作 |
 |---|---|---|
 | `npm:` | 通过 npx 分发的 MCP server | 只登记启动命令，不下载制品 |
+| `pypi:` | Python 工具 / skill（只收 sdist） | 查元数据 → 下载 sdist → 解包 |
 | `github:` | 仓库里的 skill 目录、工具、文档 | 下载 tarball → 解包 → 按子路径挂载 |
 | `https: … .tar.gz` | 公司 GitLab / Gitea 的 archive、任何归档 | 下载 → 解包（`skill` / `tool` 必须给归档；单文件给 `knowledge` / `prompt`） |
+| `packhub://scope/name@ver#path` | 复用已发布包里的文件/目录 | 从 registry 取归档 → 解出该路径；`lock` / `publish` 前要 vendored |
 | `./…` | 本地草稿、必须随包分发的内容 | 直接复制（发布前要 vendored 进版本目录） |
 
 **40 位 commit 的来源**：GitHub commit 页地址中的那串；或 `git rev-parse HEAD`；或 `git ls-remote https://github.com/o/r refs/heads/main`。不接受 `@main`、`@latest`，它们会漂移。
@@ -475,7 +479,7 @@ verify:
     equals: npx
 ```
 
-`command` 会真的跑命令并按 `expectExit` 判定；`mcp-ready` 对 stdio server 或 http 端点发一次 initialize 握手；`knowledge-integrity` 在 `.packhub/` 产物里按 sha256 找文件。发布时至少要有一条真能判定的检查。
+`command` 会真的跑命令并按 `expectExit` 判定；`mcp-ready` 对 stdio server 或 http 端点发一次 initialize 握手；`knowledge-integrity` 在 `.packhub/` 产物里按 sha256 找文件。建议至少写一条真能判定的检查——当前门禁不强制，0 条检查也会通过。
 
 `scenario` 是「装完真的能用」的那一层：要么跑一条最小任务，要么让 harness headless 回答一句话，再断言输出或文件。
 
@@ -519,7 +523,7 @@ verify:
 2. 在**干净目录**装一遍：`packhub install` 全 `done`/`noop`，没有 `skipped`。
 3. `packhub verify` 没有 `fail`。
 4. `packhub lock` 已生成，且 `planHash` 与当前清单一致。
-5. 本地资源全部 vendored 进版本目录（`resources/`、`fragments/`）。
+5. 本地资源全部 vendored 进版本目录（与 `.phub` 同一批顶层条目）。
 6. 放进 `registry/packs/<scope>/<name>/<version>/`，跑 `pnpm registry:verify <dir>`，再跑 `pnpm registry:check`。
 
 前五条是作者的责任，第六条是 CI 的门禁。

@@ -1,9 +1,9 @@
 // index.ts	入口与合并
 
 import { existsSync, readFileSync } from 'node:fs';
-import { join, relative, resolve, sep } from 'node:path';
+import { join, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import type { Issue, Manifest, Plan, ResourceSpec } from './types.ts';
+import type { Issue, Manifest, Plan } from './types.ts';
 import { TARGET_IDS } from './types.ts';
 import { loadManifest } from './manifest.ts';
 import { validateGraph, type Graph } from './graph.ts';
@@ -35,25 +35,8 @@ export interface PackContext {
 }
 
 /** 读取并校验一个 Pack 目录。所有命令的入口。只读，不写盘、不出网。 */
-export function loadPack(dir: string, opts: { seen?: string[] } = {}): PackContext {
+export function loadPack(dir: string): PackContext {
   const abs = resolve(dir);
-  const seen = opts.seen ?? [];
-  if (seen.includes(abs)) {
-    const loaded = loadManifest(join(abs, 'packhub.yaml'));
-    return {
-      dir: abs,
-      manifest: undefined as unknown as Manifest,
-      graph: undefined as unknown as Graph,
-      issues: [
-        ...loaded.issues,
-        {
-          code: 'extends-cycle',
-          severity: 'error',
-          message: `extends 成环：${[...seen, abs].join(' → ')}`,
-        },
-      ],
-    };
-  }
   const loaded = loadManifest(join(abs, 'packhub.yaml'));
   if (!loaded.manifest) {
     return {
@@ -66,39 +49,6 @@ export function loadPack(dir: string, opts: { seen?: string[] } = {}): PackConte
 
   let manifest = loaded.manifest;
   const inherited: Issue[] = [];
-  if (manifest.extends) {
-    const spec = manifest.extends;
-    if (spec.startsWith('packhub://')) {
-      // 远程父包需要 registry，kernel 不出网；由 runtime 的 loadPackResolved 展开
-    } else if (!spec.startsWith('./') && !spec.startsWith('../')) {
-      inherited.push({
-        code: 'extends-invalid',
-        severity: 'error',
-        message: `extends 只支持 ./、../ 或 packhub://：${spec}`,
-      });
-    } else {
-      const parentDir = resolve(abs, spec);
-      if (!existsSync(join(parentDir, 'packhub.yaml'))) {
-        inherited.push({
-          code: 'extends-missing',
-          severity: 'error',
-          message: `extends 指向的父 Pack 不存在：${spec}`,
-        });
-      } else {
-        const parent = loadPack(parentDir, { seen: [...seen, abs] });
-        const parentErrors = parent.issues.filter((i) => i.severity === 'error');
-        if (!parent.manifest || parentErrors.length > 0) {
-          inherited.push({
-            code: 'extends-invalid',
-            severity: 'error',
-            message: `父 Pack（${spec}）不合法：${parentErrors.map((i) => i.message).join('; ')}`,
-          });
-        } else {
-          manifest = mergeManifest(parent.manifest, loaded.manifest, parentDir, abs);
-        }
-      }
-    }
-  }
 
   // 项目级本地覆盖：不进清单、不进锁，只改这次安装的参数
   const localFile = join(abs, '.packhub', 'local.yaml');
@@ -127,7 +77,6 @@ export interface LocalOverrides {
   overrides?: Manifest['overrides'];
   bindings?: Record<string, string>;
   vars?: Record<string, string | number | boolean>;
-  composition?: { env?: Record<string, string | number | boolean> };
 }
 
 function parseLocalOverrides(file: string): LocalOverrides {
@@ -169,89 +118,11 @@ export function mergeLocalOverrides(
       overrides: [...(manifest.overrides ?? []), ...overrides],
       bindings: { ...(manifest.bindings ?? {}), ...(raw.bindings ?? {}) },
       vars: { ...(manifest.vars ?? {}), ...(raw.vars ?? {}) },
-      composition: {
-        ...(manifest.composition ?? {}),
-        env: { ...(manifest.composition?.env ?? {}), ...(raw.composition?.env ?? {}) },
-      },
     },
     issues,
   };
 }
 
-/** 父 Pack 的本地资源改写成相对子 Pack 的路径，子包才能用自己的 packRoot 读。 */
-function rebaseLocal(source: string, fromDir: string, toDir: string): string {
-  if (!source.startsWith('./') && !source.startsWith('../')) return source;
-  const rel = relative(toDir, resolve(fromDir, source)).split(sep).join('/');
-  if (rel.startsWith('../')) return rel;
-  return `./${rel.replace(/^\.\//, '')}`;
-}
-
-/**
- * extends 合并规则：子包同名资源覆盖父包；metadata 与 requires 以子包为准；
- * composition.env / slots / bindings 两边合并；resources / verify 保留父包在前。
- */
-export function mergeManifest(
-  base: Manifest,
-  child: Manifest,
-  baseDir: string,
-  childDir: string,
-): Manifest {
-  const resources: ResourceSpec[] = [];
-  const byId = new Map<string, ResourceSpec>();
-  const push = (res: ResourceSpec, fromDir: string): void => {
-    // 父包资源相对父包目录；子包资源保持原样
-    const normalized =
-      fromDir !== childDir && (res.source.startsWith('./') || res.source.startsWith('../'))
-        ? { ...res, source: rebaseLocal(res.source, fromDir, childDir) }
-        : res;
-    const hit = byId.get(normalized.id);
-    if (hit) {
-      const index = resources.indexOf(hit);
-      resources[index] = normalized;
-    } else {
-      resources.push(normalized);
-    }
-    byId.set(normalized.id, normalized);
-  };
-  for (const res of base.resources) push(res, baseDir);
-  for (const res of child.resources) push(res, childDir);
-
-  const mergeEnv = { ...(base.composition?.env ?? {}), ...(child.composition?.env ?? {}) };
-  const order = [
-    ...new Set([...(base.composition?.order ?? []), ...(child.composition?.order ?? [])]),
-  ];
-  // 状态目录按 id 合并：子包同名覆盖父包，未重名的都保留
-  const stateById = new Map<string, NonNullable<Manifest['state']>[number]>();
-  for (const spec of base.state ?? []) stateById.set(spec.id, spec);
-  for (const spec of child.state ?? []) stateById.set(spec.id, spec);
-  const state = [...stateById.values()];
-
-  return {
-    ...child,
-    extends: undefined,
-    resources,
-    vars: { ...(base.vars ?? {}), ...(child.vars ?? {}) },
-    ...(state.length > 0 ? { state } : {}),
-    composition: {
-      ...(Object.keys(mergeEnv).length ? { env: mergeEnv } : {}),
-      ...(order.length ? { order } : {}),
-    },
-    slots: { ...(base.slots ?? {}), ...(child.slots ?? {}) },
-    bindings: { ...(base.bindings ?? {}), ...(child.bindings ?? {}) },
-    overrides: [...(base.overrides ?? []), ...(child.overrides ?? [])],
-    overlays: [
-      ...(base.overlays ?? []).map((ov) => ({
-        ...ov,
-        from: rebaseLocal(ov.from, baseDir, childDir),
-      })),
-      ...(child.overlays ?? []),
-    ],
-    install: {
-      exec: [...(base.install?.exec ?? []), ...(child.install?.exec ?? [])],
-    },
-    verify: [...(base.verify ?? []), ...(child.verify ?? [])],
-  } as Manifest;
-}
 
 /** 解析 + 出计划（只读：会读 overrides/overlays 的文件，但不落盘）。 */
 export function planFor(

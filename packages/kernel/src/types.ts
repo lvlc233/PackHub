@@ -51,11 +51,6 @@ export interface ResourceSpec {
   optional?: boolean;
 }
 
-export interface Composition {
-  env?: Record<string, string | number | boolean>;
-  order?: string[];
-}
-
 /** 持久状态目录：装进项目、升级与卸载默认保留（记忆、索引、会话存档）。 */
 export interface StateDirSpec {
   id: string;
@@ -117,7 +112,6 @@ export interface SlotSpec {
 export interface Manifest {
   apiVersion: 'packhub.dev/v0';
   kind: 'Pack';
-  extends?: string;
   metadata: {
     name: string;
     version: string;
@@ -134,7 +128,6 @@ export interface Manifest {
   requires: { packhub: string; agent?: string };
   vars?: Record<string, string | number | boolean>;
   resources: ResourceSpec[];
-  composition?: Composition;
   /** 可替换位：槽位名 → 契约 */
   slots?: Record<string, SlotSpec>;
   /** 槽位 → 资源 id；只有被绑定的实现会进计划 */

@@ -1,7 +1,5 @@
 # 仓库（registry）
 
-> 把 README「包的制作与发布 / 包市场」、contract §2/§4/§5/§9、authoring「来源 / 可见性」、功能清单 REG/HUB 里关于仓库的描述合并成一份。口径以代码为准（v0.0.1，2026-11-07）；与旧文档对不上的地方在第 9 节逐条列出，不在正文迁就旧说法。
-
 ## 1. 三个面
 
 | 面 | 谁 | 做什么 | 不能做什么 |
@@ -13,6 +11,8 @@
 三者的交点只有不可变的版本目录与归档；谁写的、谁读的都不改包格式。
 
 ## 2. 目录与文件
+
+仓库的存储结构约定
 
 ```
 <registry>/
@@ -28,44 +28,16 @@
 │       └── <vendored 条目>            # resources/ fragments/ overrides/ skills/ glue/ external/ ……
 ```
 
-- 归档路径是约定（`packs/<name>/<latest>.phub`），不写进索引；索引里只存相对路径。
-- 版本目录放：`publish` 写的清单、锁、报告，加上与 `.phub` 同一批 vendored 条目。
-- **不可变检查的真实范围**：`buildIndex` 只把 `packhub.yaml` 与 `verify.json` 与 `git show HEAD` 比（`packages/registry/src/build.ts:109-120`）。registry 不是 git 仓库时这两项**静默跳过**；归档与其他文件的字节不检查。
-
 ## 3. 发布（`packhub publish`）
 
-1. `flattenPack`：远程 `extends`、资源级 `packhub://`、包目录外的本地资源展开成自包含目录（`external/…`）。
-2. `runPack`：干净临时目录里装一遍 + 跑校验；不是全 `done/noop`、或任一检查非 `pass` 就拒绝（`packages/runner/src/run.ts`）。
-3. `lockPack`：解析引用、钉死版本/commit/integrity，按 `metadata.targets` 每个 target 存计划快照。
-4. 报告里的 `planHash` 必须与锁一致，否则拒绝（`packages/registry/src/publish.ts:95-99`）。
-5. `visibility` 必须是 `public`（`--allow-non-public` 可放宽，但索引门禁仍只收 public，见第 4 节）。
-6. 写版本目录与 `<version>.phub`，再重建 `index.json`；索引失败就撤回本次写入；`--force` 覆盖旧版本时先备份、失败可恢复。
 
-发布**不**检查：归档字节是否与上次一致、至少一条校验、`verify` 是否含执行型检查（市场才查）、本地 `extends` 能否自包含（HEAD 不能，见第 8 节）。
 
 ## 4. 索引（`index.json`）
 
-字段（`packages/registry/src/build.ts:17-35`）：`name`、`title`、`description`、`latest`、`versions`、`targets`、`trust`、`verifiedAt`、`signers`、`keywords`、`resourceCount`、`install`、`license`、`homepage`、`authors`、`requiresAgent`。
-
-`trust` 两档：
-
-- `verified`：这个包的**所有**版本都有 `verify.json`、`ok: true` 且 `planHash` 与锁一致；
-- `community`：其余；有报告但对不上会给 warning，按 community 处理。
-
-门禁（`buildIndex`）：
-
-1. 每个版本目录有 `packhub.yaml`、schema 通过；
-2. 有 `packhub.lock.json`，且锁的 `planHash` 与按锁重算的计划一致；声明的每个 target 快照也要一致；
-3. `visibility: public`——**unlisted / internal / private 会让整个索引报错**；
-4. git 仓库里，清单与 `verify.json` 未被改动。
-
-`install` 字段目前由生成器拼成 `npx packhub add <name>`（`build.ts:239`）。CLI 尚未发布到 npm，这条命令现在装不上包；应改成「按本机 registry 配置用 `packhub add <name>`」，或等 npm 发布后再启用。
-
-多 registry：`--index` 接受路径、URL 或 `~/.packhub/config.json` 里的 `registries[].name`；默认顺序是 `PACKHUB_INDEX` > `defaultRegistry` > 唯一配置项（`packages/runtime/src/config.ts:59-69`）；`search --all` 合并所有配置项。
 
 ## 5. 市场（写端）
 
-端点（`packages/market/src/server.ts`）：
+端点（`packages/market/src/server.ts`）：->不抽象为协议吗?然后再转化实现;不应该是内核,我们这边不负责实现这个的应该
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -88,8 +60,6 @@
 
 存储：`.market/market.db`（SQLite，WAL）；旧 `.market/db.json` 首次打开自动导入并改名 `.migrated`。
 
-**实际与文档不一致**：市场声称接受 `unlisted`，但 `publishPack` 的 public 门禁会拒绝它（`publish.ts:77-80`），索引门禁也只收 public。结果：unlisted 既发不进市场，也不能和索引共存——「unlisted 直链分发」目前只对独立 registry（不建索引）成立。
-
 ## 6. 读取（Hub）
 
 - 路由：`/api/registry`、`/api/registry/pack`、`/api/registry/resources`、`/api/plan`、`/api/health`。
@@ -102,7 +72,7 @@
 
 来源形态：`npm:`、`pypi:`、`github:`、`https:`、`packhub://`、`./`；`add` 另外接受 `.phub` 与 `git+https://`。
 
-私有来源（**这一节替代 authoring.md:451 的旧说法**）：
+私有来源（authoring 里那句「私有仓库鉴权没有支持」已删；这里的写法是实际行为）：
 
 ```yaml
 - id: internal-rules
@@ -127,25 +97,17 @@
 - `.phub` = tar.gz，解包后就是 Pack 根。
   - reference 模式：清单 + 锁（+ 有签名时的 `packhub.signatures.json`）。
   - vendored 模式：再加全部顶层条目（跳过 `.packhub`、`node_modules`、`.git`、`dist`、旧归档）。
-- `packhub pack` 会先 flatten，再按 `--vendored` 打；带本地 `./` 来源却没用 `--vendored` 时应该直接拒绝（当前工作区已加此守卫，HEAD 没有）。
+- `packhub pack` 会先 flatten，再按 `--vendored` 打；带本地 `./` 来源却没用 `--vendored` 时直接拒绝（`pack.ts` 的 `LocalSourceNotVendoredError`）。
 - 缓存按来源落在 `.packhub/cache/`；`packhub cache ls` 标引用、`cache clean [--dry-run]` 只删没被任何已装计划引用的项。
 - 离线：`registry:verify-all:offline` / `verify:examples:offline` 会跳过有远程引用的包；`lock --offline` 只处理本地与已 pin 的引用。
 
-## 9. 文档里与本文冲突、应清掉的说法
+## 9. 仍未收口的实现缺口
 
-| 位置 | 旧说法 | 实际 |
+| 位置 | 现状 | 影响 |
 |---|---|---|
-| authoring.md:430 | `packhub://` 只在 schema 里声明，没有下载实现 | 已实现（ref/extends/extends-remote.test）；同一列表还漏了 `pypi:` |
-| authoring.md:451 | 私有仓库鉴权没有支持 | `auth.env` 已实现并实测（第 7 节） |
-| authoring.md:534 | 版本目录只要 vendored `resources/`、`fragments/` | 实际是全部顶层条目 |
-| contract.md:220-223 | registry 布局只画 `resources/`、`fragments/` | 同上 |
-| contract.md:264 | 市场只接受 public / unlisted | unlisted 会被 public 门禁拒绝（第 5 节） |
-| contract.md:299-300 | reference 只打清单+锁；vendored 只带 5 个目录 | 还带签名；vendored 带全部顶层条目 |
-| contract.md:187 | 版本目录只增不改 | `publish --force` 可覆盖同版本 |
-| contract.md:3 | 六份带版本号的 JSON | 版本表 10 行，另有 credentials/trust/baseline/pal 未登记 |
-| README.md:245 | `sync --to .` 装到所有支持的目标 | CLI 只接受 dsh/codex/claude-code |
-| README.md:173 / build.ts:239 | CLI 未发 npm；索引却给出 `npx packhub add` | 二者只能留一个说法 |
-| 系统全量审计.md:76、02-功能树.md:7 | 五个 target（含 server） | 四个 |
-| 00-研究范围与方法.md:54-66 | 「仓库搭建」整段未勾 | 索引、发布门禁、不可变、下架、签名、市场都已实现，仅「unlisted 直达」等个别项不成立 |
+| 市场 `unlisted` | 上传校验接受，`publish` 的 public 门禁与索引门禁都拒绝 | unlisted 发不进市场，也不能和索引共存；「直链分发」只对不建索引的独立 registry 成立 |
+| `sign` 命令 | 没有 `--json` | 脚本拿不到结构化结果（审计文档已按现状改述） |
+| 版本不可变 | 只比 `packhub.yaml` 与 `verify.json`，且只在 git 仓库里生效 | 非 git 的 registry 不做不可变检查；归档字节不校验 |
+| `state` / `lock` 读取 | 不校验 `apiVersion` 主版本 | 与契约「未知主版本必须拒绝」不一致（manifest 有 schema 兜底） |
 
-> 备注：工作区里还有未提交的 `pack`/`flatten`/`publish` 改动（本地来源守卫、包外资源搬入 `external/local`、版本目录与归档同源）。保留时，第 8 节的打包行为按改动后成立；丢弃时按 HEAD 行为成立。
+（本文其余旧说法已在 2026-11-07 的文档修订中清掉：`packhub://`、私有来源鉴权、版本目录条目、`--to .`、索引 `install` 字段、target 数与动作原语数。）

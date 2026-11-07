@@ -1,6 +1,6 @@
 # PackHub 功能全量清单[待更新]
 
-> 版本：2026-11-07 ／ 口径：本仓库当前代码、CLI 实测、测试套件（73 个文件 / 301 项）与 registry 现状。
+> 版本：2026-11-07 ／ 口径：本仓库当前代码、CLI 实测、测试套件（77 个文件 / 319 项）与 registry 现状。
 > 用途：实现 checklist、选型对照、漏项审计。**不是**产品介绍。
 
 ## 怎么读
@@ -98,7 +98,7 @@
 
 | 编号 | 功能点 | 能观察到的事实 | 现状 | 证据/缺口 |
 |---|---|---|---|---|
-| PLN-01 | 八个动作原语 | fetch/unpack/write/link.skill/register.mcp/merge.config/exec/instruction 可生成 | [done] | `plan.ts` |
+| PLN-01 | 十个动作原语 | fetch/unpack/write/link.skill/link.bin/register.mcp/merge.config/exec/instruction/state.dir 可生成 | [done] | `plan.ts` |
 | PLN-02 | 稳定动作 id | `<op>#n` 同类按序编号；同清单两次生成一致 | [done] | `plan.ts` |
 | PLN-03 | 依赖与顺序 | dependsOn 拓扑；`composition.order` 与 dependsOn 矛盾报错 | [done] | `graph.ts` |
 | PLN-04 | 能力检查 | `needs` 无 provider → `unmet-need` | [done] | `graph.ts` |
@@ -191,7 +191,7 @@
 |---|---|---|---|---|
 | SYN-01 | codex target | 项目内 `.codex/skills` + `AGENTS.md` 块 | [done] | `plan.ts` |
 | SYN-02 | 全局 skills | `~/.dsh/skills`、`~/.codex/skills` | [done] | `sync.ts` |
-| SYN-03 | 只收 skill | 非 skill 资源明确拒绝 | [done] | `sync.ts` |
+| SYN-03 | 只收 skill 与 mcp | 其他类型明确拒绝；dsh 目标不接受 mcp | [done] | `sync.ts` |
 | SYN-04 | 本地来源 | 非 `./` 源拒绝 | [done] | `sync.ts` |
 | SYN-05 | frontmatter 预检 | name/description 缺失或 YAML 坏拒绝；BOM 兼容 | [done] | `readSkillFrontmatter` |
 | SYN-06 | 每个 harness 一份 state | `~/.dsh/.packhub/state.json` 等 | [done] | `sync.ts` |
@@ -266,7 +266,7 @@ ole=alert + ria-live；安装/校验按钮带 ria-busy | [done] | App.tsx |
 
 | 编号 | 功能点 | 能观察到的事实 | 现状 | 证据/缺口 |
 |---|---|---|---|---|
-| OPS-01 | 测试套件 | 63 个文件 / 254 项通过 | [done] | `pnpm check` |
+| OPS-01 | 测试套件 | 77 个文件 / 319 项通过 | [done] | `pnpm check` |
 | OPS-02 | 类型检查 | `tsc --noEmit` 通过 | [done] | `pnpm typecheck` |
 | OPS-03 | registry 门禁 | `registry:check` 通过 | [done] | CI |
 | OPS-04 | 干净安装 CI | `registry:verify-all`（需网络） | [done] | workflow |
@@ -304,7 +304,7 @@ ole=alert + ria-live；安装/校验按钮带 ria-busy | [done] | App.tsx |
 | CON-03 | 版本格式即时校验 | 非 `x.y.z` 立刻提示并阻止保存 | [done] | 正则 |
 | CON-04 | 元数据补全 | 标题/描述/关键词/许可证/主页/作者可编辑并进 YAML | [done] | `ConsolePage` |
 | CON-05 | targets 至少一个 | 全不选时提示并阻止保存 | [done] | — |
-| CON-06 | visibility | 四档可选并写进 YAML | [done] | 默认 public |
+| CON-06 | visibility | 四档可选并写进 YAML | [done] | 草稿默认 public；清单不写 visibility 时默认 private |
 | CON-07 | 手动新增资源行 | 点「+ 新增资源」追加一行可编辑空资源 | [done] | `ConsolePage` |
 | CON-08 | 从 registry 包添加 | 选中包后逐条 + 加入草稿 | [done] | 左侧资源列表 |
 | CON-09 | 收藏资源池 | ☆ 收藏，跨包复用 | [done] | localStorage |

@@ -8,7 +8,6 @@
   "properties": {
     "apiVersion": { "const": "packhub.dev/v0" },
     "kind": { "const": "Pack" },
-    "extends": { "type": "string", "pattern": "^(\\.\\.?/[^\\s]+|packhub://[a-z0-9-]+/[a-z0-9-]+@.+)$" },
     "metadata": {
       "type": "object",
       "additionalProperties": false,
@@ -71,7 +70,6 @@
       "minItems": 1,
       "items": { "$ref": "#/definitions/resource" }
     },
-    "composition": { "$ref": "#/definitions/composition" },
     "slots": {
       "type": "object",
       "description": "可替换位：每个槽位声明契约，资源用 slot 占位，bindings 决定装哪个",
@@ -148,7 +146,7 @@
         "type": { "enum": ["mcp", "skill", "prompt", "knowledge", "config", "tool"] },
         "source": {
           "type": "string",
-          "pattern": "^(npm|pypi|github|packhub|https?):.+|^\\./.*$"
+          "pattern": "^(npm|pypi|github|https?):.+|^\\./.*$"
         },
         "integrity": { "type": "string", "pattern": "^sha256-[A-Za-z0-9+/=]+$" },
         "auth": {
@@ -196,21 +194,6 @@
         "pattern": "^[a-z][a-z0-9-]*:[a-z0-9_.]+$"
       },
       "uniqueItems": true
-    },
-    "composition": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "env": {
-          "type": "object",
-          "additionalProperties": { "type": ["string", "number", "boolean"] }
-        },
-        "order": {
-          "type": "array",
-          "description": "安装顺序；未列出的资源按清单顺序追加。与 dependsOn 矛盾会报 order-violates-dependency",
-          "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" }
-        }
-      }
     },
     "overlay": {
       "type": "object",

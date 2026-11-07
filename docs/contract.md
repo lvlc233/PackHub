@@ -1,6 +1,6 @@
 # PackHub 契约（格式 v0）[待更新]
 
-六份带版本号的 JSON 是内核与所有外壳之间唯一的交换格式。它们的代际由下面的版本总表统一管理。
+下面这些带版本号的 JSON 是内核与所有外壳之间唯一的交换格式。它们的代际由版本总表统一管理。
 
 ---
 
@@ -21,7 +21,7 @@
 | 激活指针 | `packhub.dev/active/v0` | `.packhub/active.json` |
 | 市场库 | `packhub.dev/market/v0` | 市场根的 `.market/market.db`（SQLite；旧 `.market/db.json` 首次打开导入并改名） |
 
-**v0 期间没有兼容承诺**：字段可以增、可以改语义、可以删。读方遇到不认识的主版本（`v1`、`v2`）必须拒绝，不得猜测；遇到不认识的字段同样报错，不做静默忽略。
+**v0 期间没有兼容承诺**：字段可以增、可以改语义、可以删。读方遇到不认识的主版本（`v1`、`v2`）必须拒绝，不得猜测；遇到不认识的字段同样报错，不做静默忽略。（当前状态：manifest 由 schema 强制；`state` / `lock` 的读取还没有主版本校验，属于实现缺口。）
 
 **升 v1 的判据**（三条都满足才升，届时提供 `packhub migrate`，内核同时读 v0/v1 一段时间）：
 
@@ -37,7 +37,7 @@
 
 ```jsonc
 {
-  "apiVersion": "packhub.dev/plan/v0.1",
+  "apiVersion": "packhub.dev/plan/v0",
   "pack": { "name": "lvlc233/team-conventions", "version": "0.0.1" },
   "target": "dir",
   "actions": [
@@ -54,13 +54,13 @@
 1. `planHash` = 规范化 JSON（键排序、去 undefined）的 sha256；**同输入必须同哈希**，跨机器、跨时间。
 2. 动作 id 稳定：`<op>#<n>`，n 按生成顺序；同一 manifest 两次生成必须一致。
 3. `actions[].dependsOn` 指向的 id 必须存在于同一 plan。
-4. 所有路径是相对 Pack 目录的；执行层必须拒绝 `..` 逃逸。
+4. 动作目标路径相对安装根（state 所在目录）；来源路径相对 Pack 目录；执行层必须拒绝 `..` 逃逸。
 
 动作原语（已实装）：`fetch` · `unpack` · `write` · `link.skill` · `link.bin` · `register.mcp` · `merge.config` · `exec` · `instruction` · `state.dir`。`link.bin` 从解包目录读 `package.json` 的 `bin`，在目标 binDir 生成 wrapper，不执行包里的代码；`register.mcp` 在 `.toml` 目标上写带标记的 `[mcp_servers.<id>]` 托管块，卸载只摘自己那段。`state.dir` 只建目录；清单里的 `state` 块决定路径与 `retain`（`keep` / `remove`），目录不参与 `written`、不随快照回滚删除。
 
 `exec` 带 `command/args/cwd/env/timeout` 与 `approval: required`：计划里永远标待批准，执行层必须显式 `--allow-exec` 才跑；退出码非零算失败，失败会触发整次安装回滚。`run` / `publish` 默认不批准 exec，此时动作为 `needs-approval`，报告不会通过。注意：回滚只恢复文件，命令在仓库外的副作用无法自动撤销（清单里的 `undo` 目前只作记录，不自动执行）。
 
-`excluded` 记录没进计划的候选（`reason: unbound-slot` / `target-mismatch`）：它们不进动作列表，但必须在计划里可见，否则「为什么没装」无从查起。能力名统一写成 `命名空间:名字`（`audio:speak`、`memory:read`、`tool:repo_search`），槽位契约与 `provides`/`needs` 共用这套写法。
+`excluded` 记录没进计划的候选，`reason` 有四种：`unbound-slot`（槽位没绑定）、`target-mismatch`（资源级 target 不匹配）、`optional-unmet`（可选资源缺依赖，级联跳过）、`host-managed`（同步时由宿主管理、不进安装计划）。它们不进动作列表，但必须在计划里可见，否则「为什么没装」无从查起。能力名统一写成 `命名空间:名字`（`audio:speak`、`memory:read`、`tool:repo_search`），槽位契约与 `provides`/`needs` 共用这套写法。
 
 ---
 
@@ -171,7 +171,7 @@ registry 的静态清单，站点与 `search` 只读它。
       "verifiedAt": "2026-11-03T…",
       "keywords": ["conventions"],
       "resourceCount": 3,
-      "install": "npx packhub add lvlc233/team-conventions"
+      "install": "packhub add lvlc233/team-conventions"
     }
   ]
 }
@@ -179,8 +179,8 @@ registry 的静态清单，站点与 `search` 只读它。
 
 `trust` 判定（只有两档）：
 
-- `verified`：该版本存在 `verify.json`，且 `ok: true`，且 `planHash` 与锁一致。
-- `community`：其余。
+- `verified`：这个包的**每个**版本都有 `verify.json`、`ok: true` 且 `planHash` 与锁一致（整包都 verified 才标 verified）。
+- `community`：其余；有报告但对不上会给 warning，按 community 处理。
 
 不变量：
 
@@ -207,7 +207,7 @@ registry 的静态清单，站点与 `search` 只读它。
 ```
 
 - `ok`：每一步都是 `done` / `noop`，且每项检查都是 `pass`。`skipped`、`needs-approval`、`failed` 都算未完成；发布门禁只接受 `ok: true`。
-- 检查实现：`file-exists`、`config-key`、`command`、`mcp-ready`（stdio 做 initialize 握手，http 传输暂时 skipped）、`knowledge-integrity`（在 `.packhub/` 产物里按 sha256 找文件）。
+- 检查实现：`file-exists`、`config-key`、`command`、`mcp-ready`（stdio 与 http 都做 initialize 握手；http 认 JSON 与 SSE）、`knowledge-integrity`（在 `.packhub/` 产物里按 sha256 找文件）、`scenario`（跑最小任务或问 harness 一次）。
 - 报告与 `planHash` 绑定；计划变了旧报告不作数（索引会降为 `community`）。
 
 ## 5. registry 目录约定
@@ -217,15 +217,16 @@ registry/packs/<scope>/<name>/
 ├── 0.0.1/
 │   ├── packhub.yaml
 │   ├── packhub.lock.json
-│   ├── verify.json          # 可选；有且 ok 才是 verified
-│   ├── resources/           # vendored 本地制品（如有）
-│   └── fragments/
+│   ├── packhub.signatures.json  # 可选
+│   ├── verify.json              # 可选；有且 ok 才是 verified
+│   ├── PACK.md / CHANGELOG.md   # 可选
+│   └── <vendored 条目>          # resources/ fragments/ overrides/ skills/ glue/ external/ ……
 └── 0.0.2/ …
 ```
 
 规则：
 
-1. **版本目录不可变**。CI 检查：已存在的版本目录，其 `packhub.yaml` 的哈希不得变化。
+1. **版本目录不可变**。CI 检查：已存在的版本目录，其 `packhub.yaml` 与 `verify.json` 的哈希不得变化（只在 git 仓库里生效，非 git 目录会跳过）。`publish --force` 是唯一的显式例外。
 2. 本地制品必须 vendored 进版本目录，否则别人装不了。
 3. `verify.json` 由 `pnpm registry:verify <dir>` 在干净环境生成；作者本地或 CI 都可。
 
@@ -261,7 +262,7 @@ Hub 保持只读；写操作在独立服务里，包格式不变。
 | `POST` | `/api/admin/review` | `{name,version,action,note?}` → 批准（staging 移入 registry）或拒绝 |
 | `POST` | `/api/yank` | `{name,version,reason}` → 版本与归档移入 `.market/quarantine/`，索引重建 |
 
-约束：市场拒绝 `install.exec` 与会在服务端执行命令的检查（`command` / `scenario` / `mcp-ready`）；只接受 `public` / `unlisted`；账号即 scope（`scope/name`）；已发布版本字节不可变，下架不改归档内容。`--require-review` 时上传进 `.market/staging/`，管理员批准后才进索引与下载路径。
+约束：市场拒绝 `install.exec` 与会在服务端执行命令的检查（`command` / `scenario` / `mcp-ready`）；上传校验接受 `public` / `unlisted`，但发布门禁只放行 `public`——`unlisted` 目前发不进市场；账号即 scope（`scope/name`）；已发布版本字节不可变，下架不改归档内容。`--require-review` 时上传进 `.market/staging/`，管理员批准后才进索引与下载路径。
 
 ---
 
@@ -296,6 +297,6 @@ Hub 保持只读；写操作在独立服务里，包格式不变。
 └── packs/<scope>/<name>/<version>.phub     # 归档路径是约定，不写进索引
 ```
 
-- `reference` 模式只打 `packhub.yaml` + `packhub.lock.json`，安装时联网取制品。
-- `vendored` 模式把 `resources/ fragments/ overrides/ skills/ glue/` 一起打进去，离线可装（内网场景用这个）。
+- `reference` 模式只打 `packhub.yaml` + `packhub.lock.json`（有签名时再加 `packhub.signatures.json`），安装时联网取制品。
+- `vendored` 模式把全部顶层条目一起打进去（跳过 `.packhub`、`node_modules`、`.git`、`dist`、旧归档），离线可装（内网场景用这个）。
 - `packhub add <name> --index <路径|URL>`：读索引 → 取 `<base>/packs/<name>/<latest>.phub` → 解包到 `.packhub/packs/<name>/` → 生成计划 → 装进项目。索引与归档的相对位置固定，避免两处真相。
