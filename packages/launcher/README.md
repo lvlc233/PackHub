@@ -11,6 +11,8 @@ pnpm pal doctor                                   # 宿主装没装、什么版�
 pnpm pal create examples/doc-review --name demo --harness dsh --from-home ~/.dsh
 pnpm pal start demo                               # 起 dsh web，端口自动分配
 pnpm pal health demo                              # 进程、端口、home、基线、MCP 接线
+pnpm pal update demo --version 0.2.0               # 换 Pack 版本（会清掉上一版独有的文件）
+pnpm pal rebaseline demo                           # 本地改动被接受，体检不再报漂移
 pnpm pal stop demo
 pnpm pal remove demo --keep-data                  # 卸包，数据挪进归档区
 ```

@@ -11,11 +11,13 @@ import {
   migrateInstance,
   readInstance,
   readTemplate,
+  rebaselineInstance,
   removeInstance,
   renameInstance,
   requireInstance,
   scanInstances,
   summarize,
+  updateInstance,
   writeInstance,
   writeTemplate,
   type InstanceRecord,
@@ -465,6 +467,56 @@ const migrate = defineCommand({
   },
 });
 
+const update = defineCommand({
+  meta: { name: 'update', description: '把实例里的 Pack 换成另一个版本（要求实例已停）' },
+  args: {
+    target: { type: 'positional', required: true, description: '实例 id 或名字' },
+    version: { type: 'string', description: 'registry 版本；不写用 latest' },
+    index: { type: 'string', description: 'registry 索引' },
+    json: { type: 'boolean', default: false },
+  },
+  async run({ args }) {
+    const rec = requireInstance(requireTarget(args.target));
+    const ref = rec.pack.ref ?? rec.pack.name;
+    const log = (line: string): void => {
+      if (!args.json) console.error(line);
+    };
+    const packDir = await materializePack(ref, {
+      ...(args.index ? { index: String(args.index) } : {}),
+      ...(args.version ? { version: String(args.version) } : {}),
+      log,
+    });
+    const result = await updateInstance(rec.id, { packDir, packRef: ref });
+    if (args.json) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    console.log(`${result.changed ? '✓' : '·'} ${result.from} → ${result.to}`);
+    if (result.addedFiles.length > 0) console.log(`  + ${result.addedFiles.length} 个文件`);
+    if (result.removedFiles.length > 0) console.log(`  - ${result.removedFiles.length} 个旧文件已清掉`);
+    for (const file of result.removedFiles.slice(0, 10)) console.log(`    ${file}`);
+    if (result.localChanges.length > 0) {
+      console.log(`  ! ${result.localChanges.length} 个文件在改之前被本地改过，现在是新版本的内容；要保留请先备份`);
+    }
+  },
+});
+
+const rebaseline = defineCommand({
+  meta: { name: 'rebaseline', description: '把当前磁盘状态认作基线（接受本地改动）' },
+  args: {
+    target: { type: 'positional', required: true, description: '实例 id 或名字' },
+    json: { type: 'boolean', default: false },
+  },
+  run({ args }) {
+    const baseline = rebaselineInstance(requireTarget(args.target));
+    console.log(
+      args.json
+        ? JSON.stringify(baseline, null, 2)
+        : `✓ 基线已更新：${baseline.files.length} 个文件（${baseline.pack}@${baseline.version}）`,
+    );
+  },
+});
+
 const exportCmd = defineCommand({
   meta: { name: 'export', description: '把实例导出成模板（JSON），可在别处重建' },
   args: {
@@ -571,6 +623,8 @@ export const main = defineCommand({
     clone,
     rename,
     migrate,
+    update,
+    rebaseline,
     export: exportCmd,
     import: importCmd,
     recover,

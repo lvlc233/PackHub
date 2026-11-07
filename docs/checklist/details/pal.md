@@ -107,9 +107,12 @@ Pack 里的 `type: mcp` 资源安装时写进实例的 `.packhub/config.json`（
 
 ## 命令
 
-`pal create / list / show / remove / start / stop / restart / status / health / doctor / logs / use / current / serve / adopt / clone / rename / migrate / export / import / recover`。
+`pal create / list / show / remove / start / stop / restart / status / health / doctor / logs / use / current / serve / adopt / clone / rename / migrate / update / rebaseline / export / import / recover`。
 
 `start` 会立刻退出（宿主 detach）；要看着护就用 `pal serve`。「实例流转」目前只有 CLI。
+
+`update` 要求实例已停：装上新版本后，把上一版独有的文件删掉（删不掉就留着），刷新基线与记录，并列出「哪些文件在更新前被本地改过」（更新会覆盖它们）。
+`rebaseline` 把当前磁盘状态认作基线：本地改动被接受，体检不再报漂移。
 
 ## CI
 
@@ -118,6 +121,6 @@ Pack 里的 `type: mcp` 资源安装时写进实例的 `.packhub/config.json`（
 ## 缺口
 
 - 看护只在 `pal serve` 活着时生效，壳退出后没有系统级守护。
-- `adopt` / `clone` / `migrate` 没有界面入口。
+- `adopt` / `clone` / `migrate` 没有界面入口（`update` / `rebaseline` 前者的界面入口是详情页的「更新」按钮，后者只有 CLI）。
 - 没有运行时版本管理；跨盘迁移要手动搬。
 - 计数与耗时这类性能数字只在本机测过，没有进 CI 基线。

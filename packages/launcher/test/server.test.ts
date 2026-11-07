@@ -146,8 +146,17 @@ describe('PAL 本地界面 API', () => {
     expect(Array.isArray(packs.local)).toBe(true);
   });
 
-  it('打开实例：服务端把凭据拼回去，接口本身不吐 token', async () => {
+  it('更新接口：同一个 Pack 同一版本不产生变化', async () => {
     const rec = await json('/api/instances', {
+      method: 'POST',
+      body: JSON.stringify({ pack: 'examples/doc-review', name: 'upd-me', harness: 'dir' }),
+    });
+    const result = await json(`/api/instances/${rec.id}/update`, { method: 'POST', body: '{}' });
+    expect(result.changed).toBe(false);
+    expect(result.to).toBe('lvlc233/doc-review@0.1.0');
+  });
+
+  it('打开实例：服务端把凭据拼回去，接口本身不吐 token', async () => {    const rec = await json('/api/instances', {
       method: 'POST',
       body: JSON.stringify({ pack: 'examples/doc-review', name: 'opened', harness: 'dir' }),
     });

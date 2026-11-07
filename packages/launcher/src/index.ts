@@ -11,13 +11,14 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { basename, dirname, join, resolve, sep } from 'node:path';
-import { planFor, type PackContext, type TargetId } from '@packhub/kernel';
+import { planFor, type PackContext, type Plan, type TargetId } from '@packhub/kernel';
 import {
   installPack,
   loadLock,
   loadPackResolved,
   loadState,
   removePack,
+  saveState,
   withLockPins,
 } from '@packhub/runtime';
 import { ADAPTERS, HARNESS_IDS, targetVarsFor } from './layout.ts';
@@ -814,6 +815,210 @@ export async function removeInstance(
     ...(archivedTo ? { archivedTo } : {}),
     removed: !opts.keepData && record.managed && !archivedTo,
   };
+}
+
+/* ---------- 更新与重新基准化 ---------- */
+
+export interface UpdateInstanceResult {
+  record: InstanceRecord;
+  from: string;
+  to: string;
+  changed: boolean;
+  planHash: string;
+  /** 上一版有、这一版不再需要的文件 */
+  removedFiles: string[];
+  addedFiles: string[];
+  /** 上一版文件里被本地改过、更新会覆盖的（保护提示） */
+  localChanges: string[];
+}
+
+function writtenOf(root: string, names: string[]): string[] {
+  const state = loadState(root);
+  const out = new Set<string>();
+  for (const key of names) {
+    for (const rel of state.packs[key]?.written ?? []) out.add(rel);
+  }
+  return [...out];
+}
+
+/** 计划会写到的路径：更新后据此判断上一版的哪些文件已经没人要了。 */
+function planTargets(plan: Plan): Set<string> {
+  const out = new Set<string>();
+  for (const action of plan.actions) {
+    if (
+      action.op === 'write' ||
+      action.op === 'link.skill' ||
+      action.op === 'unpack' ||
+      action.op === 'link.bin' ||
+      action.op === 'state.dir'
+    ) {
+      out.add(action.to);
+    } else if (action.op === 'instruction') {
+      out.add(action.file);
+    } else if (action.op === 'merge.config') {
+      out.add(action.path);
+    } else if (action.op === 'register.mcp') {
+      out.add(action.path ?? '.packhub/config.json');
+    }
+  }
+  return out;
+}
+
+/**
+ * 把实例里的 Pack 换成另一个版本：先在同一个根上装新版，再清掉上一版独有的文件。
+ * 要求实例已停：更新期间有进程在读这些文件，删了会留下半套。
+ */
+export async function updateInstance(
+  nameOrId: string,
+  opts: { packDir: string; packRef?: string; force?: boolean },
+): Promise<UpdateInstanceResult> {
+  const record = requireInstance(nameOrId);
+  if (record.pid && isPidAlive(record.pid)) {
+    throw new PalError('already-running', `实例还在运行，先停掉再更新：pid ${record.pid}`, {
+      hint: 'pal stop <id>，更新完再 pal start',
+    });
+  }
+  const harness = record.harness;
+  const loaded = await loadPackResolved(resolve(opts.packDir));
+  if (!loaded.manifest) {
+    const detail = loaded.issues.filter((i) => i.severity === 'error').map((i) => i.message).join('; ');
+    throw new PalError('invalid-input', `清单有问题：${detail || opts.packDir}`);
+  }
+  const ctx: PackContext = withLockPins(loaded, loadLock(resolve(opts.packDir)));
+  const errors = ctx.issues.filter((i) => i.severity === 'error');
+  if (errors.length > 0) throw new PalError('invalid-input', `清单有问题：${errors.map((i) => i.message).join('; ')}`);
+  if (!ctx.manifest.metadata.targets.includes(harness)) {
+    throw new PalError('invalid-input', `这个包没有声明 target ${harness}`);
+  }
+  if (ctx.manifest.metadata.name !== record.pack.name) {
+    throw new PalError(
+      'invalid-input',
+      `这不是同一个 Pack：实例里是 ${record.pack.name}，新的是 ${ctx.manifest.metadata.name}`,
+      { hint: '换 Pack 请新建实例，不要原地替换' },
+    );
+  }
+
+  const targetVars = targetVarsFor(harness);
+  const { plan, issues } = planFor(ctx, { target: harness, ...(targetVars ? { targetVars } : {}) });
+  if (!plan) throw new PalError('invalid-input', `生成不了计划：${issues.map((i) => i.message).join('; ')}`);
+
+  const before = loadState(record.root);
+  const oldKeys = Object.keys(before.packs).filter((key) => key.startsWith(`${record.pack.name}@`));
+  const oldWritten = writtenOf(record.root, oldKeys);
+  const baseline = readBaseline(record.root);
+  // 更新会覆盖 Pack 装过的文件，所以先看哪些已经被本地改过：改过的要提前告诉人
+  const localChanges = baseline
+    ? baseline.files
+        .filter((file) => {
+          try {
+            const abs = resolve(record.root, file.path);
+            return (
+              existsSync(abs) &&
+              createHash('sha256').update(readFileSync(abs)).digest('hex') !== file.sha256
+            );
+          } catch {
+            return false;
+          }
+        })
+        .map((file) => file.path)
+    : [];
+
+  let removedFiles: string[] = [];
+  let addedFiles: string[] = [];
+  let changed = false;
+
+  await withInstanceLock(record.root, 'update', async () => {
+    changed = record.planHash !== plan.planHash || record.pack.version !== ctx.manifest.metadata.version;
+    if (!changed) return;
+    // 同一 Pack 的新版本要能覆盖旧版本写过的文件；overwrite 只放开"自己的包"
+    await installPack(ctx, plan, { root: record.root, packRoot: resolve(opts.packDir), overwrite: true });
+
+    // install 已经把同名的旧 key 并进新 key、written 取并集；这里清掉新计划不再要的文件
+    const targets = planTargets(plan);
+    removedFiles = oldWritten.filter((rel) => !targets.has(rel));
+    addedFiles = [...targets].filter((rel) => !oldWritten.includes(rel));
+    for (const rel of removedFiles) {
+      const abs = resolve(record.root, rel);
+      if (!abs.startsWith(resolve(record.root))) continue;
+      try {
+        if (existsSync(abs) && statSync(abs).isFile()) rmSync(abs, { force: true });
+      } catch {
+        /* 删不掉就留着，下次更新再说 */
+      }
+    }
+
+    const after = loadState(record.root);
+    const key = Object.keys(after.packs).find((item) => item.startsWith(`${ctx.manifest.metadata.name}@`));
+    const recordState = key ? after.packs[key] : undefined;
+    if (recordState) {
+      const stale = new Set(removedFiles);
+      recordState.written = recordState.written.filter((rel) => !stale.has(rel));
+    }
+    saveState(record.root, after);
+
+    writeBaseline(record.root, {
+      pack: ctx.manifest.metadata.name,
+      version: ctx.manifest.metadata.version,
+      harness,
+      planHash: plan.planHash,
+      files: baselineFromState(record.root),
+    });
+
+    const next: InstanceRecord = {
+      ...record,
+      pack: {
+        name: ctx.manifest.metadata.name,
+        version: ctx.manifest.metadata.version,
+        ...(opts.packRef ? { ref: opts.packRef } : record.pack.ref ? { ref: record.pack.ref } : {}),
+      },
+      planHash: plan.planHash,
+      status: 'installed',
+    };
+    delete next.lastError;
+    writeInstance(next);
+  });
+
+  const localChangesAfter = baseline
+    ? baseline.files
+        .filter((file) => !new Set(removedFiles).has(file.path))
+        .filter((file) => {
+          try {
+            const abs = resolve(record.root, file.path);
+            return existsSync(abs) && createHash('sha256').update(readFileSync(abs)).digest('hex') !== file.sha256;
+          } catch {
+            return false;
+          }
+        })
+        .map((file) => file.path)
+    : [];
+
+  return {
+    record: readRecord(record.root)!,
+    from: `${record.pack.name}@${record.pack.version}`,
+    to: `${ctx.manifest.metadata.name}@${ctx.manifest.metadata.version}`,
+    changed,
+    planHash: plan.planHash,
+    removedFiles,
+    addedFiles,
+    localChanges: [...new Set([...localChanges, ...localChangesAfter])],
+  };
+}
+
+/** 重新基准化：把当前磁盘状态认作基线（本地改动被"接受"，体检不再报漂移）。 */
+export function rebaselineInstance(nameOrId: string): Baseline {
+  const record = requireInstance(nameOrId);
+  const baseline = readBaseline(record.root);
+  const next = writeBaseline(record.root, {
+    pack: record.pack.name,
+    version: record.pack.version,
+    harness: record.harness,
+    planHash: record.planHash,
+    files: baselineFromState(record.root),
+  });
+  if (baseline) {
+    next.ignore = baseline.ignore;
+  }
+  return next;
 }
 
 /* ---------- 接管 / 复制 / 改名 / 迁移 / 模板 ---------- */

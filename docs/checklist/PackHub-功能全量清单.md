@@ -1,6 +1,6 @@
 # PackHub 功能全量清单[待更新]
 
-> 版本：2026-11-07 ／ 口径：本仓库当前代码、CLI 实测、测试套件（72 个文件 / 293 项）与 registry 现状。
+> 版本：2026-11-07 ／ 口径：本仓库当前代码、CLI 实测、测试套件（72 个文件 / 297 项）与 registry 现状。
 > 用途：实现 checklist、选型对照、漏项审计。**不是**产品介绍。
 
 ## 怎么读
@@ -373,7 +373,8 @@ PAL 是 `packages/launcher` 里的实例内核 + Windows 壳（`apps/pal-desktop
 | PAL-14b | 沿用已有 home | `create --from-home` 只补空缺地搬凭据与用户指令，不盖掉 Pack 写的文件；`sessions` 等不搬 | [done] | `seedHome`、`test/instance.test.ts` |
 | PAL-15 | 模板 | `export` 出可复现模板 JSON，`import` 按引用重建；不可复现的明确拒绝 | [done] | `exportTemplate`、`readTemplate` |
 | PAL-16 | 健康检查 | 记录/锁/进程/端口/home/基线/MCP 七项 | [done] | `health.ts`、`test/health.test.ts` |
-| PAL-17 | 基线 | 建实例写 `baseline.json`（Pack 装的每个文件 + sha256），体检报缺失/改动 | [done] | `writeBaseline`、`baselineDrift` |
+| PAL-17 | 基线 | 建实例写 `baseline.json`（Pack 装的每个文件 + sha256），体检报缺失/改动；`pal rebaseline` 接受本地改动 | [done] | `writeBaseline`、`baselineDrift`、`rebaselineInstance` |
+| PAL-17b | 更新 | `pal update` / 详情页「更新」：同 Pack 换版本，装新删旧、刷新基线与记录，并报出被本地改过的文件 | [done] | `updateInstance`、`test/instance.test.ts` |
 | PAL-18 | 删除时目录被占 | 重试删除，仍不行就改名进归档，不把半个实例留在列表 | [done] | `removeTreeWithRetry` |
 | PAL-19 | 界面 | 实例列表/详情增量更新（不整块重渲）、包与版本选择、更新提示、体检面板、删除保留数据 | [done] | `web/app.js` |
 | PAL-20 | 取包缓存 | 按来源 + 版本分目录，重取先清空；失败不留半份 | [done] | `materialize.ts`、`test/materialize.test.ts` |

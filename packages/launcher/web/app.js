@@ -195,6 +195,8 @@ function renderDetail() {
   const hasUpdate = Boolean(latest && latest !== rec.pack.version);
   setHidden($('#d-update'), !hasUpdate);
   if (hasUpdate) setText($('#d-update'), `可更新到 ${latest}`);
+  setHidden($('#d-update-btn'), !hasUpdate);
+  setDisabled($('#d-update-btn'), Boolean(state.busy));
 
   setDisabled($('#d-open'), !rec.url);
   setHidden($('#d-open'), !rec.url);
@@ -270,9 +272,10 @@ async function act(name) {
     start: `/api/instances/${encodeURIComponent(rec.id)}/start`,
     stop: `/api/instances/${encodeURIComponent(rec.id)}/stop`,
     restart: `/api/instances/${encodeURIComponent(rec.id)}/restart`,
+    update: `/api/instances/${encodeURIComponent(rec.id)}/update`,
     use: `/api/instances/${encodeURIComponent(rec.id)}/active`,
   };
-  const labels = { start: '启动', stop: '停止', restart: '重起', use: '设为当前' };
+  const labels = { start: '启动', stop: '停止', restart: '重起', update: '更新', use: '设为当前' };
   try {
     if (name === 'logs') {
       await openLogs(rec);
@@ -294,6 +297,19 @@ async function act(name) {
     if (!path) return;
     state.busy = name;
     renderDetail();
+    if (name === 'update') {
+      const result = await api(path, { method: 'POST', body: {} });
+      state.health = null;
+      await refresh();
+      if (result.changed) {
+        const bits = [`${result.from} → ${result.to}`];
+        if (result.removedFiles.length) bits.push(`清掉 ${result.removedFiles.length} 个旧文件`);
+        if (result.localChanges.length) bits.push(`${result.localChanges.length} 个文件原来被本地改过，现在已是新版本`);
+        $('#d-note').textContent = bits.join('；');
+        $('#d-note').hidden = false;
+      }
+      return;
+    }
     await api(path, { method: 'POST' });
     await refresh();
   } catch (err) {
@@ -611,6 +627,7 @@ $('#d-open').addEventListener('click', () => act('open'));
 $('#d-start').addEventListener('click', () => act('start'));
 $('#d-stop').addEventListener('click', () => act('stop'));
 $('#d-restart').addEventListener('click', () => act('restart'));
+$('#d-update-btn').addEventListener('click', () => act('update'));
 $('#d-use').addEventListener('click', () => act('use'));
 $('#d-health').addEventListener('click', () => act('health'));
 $('#d-logs').addEventListener('click', () => act('logs'));

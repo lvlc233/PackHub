@@ -19,12 +19,15 @@ import {
   readBaseline,
   readInstance,
   readTemplate,
+  rebaselineInstance,
   removeInstance,
   renameInstance,
   scanInstances,
+  updateInstance,
   writeTemplate,
 } from '../src/index.ts';
 import { isPalError } from '../src/errors.ts';
+import { baselineDrift } from '../src/health.ts';
 import { archiveRoot, failedRoot, quarantineRoot } from '../src/paths.ts';
 
 const PACK = 'examples/doc-review';
@@ -226,6 +229,83 @@ describe('实例配置', () => {
     expect(template.pack.name).toBe('lvlc233/doc-review');
     const file = writeTemplate(template, join(tmp, 'src.pal.json'));
     expect(readTemplate(file).name).toBe('src');
+  });
+
+  it('更新到新版本：换掉旧文件、清掉上一版独有的文件、刷新基线与记录', async () => {
+    const v1 = join(tmp, 'pack-v1');
+    mkdirSync(v1, { recursive: true });
+    writeFileSync(join(v1, 'a.md'), '# a1\n', 'utf8');
+    writeFileSync(join(v1, 'b.md'), '# b\n', 'utf8');
+    writeFileSync(
+      join(v1, 'packhub.yaml'),
+      `apiVersion: packhub.dev/v0
+kind: Pack
+metadata: { name: demo/upd, version: 0.1.0, targets: [dir] }
+resources:
+  - id: a
+    type: knowledge
+    source: ./a.md
+  - id: b
+    type: knowledge
+    source: ./b.md
+`,
+      'utf8',
+    );
+    const rec = await createInstance({ name: 'upd', harness: 'dir', packDir: v1, packRef: v1 });
+    const aPath = join(rec.root, '.packhub', 'knowledge', 'a.md');
+    const bPath = join(rec.root, '.packhub', 'knowledge', 'b.md');
+    expect(existsSync(aPath)).toBe(true);
+
+    const v2 = join(tmp, 'pack-v2');
+    mkdirSync(v2, { recursive: true });
+    writeFileSync(join(v2, 'a.md'), '# a2\n', 'utf8');
+    writeFileSync(join(v2, 'c.md'), '# c\n', 'utf8');
+    writeFileSync(
+      join(v2, 'packhub.yaml'),
+      `apiVersion: packhub.dev/v0
+kind: Pack
+metadata: { name: demo/upd, version: 0.2.0, targets: [dir] }
+resources:
+  - id: a
+    type: knowledge
+    source: ./a.md
+  - id: c
+    type: knowledge
+    source: ./c.md
+`,
+      'utf8',
+    );
+
+    const result = await updateInstance('upd', { packDir: v2 });
+    expect(result.changed).toBe(true);
+    expect(result.to).toBe('demo/upd@0.2.0');
+    expect(readFileSync(aPath, 'utf8')).toBe('# a2\n');
+    expect(existsSync(bPath)).toBe(false);
+    expect(existsSync(join(rec.root, '.packhub', 'knowledge', 'c.md'))).toBe(true);
+    expect(result.removedFiles).toContain('.packhub/knowledge/b.md');
+    expect(readInstance(rec.id)?.pack.version).toBe('0.2.0');
+    expect(readBaseline(rec.root)?.version).toBe('0.2.0');
+  });
+
+  it('运行中的实例拒绝更新', async () => {
+    const rec = await createInstance({ name: 'run-upd', harness: 'dsh', packDir: 'examples/doc-review' });
+    writeFileSync(
+      join(rec.root, 'instance.json'),
+      JSON.stringify({ ...readInstance(rec.id)!, status: 'running', pid: process.pid }, null, 2),
+      'utf8',
+    );
+    await expect(updateInstance('run-upd', { packDir: 'examples/doc-review' })).rejects.toThrow('先停掉再更新');
+  });
+
+  it('重新基准化：本地改动被接受，漂移消失', async () => {
+    const rec = await createInstance({ name: 'base', harness: 'dir', packDir: 'examples/doc-review' });
+    const baseline = readBaseline(rec.root)!;
+    const file = join(rec.root, baseline.files[0]!.path);
+    writeFileSync(file, 'locally edited', 'utf8');
+    expect(baselineDrift(rec)?.changed.length).toBe(1);
+
+    rebaselineInstance('base');
+    expect(baselineDrift(readInstance(rec.id)!)?.changed).toEqual([]);
   });
 
   it('接管来的实例导不出可复现模板', async () => {

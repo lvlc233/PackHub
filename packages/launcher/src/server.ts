@@ -8,6 +8,7 @@ import {
   removeInstance,
   requireInstance,
   scanInstances,
+  updateInstance,
 } from './index.ts';
 import { refreshStatuses, restartInstance, startInstance, stopInstance } from './start.ts';
 import { activeEntries, setActive, readActive } from './active.ts';
@@ -184,7 +185,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, insecure: boole
     return;
   }
 
-  const match = /^\/api\/instances\/([^/]+)(?:\/(start|stop|restart|active|logs|health|open))?$/.exec(path);
+  const match = /^\/api\/instances\/([^/]+)(?:\/(start|stop|restart|update|active|logs|health|open))?$/.exec(path);
   if (match) {
     const id = decodeURIComponent(match[1]!);
     const action = match[2];
@@ -204,6 +205,17 @@ async function handle(req: IncomingMessage, res: ServerResponse, insecure: boole
     }
     if (action === 'restart' && req.method === 'POST') {
       sendJson(res, 200, await restartInstance(id, { supervise: true }));
+      return;
+    }
+    if (action === 'update' && req.method === 'POST') {
+      const body = await readJson(req);
+      const rec = requireInstance(id);
+      const ref = rec.pack.ref ?? rec.pack.name;
+      const packDir = await materializePack(ref, {
+        ...(body.index ? { index: String(body.index) } : {}),
+        ...(body.version ? { version: String(body.version) } : {}),
+      });
+      sendJson(res, 200, await updateInstance(id, { packDir, packRef: ref }));
       return;
     }
     if (action === 'stop' && req.method === 'POST') {
