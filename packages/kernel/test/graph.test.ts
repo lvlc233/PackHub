@@ -47,19 +47,6 @@ describe('validateGraph', () => {
     expect(validateGraph(manifest).issues.map((i) => i.code)).toContain('pin-conflict');
   });
 
-  it('composition.order 与 dependsOn 矛盾时报错', () => {
-    const manifest = load(
-      base({
-        resources: [
-          { id: 'tool-a', type: 'mcp', source: 'npm:@x/y@1.0.0', transport: 'stdio', provides: ['tool:search'] },
-          { id: 'skill-b', type: 'skill', source: './skills/b', dependsOn: ['tool-a'], needs: ['tool:search'] },
-        ],
-        composition: { order: ['skill-b', 'tool-a'] },
-      }),
-    );
-    expect(validateGraph(manifest).issues.map((i) => i.code)).toContain('order-violates-dependency');
-  });
-
   it('重复 id 报错', () => {
     const manifest = load(
       base({

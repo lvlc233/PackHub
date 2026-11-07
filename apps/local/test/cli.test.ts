@@ -76,15 +76,19 @@ verify:
   it('pack 输出结构化结果，publish 写版本目录与索引', () => {
     const packDir = mkdtempSync(join(tmpdir(), 'packhub-cli-pack-'));
     makePack(packDir);
-    const packed = run(['pack', packDir, '--json', '--vendored']);
+    const packed = run(['pack', packDir, '--json']);
     expect(packed.status).toBe(0);
     const packedBody = JSON.parse(packed.out.slice(packed.out.indexOf('{'), packed.out.lastIndexOf('}') + 1)) as {
       file: string;
       bytes: number;
       entries: string[];
+      mode: string;
     };
     expect(existsSync(packedBody.file)).toBe(true);
     expect(packedBody.entries).toContain('packhub.yaml');
+    // 默认自包含：本地来源随包走，不用 --vendored
+    expect(packedBody.entries).toContain('rules.md');
+    expect(packedBody.mode).toBe('vendored');
 
     const registry = mkdtempSync(join(tmpdir(), 'packhub-cli-reg-'));
     const published = run(['publish', packDir, '--registry', registry, '--json']);

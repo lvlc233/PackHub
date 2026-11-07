@@ -239,9 +239,11 @@ overlays:
 
 两个**保留字段**：`overlays[].note` 与 `install.exec[].undo` 只被 schema 接受并随 state 记录，安装器不读取、回滚也不自动执行。它们留给未来的说明与撤销能力，不要依赖它们产生行为。
 
-### 继承与本地覆盖
+### 本地覆盖
 
-`extends: ../base` 继承一个本地父 Pack；`extends: packhub://scope/name@1.0.0` 从 registry 取远程父包（落在子包 `.packhub/cache/extends/`，路径相对子包，planHash 跨机器一致）。单个资源也可以引用已发布包里的文件或目录：`source: "packhub://scope/name@1.0.0#docs/guide.md"`（skill 则指向目录）；安装期同样落进 `.packhub/cache/packhub/`，`lock` 与 `publish` 要求先 vendored。父包的 `resources`、`composition`、`slots`、`bindings`、`overrides`、`verify` 一起合并；子包同名资源覆盖父包，`metadata` 与 `requires` 以子包为准；父包的本地 source 会被改写成相对子包的路径，安装时能读。成环报 `extends-cycle`。远程继承要求 `--index` / `PACKHUB_INDEX`；`packhub publish` 会自动扁平化（外部文件复制到 `external/`，清单去掉 `extends`）；直接调用 `publishPack` 时先 `flattenPack`。
+v0 不做 `extends` 与组合继承；同一个包内要换实现，用 `slots` / `bindings`。
+
+单个资源可以直接引用已发布包里的文件或目录：`source: "packhub://scope/name@1.0.0#docs/guide.md"`（skill 则指向目录）；安装期落进 `.packhub/cache/packhub/`，`lock` 与 `publish` 要求先把内容 vendored 进包。
 
 使用者侧的 `.packhub/local.yaml` 不进清单、不进锁，只覆盖这一次安装：
 
@@ -252,8 +254,6 @@ overrides:
     source: npm:@scope/search@1.4.0
 bindings: { voice: elevenlabs }
 vars: { SEARCH_ROOT: ./docs }
-composition:
-  env: { FLAVOR: local }
 ```
 
 `packhub add` 会读它；`packhub plan` 只按清单本身算，不叠加覆盖。清单本身不被改写。锁核对发生在应用本地覆盖**之前**：覆盖不会绕过来源与锁校验，但覆盖之后的计划也不再与锁比对——这是使用者的显式选择。
@@ -523,7 +523,7 @@ verify:
 2. 在**干净目录**装一遍：`packhub install` 全 `done`/`noop`，没有 `skipped`。
 3. `packhub verify` 没有 `fail`。
 4. `packhub lock` 已生成，且 `planHash` 与当前清单一致。
-5. 本地资源全部 vendored 进版本目录（与 `.phub` 同一批顶层条目）。
+5. 本地资源随包进入版本目录与 `.phub`（打包默认自包含；只有全部来源都能远程取到时，才可以用 `--reference` 只打清单与锁）。
 6. 放进 `registry/packs/<scope>/<name>/<version>/`，跑 `pnpm registry:verify <dir>`，再跑 `pnpm registry:check`。
 
 前五条是作者的责任，第六条是 CI 的门禁。

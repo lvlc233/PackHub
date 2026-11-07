@@ -1,10 +1,13 @@
 import { existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
-import { dirname, join, resolve, sep } from 'node:path';
+import { dirname, join } from 'node:path';
 import * as tar from 'tar';
 import { loadPack, parseSource } from '@packhub/kernel';
 
 export interface PackArchiveOptions {
-  /** vendored：把本地资源一起装进归档，离线可装；默认只带清单与锁 */
+  /**
+   * 默认自包含（vendored）：本地内容一起进归档，离线可装。
+   * 显式传 false 才是 reference 模式：只打清单与锁，安装时按 source 去取。
+   */
   vendored?: boolean;
   /** 覆盖输出路径 */
   out?: string;
@@ -23,7 +26,7 @@ export class LocalSourceNotVendoredError extends Error {
   constructor(sources: string[]) {
     const shown = sources.slice(0, 3).map((s) => `  ${s}`).join('\n');
     super(
-      `清单里有 ${sources.length} 条本地来源，reference 模式打出来装不上：\n${shown}${sources.length > 3 ? '\n  …' : ''}\n加 --vendored 把本地资源一起打进去（离线可装）。`,
+      `清单里有 ${sources.length} 条本地来源，reference 模式打出来装不上：\n${shown}${sources.length > 3 ? '\n  …' : ''}\n去掉 --reference（默认自包含），或把这些内容换成可远程获取的来源。`,
     );
     this.name = 'local-source-not-vendored';
     this.sources = sources;
@@ -40,7 +43,7 @@ export function vendoredEntries(root: string): string[] {
     .sort();
 }
 
-/** 清单里指向本机文件的来源（./、../）；这些字节不在清单里。 */
+/** 清单里指向本机文件的来源（./）；这些字节不在清单里。 */
 export function localSources(root: string): string[] {
   const ctx = loadPack(root);
   return (ctx.manifest?.resources ?? [])
@@ -48,18 +51,9 @@ export function localSources(root: string): string[] {
     .filter((source) => parseSource(source).kind === 'local');
 }
 
-/** 解析后落在包目录外的本地来源：归档只带包目录，带不上它们。 */
-function escapingSources(root: string, sources: string[]): string[] {
-  const base = resolve(root);
-  return sources.filter((source) => {
-    const target = resolve(base, source);
-    return target !== base && !target.startsWith(base + sep);
-  });
-}
-
 /**
- * 把 Pack 打成 `.phub`（tar.gz）：清单 + 锁（+ 可选本地资源）。
- * 产物是分发的唯一载体，解包后即可 plan/install。
+ * 封装：把 Pack 目录打成 `.phub`（tar.gz）。只带清单、锁与要随包走的内容，不生成安装计划。
+ * 默认自包含；reference 只适合全部来源都能在安装时远程取到的包。
  */
 export async function packArchive(
   root: string,
@@ -68,23 +62,17 @@ export async function packArchive(
   const manifest = join(root, 'packhub.yaml');
   if (!existsSync(manifest)) throw new Error(`没有 packhub.yaml：${root}`);
 
+  const vendored = opts.vendored !== false;
   const locals = localSources(root);
-  if (!opts.vendored) {
-    // 「reference 模式」只可能对远程来源成立：./ 的文件不在归档里，装到 write 那步必然 ENOENT。
-    if (locals.length > 0) throw new LocalSourceNotVendoredError(locals);
-  } else {
-    const outside = escapingSources(root, locals);
-    if (outside.length > 0) {
-      throw new Error(
-        `这些本地来源在包目录外，归档带不上：${outside.join('、')}；先展开父包（packhub publish / flatten）或把文件挪进包内`,
-      );
-    }
+  if (!vendored && locals.length > 0) {
+    // reference 模式只可能对远程来源成立：./ 的文件不在归档里，装到 write 那步必然 ENOENT。
+    throw new LocalSourceNotVendoredError(locals);
   }
 
   const entries = ['packhub.yaml', 'packhub.lock.json', 'packhub.signatures.json'].filter((f) =>
     existsSync(join(root, f)),
   );
-  if (opts.vendored) entries.push(...vendoredEntries(root));
+  if (vendored) entries.push(...vendoredEntries(root));
 
   const out = opts.out ?? join(root, 'pack.phub');
   mkdirSync(dirname(out), { recursive: true });

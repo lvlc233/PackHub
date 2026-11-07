@@ -1759,26 +1759,38 @@ const verifySig = defineCommand({
 });
 
 const pack = defineCommand({
-  meta: { name: 'pack', description: '打成 .phub 归档（tar.gz）' },
+  meta: {
+    name: 'pack',
+    description: '封装：把 Pack 目录打成 .phub 归档（不是整合，也不是发布）',
+  },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
     out: { type: 'string', description: '输出路径，默认 <dir>/pack.phub' },
-    vendored: { type: 'boolean', default: false, description: '把本地资源一起打进去（离线可装）' },
+    reference: {
+      type: 'boolean',
+      default: false,
+      description: '只打清单与锁，安装时按 source 取内容（要求所有来源都可远程获取）',
+    },
     json: { type: 'boolean', default: false, description: '输出结构化结果（脚本用）' },
   },
   async run({ args }) {
     const dir = resolve(String(args.dir));
+    const vendored = !args.reference;
     try {
       const res = await packArchive(dir, {
-        vendored: Boolean(args.vendored),
+        vendored,
         ...(args.out ? { out: resolve(String(args.out)) } : {}),
       });
       if (args.json) {
-        console.log(JSON.stringify({ ...res, vendored: Boolean(args.vendored) }, null, 2));
+        console.log(
+          JSON.stringify({ ...res, mode: vendored ? 'vendored' : 'reference' }, null, 2),
+        );
         return;
       }
       console.log(`✓ ${res.file}（${Math.max(1, Math.round(res.bytes / 1024))} KB）`);
-      console.log(`包含：${res.entries.join('、')}${args.vendored ? '' : '（reference 模式，装的时候要联网取资源）'}`);
+      console.log(
+        `包含：${res.entries.join('、')}${vendored ? '（自包含）' : '（reference 模式：安装时要能按 source 取到内容）'}`,
+      );
     } catch (err) {
       if (err instanceof LocalSourceNotVendoredError) {
         console.error(`x ${err.message}`);
