@@ -1,22 +1,9 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { appendFileSync, existsSync, readFileSync, statSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { extname, join, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join, resolve } from 'node:path';
 import { buildPlan, parseManifest, validateGraph, type TargetId } from '@packhub/kernel';
 import { collectPackResources } from './resources.ts';
-
-const MIME: Record<string, string> = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.jpg': 'image/jpeg',
-  '.json': 'application/json; charset=utf-8',
-  '.woff2': 'font/woff2',
-  '.md': 'text/markdown; charset=utf-8',
-};
 
 export interface HubAuth {
   /** 静态 token；客户端用 Authorization: Bearer <token> 或 x-packhub-token */
@@ -31,7 +18,6 @@ export interface HubOptions {
   port: number;
   /** 默认 127.0.0.1；非回环地址必须配 auth，否则拒绝启动 */
   host?: string;
-  staticDir?: string;
   auth?: HubAuth;
   /** 审计日志：每次请求一行 JSON（谁、何时、取了什么） */
   auditFile?: string;
@@ -39,21 +25,15 @@ export interface HubOptions {
   rpm?: number;
 }
 
-/** web 构建产物默认位置（packages/web/dist）。 */
-export function defaultStaticDir(): string {
-  return fileURLToPath(new URL('../../web/dist/', import.meta.url));
-}
-
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '::1']);
 
 /**
- * 只读的发布端：索引、包页数据、计划预览。
- * 这里没有 install / verify —— 执行永远发生在目标机器上。
+ * 只读发布端：索引、包/资源数据与计划预览。没有执行接口。
+ * 静态页面已移除（2026-11-07），这里只剩 /api/*。
  * 对外监听必须带 auth，否则启动即失败（fail-closed）。
  */
 export function startHub(opts: HubOptions): Promise<Server> {
   const root = resolve(opts.root);
-  const staticDir = opts.staticDir ? resolve(opts.staticDir) : undefined;
   const host = opts.host ?? '127.0.0.1';
   const token = opts.auth?.token ?? process.env.PACKHUB_HUB_TOKEN;
   const userHeader = opts.auth?.userHeader;
@@ -113,22 +93,6 @@ export function startHub(opts: HubOptions): Promise<Server> {
 
       if (url.pathname.startsWith('/api/')) {
         return await handleApi(url, req, res, root);
-      }
-
-      if (staticDir && existsSync(staticDir)) {
-        const rel = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
-        const file = resolve(staticDir, rel);
-        if (file === staticDir || file.startsWith(staticDir + sep)) {
-          if (existsSync(file) && statSync(file).isFile()) {
-            sendFile(req, res, file);
-            return;
-          }
-          const index = join(staticDir, 'index.html');
-          if (existsSync(index)) {
-            sendFile(req, res, index);
-            return;
-          }
-        }
       }
 
       res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
@@ -315,25 +279,6 @@ async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> 
   } catch {
     return {};
   }
-}
-
-function sendFile(req: IncomingMessage, res: ServerResponse, file: string): void {
-  const stat = statSync(file);
-  const etag = `"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`;
-  const isHtml = extname(file).toLowerCase() === '.html';
-  const cache = isHtml ? 'no-cache' : 'public, max-age=300, must-revalidate';
-  const headers = {
-    'content-type': MIME[extname(file)] ?? 'application/octet-stream',
-    'cache-control': cache,
-    etag,
-  };
-  if (req.headers['if-none-match'] === etag) {
-    res.writeHead(304, headers);
-    res.end();
-    return;
-  }
-  res.writeHead(200, { ...headers, 'content-length': stat.size });
-  res.end(readFileSync(file));
 }
 
 function sendJson(

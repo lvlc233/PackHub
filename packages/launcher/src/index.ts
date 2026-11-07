@@ -15,7 +15,7 @@ import { planFor, type PackContext, type Plan, type TargetId } from '@packhub/ke
 import {
   installPack,
   loadLock,
-  loadPackResolved,
+  loadPack,
   loadState,
   removePack,
   saveState,
@@ -573,7 +573,7 @@ export async function createInstance(opts: CreateInstanceOptions): Promise<Insta
   }
 
   const packDir = resolve(opts.packDir);
-  const loaded = await loadPackResolved(packDir);
+  const loaded = loadPack(packDir);
   if (!loaded.manifest) {
     const detail = loaded.issues.filter((i) => i.severity === 'error').map((i) => i.message).join('; ');
     throw new PalError('invalid-input', `清单有问题：${detail || packDir}`, { details: { packDir } });
@@ -879,7 +879,7 @@ export async function updateInstance(
     });
   }
   const harness = record.harness;
-  const loaded = await loadPackResolved(resolve(opts.packDir));
+  const loaded = loadPack(resolve(opts.packDir));
   if (!loaded.manifest) {
     const detail = loaded.issues.filter((i) => i.severity === 'error').map((i) => i.message).join('; ');
     throw new PalError('invalid-input', `清单有问题：${detail || opts.packDir}`);

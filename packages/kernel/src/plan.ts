@@ -41,7 +41,7 @@ export function buildPlan(
   const missing: string[] = [];
   const interp = (value: unknown): unknown => interpolate(value, scope, missing);
 
-  // 持久状态目录先算出来：resources / composition.env / verify 都可能用 ${state.<id>}
+  // 持久状态目录先算出来：resources 与 verify 都可能用 ${state.<id>}
   const statePaths: Record<string, string> = {};
   const stateIds = new Set<string>();
   for (const [i, spec] of (manifest.state ?? []).entries()) {
@@ -89,17 +89,6 @@ export function buildPlan(
       to,
       retain: spec.retain ?? 'keep',
       resource: `state:${spec.id}`,
-    });
-  }
-
-  // 接线：Pack 级 env 注入到目标配置，让所有资源都能读到
-  const packEnv = manifest.composition?.env;
-  if (packEnv && Object.keys(packEnv).length > 0) {
-    push({
-      op: 'merge.config',
-      path: targetVars.configFile,
-      strategy: 'json-merge',
-      patch: { env: interp(packEnv) },
     });
   }
 
@@ -280,9 +269,7 @@ export function buildPlan(
     const relFrom = ov.from.replace(/^\.\//, '').replace(/\/+$/, '');
     const absFrom = resolve(packDir, relFrom);
     const base = resolve(packDir);
-    // extends 继承来的覆盖层会落在父包目录（../…）：只读它、写目标仍在安装根内
-    const inherited = ov.from.startsWith('../');
-    if (!inherited && absFrom !== base && !absFrom.startsWith(base + sep)) {
+    if (absFrom !== base && !absFrom.startsWith(base + sep)) {
       issues.push({
         code: 'overlay-outside-pack',
         severity: 'error',

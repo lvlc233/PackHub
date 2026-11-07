@@ -108,9 +108,6 @@ export async function syncPack(
   if (ctx.manifest.overlays?.length) {
     throw new Error('全局同步不支持 overlays（会写 skills/ 之外的文件）');
   }
-  if (ctx.manifest.composition?.env && Object.keys(ctx.manifest.composition.env).length > 0) {
-    throw new Error('全局同步不支持 composition.env（会写 harness 的配置文件）');
-  }
 
   for (const r of resources.filter((x) => x.type === 'skill')) {
     if (!r.source.startsWith('./')) throw new Error(`全局同步要求本地 skill 源：${r.id} 是 ${r.source}`);

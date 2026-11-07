@@ -463,10 +463,9 @@ registry/
 | `packages/registry` | 发布、索引生成、门禁 |
 | `packages/market` | 市场写端：账号、上传审核、评分、下架、统计 |
 | `packages/launcher` | PAL 实例内核：建实例、启停与看护、体检、基线 |
-| `packages/hub` | 只读 HTTP：索引、包页数据、计划预览 |
-| `apps/local` | `packhub` 命令、本地面板 API |
+| `packages/hub` | 只读 HTTP API：索引、包/资源数据、计划预览 |
+| `apps/local` | `packhub` 命令 |
 | `apps/pal-desktop` | PAL 的 Windows 壳（WebView2） |
-| `packages/web` | 面板、目录、创作台 |
 
 ## 本地开发
 

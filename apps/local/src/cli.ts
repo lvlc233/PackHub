@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { defineCommand, type CommandDef } from 'citty';
-import { defaultStaticDir, startHub } from '@packhub/hub';
+import { startHub } from '@packhub/hub';
 import {
   startMarket,
   register as marketRegister,
@@ -43,8 +43,6 @@ import {
   doctorPack,
   probeHarness,
   probeSkill,
-  loadPackResolved,
-  flattenPack,
   generateKeyPair,
   signPlan,
   verifySignatures,
@@ -121,12 +119,9 @@ const plan = defineCommand({
     dir: { type: 'positional', required: false, default: '.' },
     json: { type: 'boolean', default: false },
     target: { type: 'string', default: 'dir', description: `${TARGET_IDS.join(' | ')}` },
-    index: { type: 'string', description: '远程 extends / packhub:// 用的 registry 索引' },
   },
-  async run({ args }) {
-    const ctx = await loadPackResolved(String(args.dir), {
-      index: resolveRegistry(args.index ? String(args.index) : undefined),
-    });
+  run({ args }) {
+    const ctx = loadPack(String(args.dir));
     if (reportIssues(ctx.issues)) process.exit(2);
     const { plan: p, issues } = planFor(ctx, { target: String(args.target ?? 'dir') as never });
     if (!p) {
@@ -150,12 +145,9 @@ const install = defineCommand({
     overwrite: { type: 'boolean', default: false, description: '允许覆盖别的包写过的文件' },
     target: { type: 'string', default: 'dir', description: `${TARGET_IDS.join(' | ')}` },
     json: { type: 'boolean', default: false, description: '输出结构化结果（脚本用）' },
-    index: { type: 'string', description: '远程 extends 用的 registry 索引' },
   },
   async run({ args }) {
-    const ctx = await loadPackResolved(String(args.dir), {
-      index: resolveRegistry(args.index ? String(args.index) : undefined),
-    });
+    const ctx = loadPack(String(args.dir));
     if (reportIssues(ctx.issues)) process.exit(2);
     const target = String(args.target ?? 'dir');
     if (!ctx.manifest.metadata.targets.includes(target as never)) {
@@ -223,7 +215,6 @@ const verify = defineCommand({
     target: { type: 'string', default: 'dir', description: `${TARGET_IDS.join(' | ')}` },
     pack: { type: 'string', description: '只验某个已装的包（name@version）' },
     json: { type: 'boolean', default: false, description: '输出结构化结果（脚本用）' },
-    index: { type: 'string', description: '远程 extends 用的 registry 索引' },
   },
   async run({ args }) {
     const dir = resolve(String(args.dir));
@@ -265,9 +256,7 @@ const verify = defineCommand({
       return;
     }
 
-    const ctx = await loadPackResolved(dir, {
-      index: resolveRegistry(args.index ? String(args.index) : undefined),
-    });
+    const ctx = loadPack(dir);
     if (reportIssues(ctx.issues)) process.exit(2);
     const { plan: p, issues } = planFor(ctx, { target: String(args.target ?? 'dir') as never });
     if (!p) {
@@ -296,23 +285,11 @@ const lock = defineCommand({
     dir: { type: 'positional', required: false, default: '.' },
     target: { type: 'string', default: 'dir', description: `主 target（${TARGET_IDS.join(' | ')}）；其余声明过的 target 也会锁` },
     offline: { type: 'boolean', default: false, description: '不联网：只锁本地与已 pin 的引用' },
-    index: { type: 'string', description: '远程 extends 用的 registry 索引' },
     json: { type: 'boolean', default: false, description: '输出锁与 planHash（脚本用）' },
   },
   async run({ args }) {
     const dir = resolve(String(args.dir));
-    const raw = loadPack(dir);
-    if (raw.manifest?.extends?.startsWith('packhub://')) {
-      console.error('远程 extends 的包不能直接 lock：先 vendored 父包（或改成本地继承）');
-      process.exit(2);
-    }
-    if (raw.manifest?.resources.some((r) => r.source.startsWith('packhub://'))) {
-      console.error('资源级 packhub:// 的包不能直接 lock：先把被引用的文件 vendored 进包内（改成 ./ 来源）');
-      process.exit(2);
-    }
-    const ctx = await loadPackResolved(dir, {
-      index: resolveRegistry(args.index ? String(args.index) : undefined),
-    });
+    const ctx = loadPack(dir);
     if (reportIssues(ctx.issues)) process.exit(2);
     try {
       const res = await lockPack(ctx, {
@@ -551,19 +528,8 @@ const add = defineCommand({
     const say = args.json ? (_line: string): void => {} : (line: string): void => console.log(line);
     const target = String(args.source);
     const targetEnv = String(args.target);
-    // packhub://scope/name@version 是 registry 引用的规范写法，与 scope/name + --version 等价
-    let registryName = target;
-    let registryVersion = args.version ? String(args.version) : undefined;
-    if (target.startsWith('packhub://')) {
-      const body = target.slice('packhub://'.length);
-      const at = body.lastIndexOf('@');
-      if (at <= 0) {
-        console.error('packhub:// 引用要带版本：packhub://scope/name@1.2.3');
-        process.exit(2);
-      }
-      registryName = body.slice(0, at);
-      registryVersion = body.slice(at + 1);
-    }
+    const registryName = target;
+    const registryVersion = args.version ? String(args.version) : undefined;
     // dry-run 不往项目里落任何东西：取包与解包都在临时目录完成
     const workBase = args['dry-run'] ? mkdtempSync(join(tmpdir(), 'packhub-add-')) : projectDir;
 
@@ -601,9 +567,7 @@ const add = defineCommand({
       label = `${registryName}@${fetched.version}`;
     }
 
-    const rawCtx = await loadPackResolved(packDir, {
-      index: resolveRegistry(args.index ? String(args.index) : undefined),
-    });
+    const rawCtx = loadPack(packDir);
     if (!rawCtx.manifest) {
       reportIssues(rawCtx.issues);
       process.exit(2);
@@ -1014,20 +978,13 @@ const publish = defineCommand({
     force: { type: 'boolean', default: false, description: '允许覆盖已存在的版本目录' },
     offline: { type: 'boolean', default: false, description: '不联网解析引用' },
     'allow-exec': { type: 'boolean', default: false, description: '允许 runner 执行清单里的 install.exec' },
-    index: { type: 'string', description: '扁平化远程 extends / packhub:// 用的 registry 索引' },
     'allow-non-public': { type: 'boolean', default: false, description: '允许发布 unlisted/internal（公共索引仍只收 public）' },
     json: { type: 'boolean', default: false, description: '输出结构化结果（脚本用）' },
   },
   async run({ args }) {
     const registry = resolve(String(args.registry));
-    let flat: Awaited<ReturnType<typeof flattenPack>> | undefined;
     try {
-      // 远程引用先展开成自包含目录，发布的版本目录与归档都不再依赖父包
-      flat = await flattenPack(resolve(String(args.dir)), {
-        index: resolveRegistry(args.index ? String(args.index) : undefined),
-      });
-      for (const w of flat.warnings) console.warn(`warn  ${w}`);
-      const res = await publishPack(flat.dir, {
+      const res = await publishPack(resolve(String(args.dir)), {
         registry,
         ...(args.out ? { out: resolve(String(args.out)) } : {}),
         dryRun: Boolean(args['dry-run']),
@@ -1718,63 +1675,48 @@ const keygen = defineCommand({
 });
 
 const sign = defineCommand({
-  meta: { name: 'sign', description: '用私钥签这个包的计划哈希（远程引用会先按发布时的扁平化计划签）' },
+  meta: { name: 'sign', description: '用私钥签这个包的计划哈希' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
     key: { type: 'string', required: true, description: '私钥 PEM 路径' },
-    index: { type: 'string', description: '远程 extends / packhub:// 用的 registry 索引' },
   },
-  async run({ args }) {
+  run({ args }) {
     const dir = resolve(String(args.dir));
-    const flat = await flattenPack(dir, {
-      index: resolveRegistry(args.index ? String(args.index) : undefined),
-    });
-    try {
-      for (const w of flat.warnings) console.warn(`warn  ${w}`);
-      const ctx = loadPack(flat.dir);
-      if (reportIssues(ctx.issues)) process.exit(2);
-      const { plan, issues } = planFor(ctx, { target: 'dir' });
-      if (!plan) {
-        reportIssues(issues, 'packhub sign');
-        process.exit(2);
-      }
-      const pack = `${ctx.manifest.metadata.name}@${ctx.manifest.metadata.version}`;
-      const pem = readFileSync(String(args.key), 'utf8');
-      const signature = signPlan(pem, pack, plan.planHash);
-      // 签的是扁平化后的计划；签名文件写回原包，publish 时会再验证并保留
-      writeSignature(dir, signature);
-      console.log(`✓ 已签名 ${pack}`);
-      console.log(`  公钥 id：${signature.key}`);
-      console.log(`  planHash：${plan.planHash.slice(0, 22)}…`);
-      if (flat.dir !== dir) console.log('  这个包含远程引用；签名按扁平化后的计划生成，publish 会保留它');
-    } finally {
-      flat.cleanup();
+    const ctx = loadPack(dir);
+    if (reportIssues(ctx.issues)) process.exit(2);
+    const { plan, issues } = planFor(ctx, { target: 'dir' });
+    if (!plan) {
+      reportIssues(issues, 'packhub sign');
+      process.exit(2);
     }
+    const pack = `${ctx.manifest.metadata.name}@${ctx.manifest.metadata.version}`;
+    const pem = readFileSync(String(args.key), 'utf8');
+    const signature = signPlan(pem, pack, plan.planHash);
+    writeSignature(dir, signature);
+    console.log(`✓ 已签名 ${pack}`);
+    console.log(`  公钥 id：${signature.key}`);
+    console.log(`  planHash：${plan.planHash.slice(0, 22)}…`);
   },
 });
 
 const verifySig = defineCommand({
-  meta: { name: 'verify-sig', description: '校验包上的签名（远程引用按发布时的扁平化计划校验）' },
+  meta: { name: 'verify-sig', description: '校验包上的签名' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
     trusted: { type: 'string', description: '信任的公钥 id 列表文件（每行一个）' },
-    index: { type: 'string', description: '远程 extends / packhub:// 用的 registry 索引' },
     json: { type: 'boolean', default: false },
   },
-  async run({ args }) {
+  run({ args }) {
     const dir = resolve(String(args.dir));
-    const flat = await flattenPack(dir, {
-      index: resolveRegistry(args.index ? String(args.index) : undefined),
-    });
-    try {
-      const ctx = loadPack(flat.dir);
+    {
+      const ctx = loadPack(dir);
       if (reportIssues(ctx.issues)) process.exit(2);
       const { plan, issues } = planFor(ctx, { target: 'dir' });
       if (!plan) {
         reportIssues(issues, 'packhub verify-sig');
         process.exit(2);
       }
-      const sigs = [...readSignatures(dir), ...(flat.manifest.signatures ?? [])];
+      const sigs = [...readSignatures(dir), ...(ctx.manifest.signatures ?? [])];
       if (sigs.length === 0) {
         if (args.json) console.log(JSON.stringify({ ok: false, error: '这个包没有签名', signatures: [] }, null, 2));
         else console.error('这个包没有签名');
@@ -1796,7 +1738,7 @@ const verifySig = defineCommand({
       if (args.json) {
         console.log(
           JSON.stringify(
-            { ok: good > 0, planHash: plan.planHash, signatures: rows, flattened: flat.dir !== dir },
+            { ok: good > 0, planHash: plan.planHash, signatures: rows },
             null,
             2,
           ),
@@ -1812,8 +1754,6 @@ const verifySig = defineCommand({
         console.log(`\n${good}/${results.length} 个签名通过`);
       }
       if (good === 0) process.exit(1);
-    } finally {
-      flat.cleanup();
     }
   },
 });
@@ -1824,18 +1764,12 @@ const pack = defineCommand({
     dir: { type: 'positional', required: false, default: '.' },
     out: { type: 'string', description: '输出路径，默认 <dir>/pack.phub' },
     vendored: { type: 'boolean', default: false, description: '把本地资源一起打进去（离线可装）' },
-    index: { type: 'string', description: '展开 extends 用的 registry 索引' },
     json: { type: 'boolean', default: false, description: '输出结构化结果（脚本用）' },
   },
   async run({ args }) {
     const dir = resolve(String(args.dir));
-    // 先把远程 extends / 包目录外的本地资源展开：归档只带包目录，不展开就会装不上。
-    const flat = await flattenPack(dir, {
-      index: resolveRegistry(args.index ? String(args.index) : undefined),
-    });
-    for (const w of flat.warnings) console.warn(`warn  ${w}`);
     try {
-      const res = await packArchive(flat.dir, {
+      const res = await packArchive(dir, {
         vendored: Boolean(args.vendored),
         ...(args.out ? { out: resolve(String(args.out)) } : {}),
       });
@@ -1851,8 +1785,6 @@ const pack = defineCommand({
         process.exit(2);
       }
       throw err;
-    } finally {
-      flat.cleanup();
     }
   },
 });
@@ -2129,7 +2061,6 @@ const hub = defineCommand({
       root: resolve(String(args.dir)),
       port: Number(args.port),
       host: String(args.host),
-      staticDir: defaultStaticDir(),
       ...(args.token ? { auth: { token: String(args.token) } } : {}),
       ...(args['user-header'] ? { auth: { userHeader: String(args['user-header']) } } : {}),
       ...(args.audit ? { auditFile: resolve(String(args.audit)) } : {}),
@@ -2147,34 +2078,6 @@ const hub = defineCommand({
         server.close(() => process.exit(0));
         setTimeout(() => process.exit(1), 5000).unref();
       });
-    }
-  },
-});
-
-const serve = defineCommand({
-  meta: { name: 'serve', description: '起本地控制面板（API + 静态产物）' },
-  args: {
-    dir: { type: 'positional', required: false, default: '.', description: '仓库根目录' },
-    port: { type: 'string', default: '5317' },
-  },
-  async run({ args }) {
-    const { startServer, defaultStaticDir } = await import('./server.ts');
-    const root = resolve(String(args.dir));
-    const port = Number(args.port);
-    try {
-      const server = await startServer({ root, port, staticDir: defaultStaticDir() });
-      const addr = server.address();
-      const actual = typeof addr === 'object' && addr ? addr.port : port;
-      console.log(`PackHub 面板：http://127.0.0.1:${actual}  (root=${root})`);
-      console.log('port 传 0 由系统分配，适合同时起多个面板；关闭用 Ctrl+C');
-    } catch (err) {
-      const code = (err as NodeJS.ErrnoException).code;
-      if (code === 'EADDRINUSE') {
-        console.error(`端口 ${port} 已被占用：换 --port <n>，或 --port 0 让系统分配`);
-      } else {
-        console.error(`x ${(err as Error).message}`);
-      }
-      process.exit(1);
     }
   },
 });
@@ -2308,7 +2211,6 @@ export const main: CommandDef = defineCommand({
     verify,
     lock,
     init,
-    serve,
     search,
     discover,
     cache,

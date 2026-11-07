@@ -41,14 +41,6 @@ jobs:
           pnpm bench:check
           pnpm bench:install
 
-      - name: 构建面板
-        run: pnpm web:build
-
-      - name: UI 审计（390/1280 · axe）
-        run: |
-          pnpm exec playwright install --with-deps chromium
-          pnpm ui:audit
-
       - name: 依赖漏洞审计（high 及以上阻断）
         run: pnpm audit --audit-level high
 
@@ -75,14 +67,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Windows 全量测试（路径、权限位、命令垫片）
         run: pnpm check
-
-      - name: 构建面板
-        run: pnpm web:build
-
-      - name: UI 视觉回归（Windows 基线）
-        run: |
-          pnpm exec playwright install chromium
-          pnpm ui:audit
 
   publish-index:
     needs: verify

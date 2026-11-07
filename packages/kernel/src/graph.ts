@@ -218,46 +218,9 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
     }
   }
 
-  // 顺序：作者声明优先，且必须与 dependsOn 相容
-  const order = computeOrder(manifest, resources, issues);
+  // 顺序只由 dependsOn 决定；没有依赖关系的资源按清单顺序
+  const order = topoSort(resources, issues);
   return { graph: { providers, order, resources, excluded }, issues };
-}
-
-function computeOrder(
-  manifest: Manifest,
-  resources: Map<string, ResourceSpec>,
-  issues: Issue[],
-): string[] {
-  const declared = manifest.composition?.order;
-  if (declared) {
-    for (const [i, id] of declared.entries()) {
-      if (!resources.has(id)) {
-        issues.push({
-          code: 'bad-order',
-          severity: 'error',
-          message: `composition.order[${i}] 引用了不存在的资源：${id}`,
-        });
-      }
-    }
-    for (const res of resources.values()) {
-      for (const dep of res.dependsOn ?? []) {
-        const a = declared.indexOf(dep);
-        const b = declared.indexOf(res.id);
-        if (a >= 0 && b >= 0 && a > b) {
-          issues.push({
-            code: 'order-violates-dependency',
-            severity: 'error',
-            message: `${res.id} 依赖 ${dep}，但 order 里排在它前面`,
-          });
-        }
-      }
-    }
-    // 作者只声明了顺序的一部分时，其余资源按 manifest 声明顺序追加，不能被丢掉
-    const declaredValid = declared.filter((id) => resources.has(id));
-    const rest = [...resources.keys()].filter((id) => !declaredValid.includes(id));
-    return [...declaredValid, ...rest];
-  }
-  return topoSort(resources, issues);
 }
 
 function topoSort(resources: Map<string, ResourceSpec>, issues: Issue[]): string[] {

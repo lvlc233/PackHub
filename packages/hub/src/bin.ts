@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Hub 的独立入口：只读发布端。对外监听必须带鉴权，否则拒绝启动。
 import { resolve } from 'node:path';
-import { defaultStaticDir, startHub } from './index.ts';
+import { startHub } from './index.ts';
 
 interface Args {
   dir: string;
@@ -42,7 +42,6 @@ try {
     root: resolve(args.dir),
     port: args.port,
     host: args.host,
-    staticDir: defaultStaticDir(),
     ...(args.token || args.userHeader
       ? { auth: { ...(args.token ? { token: args.token } : {}), ...(args.userHeader ? { userHeader: args.userHeader } : {}) } }
       : {}),

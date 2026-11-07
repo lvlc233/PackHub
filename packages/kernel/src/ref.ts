@@ -2,14 +2,14 @@
 
 import type { Issue } from './types.ts';
 
-export type SourceKind = 'npm' | 'pypi' | 'github' | 'http' | 'packhub' | 'local';
+export type SourceKind = 'npm' | 'pypi' | 'github' | 'http' | 'local';
 
 export interface ParsedSource {
   kind: SourceKind;
   raw: string;
   /** 不含 pin 的规范定位符，例如 `npm:@scope/pkg`、`github:owner/repo` */
   locator: string;
-  /** 不可变 pin：版本号 / commit / tag / 范围（packhub 用） */
+  /** 不可变 pin：版本号 / commit / tag / 范围 */
   pin?: string;
   /** github 的子路径，例如 `skills/code-review` */
   subpath?: string;
@@ -35,10 +35,6 @@ export function parseSource(raw: string): ParsedSource {
     const [name, pin] = splitPin(raw.slice(5));
     return { kind: 'pypi', raw, locator: `pypi:${name}`, pin };
   }
-  if (raw.startsWith('packhub://')) {
-    const [name, pin] = splitPin(raw.slice('packhub://'.length));
-    return { kind: 'packhub', raw, locator: `packhub:${name}`, pin };
-  }
   if (raw.startsWith('github:')) {
     const [target, pin] = splitPin(raw.slice('github:'.length));
     const [owner, repo, ...rest] = target.split('/');
@@ -52,7 +48,7 @@ export function parseSource(raw: string): ParsedSource {
     };
   }
   throw new Error(
-    `无法识别的 source：${raw}（支持的形态：npm: pypi: github: packhub:// https:// ./）`,
+    `无法识别的 source：${raw}（支持的形态：npm: pypi: github: https:// ./）`,
   );
 }
 

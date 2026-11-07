@@ -171,11 +171,6 @@ export async function resolveReferences(
       resolved.push(keep());
       continue;
     }
-    if (parsed.kind === 'packhub') {
-      warnings.push(`${res.id}: packhub:// 引用还没有下载实现，保留原样`);
-      resolved.push(keep());
-      continue;
-    }
     if (opts.offline) {
       warnings.push(`${res.id}: --offline，未解析 ${parsed.kind} 引用`);
       resolved.push(keep());
