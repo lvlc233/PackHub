@@ -6,7 +6,7 @@ import { nowIso } from './time.ts';
 /**
  * 实例记录：文件名、记录类型、解析与读取。
  * 只做纯文件读写，依赖 fs/path、time.ts 和 kernel 的类型；不 import index.ts（避免循环）。
- * 带副作用的写记录（writeInstance）、列表、隔离与归档仍留在 index.ts。
+ * 带副作用的写记录在 recordWrite.ts；列表、隔离与归档仍在 index.ts。
  */
 
 export const RECORD = 'instance.json';
