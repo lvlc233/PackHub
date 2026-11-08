@@ -1,4 +1,5 @@
 import { defineCommand } from 'citty';
+import pkg from '../package.json' with { type: 'json' };
 import { createInterface } from 'node:readline/promises';
 import { spawn } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
@@ -641,7 +642,8 @@ function openAppWindow(url: string): void {
 }
 
 export const main = defineCommand({
-  meta: { name: 'pal', version: '0.0.2', description: '实例内核：建、起、停、看护、迁移' },
+  // 版本号只认 package.json 一份，别在这里手写第二份。
+  meta: { name: 'pal', version: pkg.version, description: '实例内核：建、起、停、看护、迁移' },
   subCommands: {
     create,
     list,

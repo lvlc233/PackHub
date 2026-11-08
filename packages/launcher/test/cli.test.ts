@@ -1,5 +1,10 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { main } from '../src/cli.ts';
+
+const packageJson = JSON.parse(
+  readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+) as { version: string };
 
 /** 只读命令定义，不执行 run：不写盘、不起进程、不碰网络。 */
 interface CommandShape {
@@ -19,4 +24,10 @@ describe('pal cli --json', () => {
       expect(json?.default, `${name} --json 默认值`).toBe(false);
     });
   }
+});
+
+describe('pal --version', () => {
+  it('meta.version 与 package.json 一致（唯一来源）', () => {
+    expect((main as unknown as { meta: { version?: string } }).meta.version).toBe(packageJson.version);
+  });
 });
