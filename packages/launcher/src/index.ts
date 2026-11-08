@@ -26,9 +26,24 @@ import { PalError } from './errors.ts';
 import { isPidAlive, killTree, waitForExit } from './process.ts';
 import { clearStopping, markStopping } from './stopMark.ts';
 import { archiveRoot, failedRoot, instancesRoot, newId, quarantineRoot, stamp } from './paths.ts';
+import {
+  BASELINE,
+  hashFile,
+  readBaseline,
+  writeBaseline,
+  type Baseline,
+  type BaselineFile,
+} from './baseline.ts';
+import { LOCK, readLock, releaseInstanceLock, withInstanceLock, withInstanceLockSync } from './lock.ts';
+import { nowIso } from './time.ts';
+
+// 锁与基线的实现搬到了 lock.ts / baseline.ts；这里继续按原名导出，调用方（start/server/cli/测试）不受影响
+export { instanceLock, withInstanceLock } from './lock.ts';
+export { BASELINE, readBaseline, writeBaseline } from './baseline.ts';
+export type { Baseline, BaselineFile } from './baseline.ts';
+export { nowIso } from './time.ts';
 
 export const RECORD = 'instance.json';
-export const BASELINE = 'baseline.json';
 export const API_VERSION = 'packhub.dev/instance/v1';
 
 export type InstanceStatus =
@@ -138,10 +153,6 @@ export function seedHome(from: string, to: string): string[] {
 export interface InstanceScan {
   records: InstanceRecord[];
   broken: Array<{ dir: string; reason: string; quarantined?: string; link?: string }>;
-}
-
-export function nowIso(): string {
-  return new Date().toISOString();
 }
 
 /* ---------- 记录读写 ---------- */
@@ -397,145 +408,7 @@ function dropActive(id: string): void {
   if (touched) writeActiveMap(map);
 }
 
-/* ---------- lock ---------- */
-
-const LOCK = '.pal-lock.json';
-
-interface LockInfo {
-  pid: number;
-  op: string;
-  at: string;
-}
-
-class InstanceBusy extends PalError {
-  constructor(root: string, holder: LockInfo) {
-    super('busy', `实例正在被另一个 PAL 进程操作：${holder.op}（pid ${holder.pid}）`, {
-      hint: '等它结束；确认那个进程已经不在了就删掉实例根里的 .pal-lock.json',
-      details: { root, holder },
-    });
-  }
-}
-
-function readLock(root: string): LockInfo | undefined {
-  const file = join(root, LOCK);
-  if (!existsSync(file)) return undefined;
-  try {
-    return JSON.parse(readFileSync(file, 'utf8')) as LockInfo;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * 抢实例锁：拿到返回 true；本进程已持有返回 false（嵌套直接执行，不再写锁）。
- * 锁里记 pid：持有者已经不在了当陈旧锁清掉，不让崩溃永久锁死实例。
- */
-function acquireInstanceLock(root: string, op: string): boolean {
-  const holder = readLock(root);
-  if (holder) {
-    if (holder.pid === process.pid) return false;
-    if (isPidAlive(holder.pid)) throw new InstanceBusy(root, holder);
-  }
-  mkdirSync(root, { recursive: true });
-  writeFileSync(
-    join(root, LOCK),
-    JSON.stringify({ pid: process.pid, op, at: nowIso() }, null, 2) + '\n',
-    'utf8',
-  );
-  return true;
-}
-
-function releaseInstanceLock(root: string): void {
-  try {
-    rmSync(join(root, LOCK), { force: true });
-  } catch {
-    /* 锁文件删不掉不影响结果 */
-  }
-}
-
-/**
- * 同步版锁：给必须保持同步签名的调用方（migrateInstance，CLI 直接同步调用）用。
- * 锁文件、陈旧锁判定与 withInstanceLock 共用同一套协议，只是不经过 Promise。
- */
-function withInstanceLockSync<T>(root: string, op: string, fn: (owned: boolean) => T): T {
-  const owned = acquireInstanceLock(root, op);
-  try {
-    return fn(owned);
-  } finally {
-    if (owned) releaseInstanceLock(root);
-  }
-}
-
-/**
- * 一个实例一次只允许一个写操作（安装、启停、删除）。
- */
-export function withInstanceLock<T>(root: string, op: string, fn: () => Promise<T> | T): Promise<T> {
-  const run = async (): Promise<T> => {
-    if (!acquireInstanceLock(root, op)) return fn();
-    try {
-      return await fn();
-    } finally {
-      releaseInstanceLock(root);
-    }
-  };
-  return run();
-}
-
-/** 读锁信息（排障用，不改变状态）。 */
-export function instanceLock(root: string): LockInfo | undefined {
-  return readLock(root);
-}
-
 /* ---------- 基线 ---------- */
-
-export interface BaselineFile {
-  path: string;
-  sha256: string;
-  bytes: number;
-}
-
-export interface Baseline {
-  apiVersion: 'packhub.dev/baseline/v0';
-  pack: string;
-  version: string;
-  harness: TargetId;
-  planHash: string;
-  at: string;
-  files: BaselineFile[];
-  /** 只属于运行时、不参与漂移判断的路径前缀 */
-  ignore?: string[];
-}
-
-function hashFile(file: string): BaselineFile | undefined {
-  try {
-    const stat = statSync(file);
-    if (!stat.isFile()) return undefined;
-    const hash = createHash('sha256').update(readFileSync(file)).digest('hex');
-    return { path: file, sha256: hash, bytes: stat.size };
-  } catch {
-    return undefined;
-  }
-}
-
-/** 建完实例写基线：后面查“Pack 更新了什么、本地改了什么”都以它为准。 */
-export function writeBaseline(root: string, baseline: Omit<Baseline, 'apiVersion' | 'at'>): Baseline {
-  const value: Baseline = { apiVersion: 'packhub.dev/baseline/v0', at: nowIso(), ...baseline };
-  const file = join(root, BASELINE);
-  const tmp = `${file}.tmp-${process.pid}`;
-  writeFileSync(tmp, JSON.stringify(value, null, 2) + '\n', 'utf8');
-  renameSync(tmp, file);
-  return value;
-}
-
-export function readBaseline(root: string): Baseline | undefined {
-  const file = join(root, BASELINE);
-  if (!existsSync(file)) return undefined;
-  try {
-    return JSON.parse(readFileSync(file, 'utf8')) as Baseline;
-  } catch {
-    return undefined;
-  }
-}
 
 /** 从已安装状态收集基线文件清单。 */
 export function baselineFromState(root: string): BaselineFile[] {
