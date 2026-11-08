@@ -16,9 +16,10 @@ PAL 把 Pack 装进一个独立实例根，并按宿主起停进程。代码在 
   logs/start.<时间>.log  上一次运行
   logs/events.jsonl    启停/退出/接线事件
   secrets.json         地址里的凭据（0600，不进 API、不进日志）
+  .pal-stopping        正在停止的标记（写 pid + 时间，60s TTL，停止结束即清）
 ```
 
-`<instancesRoot>` 默认 `~/.packhub/instances`，可用 `PACKHUB_INSTANCES` 覆盖；取包缓存在 `<PACKHUB_HOME>/cache/packs/<来源>/<版本>`。
+`<instancesRoot>` 默认 `~/.packhub/instances`，可用 `PACKHUB_INSTANCES` 覆盖；取包缓存在 `<PACKHUB_HOME>/cache/packs/<来源>/<版本>`。只有「registry 来源 + 明确版本」会命中缓存：目录里已有同版本、清单版本也对得上就直接复用，不 reset 不重取；`latest`、`*`、`^1.2` 这类会变的版本，以及 `.phub` / `git+`（上游可能换内容）仍每次重取。
 
 新建实例的 home 是空的：宿主起来也没有模型可用。两条路把已有环境接过来 —— `pal create --from-home ~/.dsh`（只补空缺地复制凭据与用户指令，Pack 写好的文件不被覆盖；`sessions`、`cache`、`attachments`、`dsh-runtimes`、`storages`、`profiles`、`logs` 不搬），或 `pal adopt`（直接接管整个已有目录，一个字节不动）。
 
@@ -27,13 +28,17 @@ PAL 把 Pack 装进一个独立实例根，并按宿主起停进程。代码在 
 
 状态：`installing` → `installed` → `running` / `stopped`；进程死了是 `broken`，安装失败是 `failed`。建实例时先写 `installing` 再装，所以中途崩溃也能在列表里看到它、能删能查。
 
-`managed: false` 表示这是 `pal adopt` 接管的目录：删除只摘记录，目录一个字节都不动。
+`origin.kind` 说明记录从哪来：`pack`（按引用可从 Pack 重建）、`adopted`（接管的目录）、`copy`（复制自另一份实例，`from` 记源 id）。只有 `pack` 且带 `ref` 的实例导出的模板可复现，`adopted` / `copy` 导出时标 `reproducible: false`，`pal import` 会拒绝。
+
+`managed: false` 表示这是 `pal adopt` 接管的目录：删除时先停掉在跑的进程，然后只摘记录 —— 不调 `removePack`、不搬目录（`--keep-data` 也不搬），只删 `instance.json` 与 `baseline.json`、摘 `.links` 指针、清 active；CLI 的确认与结果文案按 `managed` 分支。
 
 ## 危险动作怎么保护
 
 - **建实例失败**：只清理自己造的根。复用已有目录时不删目录，只摘 `instance.json`；自己造的根移进 `instances/.failed/` 并写 `reason.json`。
-- **删除**：先停进程并等它真的退出，再按 state 卸包，最后删根。`--keep-data` 把根挪进 `instances/.archive/`。删目录会重试，仍被占用就改名进归档，不把半个实例留在列表里。
-- **坏记录**：`instance.json` 解析失败不再静默跳过 —— 移进 `instances/.quarantine/` 并写原因，`pal recover` 能看。
+- **删除**：先停进程并等它真的退出，再删根（默认既不先卸包，也不搬目录；包记录只用来填结果里的 `uninstalled`）。`--keep-data` 才先按 state 卸包、再把根挪进 `instances/.archive/`。删目录会重试，仍被占用就改名进归档；删根失败时记录与 state 都原样留着，可以直接重试。
+- **停止标记**：`stopInstance` 与 `removeInstance` 都在 kill 之前写 `<root>/.pal-stopping`（pid + 时间，60s TTL），结束时清掉。`pal serve` 的 onExit 有三道闸：标记与 pid 对得上、记录里的 pid 已经换人、记录已是 `stopped` —— 任一成立都不按崩溃处理，也不触发 `on-failure` 重起。
+- **迁移**：rename 与写记录在同一把实例锁里做完，写完必须能从新根读回记录；失败就把目录挪回原路径、记录改回旧 `root`，回滚也失败才报 `internal`。
+- **坏记录**：`instance.json` 解析失败不再静默跳过 —— `pal list` / `pal status` 会把它移进 `instances/.quarantine/` 并写原因，`pal recover` 能看。读接口（GET `/api/instances`、体检）只把问题列进 `broken`，不写记录、也不隔离。
 - **原子写**：临时文件 + rename，崩在写记录中途不会留半份 JSON。
 - **实例锁**：`<root>/.pal-lock.json` 记 pid/操作；持有者已经不在就当陈旧锁清掉。
 - **凭据**：启动输出里的 `token` 等查询参数摘进 `secrets.json`（0600）；记录、API、界面只见脱敏地址；「打开」走 `/api/instances/:id/open` 的 302，页面拿不到 token。
@@ -45,7 +50,7 @@ PAL 把 Pack 装进一个独立实例根，并按宿主起停进程。代码在 
 3. 找宿主可执行文件并探测版本（Windows 的 `.cmd` 垫片按 `/d /s /c ""…""` 引号规则跑，先认 PATHEXT 再认无扩展名壳）。
 4. 选端口：显式指定被占时报告占用者（pid + 进程名）；否则沿用上次端口，再不行让系统挑。
 5. dsh 实例：把 Pack 的 mcp 资源写成 `home/dsh/pal-mcp.patch.yml`，用 `--patch` 传给宿主（见下）。
-6. spawn 不走 shell 拼串：日志用 `stdio` 的 fd 直接写，`cwd` 是实例根，home 走宿主自己的环境变量。
+6. spawn 不走 shell 拼串：日志用 `stdio` 的 fd 直接写，`cwd` 是实例根，home 走宿主自己的环境变量。环境也不整份继承：`hostEnv` 只留 PATH/PATHEXT、SystemRoot 等系统项、TEMP、home 与语言变量，代理按原名带上；名字命中 `API_KEY`/`TOKEN`/`SECRET`/`PASSWORD`/`CREDENTIAL` 的、`PACKHUB_*`、`PAL_*` 以及各模型厂商前缀的一律剔除。要额外给，用 `opts.env` 显式补 —— 它最后应用，能覆盖先前的值（包括被剔除的项）。
 7. 从日志里等地址；等不到就收掉进程，并把日志尾部贴进错误里。
 8. pid 记**真正在监听**的那个（Windows 上 `.cmd` 垫片的 spawn pid 是 cmd 的，靠端口反查）。
 9. `pal serve` 期间会记退出码/信号到 `lastExit`；`restart: on-failure` 的实例按 1s/2s/4s… 退避重起，超过 `maxRestarts` 停止。
@@ -77,7 +82,7 @@ Pack 里的 `type: mcp` 资源安装时写进实例的 `.packhub/config.json`（
 | `unknown-harness` | 400 | 宿主名不认识（附可选值） |
 | `unknown-instance` / `not-found` | 404 | 找不到实例或文件 |
 | `name-taken` / `root-occupied` / `already-running` / `not-running` / `busy` / `port-in-use` | 409 | 冲突类 |
-| `not-startable` / `harness-missing` / `install-failed` | 422 | 宿主或安装能力问题 |
+| `not-startable` / `harness-missing` / `install-failed` / `start-failed` / `record-corrupt` | 422 | 宿主起不来、安装失败，或记录写下了却读不回来 |
 | `forbidden` | 403 | 跨源写请求、缺客户端头、外部页面触发打开 |
 | `internal` | 500 | 兜底 |
 
@@ -89,7 +94,7 @@ Pack 里的 `type: mcp` 资源安装时写进实例的 `.packhub/config.json`（
 |---|---|---|
 | GET | `/api/meta` | 版本与界面目录 |
 | GET | `/api/harnesses` | 宿主发现：可用性、版本、能不能起（`?probe=0` 跳过版本探测） |
-| GET | `/api/instances` | `{instances, broken, active}` |
+| GET | `/api/instances` | `{instances, broken, active}`；纯视图，不写 `instance.json`、不隔离坏记录 |
 | POST | `/api/instances` | 建实例（`pack`/`name`/`harness`/`version`/`index`） |
 | GET | `/api/instances/:id` | 单份记录 |
 | POST | `/api/instances/:id/start` / `stop` / `restart` / `active` | 启停、重起、设为当前 |
@@ -111,8 +116,12 @@ Pack 里的 `type: mcp` 资源安装时写进实例的 `.packhub/config.json`（
 
 `start` 会立刻退出（宿主 detach）；要看着护就用 `pal serve`。「实例流转」目前只有 CLI。
 
-`update` 要求实例已停：装上新版本后，把上一版独有的文件删掉（删不掉就留着），刷新基线与记录，并列出「哪些文件在更新前被本地改过」（更新会覆盖它们）。
-`rebaseline` 把当前磁盘状态认作基线：本地改动被接受，体检不再报漂移。
+`adopt` 只有实例 state 里恰好 1 个 Pack 时才记下它的名字/版本与 planHash；0 个或多个一律记 `external`（planHash 留空），免得记录谎称身份。`clone` 复制出来的记录是 `managed: true`、`origin: {kind:'copy', from}`，端口与运行信息清空 —— 它是拷贝，不从 Pack 重建，导出的模板不可复现。
+
+`show` / `rename` / `migrate` / `use` 也认 `--json`（`show` 本来只输出记录 JSON）；`current --json` 同样只输出一份 JSON。
+
+`update` 要求实例已停。计划确实会变（`changed`）且 Pack 写过的文件被本地改过时默认拒绝，一个文件都不写；确认覆盖要带 `--force`（API 是 `body.force=true`）。同版本重跑不写盘、也不拦。放行后装上新版本，把上一版独有的文件删掉（删不掉就留着），刷新基线与记录，并回报这次被覆盖的本地改动。
+`rebaseline` 把当前磁盘状态认作基线：本地改动被接受，体检不再报漂移；`baseline.json` 里的 `ignore` 原样保留。
 
 ## CI
 
@@ -123,4 +132,5 @@ Pack 里的 `type: mcp` 资源安装时写进实例的 `.packhub/config.json`（
 - 看护只在 `pal serve` 活着时生效，壳退出后没有系统级守护。
 - `adopt` / `clone` / `migrate` 没有界面入口（`update` / `rebaseline` 前者的界面入口是详情页的「更新」按钮，后者只有 CLI）。
 - 没有运行时版本管理；跨盘迁移要手动搬。
+- `update` 的强制放行只有 CLI 的 `--force` 和 API 的 `body.force`：界面没有勾选入口，被本地改动拦下时只能报错。
 - 计数与耗时这类性能数字只在本机测过，没有进 CI 基线。
