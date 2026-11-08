@@ -10,7 +10,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { planFor, type PackContext, type Plan, type TargetId } from '@packhub/kernel';
 import {
   installPack,
@@ -25,7 +25,7 @@ import { ADAPTERS, HARNESS_IDS, targetVarsFor } from './layout.ts';
 import { PalError } from './errors.ts';
 import { isPidAlive, killTree, waitForExit } from './process.ts';
 import { clearStopping, markStopping } from './stopMark.ts';
-import { archiveRoot, failedRoot, instancesRoot, newId, quarantineRoot, stamp } from './paths.ts';
+import { archiveRoot, instancesRoot, newId, stamp } from './paths.ts';
 import {
   BASELINE,
   hashFile,
@@ -38,6 +38,7 @@ import { LOCK, readLock, releaseInstanceLock, withInstanceLock, withInstanceLock
 import { API_VERSION, readRecord, readRecordResult, recordFile, type InstanceRecord } from './records.ts';
 import { nowIso } from './time.ts';
 import { removeLink, writeInstance } from './recordWrite.ts';
+import { failInstance, moveAside, quarantineInstance } from './quarantine.ts';
 
 // 锁与基线的实现搬到了 lock.ts / baseline.ts；这里继续按原名导出，调用方（start/server/cli/测试）不受影响
 export { instanceLock, withInstanceLock } from './lock.ts';
@@ -51,6 +52,9 @@ export type { InstanceRecord, InstanceStatus, RecordRead } from './records.ts';
 
 // 写记录（带 .links 副作用）搬到了 recordWrite.ts；removeLink 只是内部用，不对外导出
 export { writeInstance } from './recordWrite.ts';
+
+// 隔离与失败现场搬到了 quarantine.ts；入口继续按原名导出（moveAside 原本就没导出，这里也不导出）
+export { quarantineInstance, failInstance } from './quarantine.ts';
 
 export interface CreateInstanceOptions {
   name: string;
@@ -115,42 +119,6 @@ export function seedHome(from: string, to: string): string[] {
 export interface InstanceScan {
   records: InstanceRecord[];
   broken: Array<{ dir: string; reason: string; quarantined?: string; link?: string }>;
-}
-
-/* ---------- 隔离与归档 ---------- */
-
-function moveAside(from: string, dir: string, meta: Record<string, unknown>): string | undefined {
-  const target = join(dir, `${basename(from)}-${stamp()}`);
-  try {
-    mkdirSync(dir, { recursive: true });
-    renameSync(from, target);
-    writeFileSync(join(target, 'reason.json'), JSON.stringify({ at: nowIso(), ...meta }, null, 2) + '\n', 'utf8');
-    return target;
-  } catch {
-    return undefined;
-  }
-}
-
-/** 坏记录隔离：移出实例列表，保留现场和原因，可以人工搬回来。 */
-export function quarantineInstance(root: string, reason: string, link?: string): string | undefined {
-  if (link) {
-    // 记录在用户的目录里：只收走指针与原因，用户的目录一个字节都不动
-    const dir = join(quarantineRoot(), `${basename(root)}-${stamp()}`);
-    try {
-      mkdirSync(dir, { recursive: true });
-      renameSync(link, join(dir, 'link.json'));
-      writeFileSync(join(dir, 'reason.json'), JSON.stringify({ at: nowIso(), reason, from: root }, null, 2) + '\n', 'utf8');
-      return dir;
-    } catch {
-      return undefined;
-    }
-  }
-  return moveAside(root, quarantineRoot(), { reason, from: root });
-}
-
-/** 建实例失败时的现场：整根移到 .failed，不留半个实例在列表里。 */
-export function failInstance(root: string, error: { code: string; message: string }): string | undefined {
-  return moveAside(root, failedRoot(), error);
 }
 
 /* ---------- 列表 ---------- */
