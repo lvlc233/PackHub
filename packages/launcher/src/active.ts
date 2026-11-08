@@ -6,7 +6,7 @@ import {
   type InstanceRecord,
 } from './index.ts';
 
-/** 每个宿主记住"当前用哪一份实例配置"；只是默认值，不排斥同时起多个。 */
+/** 每个宿主记住"当前用哪一份实例"；只是默认值，不排斥同时起多个。 */
 export type ActiveMap = Record<string, string>;
 
 export function readActive(): ActiveMap {

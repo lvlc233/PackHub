@@ -59,7 +59,7 @@ async function confirm(question: string, yes: boolean): Promise<boolean> {
 }
 
 const create = defineCommand({
-  meta: { name: 'create', description: '从 Pack 建一份实例配置' },
+  meta: { name: 'create', description: '从 Pack 建一份实例' },
   args: {
     pack: {
       type: 'positional',
@@ -115,7 +115,7 @@ const create = defineCommand({
 });
 
 const list = defineCommand({
-  meta: { name: 'list', description: '列出实例配置' },
+  meta: { name: 'list', description: '列出实例' },
   args: { json: { type: 'boolean', default: false } },
   run({ args }) {
     const rows = listInstances();
@@ -124,14 +124,14 @@ const list = defineCommand({
       console.log(JSON.stringify({ instances: rows, broken: scan.broken }, null, 2));
       return;
     }
-    if (rows.length === 0) console.log('没有实例配置');
+    if (rows.length === 0) console.log('没有实例');
     for (const rec of rows) printRecord(rec);
     for (const bad of scan.broken) console.log(`! ${bad.dir}\t${bad.reason}`);
   },
 });
 
 const show = defineCommand({
-  meta: { name: 'show', description: '看一份实例配置' },
+  meta: { name: 'show', description: '看一份实例' },
   args: {
     target: { type: 'positional', required: true, description: '实例 id 或名字' },
     json: { type: 'boolean', default: false, description: '只输出记录 JSON（show 默认已是 JSON）' },
@@ -274,7 +274,7 @@ const status = defineCommand({
       return;
     }
     if (rows.length === 0) {
-      console.log('没有实例配置');
+      console.log('没有实例');
       return;
     }
     for (const rec of rows) {
@@ -297,7 +297,7 @@ const health = defineCommand({
       return;
     }
     if (reports.length === 0) {
-      console.log('没有实例配置');
+      console.log('没有实例');
       return;
     }
     for (const report of reports) {

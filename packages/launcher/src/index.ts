@@ -332,7 +332,7 @@ function safeFiles(dir: string): Array<{ file: string }> {
   }
 }
 
-/** 列出实例配置；坏记录默认移进隔离区，不再从列表里凭空消失。 */
+/** 列出实例；坏记录默认移进隔离区，不再从列表里凭空消失。 */
 export function listInstances(opts: { quarantine?: boolean } = {}): InstanceRecord[] {
   const scan = scanInstances();
   if (opts.quarantine === false) return scan.records;
@@ -587,7 +587,7 @@ export async function createInstance(opts: CreateInstanceOptions): Promise<Insta
   const root = resolve(opts.root ?? join(instancesRoot(), id));
   const existed = existsSync(root);
   if (existsSync(recordFile(root))) {
-    throw new PalError('root-occupied', `这个目录已经是一份实例配置：${root}`, {
+    throw new PalError('root-occupied', `这个目录已经是一份实例：${root}`, {
       hint: '换个目录，或从列表里操作它',
     });
   }
@@ -1100,7 +1100,7 @@ export function adoptInstance(opts: AdoptOptions): InstanceRecord {
   const harness = assertHarness(opts.harness);
   assertNameFree(opts.name.trim());
   if (existsSync(recordFile(dir))) {
-    throw new PalError('root-occupied', `这个目录已经是一份实例配置：${dir}`);
+    throw new PalError('root-occupied', `这个目录已经是一份实例：${dir}`);
   }
   const adapter = ADAPTERS[harness];
   const home = adapter.homeDir && existsSync(join(dir, adapter.homeDir)) ? join(dir, adapter.homeDir) : undefined;
