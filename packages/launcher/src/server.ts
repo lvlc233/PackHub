@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, extname, join, resolve } from 'node:path';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { dirname, extname, join, resolve, sep } from 'node:path';
 import {
   createInstance,
   listInstances,
@@ -10,7 +10,7 @@ import {
   scanInstances,
   updateInstance,
 } from './index.ts';
-import { refreshStatuses, restartInstance, startInstance, stopInstance } from './start.ts';
+import { restartInstance, startInstance, statusView, stopInstance } from './start.ts';
 import { activeEntries, setActive, readActive } from './active.ts';
 import { materializePack } from './materialize.ts';
 import { readIndex, resolveRegistry } from '@packhub/runtime';
@@ -157,7 +157,8 @@ async function handle(req: IncomingMessage, res: ServerResponse, insecure: boole
     const scan = scanInstances();
     const active = readActive();
     sendJson(res, 200, {
-      instances: refreshStatuses().map((rec) => ({ ...rec, url: rec.url ?? null })),
+      // 读列表只给计算出来的状态视图：不写 instance.json，也不隔离坏记录
+      instances: statusView(scan.records).map((rec) => ({ ...rec, url: rec.url ?? null })),
       broken: scan.broken.map((bad) => ({ dir: bad.dir, reason: bad.reason })),
       active,
     });
@@ -215,7 +216,16 @@ async function handle(req: IncomingMessage, res: ServerResponse, insecure: boole
         ...(body.index ? { index: String(body.index) } : {}),
         ...(body.version ? { version: String(body.version) } : {}),
       });
-      sendJson(res, 200, await updateInstance(id, { packDir, packRef: ref }));
+      sendJson(
+        res,
+        200,
+        await updateInstance(id, {
+          packDir,
+          packRef: ref,
+          // 默认不覆盖本地改动；界面显式勾了强制更新才传 true
+          ...(body.force === true || body.force === 'true' ? { force: true } : {}),
+        }),
+      );
       return;
     }
     if (action === 'stop' && req.method === 'POST') {
@@ -299,14 +309,32 @@ function sendJson(res: ServerResponse, status: number, value: unknown): void {
   res.end(body);
 }
 
+/** 单次请求体上限；超过就丢弃，但把剩余请求体读完再报错。 */
+const MAX_BODY = 1_000_000;
+/** 超限后最多再读这么多字节，防止客户端拿超大 body 拖着不放手。 */
+const MAX_DRAIN = 4_000_000;
+
 async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = [];
   let size = 0;
+  let tooLarge = false;
   for await (const chunk of req) {
-    size += (chunk as Buffer).length;
-    if (size > 1_000_000) throw new PalError('invalid-input', '请求太大');
-    chunks.push(chunk as Buffer);
+    const buf = chunk as Buffer;
+    size += buf.length;
+    if (size > MAX_BODY) {
+      // 不在这里直接抛：客户端还在写，提前断开会让它挂到超时。
+      // 先把请求体读空（有上限），再让上层回 400。
+      tooLarge = true;
+      chunks.length = 0;
+      if (size > MAX_DRAIN) {
+        req.destroy();
+        break;
+      }
+      continue;
+    }
+    chunks.push(buf);
   }
+  if (tooLarge) throw new PalError('invalid-input', '请求太大');
   if (chunks.length === 0) return {};
   try {
     const data = JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
@@ -316,10 +344,30 @@ async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> 
   }
 }
 
+/**
+ * 把 URL 路径变成 WEB_ROOT 内的相对路径；含 `..` 段（含百分号编码、反斜杠）一律拒绝。
+ * 返回 null 表示非法路径，直接 404。
+ */
+function staticRelPath(path: string): string | null {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(path);
+  } catch {
+    return null;
+  }
+  if (decoded.includes('\0')) return null;
+  const segments = decoded.split(/[\\/]+/).filter((seg) => seg.length > 0 && seg !== '.');
+  if (segments.length === 0 || segments.some((seg) => seg === '..')) return null;
+  return segments.join('/');
+}
+
 function serveStatic(path: string, res: ServerResponse): void {
-  const rel = path === '/' ? 'index.html' : path.replace(/^\/+/, '');
-  const file = join(WEB_ROOT, rel);
-  if (!file.startsWith(WEB_ROOT) || !existsSync(file)) {
+  const root = resolve(WEB_ROOT);
+  const rel = path === '/' ? 'index.html' : staticRelPath(path);
+  const file = rel === null ? null : resolve(root, rel);
+  // 注意带分隔符：只按字符串前缀比会让 web2 这种同前缀的兄弟目录混进来
+  const inside = file !== null && (file === root || file.startsWith(root + sep));
+  if (!inside || !statSync(file, { throwIfNoEntry: false })?.isFile()) {
     res.writeHead(404);
     res.end('not found');
     return;

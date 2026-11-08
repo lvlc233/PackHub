@@ -1,7 +1,17 @@
 import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import {
+  closeSync,
+  existsSync,
+  fstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { extname, join } from 'node:path';
-import { ADAPTERS, parseStartUrl } from './layout.ts';
+import { ADAPTERS, parseStartUrl, type HarnessAdapter } from './layout.ts';
 import { listInstances, readInstance, requireInstance, writeInstance, nowIso, type InstanceRecord } from './index.ts';
 import { PalError } from './errors.ts';
 import { discoverHarness, requireHarnessBinary, whichSync } from './harness.ts';
@@ -69,6 +79,143 @@ export function spawnPlanFor(commandPath: string, args: string[]): SpawnPlan {
   return { file: commandPath, args, verbatim: false };
 }
 
+/* ---------- 宿主环境 ---------- */
+
+/**
+ * 传给宿主的变量只从这份清单里挑，不再整份继承 PAL 的 process.env。
+ * 名字按大小写不敏感匹配（Windows 就是），输出统一用这里写的规范名 —— 这样
+ * Windows 上实际叫 `Path`、`SystemRoot` 的那份也能稳定命中。
+ *
+ * Windows 上缺 SystemRoot/PATH 会直接起不来，缺 TEMP 时 npm/node-gyp 报错，
+ * 所以这些不是「顺手带一下」，是启动前提。
+ */
+export const HOST_ENV_KEEP: readonly string[] = [
+  // 找命令、起子进程（宿主还要 npx 起 MCP，靠的就是它）
+  'PATH',
+  'PATHEXT',
+  // Windows 系统目录与命令解释器：SystemRoot 缺了连 DLL/证书都加载不了
+  'SystemRoot',
+  'WINDIR',
+  'SystemDrive',
+  'ComSpec',
+  // 临时目录
+  'TEMP',
+  'TMP',
+  // 用户与 home：宿主自己的配置/缓存默认落在这里（实例 home 由 homeEnv 单独指过去）
+  'HOME',
+  'USERPROFILE',
+  'APPDATA',
+  'LOCALAPPDATA',
+  'PROGRAMDATA',
+  'PROGRAMFILES',
+  'PROGRAMFILES(X86)',
+  'COMMONPROGRAMFILES',
+  'USERNAME',
+  'USERDOMAIN',
+  'USER',
+  'LOGNAME',
+  // Linux 上同类的配置/缓存目录（只给路径，不是凭据）
+  'XDG_CONFIG_HOME',
+  'XDG_DATA_HOME',
+  'XDG_CACHE_HOME',
+  'XDG_STATE_HOME',
+  // 语言/终端：不做 UTF-8 与 TTY 判断会乱码或改变输出格式，地址就等不到了
+  'LANG',
+  'LANGUAGE',
+  'TERM',
+  'COLORTERM',
+  'SHELL',
+  'TZ',
+  // 运行时/硬件信息（node:os 与部分原生模块读）
+  'NUMBER_OF_PROCESSORS',
+  'PROCESSOR_ARCHITECTURE',
+  'OS',
+];
+
+/** LC_ALL / LC_CTYPE 这类本地化变量按前缀保留。 */
+const HOST_ENV_KEEP_PATTERNS: readonly RegExp[] = [/^LC_[A-Z]+$/];
+
+/** 名字命中这些片段的变量一律不继承：凭据、口令都在里面。 */
+export const HOST_ENV_BLOCK = /(API_?KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)/i;
+
+/** 这些前缀属于 PAL 自己或某一家的凭据/配置：实例该用自己 home 里的那份。 */
+export const HOST_ENV_BLOCK_PREFIXES: readonly string[] = [
+  'PACKHUB_', // PAL 的根目录/实例目录
+  'PAL_', // 启动器自己的开关（PAL_DSH_BIN 之类）
+  'ANTHROPIC_',
+  'OPENAI_',
+  'DEEPSEEK_',
+  'GEMINI_',
+  'GOOGLE_',
+  'AZURE_',
+  'AWS_',
+  'GITHUB_',
+  'GH_',
+  'GITLAB_',
+  'HUGGINGFACE_',
+  'HF_',
+  'TAVILY_',
+  'MOONSHOT_',
+  'DASHSCOPE_',
+];
+
+/**
+ * 代理变量：只是网络出口，不是凭据；实例要下载依赖/连 MCP 就得靠它。
+ * 按原名原样保留（不做规范名改写）：curl 认小写，不少工具认大写，两种拼法都别丢。
+ */
+export const HOST_ENV_KEEP_AS_IS: readonly string[] = ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY'];
+
+const HOST_ENV_AS_IS_UPPER = new Set(HOST_ENV_KEEP_AS_IS);
+
+const HOST_ENV_CANONICAL = new Map(HOST_ENV_KEEP.map((name) => [name.toUpperCase(), name]));
+
+function isBlockedHostEnv(name: string): boolean {
+  const upper = name.toUpperCase();
+  if (HOST_ENV_BLOCK_PREFIXES.some((prefix) => upper.startsWith(prefix))) return true;
+  return HOST_ENV_BLOCK.test(name);
+}
+
+function isKeptHostEnv(name: string): boolean {
+  const upper = name.toUpperCase();
+  if (HOST_ENV_CANONICAL.has(upper)) return true;
+  return HOST_ENV_KEEP_PATTERNS.some((pattern) => pattern.test(upper));
+}
+
+/**
+ * 构造宿主进程的环境：保留项 → 适配器的 homeEnv（实例自己的 home）→ 显式 extra。
+ * 纯函数，不读 process.env，规则可以单独测。
+ *
+ * - 剔除优先于保留：宁可少给一个变量，也不把密钥带进宿主。
+ * - extra 是调用方显式给的，最后应用、覆盖前面的结果（包括 homeEnv）—— 显式就是知情。
+ */
+export function hostEnv(
+  base: Record<string, string | undefined>,
+  adapter: Pick<HarnessAdapter, 'homeEnv'> | undefined,
+  home: string | undefined,
+  extra?: Record<string, string>,
+): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [name, value] of Object.entries(base)) {
+    if (value === undefined) continue;
+    if (isBlockedHostEnv(name)) continue;
+    const upper = name.toUpperCase();
+    // 代理按原名带过去；其余保留项统一成规范名（Windows 上实际可能叫 Path）
+    if (HOST_ENV_AS_IS_UPPER.has(upper)) {
+      env[name] = value;
+      continue;
+    }
+    if (!isKeptHostEnv(name)) continue;
+    env[HOST_ENV_CANONICAL.get(upper) ?? upper] = value;
+  }
+  if (adapter?.homeEnv && home) env[adapter.homeEnv] = home;
+  if (extra) {
+    for (const [name, value] of Object.entries(extra)) {
+      if (typeof value === 'string') env[name] = value;
+    }
+  }
+  return env;
+}
+
 export interface StartOptions {
   timeoutMs?: number;
   /** 指定端口；不写就用上次的端口（还空着）或让系统挑 */
@@ -82,6 +229,11 @@ export interface StartOptions {
   ownerOf?: (port: number) => number | undefined;
   /** 就绪探测间隔（测试用） */
   pollMs?: number;
+  /**
+   * 显式补充给宿主的变量。不传就只给保留清单 + 实例 home；
+   * 传了按名覆盖前面的结果（也就能把被剔除的项显式给回去）。
+   */
+  env?: Record<string, string>;
 }
 
 export interface StartResult {
@@ -92,6 +244,63 @@ export interface StartResult {
 }
 
 const STOP_TIMEOUT_MS = 10_000;
+
+/* ---------- 「正在停止」标记 ---------- */
+
+/**
+ * 主动停止的标记文件，落在实例根上：`pal stop` 与看护进程（`pal serve`）可能是两个进程，
+ * 只有磁盘上的标记才跨得过去。内存里的 Set 在 CLI 里写完就没了。
+ */
+const STOPPING = '.pal-stopping';
+/** 标记有效期：正常 stop 最多等 10s；过期的当残留，不再抑制看护（stop 进程自己被杀也不会永久压制）。 */
+const STOPPING_TTL_MS = 5 * 60_000;
+
+interface StopMark {
+  pid: number;
+  at: string;
+}
+
+/** 标记文件路径（诊断/测试用）。 */
+export function stoppingMarkFile(root: string): string {
+  return join(root, STOPPING);
+}
+
+/**
+ * 在 kill 之前落盘。写不进去也不挡住停止：最坏退化成原来的「退出即崩溃」行为，
+ * 不能因为标记写不了就让用户停不掉实例。
+ */
+export function markStopping(root: string, pid: number): void {
+  const mark: StopMark = { pid, at: nowIso() };
+  try {
+    writeFileSync(stoppingMarkFile(root), JSON.stringify(mark, null, 2) + '\n', 'utf8');
+  } catch {
+    /* 见上 */
+  }
+}
+
+export function clearStopping(root: string): void {
+  try {
+    rmSync(stoppingMarkFile(root), { force: true });
+  } catch {
+    /* 删不掉也不影响停止本身 */
+  }
+}
+
+/** 这次退出是不是我们自己停的：只认同一 pid、未过期的标记。 */
+export function isStopping(root: string, pid?: number, now = Date.now()): boolean {
+  const file = stoppingMarkFile(root);
+  if (!existsSync(file)) return false;
+  let mark: Partial<StopMark>;
+  try {
+    mark = JSON.parse(readFileSync(file, 'utf8')) as Partial<StopMark>;
+  } catch {
+    return false;
+  }
+  if (typeof mark?.pid !== 'number') return false;
+  if (pid !== undefined && mark.pid !== pid) return false;
+  const at = Date.parse(String(mark.at ?? ''));
+  return Number.isFinite(at) && now - at <= STOPPING_TTL_MS;
+}
 
 function aliveOf(opts: StartOptions): (pid: number) => boolean {
   return opts.isAlive ?? isPidAlive;
@@ -186,8 +395,9 @@ export async function startInstanceDetailed(
     ...(rec.home ? { home: rec.home } : {}),
     ...(patchFile ? { patchFile } : {}),
   });
-  const env: NodeJS.ProcessEnv = { ...process.env };
-  if (adapter.homeEnv && rec.home) env[adapter.homeEnv] = rec.home;
+  // 只给宿主它跑起来需要的：整份 process.env 会把 PAL 的 key/代理/PACKHUB_* 带进去，
+  // 实例的隔离就靠实例自己的 home（homeEnv）与凭据播种，环境穿透等于绕开它
+  const env = hostEnv(process.env, adapter, rec.home, opts.env);
 
   const log = openLog(rec.root);
   const plan = spawnPlanFor(commandPath, args);
@@ -265,33 +475,85 @@ export async function startInstanceDetailed(
   return { record: readInstance(rec.id)!, logFile: log.file, url: ready.url };
 }
 
-interface ExitInfo {
+export interface ExitInfo {
   code: number | null;
   signal: NodeJS.Signals | null;
   at: string;
 }
 
-interface ExitTracker {
+export interface ExitTracker {
   /** 已经退出时拿到退出信息；还在跑返回 undefined */
   peek: () => ExitInfo | undefined;
+  /** 等到退出或超时：退出返回退出信息，超时返回 undefined */
   wait: (timeoutMs: number) => Promise<ExitInfo | undefined>;
 }
 
-function trackExit(child: ReturnType<SpawnFn>): ExitTracker {
+/**
+ * 跟踪子进程退出。'exit' 只会来一次，就把它变成一个只 resolve 一次的 Promise：
+ * wait 用 Promise.race 等它，超时靠一个 setTimeout 兜底。退出（或超时）后立刻清掉 timer，
+ * 所以 attachSupervisor 挂 24h 也只是「一个等着的事件」，不再每 50ms 醒一次。
+ */
+export function trackExit(child: ReturnType<SpawnFn>): ExitTracker {
   let exit: ExitInfo | undefined;
+  let settle: ((info: ExitInfo) => void) | undefined;
+  const exited = new Promise<ExitInfo>((resolve) => {
+    settle = resolve;
+  });
   child.once?.('exit', ((code: number | null, signal: NodeJS.Signals | null) => {
     exit = { code, signal: signal ?? null, at: nowIso() };
+    settle?.(exit);
+    // 只 resolve 一次；之后 wait 直接读 exit
+    settle = undefined;
   }) as never);
   return {
     peek: () => exit,
     wait: async (timeoutMs) => {
-      const deadline = Date.now() + timeoutMs;
-      while (!exit && Date.now() < deadline) {
-        await new Promise((resolve) => setTimeout(resolve, 50));
+      // 已经退出：直接给结果，不建 timer
+      if (exit) return exit;
+      let timer: ReturnType<typeof setTimeout> | undefined = undefined;
+      const timedOut = new Promise<undefined>((resolve) => {
+        timer = setTimeout(() => resolve(undefined), Math.max(0, timeoutMs));
+      });
+      try {
+        const info = await Promise.race([exited, timedOut]);
+        // 超时和 exit 撞在同一拍时，退出信息优先：只要真退了就不报超时
+        return info ?? exit;
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
       }
-      return exit;
     },
   };
+}
+
+/**
+ * 启动期只读日志尾部窗口找地址。waitForReady 每 100ms 轮询一次，宿主输出大时
+ * 整份读（readFileSync）会把启动期变成持续的全文件 IO/CPU，而且越读越慢。
+ *
+ * 窗口 128KB 的依据：dsh 的就绪地址打在启动输出末尾（banner、插件加载之后，
+ * 监听成功那一行），真实日志里地址距文件尾通常只有几 KB；128KB 留了约两个数量级
+ * 的余量，即使地址前多出几屏插件/告警输出也还在窗口内，而每 100ms 读 128KB 的
+ * 代价可以忽略。若地址真的更早、被挤出窗口，最终超时错误里的 tailLog 仍会给出日志
+ * 尾部（那是失败路径上的一次性读取，不按启动期频率发生），不会因此看不到原因。
+ */
+const READY_TAIL_BYTES = 128 * 1024;
+
+/**
+ * 读文件尾部最多 maxBytes 字节：先 open + fstat 拿大小，再从 size-maxBytes 定位读，
+ * 大文件不整份进内存。起点可能落在多字节 UTF-8 字符中间，那个字符会变成替换符；
+ * 地址是 ASCII，不影响解析。
+ */
+function readTail(file: string, maxBytes: number): string {
+  const fd = openSync(file, 'r');
+  try {
+    const size = fstatSync(fd).size;
+    if (size <= 0) return '';
+    const length = Math.min(size, maxBytes);
+    const buf = Buffer.allocUnsafe(length);
+    const read = readSync(fd, buf, 0, length, size - length);
+    return buf.toString('utf8', 0, read);
+  } finally {
+    closeSync(fd);
+  }
 }
 
 async function waitForReady(
@@ -306,7 +568,7 @@ async function waitForReady(
     const dead = exited.peek();
     if (dead) return { ok: false, exited: dead };
     try {
-      const hit = parseStartUrl(readFileSync(logFile, 'utf8'), rec.harness);
+      const hit = parseStartUrl(readTail(logFile, READY_TAIL_BYTES), rec.harness);
       if (hit) return { ok: true, url: hit.url, ...(hit.port ? { port: hit.port } : {}) };
     } catch {
       /* 日志还没出现 */
@@ -332,6 +594,16 @@ export function attachSupervisor(record: InstanceRecord, tracker: ExitTracker): 
 async function onExit(record: InstanceRecord, info: ExitInfo): Promise<void> {
   const current = readInstance(record.id);
   if (!current) return;
+  // 主动停止：stopInstance 在 kill 之前落了标记。onExit 可能比 stopInstance 收尾更早到，
+  // 也可能晚到（标记已清、记录已是 stopped），两种情况都不能当成崩溃。
+  if (isStopping(current.root, record.pid)) {
+    appendEvent(current.root, { event: 'exit-stopped', code: info.code, signal: info.signal, pid: record.pid });
+    return;
+  }
+  // 记录已经归别人了（新一轮启动换了 pid）：老看护不替它写状态，更不能重起
+  if (current.pid !== undefined && current.pid !== record.pid) return;
+  // stopInstance 已经收尾过（标记清掉了）：这次退出是被 stop 收掉的，不是崩溃
+  if (current.status === 'stopped') return;
   const restarts = (current.lastExit?.restarts ?? 0) + 1;
   appendEvent(current.root, { event: 'exit', code: info.code, signal: info.signal, restarts });
   const crashed = { ...current, status: 'broken' as const, lastExit: { ...info, restarts } };
@@ -365,30 +637,33 @@ export async function stopInstance(idOrName: string, opts: StopOptions = {}): Pr
       hint: rec.status === 'broken' ? '状态已经是异常，可以直接删或重起' : undefined,
     });
   }
+  const pid = rec.pid;
   const alive = opts.isAlive ?? isPidAlive;
-  if (!alive(rec.pid)) {
+  // 标记必须先于 kill 落盘：看护可能活在另一个进程（pal serve）里，它一看到退出就会走 onExit
+  markStopping(rec.root, pid);
+  try {
+    if (alive(pid)) {
+      (opts.kill ?? killTree)(pid);
+      const gone = await waitForExit(pid, {
+        isAlive: alive,
+        timeoutMs: opts.timeoutMs ?? STOP_TIMEOUT_MS,
+      });
+      if (!gone) {
+        throw new PalError('busy', `停不掉这个进程：pid ${pid}`, {
+          hint: '它可能卡在 IO 上；用任务管理器结束，或等一会儿再试',
+        });
+      }
+    }
     const { pid: _pid, port: _port, url: _url, ...rest } = rec;
     const next: InstanceRecord = { ...rest, status: 'stopped' };
     writeInstance(next);
     clearSecrets(rec.root);
+    appendEvent(rec.root, { event: 'stop', pid });
     return readInstance(rec.id)!;
+  } finally {
+    // 成功失败都清：失败时留着标记，后面真实的崩溃会被一直压掉
+    clearStopping(rec.root);
   }
-  (opts.kill ?? killTree)(rec.pid);
-  const gone = await waitForExit(rec.pid, {
-    isAlive: alive,
-    timeoutMs: opts.timeoutMs ?? STOP_TIMEOUT_MS,
-  });
-  if (!gone) {
-    throw new PalError('busy', `停不掉这个进程：pid ${rec.pid}`, {
-      hint: '它可能卡在 IO 上；用任务管理器结束，或等一会儿再试',
-    });
-  }
-  const { pid: _pid, port: _port, url: _url, ...rest } = rec;
-  const next: InstanceRecord = { ...rest, status: 'stopped' };
-  writeInstance(next);
-  clearSecrets(rec.root);
-  appendEvent(rec.root, { event: 'stop', pid: rec.pid });
-  return readInstance(rec.id)!;
 }
 
 export async function restartInstance(idOrName: string, opts: StartOptions = {}): Promise<InstanceRecord> {
@@ -403,20 +678,31 @@ export async function restartInstance(idOrName: string, opts: StartOptions = {})
   return startInstance(rec.id, opts);
 }
 
+/** 推导一条记录的状态视图：pid 已经不在就当 broken 并收回 pid/port/url，其余原样返回。 */
+function deriveStatus(rec: InstanceRecord, isAlive: (pid: number) => boolean): InstanceRecord {
+  if (!rec.pid || isAlive(rec.pid)) return rec;
+  const { pid: _pid, port: _port, url: _url, ...rest } = rec;
+  return {
+    ...rest,
+    status: 'broken',
+    lastExit: rec.lastExit ?? { code: null, signal: null, at: nowIso(), restarts: 0 },
+  };
+}
+
+/**
+ * 纯函数版状态视图：只算不写。GET 这类读路径用它，读列表/体检不会改 instance.json，
+ * 也不会把坏记录搬进 .quarantine。
+ */
+export function statusView(records: InstanceRecord[], isAlive: (pid: number) => boolean = isPidAlive): InstanceRecord[] {
+  return records.map((rec) => deriveStatus(rec, isAlive));
+}
+
 /** 进程已经不在了的实例标成 broken，并记下端口收回了；其余原样返回。 */
 export function refreshStatuses(isAlive: (pid: number) => boolean = isPidAlive): InstanceRecord[] {
   return listInstances().map((rec) => {
-    if (rec.pid && !isAlive(rec.pid)) {
-      const { pid: _pid, port: _port, url: _url, ...rest } = rec;
-      const next: InstanceRecord = {
-        ...rest,
-        status: 'broken',
-        lastExit: rec.lastExit ?? { code: null, signal: null, at: nowIso(), restarts: 0 },
-      };
-      writeInstance(next);
-      return next;
-    }
-    return rec;
+    const next = deriveStatus(rec, isAlive);
+    if (next !== rec) writeInstance(next);
+    return next;
   });
 }
 

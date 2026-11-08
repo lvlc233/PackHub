@@ -16,7 +16,6 @@ import {
   renameInstance,
   requireInstance,
   scanInstances,
-  summarize,
   updateInstance,
   writeInstance,
   writeTemplate,
@@ -168,7 +167,16 @@ const remove = defineCommand({
     }
     if (result.stopped) console.log(`· 先停掉了 pid ${result.stopped}`);
     console.log(`· 卸载：${result.uninstalled.join(', ') || '（没有 Pack 记录）'}`);
-    console.log(`✓ ${keep ? `已归档到 ${result.archivedTo}` : result.removed ? `已删除 ${rec.id}` : `已摘掉记录：${rec.id}`}`);
+    const outcome = !rec.managed
+      ? '已摘掉记录（接管目录未动）'
+      : keep
+        ? result.archivedTo
+          ? `已归档到 ${result.archivedTo}`
+          : `已摘掉记录：${rec.id}`
+        : result.removed
+          ? `已删除 ${rec.id}`
+          : `已摘掉记录：${rec.id}`;
+    console.log(`✓ ${outcome}`);
   },
 });
 
@@ -473,6 +481,11 @@ const update = defineCommand({
     target: { type: 'positional', required: true, description: '实例 id 或名字' },
     version: { type: 'string', description: 'registry 版本；不写用 latest' },
     index: { type: 'string', description: 'registry 索引' },
+    force: {
+      type: 'boolean',
+      default: false,
+      description: '覆盖本地改过的文件；不带时若 Pack 写过的文件被本地改过就拒绝更新',
+    },
     json: { type: 'boolean', default: false },
   },
   async run({ args }) {
@@ -486,7 +499,11 @@ const update = defineCommand({
       ...(args.version ? { version: String(args.version) } : {}),
       log,
     });
-    const result = await updateInstance(rec.id, { packDir, packRef: ref });
+    const result = await updateInstance(rec.id, {
+      packDir,
+      packRef: ref,
+      ...(args.force ? { force: true } : {}),
+    });
     if (args.json) {
       console.log(JSON.stringify(result, null, 2));
       return;

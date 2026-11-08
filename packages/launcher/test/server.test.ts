@@ -1,14 +1,68 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { Agent, request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startPalServer, type PalServer } from '../src/server.ts';
+import { createInstance } from '../src/index.ts';
 import { resetHarnessCache } from '../src/harness.ts';
 
 let tmp: string;
 let server: PalServer;
 
 const url = (path: string): string => `${server.url}${path.replace(/^\//, '')}`;
+
+const serverPort = (): number => Number(new URL(server.url).port);
+
+interface RawResult {
+  status: number;
+  text: string;
+  error?: string;
+}
+
+/**
+ * 用原始 http.request 发请求：fetch 会先把 URL 里的 `..` 规范化掉，测不到服务端行为。
+ * timeoutMs 到点就主动断开并标记 error='timeout'，用来证明连接没被挂住。
+ */
+function rawRequest(
+  path: string,
+  init: { method?: string; headers?: Record<string, string>; body?: Buffer | string; agent?: Agent; timeoutMs?: number } = {},
+): Promise<RawResult> {
+  return new Promise((resolvePromise) => {
+    let settled = false;
+    let timer: NodeJS.Timeout | undefined;
+    const finish = (value: RawResult): void => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      resolvePromise(value);
+    };
+    const req = request(
+      {
+        host: '127.0.0.1',
+        port: serverPort(),
+        path,
+        method: init.method ?? 'GET',
+        headers: init.headers,
+        ...(init.agent ? { agent: init.agent } : {}),
+      },
+      (res) => {
+        let text = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk: string) => (text += chunk));
+        res.on('end', () => finish({ status: res.statusCode ?? 0, text }));
+      },
+    );
+    req.on('error', (err: NodeJS.ErrnoException) => finish({ status: 0, text: '', error: err.code ?? err.message }));
+    if (init.timeoutMs) {
+      timer = setTimeout(() => {
+        req.destroy();
+        finish({ status: 0, text: '', error: 'timeout' });
+      }, init.timeoutMs);
+    }
+    req.end(init.body);
+  });
+}
 
 /** 界面就是这么发请求的：同一个头，同一个来源。 */
 function headers(extra: Record<string, string> = {}): Record<string, string> {
@@ -164,5 +218,93 @@ describe('PAL 本地界面 API', () => {
     const res = await call(`/api/instances/${rec.id}/open`);
     expect(res.status).toBe(409);
     expect(res.body.code).toBe('not-running');
+  });
+
+  it('读列表没有副作用：pid 已死的记录只报告，不改 instance.json、不隔离坏记录', async () => {
+    const rec = await createInstance({ name: 'dead', harness: 'dir', packDir: 'examples/doc-review' });
+    const file = join(rec.root, 'instance.json');
+    // 造一个"记录说在跑、进程其实已经不在了"的现场
+    writeFileSync(
+      file,
+      JSON.stringify({ ...JSON.parse(readFileSync(file, 'utf8')), status: 'running', pid: 777777, port: 1 }, null, 2) +
+        '\n',
+      'utf8',
+    );
+    const before = readFileSync(file, 'utf8');
+
+    // 再放一条真正读不了的坏记录：读列表应该只报告，不把它搬进 .quarantine
+    const badDir = join(tmp, 'instances', 'broken-record');
+    mkdirSync(badDir, { recursive: true });
+    writeFileSync(join(badDir, 'instance.json'), '{ not json', 'utf8');
+
+    const list = await json('/api/instances');
+    const row = list.instances.find((item: { id: string }) => item.id === rec.id);
+    // 视图里是 broken，但磁盘上的记录一个字节都没动
+    expect(row?.status).toBe('broken');
+    expect(row?.pid).toBeUndefined();
+    expect(readFileSync(file, 'utf8')).toBe(before);
+    expect(list.broken.map((bad: { dir: string }) => bad.dir)).toContain(badDir);
+    expect(existsSync(badDir)).toBe(true);
+    expect(existsSync(join(tmp, 'instances', '.quarantine'))).toBe(false);
+  });
+
+  it('静态路径越界（.. 段、编码斜杠、反斜杠）一律 404，不泄漏仓库文件', async () => {
+    // 仓根 package.json 就在 web 目录外：越界成功的话会原样吐出来
+    const repoPackage = readFileSync(join(process.cwd(), 'package.json'), 'utf8');
+    expect(repoPackage).toContain('packhub');
+
+    const attempts = [
+      '/../package.json',
+      '/..%2fpackage.json',
+      '/..%2F..%2fpackage.json',
+      '/..%5cpackage.json',
+      '/%2e%2e/package.json',
+      '/..%2fweb2%2fsecret.txt',
+    ];
+    for (const attempt of attempts) {
+      const res = await rawRequest(attempt);
+      expect(res.status, attempt).toBe(404);
+      expect(res.text, attempt).not.toContain('"packhub"');
+    }
+
+    // 正常的静态资源不受影响
+    const ok = await rawRequest('/index.html');
+    expect(ok.status).toBe(200);
+    expect(ok.text).toContain('PAL');
+  });
+
+  it('请求体超过 1MB 返回 400，剩余请求体读完、连接不会被挂住', async () => {
+    const agent = new Agent({ keepAlive: true, maxSockets: 1 });
+    try {
+      const body = JSON.stringify({
+        pack: 'examples/doc-review',
+        name: 'big',
+        harness: 'dir',
+        pad: 'x'.repeat(1_500_000),
+      });
+      const big = await rawRequest('/api/instances', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-pal-client': 'pal-ui',
+          'content-length': String(Buffer.byteLength(body)),
+        },
+        body,
+        agent,
+        timeoutMs: 5000,
+      });
+      expect(big.status).toBe(400);
+      expect((JSON.parse(big.text) as { code: string }).code).toBe('invalid-input');
+
+      // 旧实现只回 400 就不管剩下的字节了，这条复用同一连接的请求会一直等不到响应
+      const after = await rawRequest('/index.html', { agent, timeoutMs: 3000 });
+      expect(after.error).toBeUndefined();
+      expect(after.status).toBe(200);
+
+      // 没有创建出半截实例；服务本身照常响应
+      expect((await json('/api/instances')).instances).toEqual([]);
+    } finally {
+      agent.destroy();
+    }
   });
 });

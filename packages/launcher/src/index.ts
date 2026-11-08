@@ -29,8 +29,6 @@ import { archiveRoot, failedRoot, instancesRoot, newId, quarantineRoot, stamp } 
 export const RECORD = 'instance.json';
 export const BASELINE = 'baseline.json';
 export const API_VERSION = 'packhub.dev/instance/v1';
-/** 旧记录没有这些字段：读的时候补齐，不拒绝。 */
-const LEGACY_API = 'packhub.dev/instance/v0';
 
 export type InstanceStatus =
   | 'installing'
@@ -167,7 +165,6 @@ function parseRecord(root: string, text: string): InstanceRecord {
     ports: Array.isArray(data.ports) ? data.ports : [],
     pack: data.pack ?? { name: 'unknown', version: '0.0.0' },
   };
-  if ((data as { apiVersion?: string }).apiVersion === LEGACY_API) return normalized;
   return normalized;
 }
 
@@ -402,7 +399,6 @@ function dropActive(id: string): void {
 /* ---------- lock ---------- */
 
 const LOCK = '.pal-lock.json';
-const LOCK_WAIT_MS = 1_500;
 
 interface LockInfo {
   pid: number;
@@ -430,30 +426,55 @@ function readLock(root: string): LockInfo | undefined {
 }
 
 /**
- * 一个实例一次只允许一个写操作（安装、启停、删除）。
+ * 抢实例锁：拿到返回 true；本进程已持有返回 false（嵌套直接执行，不再写锁）。
  * 锁里记 pid：持有者已经不在了当陈旧锁清掉，不让崩溃永久锁死实例。
+ */
+function acquireInstanceLock(root: string, op: string): boolean {
+  const holder = readLock(root);
+  if (holder) {
+    if (holder.pid === process.pid) return false;
+    if (isPidAlive(holder.pid)) throw new InstanceBusy(root, holder);
+  }
+  mkdirSync(root, { recursive: true });
+  writeFileSync(
+    join(root, LOCK),
+    JSON.stringify({ pid: process.pid, op, at: nowIso() }, null, 2) + '\n',
+    'utf8',
+  );
+  return true;
+}
+
+function releaseInstanceLock(root: string): void {
+  try {
+    rmSync(join(root, LOCK), { force: true });
+  } catch {
+    /* 锁文件删不掉不影响结果 */
+  }
+}
+
+/**
+ * 同步版锁：给必须保持同步签名的调用方（migrateInstance，CLI 直接同步调用）用。
+ * 锁文件、陈旧锁判定与 withInstanceLock 共用同一套协议，只是不经过 Promise。
+ */
+function withInstanceLockSync<T>(root: string, op: string, fn: (owned: boolean) => T): T {
+  const owned = acquireInstanceLock(root, op);
+  try {
+    return fn(owned);
+  } finally {
+    if (owned) releaseInstanceLock(root);
+  }
+}
+
+/**
+ * 一个实例一次只允许一个写操作（安装、启停、删除）。
  */
 export function withInstanceLock<T>(root: string, op: string, fn: () => Promise<T> | T): Promise<T> {
   const run = async (): Promise<T> => {
-    const holder = readLock(root);
-    if (holder) {
-      if (holder.pid === process.pid) return fn();
-      if (isPidAlive(holder.pid)) throw new InstanceBusy(root, holder);
-    }
-    mkdirSync(root, { recursive: true });
-    writeFileSync(
-      join(root, LOCK),
-      JSON.stringify({ pid: process.pid, op, at: nowIso() }, null, 2) + '\n',
-      'utf8',
-    );
+    if (!acquireInstanceLock(root, op)) return fn();
     try {
       return await fn();
     } finally {
-      try {
-        rmSync(join(root, LOCK), { force: true });
-      } catch {
-        /* 锁文件删不掉不影响结果 */
-      }
+      releaseInstanceLock(root);
     }
   };
   return run();
@@ -463,8 +484,6 @@ export function withInstanceLock<T>(root: string, op: string, fn: () => Promise<
 export function instanceLock(root: string): LockInfo | undefined {
   return readLock(root);
 }
-
-export { LOCK_WAIT_MS };
 
 /* ---------- 基线 ---------- */
 
@@ -761,6 +780,16 @@ export async function removeInstance(
       }
     }
 
+    // 接管来的目录不是 PAL 的：不能按 state 卸包，keepData 也不搬走它；
+    // 只摘记录，目录原样保留。
+    if (!record.managed) {
+      rmSync(recordFile(record.root), { force: true });
+      rmSync(join(record.root, BASELINE), { force: true });
+      removeLink(record.id);
+      dropActive(record.id);
+      return;
+    }
+
     try {
       const state = loadState(record.root);
       for (const key of Object.keys(state.packs)) {
@@ -788,15 +817,6 @@ export async function removeInstance(
         });
       }
       archivedTo = target;
-      removeLink(record.id);
-      dropActive(record.id);
-      return;
-    }
-
-    if (!record.managed) {
-      // 接管来的目录不是 PAL 的：只摘记录，不动用户的目录
-      rmSync(recordFile(record.root), { force: true });
-      rmSync(join(record.root, BASELINE), { force: true });
       removeLink(record.id);
       dropActive(record.id);
       return;
@@ -867,6 +887,8 @@ function planTargets(plan: Plan): Set<string> {
 /**
  * 把实例里的 Pack 换成另一个版本：先在同一个根上装新版，再清掉上一版独有的文件。
  * 要求实例已停：更新期间有进程在读这些文件，删了会留下半套。
+ * 更新前先按基线算本地改动；计划确实会变（changed）且改动非空、又没给 force 就拒绝并抛
+ * PalError，一个文件都不写。同版本重跑不写盘，也不拦。
  */
 export async function updateInstance(
   nameOrId: string,
@@ -923,12 +945,23 @@ export async function updateInstance(
         .map((file) => file.path)
     : [];
 
+  const changed = record.planHash !== plan.planHash || record.pack.version !== ctx.manifest.metadata.version;
+
+  // P0：计划真的会覆盖 Pack 装过的文件时，先停下来问人；--force / body.force 才继续。
+  // 同版本重跑（changed=false）本来不写盘，不拦。
+  if (changed && localChanges.length > 0 && !opts.force) {
+    const shown = localChanges.slice(0, 5).join('、');
+    const more = localChanges.length > 5 ? ` 等 ${localChanges.length} 个文件` : '';
+    throw new PalError('invalid-input', `更新会覆盖本地改过的文件：${shown}${more}；确认覆盖请加 --force`, {
+      hint: '先备份改动，或 pal rebaseline <id> 把当前内容认作基线；确实要覆盖就带 --force（API: body.force=true）',
+      details: { localChanges },
+    });
+  }
+
   let removedFiles: string[] = [];
   let addedFiles: string[] = [];
-  let changed = false;
 
   await withInstanceLock(record.root, 'update', async () => {
-    changed = record.planHash !== plan.planHash || record.pack.version !== ctx.manifest.metadata.version;
     if (!changed) return;
     // 同一 Pack 的新版本要能覆盖旧版本写过的文件；overwrite 只放开"自己的包"
     await installPack(ctx, plan, { root: record.root, packRoot: resolve(opts.packDir), overwrite: true });
@@ -1008,17 +1041,15 @@ export async function updateInstance(
 export function rebaselineInstance(nameOrId: string): Baseline {
   const record = requireInstance(nameOrId);
   const baseline = readBaseline(record.root);
-  const next = writeBaseline(record.root, {
+  // ignore 必须随 files 一起交给 writeBaseline：写盘后改返回值不会落进 baseline.json
+  return writeBaseline(record.root, {
     pack: record.pack.name,
     version: record.pack.version,
     harness: record.harness,
     planHash: record.planHash,
     files: baselineFromState(record.root),
+    ...(baseline?.ignore ? { ignore: baseline.ignore } : {}),
   });
-  if (baseline) {
-    next.ignore = baseline.ignore;
-  }
-  return next;
 }
 
 /* ---------- 接管 / 复制 / 改名 / 迁移 / 模板 ---------- */
@@ -1155,6 +1186,87 @@ export function renameInstance(nameOrId: string, newName: string): InstanceRecor
   return readRecord(record.root)!;
 }
 
+/** 回滚迁移：把目录挪回原路径，并把记录改回旧 root。 */
+function rollbackMigrate(
+  record: InstanceRecord,
+  target: string,
+): { ok: boolean; scene: string; error?: string } {
+  try {
+    renameSync(target, record.root);
+  } catch (err) {
+    return {
+      ok: false,
+      scene: `目录没能挪回 ${record.root}，现场还在 ${target}`,
+      error: (err as Error).message,
+    };
+  }
+  // 目录已经回来了；如果记录已经写成新路径，再把它改回旧路径
+  const current = readRecord(record.root);
+  if (current && current.id === record.id && current.root === record.root) {
+    return { ok: true, scene: record.root };
+  }
+  try {
+    writeInstance(record);
+    return { ok: true, scene: record.root };
+  } catch (err) {
+    return {
+      ok: false,
+      scene: `目录已挪回 ${record.root}，但记录仍指向 ${target}`,
+      error: (err as Error).message,
+    };
+  }
+}
+
+/** 在实例锁里执行迁移：rename 与写记录是一个整体，写记录失败就把目录挪回去。 */
+function migrateLocked(record: InstanceRecord, target: string, owned: boolean): InstanceRecord {
+  try {
+    renameSync(record.root, target);
+  } catch (err) {
+    throw new PalError('busy', `挪不动这个实例根：${(err as Error).message}`, {
+      hint: '跨盘时先手动复制再删；或换一个同盘目录',
+      cause: err,
+    });
+  }
+
+  try {
+    const next: InstanceRecord = {
+      ...record,
+      root: target,
+      ...(record.home ? { home: record.home.replace(record.root, target) } : {}),
+    };
+    writeInstance(next);
+    // 不能静默：写记录返回后必须能从新根读回同一份记录
+    const read = readRecordResult(target);
+    if (!read.record) {
+      throw new PalError('record-corrupt', `迁移后读不到新根的记录：${read.error ?? '没有 instance.json'}`, {
+        hint: '写记录没有真正落盘，迁移会回滚',
+        details: { root: record.root, target },
+      });
+    }
+    // 锁文件跟着目录搬到了新根；只清我们这次迁移写进去的那一把
+    const atTarget = readLock(target);
+    if (owned && atTarget?.pid === process.pid && atTarget.op === 'migrate') {
+      releaseInstanceLock(target);
+    }
+    return read.record;
+  } catch (err) {
+    const rollback = rollbackMigrate(record, target);
+    if (!rollback.ok) {
+      if (owned) releaseInstanceLock(target);
+      throw new PalError('internal', `迁移写记录失败，回滚也失败；${rollback.scene}：${(err as Error).message}`, {
+        hint: rollback.error,
+        cause: err,
+        details: { root: record.root, target },
+      });
+    }
+    throw new PalError(
+      err instanceof PalError ? err.code : 'internal',
+      `迁移写记录失败，已回滚（目录回到 ${record.root}）：${(err as Error).message}`,
+      { hint: '实例根与记录都回到迁移前的位置，可以重试', cause: err, details: { root: record.root, target } },
+    );
+  }
+}
+
 /** 把实例根整体挪到别处（换盘、整理目录），记录里的路径一起改。 */
 export function migrateInstance(nameOrId: string, to: string): InstanceRecord {
   const record = requireInstance(nameOrId);
@@ -1166,21 +1278,7 @@ export function migrateInstance(nameOrId: string, to: string): InstanceRecord {
     throw new PalError('root-occupied', `目标已存在：${target}`);
   }
   mkdirSync(dirname(target), { recursive: true });
-  try {
-    renameSync(record.root, target);
-  } catch (err) {
-    throw new PalError('busy', `挪不动这个实例根：${(err as Error).message}`, {
-      hint: '跨盘时先手动复制再删；或换一个同盘目录',
-      cause: err,
-    });
-  }
-  const next: InstanceRecord = {
-    ...record,
-    root: target,
-    ...(record.home ? { home: record.home.replace(record.root, target) } : {}),
-  };
-  writeInstance(next);
-  return readRecord(target)!;
+  return withInstanceLockSync(record.root, 'migrate', (owned) => migrateLocked(record, target, owned));
 }
 
 export interface InstanceTemplate {
@@ -1236,19 +1334,4 @@ export function readTemplate(file: string): InstanceTemplate {
     });
   }
   return data;
-}
-
-/** 记录的体积很小，调试时直接看结构。 */
-export function summarize(record: InstanceRecord): Record<string, unknown> {
-  return {
-    id: record.id,
-    name: record.name,
-    harness: record.harness,
-    harnessVersion: record.harnessVersion ?? null,
-    status: record.status,
-    pack: `${record.pack.name}@${record.pack.version}`,
-    root: record.root,
-    port: record.port ?? null,
-    managed: record.managed,
-  };
 }

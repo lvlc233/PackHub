@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, resolve, sep } from 'node:path';
 import { fetchPack, resolveAddSource, resolveRegistry } from '@packhub/runtime';
@@ -104,42 +104,5 @@ export async function materializePack(
       /* 清不掉就留着，反正下次会先 reset */
     }
     throw err;
-  }
-}
-
-/** 缓存里有哪些来源/版本，排障与界面用。 */
-export function listPackCache(): Array<{ source: string; variant: string; dir: string; pack?: string }> {
-  const base = packCacheRoot();
-  if (!existsSync(base)) return [];
-  const out: Array<{ source: string; variant: string; dir: string; pack?: string }> = [];
-  for (const entry of safeDirs(base)) {
-    const sourceDir = join(base, entry);
-    for (const inner of safeDirs(sourceDir)) {
-      const dir = join(sourceDir, inner);
-      const item: { source: string; variant: string; dir: string; pack?: string } = {
-        source: entry,
-        variant: inner,
-        dir,
-      };
-      try {
-        const text = readFileSync(join(dir, 'packhub.yaml'), 'utf8');
-        const name = /^\s*name:\s*(\S+)/m.exec(text)?.[1];
-        if (name) item.pack = name;
-      } catch {
-        /* 不是完整 Pack 就只报目录 */
-      }
-      out.push(item);
-    }
-  }
-  return out;
-}
-
-function safeDirs(dir: string): string[] {
-  try {
-    return readdirSync(dir, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name);
-  } catch {
-    return [];
   }
 }

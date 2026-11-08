@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   existsSync,
   mkdirSync,
@@ -9,6 +9,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import {
   adoptInstance,
@@ -16,6 +17,7 @@ import {
   createInstance,
   exportTemplate,
   listInstances,
+  migrateInstance,
   readBaseline,
   readInstance,
   readTemplate,
@@ -27,6 +29,7 @@ import {
   writeTemplate,
 } from '../src/index.ts';
 import { isPalError } from '../src/errors.ts';
+import { isPidAlive } from '../src/process.ts';
 import { baselineDrift } from '../src/health.ts';
 import { archiveRoot, failedRoot, quarantineRoot } from '../src/paths.ts';
 
@@ -70,6 +73,25 @@ function listDirNames(dir: string): string[] {
   } catch {
     return [];
   }
+}
+
+/** 造一个指定版本、写一组 knowledge 文件的 Pack；同一名字的两个目录就是两个版本。 */
+function knowledgePack(dir: string, version: string, files: Record<string, string>): string {
+  mkdirSync(dir, { recursive: true });
+  const resources = Object.keys(files)
+    .map((name) => `  - id: ${name.replace(/[^a-zA-Z0-9]+/g, '-')}\n    type: knowledge\n    source: ./${name}\n`)
+    .join('');
+  for (const [name, body] of Object.entries(files)) writeFileSync(join(dir, name), body, 'utf8');
+  writeFileSync(
+    join(dir, 'packhub.yaml'),
+    `apiVersion: packhub.dev/v0
+kind: Pack
+metadata: { name: demo/guard, version: ${version}, targets: [dir] }
+resources:
+${resources}`,
+    'utf8',
+  );
+  return dir;
 }
 
 describe('实例配置', () => {
@@ -191,18 +213,63 @@ describe('实例配置', () => {
     expect(readFileSync(keep, 'utf8')).toBe('my session');
   });
 
-  it('接管来的目录删除时只摘记录', async () => {
+  it('接管来的目录删除时只摘记录，不按 state 卸包', async () => {
     const dir = join(tmp, 'existing-env');
-    mkdirSync(join(dir, 'home', 'dsh'), { recursive: true });
+    const written = join(dir, 'home', 'dsh', 'skills', 'doc-review', 'SKILL.md');
+    mkdirSync(join(dir, 'home', 'dsh', 'skills', 'doc-review'), { recursive: true });
+    writeFileSync(written, '# 用户的 skill\n', 'utf8');
     writeFileSync(join(dir, 'mine.txt'), 'keep', 'utf8');
+    // 接管目录里本来就有 Pack 的 state：删除时不能拿它去 removePack
+    mkdirSync(join(dir, '.packhub'), { recursive: true });
+    writeFileSync(
+      join(dir, '.packhub', 'state.json'),
+      JSON.stringify(
+        {
+          apiVersion: 'packhub.dev/state/v0',
+          packs: {
+            'lvlc233/doc-review@0.1.0': {
+              pack: 'lvlc233/doc-review',
+              version: '0.1.0',
+              planHash: 'adopted',
+              installedAt: new Date().toISOString(),
+              actions: [],
+              written: ['home/dsh/skills/doc-review/SKILL.md'],
+            },
+          },
+        },
+        null,
+        2,
+      ),
+      'utf8',
+    );
     const record = adoptInstance({ dir, name: 'adopted', harness: 'dsh' });
     expect(record.managed).toBe(false);
     expect(record.home).toBe(join(dir, 'home', 'dsh'));
 
     const result = await removeInstance('adopted');
     expect(result.removed).toBe(false);
+    expect(result.uninstalled).toEqual([]);
+    expect(readFileSync(written, 'utf8')).toBe('# 用户的 skill\n');
+    expect(existsSync(join(dir, '.packhub', 'state.json'))).toBe(true);
     expect(existsSync(join(dir, 'mine.txt'))).toBe(true);
+    expect(existsSync(join(dir, 'instance.json'))).toBe(false);
     expect(listInstances()).toEqual([]);
+  });
+
+  it('接管来的目录 keepData 删除也不搬走，归档区不新增', async () => {
+    const dir = join(tmp, 'existing-env-keep');
+    mkdirSync(join(dir, 'home', 'dsh'), { recursive: true });
+    writeFileSync(join(dir, 'mine.txt'), 'keep', 'utf8');
+    adoptInstance({ dir, name: 'adopted-keep', harness: 'dsh' });
+
+    const result = await removeInstance('adopted-keep', { keepData: true });
+    expect(result.removed).toBe(false);
+    expect(result.archivedTo).toBeUndefined();
+    expect(existsSync(dir)).toBe(true);
+    expect(readFileSync(join(dir, 'mine.txt'), 'utf8')).toBe('keep');
+    expect(existsSync(join(dir, 'instance.json'))).toBe(false);
+    expect(listInstances()).toEqual([]);
+    expect(listDirNames(archiveRoot())).toEqual([]);
   });
 
   it('复制、改名、导出模板', async () => {
@@ -229,6 +296,85 @@ describe('实例配置', () => {
     expect(template.pack.name).toBe('lvlc233/doc-review');
     const file = writeTemplate(template, join(tmp, 'src.pal.json'));
     expect(readTemplate(file).name).toBe('src');
+  });
+
+  it('迁移：记录跟到新路径，旧路径不存在，锁不留在新根', async () => {
+    const rec = await createInstance({ name: 'mover', harness: 'dir', packDir: PACK });
+    const target = join(tmp, 'moved-root');
+
+    const moved = migrateInstance('mover', target);
+
+    expect(moved.id).toBe(rec.id);
+    expect(moved.root).toBe(target);
+    expect(existsSync(rec.root)).toBe(false);
+    expect(existsSync(target)).toBe(true);
+    // 磁盘上的记录与目录一致：列表、按 id 读、instance.json 三处都指向新根
+    expect(readInstance(rec.id)?.root).toBe(target);
+    expect(listInstances().map((row) => row.root)).toContain(target);
+    const onDisk = JSON.parse(readFileSync(join(target, 'instance.json'), 'utf8')) as { root: string; id: string };
+    expect(onDisk.id).toBe(rec.id);
+    expect(onDisk.root).toBe(target);
+    expect(existsSync(join(target, '.pal-lock.json'))).toBe(false);
+  });
+
+  it('迁移：目标已存在时拒绝，旧根与记录都不动', async () => {
+    const rec = await createInstance({ name: 'occupied', harness: 'dir', packDir: PACK });
+    const target = join(tmp, 'occupied-root');
+    mkdirSync(target, { recursive: true });
+
+    let caught: unknown;
+    try {
+      migrateInstance('occupied', target);
+    } catch (err) {
+      caught = err;
+    }
+    expect(isPalError(caught)).toBe(true);
+    if (isPalError(caught)) expect(caught.code).toBe('root-occupied');
+    expect(existsSync(rec.root)).toBe(true);
+    expect(readInstance(rec.id)?.root).toBe(rec.root);
+  });
+
+  it('迁移：锁被另一个活着的进程占着就拒绝，不 rename', async () => {
+    const rec = await createInstance({ name: 'locked', harness: 'dir', packDir: PACK });
+    const target = join(tmp, 'locked-target');
+    // 父进程活着且一定不是自己；拿不到可靠 pid 就不硬造锁冲突
+    const holder = process.ppid;
+    if (!holder || holder === process.pid || !isPidAlive(holder)) return;
+    writeFileSync(
+      join(rec.root, '.pal-lock.json'),
+      JSON.stringify({ pid: holder, op: 'create', at: new Date().toISOString() }, null, 2),
+      'utf8',
+    );
+
+    let caught: unknown;
+    try {
+      migrateInstance('locked', target);
+    } catch (err) {
+      caught = err;
+    }
+    expect(isPalError(caught)).toBe(true);
+    if (isPalError(caught)) expect(caught.code).toBe('busy');
+    expect(existsSync(rec.root)).toBe(true);
+    expect(existsSync(target)).toBe(false);
+    expect(readInstance(rec.id)?.root).toBe(rec.root);
+  });
+
+  it('迁移：写记录失败时把目录回滚，记录仍指旧路径', async () => {
+    const rec = await createInstance({ name: 'rollback', harness: 'dir', packDir: PACK });
+    const target = join(tmp, 'rollback-target');
+    // 固定临时文件后缀，再把这个路径做成目录：writeInstance 写临时文件就会失败
+    const spy = vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    mkdirSync(join(rec.root, `instance.json.tmp-${process.pid}-i`));
+    try {
+      expect(() => migrateInstance('rollback', target)).toThrow('已回滚');
+    } finally {
+      spy.mockRestore();
+    }
+    expect(existsSync(rec.root)).toBe(true);
+    expect(existsSync(target)).toBe(false);
+    expect(readInstance(rec.id)?.root).toBe(rec.root);
+    expect(JSON.parse(readFileSync(join(rec.root, 'instance.json'), 'utf8')).root).toBe(rec.root);
+    expect(existsSync(join(rec.root, '.pal-lock.json'))).toBe(false);
   });
 
   it('更新到新版本：换掉旧文件、清掉上一版独有的文件、刷新基线与记录', async () => {
@@ -287,6 +433,58 @@ resources:
     expect(readBaseline(rec.root)?.version).toBe('0.2.0');
   });
 
+  it('本地改过 Pack 写的文件：不带 force 拒绝更新且不写盘，带 force 才覆盖', async () => {
+    const v1 = knowledgePack(join(tmp, 'guard-v1'), '0.1.0', { 'a.md': '# a1\n' });
+    const v2 = knowledgePack(join(tmp, 'guard-v2'), '0.2.0', { 'a.md': '# a2\n', 'c.md': '# c\n' });
+    const rec = await createInstance({ name: 'guard', harness: 'dir', packDir: v1, packRef: v1 });
+    const aPath = join(rec.root, '.packhub', 'knowledge', 'a.md');
+    const cPath = join(rec.root, '.packhub', 'knowledge', 'c.md');
+    expect(existsSync(aPath)).toBe(true);
+    writeFileSync(aPath, '# 本地改的\n', 'utf8');
+
+    let caught: unknown;
+    try {
+      await updateInstance('guard', { packDir: v2 });
+    } catch (err) {
+      caught = err;
+    }
+    expect(isPalError(caught)).toBe(true);
+    if (isPalError(caught)) {
+      expect(caught.code).toBe('invalid-input');
+      expect(caught.message).toContain('.packhub/knowledge/a.md');
+      expect(caught.message).toContain('--force');
+    }
+    // 拒绝时一个文件都不写：内容、记录、基线都停在旧版本
+    expect(readFileSync(aPath, 'utf8')).toBe('# 本地改的\n');
+    expect(existsSync(cPath)).toBe(false);
+    expect(readInstance(rec.id)?.pack.version).toBe('0.1.0');
+    expect(readBaseline(rec.root)?.version).toBe('0.1.0');
+
+    const result = await updateInstance('guard', { packDir: v2, force: true });
+    expect(result.changed).toBe(true);
+    expect(result.to).toBe('demo/guard@0.2.0');
+    expect(result.localChanges).toContain('.packhub/knowledge/a.md');
+    expect(readFileSync(aPath, 'utf8')).toBe('# a2\n');
+    expect(existsSync(cPath)).toBe(true);
+    expect(readInstance(rec.id)?.pack.version).toBe('0.2.0');
+    expect(readBaseline(rec.root)?.version).toBe('0.2.0');
+  });
+
+  it('同一版本重跑且有本地改动：不拦截、changed=false、文件与基线都不动', async () => {
+    const v1 = knowledgePack(join(tmp, 'noop-v1'), '0.1.0', { 'a.md': '# a1\n' });
+    const rec = await createInstance({ name: 'noop', harness: 'dir', packDir: v1, packRef: v1 });
+    const aPath = join(rec.root, '.packhub', 'knowledge', 'a.md');
+    writeFileSync(aPath, '# 本地改的\n', 'utf8');
+    const before = readBaseline(rec.root);
+
+    const result = await updateInstance('noop', { packDir: v1 });
+    expect(result.changed).toBe(false);
+    expect(result.localChanges).toContain('.packhub/knowledge/a.md');
+    expect(readFileSync(aPath, 'utf8')).toBe('# 本地改的\n');
+    expect(readInstance(rec.id)?.pack.version).toBe('0.1.0');
+    expect(readBaseline(rec.root)).toEqual(before);
+  });
+
   it('运行中的实例拒绝更新', async () => {
     const rec = await createInstance({ name: 'run-upd', harness: 'dsh', packDir: 'examples/doc-review' });
     writeFileSync(
@@ -306,6 +504,31 @@ resources:
 
     rebaselineInstance('base');
     expect(baselineDrift(readInstance(rec.id)!)?.changed).toEqual([]);
+  });
+
+  it('重新基准化：保留 baseline.json 里已有的 ignore，同时刷新 files', async () => {
+    const rec = await createInstance({ name: 'keep-ignore', harness: 'dir', packDir: PACK });
+    const before = readBaseline(rec.root)!;
+    const rel = before.files[0]!.path;
+    writeFileSync(join(rec.root, rel), 'locally edited', 'utf8');
+    // 手工写一份带 ignore 的基线，模拟运行时前缀已经被记录过
+    writeFileSync(
+      join(rec.root, 'baseline.json'),
+      JSON.stringify({ ...before, ignore: ['logs/'] }, null, 2) + '\n',
+      'utf8',
+    );
+
+    const next = rebaselineInstance('keep-ignore');
+    expect(next.ignore).toEqual(['logs/']);
+
+    const onDisk = JSON.parse(readFileSync(join(rec.root, 'baseline.json'), 'utf8')) as {
+      ignore?: string[];
+      files: { path: string; sha256: string }[];
+    };
+    expect(onDisk.ignore).toEqual(['logs/']);
+    const refreshed = onDisk.files.find((file) => file.path === rel);
+    expect(refreshed?.sha256).toBe(createHash('sha256').update('locally edited').digest('hex'));
+    expect(onDisk.files).not.toEqual(before.files);
   });
 
   it('接管来的实例导不出可复现模板', async () => {
