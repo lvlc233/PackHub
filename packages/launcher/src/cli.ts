@@ -132,9 +132,13 @@ const list = defineCommand({
 
 const show = defineCommand({
   meta: { name: 'show', description: '看一份实例配置' },
-  args: { target: { type: 'positional', required: true, description: '实例 id 或名字' } },
+  args: {
+    target: { type: 'positional', required: true, description: '实例 id 或名字' },
+    json: { type: 'boolean', default: false, description: '只输出记录 JSON（show 默认已是 JSON）' },
+  },
   run({ args }) {
     const rec = requireInstance(requireTarget(args.target));
+    // show 一直只输出记录 JSON；--json 只是给脚本一个显式开关，两种写法输出一致。
     console.log(JSON.stringify(rec, null, 2));
   },
 });
@@ -361,9 +365,16 @@ const logs = defineCommand({
 
 const use = defineCommand({
   meta: { name: 'use', description: '把某个实例设成它宿主的当前实例' },
-  args: { target: { type: 'positional', required: true, description: '实例 id 或名字' } },
+  args: {
+    target: { type: 'positional', required: true, description: '实例 id 或名字' },
+    json: { type: 'boolean', default: false },
+  },
   run({ args }) {
     const rec = setActive(requireTarget(args.target));
+    if (args.json) {
+      console.log(JSON.stringify(rec, null, 2));
+      return;
+    }
     console.log(`✓ ${rec.harness} → ${rec.id}`);
   },
 });
@@ -374,13 +385,13 @@ const current = defineCommand({
   run({ args }) {
     const entries = activeEntries();
     if (args.json) {
+      // 只输出 JSON：不要给 console.log 传第二个参数，否则会多打一个 " null"。
       console.log(
         JSON.stringify(
           entries.map((entry) => ({ harness: entry.harness, id: entry.record?.id ?? null })),
           null,
           2,
         ),
-        null,
       );
       return;
     }
@@ -456,9 +467,14 @@ const rename = defineCommand({
   args: {
     target: { type: 'positional', required: true, description: '实例 id 或名字' },
     name: { type: 'positional', required: true, description: '新名字' },
+    json: { type: 'boolean', default: false },
   },
   run({ args }) {
     const rec = renameInstance(requireTarget(args.target), String(args.name));
+    if (args.json) {
+      console.log(JSON.stringify(rec, null, 2));
+      return;
+    }
     console.log(`✓ ${rec.id} → ${rec.name}`);
   },
 });
@@ -468,9 +484,14 @@ const migrate = defineCommand({
   args: {
     target: { type: 'positional', required: true, description: '实例 id 或名字' },
     to: { type: 'positional', required: true, description: '新的实例根路径' },
+    json: { type: 'boolean', default: false },
   },
   run({ args }) {
     const rec = migrateInstance(requireTarget(args.target), String(args.to));
+    if (args.json) {
+      console.log(JSON.stringify(rec, null, 2));
+      return;
+    }
     console.log(`✓ ${rec.id} → ${rec.root}`);
   },
 });
