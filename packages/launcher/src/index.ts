@@ -28,11 +28,10 @@ import { clearStopping, markStopping } from './stopMark.ts';
 import { archiveRoot, instancesRoot, newId, stamp } from './paths.ts';
 import {
   BASELINE,
-  hashFile,
+  baselineFromState,
   readBaseline,
   writeBaseline,
   type Baseline,
-  type BaselineFile,
 } from './baseline.ts';
 import { LOCK, readLock, releaseInstanceLock, withInstanceLock, withInstanceLockSync } from './lock.ts';
 import { API_VERSION, readRecord, readRecordResult, recordFile, type InstanceRecord } from './records.ts';
@@ -44,6 +43,7 @@ import { failInstance, moveAside } from './quarantine.ts';
 // 锁与基线的实现搬到了 lock.ts / baseline.ts；这里继续按原名导出，调用方（start/server/cli/测试）不受影响
 export { instanceLock, withInstanceLock } from './lock.ts';
 export { BASELINE, readBaseline, writeBaseline } from './baseline.ts';
+export { baselineFromState } from './baseline.ts';
 export type { Baseline, BaselineFile } from './baseline.ts';
 export { nowIso } from './time.ts';
 
@@ -126,25 +126,6 @@ export function seedHome(from: string, to: string): string[] {
     if (!before || entry.isDirectory()) copied.push(entry.name);
   }
   return copied;
-}
-
-/* ---------- 基线 ---------- */
-
-/** 从已安装状态收集基线文件清单。 */
-export function baselineFromState(root: string): BaselineFile[] {
-  const state = loadState(root);
-  const out: BaselineFile[] = [];
-  const seen = new Set<string>();
-  for (const pack of Object.values(state.packs)) {
-    for (const rel of pack.written ?? []) {
-      const abs = resolve(root, rel);
-      if (seen.has(abs)) continue;
-      seen.add(abs);
-      const hashed = hashFile(abs);
-      if (hashed) out.push({ ...hashed, path: rel });
-    }
-  }
-  return out;
 }
 
 /* ---------- 创建 ---------- */

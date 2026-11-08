@@ -1,13 +1,14 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { TargetId } from '@packhub/kernel';
+import { loadState } from '@packhub/runtime';
 import { nowIso } from './time.ts';
 
 /**
  * 实例基线：建完实例/更新后记下每个文件的 sha256，之后查漂移都以它为准。
- * 只做纯文件读写；从已安装状态收集清单一类需要 loadState 的逻辑留在 index.ts，
- * 这样本模块不 import index.ts，没有循环。
+ * 从已安装状态收集清单需要 loadState，所以这里依赖 @packhub/runtime；
+ * 但本模块不 import index.ts，没有循环。
  */
 
 export const BASELINE = 'baseline.json';
@@ -39,6 +40,23 @@ export function hashFile(file: string): BaselineFile | undefined {
   } catch {
     return undefined;
   }
+}
+
+/** 从已安装状态收集基线文件清单。 */
+export function baselineFromState(root: string): BaselineFile[] {
+  const state = loadState(root);
+  const out: BaselineFile[] = [];
+  const seen = new Set<string>();
+  for (const pack of Object.values(state.packs)) {
+    for (const rel of pack.written ?? []) {
+      const abs = resolve(root, rel);
+      if (seen.has(abs)) continue;
+      seen.add(abs);
+      const hashed = hashFile(abs);
+      if (hashed) out.push({ ...hashed, path: rel });
+    }
+  }
+  return out;
 }
 
 /** 建完实例写基线：后面查“Pack 更新了什么、本地改了什么”都以它为准。 */
