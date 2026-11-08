@@ -92,6 +92,41 @@ describe('probeHarness', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 });
+
+describe('dsh 探针参数', () => {
+  it('固定走无头探针 profile，并带上 --json 与可选 patch', () => {
+    const dir = project();
+    const seen: { command?: string; args?: string[] } = {};
+    const runner: Runner = (command, args) => {
+      seen.command = command;
+      seen.args = args;
+      return { status: 0, stdout: '{"type":"final","text":"测试包标题"}', stderr: '' };
+    };
+
+    const res = probeHarness({ target: 'dsh', projectDir: dir, patchFile: 'patch.yml', runner });
+    expect(seen.command).toBe('dsh');
+    expect(seen.args).toEqual(['--profile', 'headless', '--patch', 'patch.yml', '--json', expect.any(String)]);
+    expect(res.command).toBe('dsh --profile headless --patch patch.yml --json "<prompt>"');
+
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('没有 patch 时不留空参数', () => {
+    const dir = project();
+    const seen: { args?: string[] } = {};
+    const runner: Runner = (_command, args) => {
+      seen.args = args;
+      return { status: 0, stdout: '{"type":"final","text":"测试包标题"}', stderr: '' };
+    };
+
+    const res = probeHarness({ target: 'dsh', projectDir: dir, runner });
+    expect(seen.args).toEqual(['--profile', 'headless', '--json', expect.any(String)]);
+    expect(res.command).toBe('dsh --profile headless --json "<prompt>"');
+
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
 describe('opencode 目标', () => {
   it('读 AGENTS.md，去掉 ANSI 控制符后比对标记', () => {
     const dir = mkdtempSync(join(tmpdir(), 'packhub-probe-oc-'));
