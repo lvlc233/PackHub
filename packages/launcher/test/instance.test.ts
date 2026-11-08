@@ -415,6 +415,57 @@ describe('实例配置', () => {
     expect(listDirNames(archiveRoot())).toEqual([]);
   });
 
+  it('接管时按 Pack 个数定身份：多 Pack / 单 Pack / 空环境', () => {
+    const stateEntry = (pack: string, version: string, planHash: string) => ({
+      pack,
+      version,
+      planHash,
+      installedAt: new Date().toISOString(),
+      actions: [],
+      written: [],
+    });
+    const writeState = (dir: string, packs: Record<string, unknown>): string => {
+      mkdirSync(join(dir, '.packhub'), { recursive: true });
+      const file = join(dir, '.packhub', 'state.json');
+      writeFileSync(file, JSON.stringify({ apiVersion: 'packhub.dev/state/v0', packs }, null, 2), 'utf8');
+      return file;
+    };
+
+    // 两个 Pack：谁都不是「这个实例的 Pack」，不能拿第一个冒充
+    const multi = join(tmp, 'adopt-multi');
+    mkdirSync(multi, { recursive: true });
+    writeFileSync(join(multi, 'mine.txt'), 'keep', 'utf8');
+    const multiState = writeState(multi, {
+      'lvlc233/doc-review@0.1.0': stateEntry('lvlc233/doc-review', '0.1.0', 'hash-a'),
+      'demo/guard@0.2.0': stateEntry('demo/guard', '0.2.0', 'hash-b'),
+    });
+    const multiBefore = readFileSync(multiState, 'utf8');
+    const multiRecord = adoptInstance({ dir: multi, name: 'adopt-multi', harness: 'dsh' });
+    expect(multiRecord.pack).toEqual({ name: 'external', version: '0.0.0' });
+    expect(multiRecord.planHash).toBe('');
+    expect(multiRecord.managed).toBe(false);
+    expect(multiRecord.origin).toEqual({ kind: 'adopted', dir: multi });
+    // 用户目录保持原样：state 没被改写，业务文件也在
+    expect(readFileSync(multiState, 'utf8')).toBe(multiBefore);
+    expect(readFileSync(join(multi, 'mine.txt'), 'utf8')).toBe('keep');
+
+    // 单个 Pack：仍然沿用它的名字与 planHash
+    const single = join(tmp, 'adopt-single');
+    mkdirSync(single, { recursive: true });
+    writeState(single, { 'lvlc233/doc-review@0.1.0': stateEntry('lvlc233/doc-review', '0.1.0', 'hash-a') });
+    const singleRecord = adoptInstance({ dir: single, name: 'adopt-single', harness: 'dsh' });
+    expect(singleRecord.pack).toEqual({ name: 'lvlc233/doc-review', version: '0.1.0' });
+    expect(singleRecord.planHash).toBe('hash-a');
+
+    // 一个 Pack 都没有：external
+    const empty = join(tmp, 'adopt-empty');
+    mkdirSync(empty, { recursive: true });
+    writeState(empty, {});
+    const emptyRecord = adoptInstance({ dir: empty, name: 'adopt-empty', harness: 'dsh' });
+    expect(emptyRecord.pack).toEqual({ name: 'external', version: '0.0.0' });
+    expect(emptyRecord.planHash).toBe('');
+  });
+
   it('复制、改名、导出模板', async () => {
     const source = await createInstance({
       name: 'src',
