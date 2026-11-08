@@ -36,6 +36,30 @@ import { archiveRoot, failedRoot, quarantineRoot } from '../src/paths.ts';
 
 const PACK = 'examples/doc-review';
 
+/**
+ * 删根失败的现场：只拦「指向指定根的 rmSync/renameSync」，其他路径照常落到真实 fs。
+ * 用开关而不是替换整套模块，同文件其他用例不受影响。
+ */
+const fsBlock = vi.hoisted(() => ({ root: '' }));
+
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  const blocked = (target: unknown) => fsBlock.root !== '' && String(target) === fsBlock.root;
+  const busy = () => Object.assign(new Error('EPERM: 目录被占用（测试模拟）'), { code: 'EPERM' });
+  return {
+    ...actual,
+    default: actual,
+    rmSync: ((target: string, options?: unknown) => {
+      if (blocked(target)) throw busy();
+      return actual.rmSync(target, options as never);
+    }) as typeof actual.rmSync,
+    renameSync: ((from: string, to: string) => {
+      if (blocked(from)) throw busy();
+      return actual.renameSync(from, to);
+    }) as typeof actual.renameSync,
+  };
+});
+
 let tmp: string;
 
 beforeEach(() => {
@@ -114,7 +138,10 @@ describe('实例配置', () => {
     expect(listInstances().map((i) => i.name)).toEqual(['demo']);
     expect(readInstance(record.id)?.name).toBe('demo');
 
-    await removeInstance('demo');
+    // 包 key 在删根之后就读不到了，报告必须是删前收集的那份
+    const result = await removeInstance('demo');
+    expect(result.uninstalled).toEqual(['lvlc233/doc-review@0.1.0']);
+    expect(result.removed).toBe(true);
     expect(listInstances()).toEqual([]);
     expect(existsSync(record.root)).toBe(false);
   });
@@ -298,6 +325,35 @@ describe('实例配置', () => {
     expect(archived).toHaveLength(1);
     const keep = join(archiveRoot(), archived[0]!, 'home', 'dsh', 'session.txt');
     expect(readFileSync(keep, 'utf8')).toBe('my session');
+  });
+
+  it('删根失败（目录占用且归档也失败）：包没卸、state 与记录原样留着，可以重试', async () => {
+    const record = await createInstance({ name: 'root-busy', harness: 'dsh', packDir: PACK });
+    const stateFile = join(record.root, '.packhub', 'state.json');
+    const before = readFileSync(stateFile, 'utf8');
+    const packs = (JSON.parse(before) as { packs: Record<string, { written: string[] }> }).packs;
+    const keys = Object.keys(packs);
+    expect(keys).toEqual(['lvlc233/doc-review@0.1.0']);
+    const written = packs[keys[0]!]!.written;
+    expect(written.length).toBeGreaterThan(0);
+
+    fsBlock.root = record.root;
+    let caught: unknown;
+    try {
+      await removeInstance('root-busy');
+    } catch (err) {
+      caught = err;
+    } finally {
+      fsBlock.root = '';
+    }
+
+    expect(isPalError(caught) && caught.code).toBe('busy');
+    // 旧的顺序会留下「包已卸、目录和记录还在」；现在根删不掉就整根不动
+    expect(readInstance(record.id)?.status).toBe('installed');
+    expect(readFileSync(stateFile, 'utf8')).toBe(before);
+    for (const rel of written) expect(existsSync(join(record.root, rel))).toBe(true);
+    expect(listInstances().map((row) => row.id)).toContain(record.id);
+    expect(listDirNames(archiveRoot())).toEqual([]);
   });
 
   it('接管来的目录删除时只摘记录，不按 state 卸包', async () => {

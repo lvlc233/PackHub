@@ -752,7 +752,9 @@ export interface RemoveResult {
 }
 
 /**
- * 删一份实例：先停进程，再按 state 卸包，最后删根或归档。
+ * 删一份实例：先停进程，再按需处理根。
+ * - 默认：直接删根（删不动就归档），成功后才摘 link/active；失败则记录、state、包都原样留着。
+ * - keepData：先按 state 卸包，再把根归档。
  * 运行中的实例不再出现“删一半”（EBUSY、包卸了目录还在）的情况。
  */
 export async function removeInstance(
@@ -803,20 +805,20 @@ export async function removeInstance(
       return;
     }
 
-    try {
-      const state = loadState(record.root);
-      for (const key of Object.keys(state.packs)) {
-        removePack(record.root, key);
-        uninstalled.push(key);
-      }
-    } catch (err) {
-      throw new PalError('install-failed', `卸载 Pack 失败：${(err as Error).message}`, {
-        hint: '先手动清掉实例根里的 .packhub 再删，或保留数据后手工处理',
-        cause: err,
-      });
-    }
-
+    // keepData 要先把 Pack 写进去的文件卸掉，再把（剩下的）根归档
     if (opts.keepData) {
+      try {
+        const state = loadState(record.root);
+        for (const key of Object.keys(state.packs)) {
+          removePack(record.root, key);
+          uninstalled.push(key);
+        }
+      } catch (err) {
+        throw new PalError('install-failed', `卸载 Pack 失败：${(err as Error).message}`, {
+          hint: '先手动清掉实例根里的 .packhub 再删，或保留数据后手工处理',
+          cause: err,
+        });
+      }
       const target = moveAside(record.root, archiveRoot(), {
         reason: '保留数据删除',
         id: record.id,
@@ -835,7 +837,18 @@ export async function removeInstance(
       return;
     }
 
+    // 默认删除：根是唯一真实的删除动作，先走它。
+    // 顺序反了（先 removePack 再删根）一旦删根失败，包已经卸掉、目录和记录还在，
+    // 没有回滚手段；反过来根删不掉就整根原样留着，state 和记录都完整，可以直接重试。
+    // 包 key 只在删根前读一次，纯粹为了结果里的 uninstalled 报告（删完 state 就没了）。
+    let packKeys: string[] = [];
+    try {
+      packKeys = Object.keys(loadState(record.root).packs);
+    } catch {
+      // state 损坏不该挡住删根：目录整个要消失，报告当作没装过包
+    }
     const settled = await removeTreeWithRetry(record.root);
+    uninstalled.push(...packKeys);
     removeLink(record.id);
     dropActive(record.id);
     if (!settled.removed) archivedTo = settled.movedTo;
