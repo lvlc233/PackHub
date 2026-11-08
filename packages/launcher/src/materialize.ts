@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, resolve, sep } from 'node:path';
-import { fetchPack, resolveAddSource, resolveRegistry } from '@packhub/runtime';
+import { fetchPack, loadManifest, resolveAddSource, resolveRegistry } from '@packhub/runtime';
 import { cacheRoot } from './paths.ts';
 import { PalError } from './errors.ts';
 
@@ -39,6 +39,32 @@ function manifestFile(dir: string): string | undefined {
   return existsSync(direct) ? direct : undefined;
 }
 
+/** 直接取回来的来源：.phub 归档与 git+，不按 registry 版本落在缓存目录里。 */
+function isDirectSource(packRef: string): boolean {
+  return packRef.endsWith('.phub') || packRef.startsWith('git+');
+}
+
+/**
+ * 明确版本：只有这种才按目录复用。latest / * / 范围（^ ~ > < = | 空格）都会变，
+ * 复用会把旧内容当新版本发出去。
+ */
+function isPinnedVersion(version?: string): version is string {
+  if (!version) return false;
+  if (/^(latest|\*|x)$/i.test(version)) return false;
+  return !/[\s^~<>*=|]/.test(version);
+}
+
+/** 缓存目录里已有清单的版本；清单缺了或读不了就当没缓存。 */
+function cachedVersion(dest: string): string | undefined {
+  const file = manifestFile(dest);
+  if (!file) return undefined;
+  try {
+    return loadManifest(file).manifest?.metadata.version;
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * 只清我们自己缓存目录下、这一层的落点：先确认路径在 cacheRoot 里面。
  * 绝不 rm 一个用户传进来的目录。
@@ -65,11 +91,19 @@ export async function materializePack(
   if (existsSync(join(packRef, 'packhub.yaml'))) return resolve(packRef);
 
   const dest = join(packCacheRoot(), slug(packRef), variant(packRef, opts.version));
+
+  // C5：明确版本 + registry 来源时，目录里已有同版本清单就直接复用，不 reset 不 fetch。
+  // latest 未知、.phub/git+ 内容可能被上游换掉，都仍然重取。
+  if (!isDirectSource(packRef) && isPinnedVersion(opts.version) && cachedVersion(dest) === opts.version) {
+    opts.log?.(`缓存命中 ${packRef}@${opts.version} → ${dest}`);
+    return dest;
+  }
+
   resetDir(dest);
   opts.log?.(`→ 取 ${packRef}${opts.version ? `@${opts.version}` : ''}`);
 
   try {
-    if (packRef.endsWith('.phub') || packRef.startsWith('git+')) {
+    if (isDirectSource(packRef)) {
       const resolved = await resolveAddSource(packRef, dest);
       if (!manifestFile(resolved.dir)) {
         throw new PalError('invalid-input', `取回来的目录里没有 packhub.yaml：${resolved.dir}`, {
