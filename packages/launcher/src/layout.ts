@@ -30,6 +30,8 @@ export interface HarnessAdapter {
   homeDir?: string;
   /** 把宿主指到这个 home 的环境变量 */
   homeEnv?: string;
+  /** 启动这个宿主时带的 profile 名（宿主能力的一部分）；没有就不带 --profile */
+  startProfile?: string;
   /** 宿主可执行文件名 */
   executable?: string;
   /** 探测版本用的参数 */
@@ -40,32 +42,45 @@ export interface HarnessAdapter {
   noStartReason?: string;
 }
 
+/**
+ * 拼 dsh 的启动参数。profile 由适配器的 startProfile 决定，不写死在闭包里；
+ * --patch 必须在子命令之前：之后会被当成 web app 自己的参数。
+ */
+export function dshStartArgs(
+  ctx: StartContext,
+  adapter: Pick<HarnessAdapter, 'startProfile'>,
+): string[] {
+  return [
+    ...(adapter.startProfile ? ['--profile', adapter.startProfile] : []),
+    ...(ctx.patchFile ? ['--patch', ctx.patchFile] : []),
+    '--no-open',
+    '--port',
+    String(ctx.port),
+  ];
+}
+
+// start.args 要读适配器自己的 startProfile，所以模板挂在具名常量上（闭包自引用）。
+const dshAdapter: HarnessAdapter = {
+  label: 'DeepSeek Harness',
+  homeDir: 'home/dsh',
+  homeEnv: 'DSH_HOME',
+  startProfile: 'web',
+  executable: 'dsh',
+  versionArgs: ['--version'],
+  start: {
+    command: 'dsh',
+    args: (ctx) => dshStartArgs(ctx, dshAdapter),
+    url: /(https?:\/\/\S+)/,
+    readyTimeoutMs: 30_000,
+  },
+};
+
 export const ADAPTERS: Record<TargetId, HarnessAdapter> = {
   dir: {
     label: '普通项目',
     noStartReason: 'dir 实例是一个项目目录，没有可启动的宿主进程；用 packhub 直接在这个目录里工作。',
   },
-  dsh: {
-    label: 'DeepSeek Harness',
-    homeDir: 'home/dsh',
-    homeEnv: 'DSH_HOME',
-    executable: 'dsh',
-    versionArgs: ['--version'],
-    // --patch 必须在 web 子命令之前：之后会被当成 web app 自己的参数。
-    start: {
-      command: 'dsh',
-      args: (ctx) => [
-        '--profile',
-        'web',
-        ...(ctx.patchFile ? ['--patch', ctx.patchFile] : []),
-        '--no-open',
-        '--port',
-        String(ctx.port),
-      ],
-      url: /(https?:\/\/\S+)/,
-      readyTimeoutMs: 30_000,
-    },
-  },
+  dsh: dshAdapter,
   'claude-code': {
     label: 'Claude Code',
     homeDir: 'home/claude',
@@ -89,11 +104,6 @@ export const HARNESS_IDS = Object.keys(ADAPTERS) as TargetId[];
 
 export function isHarnessId(value: string): value is TargetId {
   return (HARNESS_IDS as string[]).includes(value);
-}
-
-/** 给调用方拼启动参数；没有启动模板就是不可启动。 */
-export function startArgsFor(harness: TargetId, ctx: StartContext): string[] | undefined {
-  return ADAPTERS[harness].start?.args(ctx);
 }
 
 /**
