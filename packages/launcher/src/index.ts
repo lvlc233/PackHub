@@ -4,7 +4,6 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  readdirSync,
   renameSync,
   rmSync,
   statSync,
@@ -21,7 +20,7 @@ import {
   saveState,
   withLockPins,
 } from '@packhub/runtime';
-import { ADAPTERS, HARNESS_IDS, targetVarsFor } from './layout.ts';
+import { targetVarsFor } from './layout.ts';
 import { PalError } from './errors.ts';
 import { isPidAlive, killTree, waitForExit } from './process.ts';
 import { clearStopping, markStopping } from './stopMark.ts';
@@ -34,11 +33,12 @@ import {
   type Baseline,
 } from './baseline.ts';
 import { LOCK, readLock, releaseInstanceLock, withInstanceLock, withInstanceLockSync } from './lock.ts';
-import { API_VERSION, readRecord, readRecordResult, recordFile, type InstanceRecord } from './records.ts';
+import { readRecord, readRecordResult, recordFile, type InstanceRecord } from './records.ts';
 import { dropActive, listInstances, readActiveMap, requireInstance, writeActiveMap } from './catalog.ts';
 import { nowIso } from './time.ts';
 import { removeLink, writeInstance } from './recordWrite.ts';
-import { failInstance, moveAside } from './quarantine.ts';
+import { moveAside } from './quarantine.ts';
+import { assertHarness, assertNameFree } from './create.ts';
 
 // 锁与基线的实现搬到了 lock.ts / baseline.ts；这里继续按原名导出，调用方（start/server/cli/测试）不受影响
 export { instanceLock, withInstanceLock } from './lock.ts';
@@ -69,216 +69,9 @@ export {
 } from './catalog.ts';
 export type { InstanceScan } from './catalog.ts';
 
-export interface CreateInstanceOptions {
-  name: string;
-  harness: TargetId;
-  /** 已经落到本地的 Pack 目录 */
-  packDir: string;
-  /** 实例根；不写就建在 instances 根下的新目录里 */
-  root?: string;
-  /** 记录来源（materialize 前的原始引用），供导出模板与排障 */
-  packRef?: string;
-  /** 建完是否设为该宿主的当前实例；默认 true */
-  activate?: boolean;
-  /** 已经探测到的宿主版本；不写就留空 */
-  harnessVersion?: string;
-  /**
-   * 从一个已有的宿主 home 里带来模型凭据与用户指令（不覆盖 Pack 装的东西）。
-   * 新 home 是空的：不接这一步，实例起来也没有模型可用。
-   */
-  seedFrom?: string;
-}
-
-/** 从已有 home 带过来时不搬的东西：会话、缓存、附件、运行时、库文件、profile（带绝对路径）。 */
-const SEED_SKIP = new Set(['sessions', 'cache', 'attachments', 'dsh-runtimes', 'storages', 'profiles', 'logs']);
-
-/**
- * 把已有 home 里的凭据/指令补进实例 home：只补空缺，已存在的路径一律不动。
- * 先装 Pack 再 seed，所以 Pack 写好的 AGENTS.md、skills 不会被全局那份盖掉。
- */
-export function seedHome(from: string, to: string): string[] {
-  const source = resolve(from);
-  if (!existsSync(source)) {
-    throw new PalError('not-found', `这个 home 不存在：${source}`);
-  }
-  const copied: string[] = [];
-  const walk = (src: string, dest: string, name: string): void => {
-    const stat = statSync(src);
-    if (stat.isDirectory()) {
-      if (!existsSync(dest)) mkdirSync(dest, { recursive: true });
-      for (const entry of readdirSync(src, { withFileTypes: true })) {
-        if (SEED_SKIP.has(entry.name)) continue;
-        walk(join(src, entry.name), join(dest, entry.name), entry.name);
-      }
-      return;
-    }
-    if (existsSync(dest)) return;
-    try {
-      cpSync(src, dest, { force: false, errorOnExist: false });
-    } catch {
-      /* 单个文件搬不过来不影响建实例 */
-    }
-  };
-  for (const entry of readdirSync(source, { withFileTypes: true })) {
-    if (SEED_SKIP.has(entry.name)) continue;
-    const before = existsSync(join(to, entry.name));
-    walk(join(source, entry.name), join(to, entry.name), entry.name);
-    if (!before || entry.isDirectory()) copied.push(entry.name);
-  }
-  return copied;
-}
-
-/* ---------- 创建 ---------- */
-
-function assertNameFree(name: string): void {
-  if (listInstances().some((i) => i.name === name)) {
-    throw new PalError('name-taken', `实例名已存在：${name}`, { hint: '换一个名字，或先删掉旧实例' });
-  }
-}
-
-function assertHarness(value: string): TargetId {
-  if (!(HARNESS_IDS as string[]).includes(value)) {
-    throw new PalError('unknown-harness', `没有这个宿主：${value}`, {
-      hint: `可选：${HARNESS_IDS.join(' / ')}`,
-      details: { harness: value, choices: HARNESS_IDS },
-    });
-  }
-  return value as TargetId;
-}
-
-/**
- * 从一个 Pack 目录创建实例：出计划、装进实例根、写实例记录与基线。
- * 失败时只清理我们自己造的根：先把现场移到 .failed，绝不 rm 一个已存在的目录。
- */
-export async function createInstance(opts: CreateInstanceOptions): Promise<InstanceRecord> {
-  const name = opts.name.trim();
-  if (!name) throw new PalError('invalid-input', '实例名不能为空');
-  const harness = assertHarness(opts.harness);
-  if (!ADAPTERS[harness]) throw new PalError('unknown-harness', `没有这个宿主：${harness}`);
-  assertNameFree(name);
-
-  const id = newId();
-  const root = resolve(opts.root ?? join(instancesRoot(), id));
-  const existed = existsSync(root);
-  if (existsSync(recordFile(root))) {
-    throw new PalError('root-occupied', `这个目录已经是一份实例：${root}`, {
-      hint: '换个目录，或从列表里操作它',
-    });
-  }
-
-  const packDir = resolve(opts.packDir);
-  const loaded = loadPack(packDir);
-  if (!loaded.manifest) {
-    const detail = loaded.issues.filter((i) => i.severity === 'error').map((i) => i.message).join('; ');
-    throw new PalError('invalid-input', `清单有问题：${detail || packDir}`, { details: { packDir } });
-  }
-  const lock = loadLock(packDir);
-  const ctx: PackContext = withLockPins(loaded, lock);
-  const errors = ctx.issues.filter((i) => i.severity === 'error');
-  if (errors.length > 0) {
-    throw new PalError('invalid-input', `清单有问题：${errors.map((i) => i.message).join('; ')}`);
-  }
-  if (!ctx.manifest.metadata.targets.includes(harness)) {
-    throw new PalError(
-      'invalid-input',
-      `这个包没有声明 target ${harness}；声明了：${ctx.manifest.metadata.targets.join(', ')}`,
-      { details: { pack: ctx.manifest.metadata.name, declared: ctx.manifest.metadata.targets } },
-    );
-  }
-
-  const adapter = ADAPTERS[harness];
-  const targetVars = targetVarsFor(harness);
-  const { plan, issues } = planFor(ctx, { target: harness, ...(targetVars ? { targetVars } : {}) });
-  if (!plan) {
-    throw new PalError('invalid-input', `生成不了计划：${issues.map((i) => i.message).join('; ')}`);
-  }
-
-  const home = adapter.homeDir ? join(root, adapter.homeDir) : undefined;
-  mkdirSync(root, { recursive: true });
-  if (home) mkdirSync(home, { recursive: true });
-
-  const draft: InstanceRecord = {
-    apiVersion: API_VERSION,
-    id,
-    name,
-    harness,
-    ...(opts.harnessVersion ? { harnessVersion: opts.harnessVersion } : {}),
-    root,
-    ...(home ? { home } : {}),
-    pack: {
-      name: ctx.manifest.metadata.name,
-      version: ctx.manifest.metadata.version,
-      ...(opts.packRef ? { ref: opts.packRef } : {}),
-    },
-    planHash: plan.planHash,
-    createdAt: nowIso(),
-    updatedAt: nowIso(),
-    status: 'installing',
-    managed: true,
-    origin: { kind: 'pack', ...(opts.packRef ? { ref: opts.packRef } : {}), dir: packDir },
-    ports: [],
-    restart: 'never',
-    maxRestarts: 3,
-  };
-  // 先落 installing：中途崩溃时列表里能看到它，能删能查，不是凭空消失
-  writeInstance(draft);
-
-  try {
-    await withInstanceLock(root, 'create', async () => {
-      const result = await installPack(ctx, plan, { root, packRoot: packDir });
-      const failed = result.outcomes.filter((o) => o.status === 'failed');
-      if (failed.length > 0) {
-        throw new PalError(
-          'install-failed',
-          `安装未完成：${failed
-            .map((o) => `${o.actionId}=${o.status}${o.message ? `（${o.message}）` : ''}`)
-            .join(', ')}`,
-          { details: { outcomes: failed } },
-        );
-      }
-      writeBaseline(root, {
-        pack: draft.pack.name,
-        version: draft.pack.version,
-        harness,
-        planHash: plan.planHash,
-        files: baselineFromState(root),
-      });
-      if (opts.seedFrom && home) {
-        // 先装 Pack，再补凭据：Pack 写好的文件不被覆盖
-        seedHome(opts.seedFrom, home);
-        draft.origin = { ...(draft.origin ?? { kind: 'pack' }), seededFrom: resolve(opts.seedFrom) };
-      }
-      writeInstance({ ...draft, status: 'installed' });
-    });
-  } catch (err) {
-    const reason =
-      err instanceof PalError
-        ? { code: err.code, message: err.message }
-        : { code: 'install-failed', message: (err as Error).message };
-    const record = readRecord(root);
-    if (record) writeInstance({ ...record, status: 'failed', lastError: { ...reason, at: nowIso() } });
-    if (existed) {
-      // 复用已有目录：只把配置摘掉，目录本身和里面的东西一概不动
-      try {
-        rmSync(recordFile(root), { force: true });
-      } catch {
-        /* 摘不掉就留着 failed 记录，至少能查能删 */
-      }
-    } else {
-      failInstance(root, reason);
-    }
-    dropActive(id);
-    throw err;
-  }
-
-  const record = readRecord(root)!;
-  if (opts.activate !== false) {
-    const map = readActiveMap();
-    map[harness] = record.id;
-    writeActiveMap(map);
-  }
-  return record;
-}
+// 建实例与接管搬到了 create.ts；入口继续按原名导出（assertNameFree、assertHarness 只是包内共用，不对外导出）
+export { adoptInstance, createInstance, seedHome } from './create.ts';
+export type { AdoptOptions, CreateInstanceOptions } from './create.ts';
 
 /**
  * 删目录：Windows 上刚结束的进程可能还握着文件句柄，
@@ -652,70 +445,7 @@ export function rebaselineInstance(nameOrId: string): Baseline {
   });
 }
 
-/* ---------- 接管 / 复制 / 改名 / 迁移 / 模板 ---------- */
-
-export interface AdoptOptions {
-  dir: string;
-  name: string;
-  harness: TargetId;
-  /** 接管后是否设为当前实例 */
-  activate?: boolean;
-}
-
-/**
- * 接管一个已经存在的环境：目录原样不动，只写一份记录指过去。
- * managed=false：删除时只摘记录，绝不删用户目录。
- */
-export function adoptInstance(opts: AdoptOptions): InstanceRecord {
-  const dir = resolve(opts.dir);
-  if (!existsSync(dir)) {
-    throw new PalError('not-found', `这个目录不存在：${dir}`);
-  }
-  const harness = assertHarness(opts.harness);
-  assertNameFree(opts.name.trim());
-  if (existsSync(recordFile(dir))) {
-    throw new PalError('root-occupied', `这个目录已经是一份实例：${dir}`);
-  }
-  const adapter = ADAPTERS[harness];
-  const home = adapter.homeDir && existsSync(join(dir, adapter.homeDir)) ? join(dir, adapter.homeDir) : undefined;
-  let pack = { name: 'external', version: '0.0.0' };
-  let planHash = '';
-  try {
-    const entries = Object.values(loadState(dir).packs);
-    // 只有恰好一个 Pack 时它的名字才能代表这个实例；多个 Pack 里「第一个」只是对象顺序，
-    // 拿来当身份会让记录撒谎，updateInstance 也会把别的 Pack 当成同一个。此时记 external。
-    const only = entries.length === 1 ? entries[0] : undefined;
-    if (only?.pack) pack = { name: only.pack, version: only.version ?? '0.0.0' };
-    if (only?.planHash) planHash = only.planHash;
-  } catch {
-    /* 没有 state 就是空环境 */
-  }
-  const record: InstanceRecord = {
-    apiVersion: API_VERSION,
-    id: newId(),
-    name: opts.name.trim(),
-    harness,
-    root: dir,
-    ...(home ? { home } : {}),
-    pack,
-    planHash,
-    createdAt: nowIso(),
-    updatedAt: nowIso(),
-    status: 'installed',
-    managed: false,
-    origin: { kind: 'adopted', dir },
-    ports: [],
-    restart: 'never',
-    maxRestarts: 3,
-  };
-  writeInstance(record);
-  if (opts.activate !== false) {
-    const map = readActiveMap();
-    map[harness] = record.id;
-    writeActiveMap(map);
-  }
-  return record;
-}
+/* ---------- 复制 / 改名 / 迁移 / 模板 ---------- */
 
 /** 复制一份实例：连 home 一起拷，得到可独立改的副本；端口与运行信息清空。 */
 export async function cloneInstance(
