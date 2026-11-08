@@ -132,5 +132,5 @@ Pack 里的 `type: mcp` 资源安装时写进实例的 `.packhub/config.json`（
 - 看护只在 `pal serve` 活着时生效，壳退出后没有系统级守护。
 - `adopt` / `clone` / `migrate` 没有界面入口（`update` / `rebaseline` 前者的界面入口是详情页的「更新」按钮，后者只有 CLI）。
 - 没有运行时版本管理；跨盘迁移要手动搬。
-- `update` 的强制放行只有 CLI 的 `--force` 和 API 的 `body.force`：界面没有勾选入口，被本地改动拦下时只能报错。
+- `update` 的强制放行只有 CLI 的 `--force` 和 API 的 `body.force`：界面没有强制更新入口，改过本地文件的实例只能走 CLI `--force` 覆盖，界面上点「更新」只会报错。
 - 计数与耗时这类性能数字只在本机测过，没有进 CI 基线。

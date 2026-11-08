@@ -11,11 +11,13 @@ pnpm pal doctor                                   # 宿主装没装、什么版�
 pnpm pal create examples/doc-review --name demo --harness dsh --from-home ~/.dsh
 pnpm pal start demo                               # 起 dsh web，端口自动分配
 pnpm pal health demo                              # 进程、端口、home、基线、MCP 接线
-pnpm pal update demo --version 0.2.0               # 换 Pack 版本（会清掉上一版独有的文件）
+pnpm pal update demo --version 0.2.0               # 换 Pack 版本（清掉上一版独有的文件；本地改过要 --force）
 pnpm pal rebaseline demo                           # 本地改动被接受，体检不再报漂移
 pnpm pal stop demo
-pnpm pal remove demo --keep-data                  # 卸包，数据挪进归档区
+pnpm pal remove demo --keep-data                  # 先卸包，再把剩下的根挪进归档区
 ```
+
+`update` 默认不覆盖：Pack 写过的文件被本地改过时整次拒绝、一个文件都不写，确认覆盖要加 `--force`（API 是 `body.force`）；当前界面还没有强制入口。普通 `remove` 只删实例根，不单独卸包（删不动就整根归档）。
 
 `pnpm pal serve` 起本地界面：实例列表、创建（可选包与版本）、启停、体检、日志、删除（可保留数据）。
 

@@ -222,7 +222,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, insecure: boole
         await updateInstance(id, {
           packDir,
           packRef: ref,
-          // 默认不覆盖本地改动；界面显式勾了强制更新才传 true
+          // 默认不覆盖本地改动；这边接受 body.force（同 CLI 的 --force），当前界面还没有强制入口
           ...(body.force === true || body.force === 'true' ? { force: true } : {}),
         }),
       );
