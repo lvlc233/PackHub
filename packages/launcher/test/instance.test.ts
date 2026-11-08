@@ -42,6 +42,12 @@ const PACK = 'examples/doc-review';
  */
 const fsBlock = vi.hoisted(() => ({ root: '' }));
 
+/**
+ * 改名竞态：在写实例锁的那一刻删掉 instance.json，模拟「等锁期间记录被别的进程 remove」。
+ * 和 fsBlock 一样用开关，只有对应用例打开时才生效。
+ */
+const fsRemoveOnLock = vi.hoisted(() => ({ lockFile: '', recordFile: '' }));
+
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>();
   const blocked = (target: unknown) => fsBlock.root !== '' && String(target) === fsBlock.root;
@@ -57,6 +63,12 @@ vi.mock('node:fs', async (importOriginal) => {
       if (blocked(from)) throw busy();
       return actual.renameSync(from, to);
     }) as typeof actual.renameSync,
+    writeFileSync: ((file: string, data: unknown, options?: unknown) => {
+      if (fsRemoveOnLock.lockFile !== '' && String(file) === fsRemoveOnLock.lockFile) {
+        actual.rmSync(fsRemoveOnLock.recordFile, { force: true });
+      }
+      return actual.writeFileSync(file, data as never, options as never);
+    }) as typeof actual.writeFileSync,
   };
 });
 
@@ -68,6 +80,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  fsRemoveOnLock.lockFile = '';
+  fsRemoveOnLock.recordFile = '';
   delete process.env.PACKHUB_INSTANCES;
   rmSync(tmp, { recursive: true, force: true });
 });
@@ -490,6 +504,70 @@ describe('实例配置', () => {
     expect(template.pack.name).toBe('lvlc233/doc-review');
     const file = writeTemplate(template, join(tmp, 'src.pal.json'));
     expect(readTemplate(file).name).toBe('src');
+  });
+
+  it('改名：只换 name，id 与 root 不动，磁盘记录跟着改且锁已释放', async () => {
+    const rec = await createInstance({ name: 'rename-me', harness: 'dir', packDir: PACK });
+
+    const renamed = renameInstance('rename-me', 'renamed');
+
+    expect(renamed.name).toBe('renamed');
+    expect(renamed.id).toBe(rec.id);
+    expect(renamed.root).toBe(rec.root);
+    expect(readInstance(rec.id)?.name).toBe('renamed');
+    const onDisk = JSON.parse(readFileSync(join(rec.root, 'instance.json'), 'utf8')) as {
+      id: string;
+      name: string;
+      root: string;
+    };
+    expect(onDisk.id).toBe(rec.id);
+    expect(onDisk.name).toBe('renamed');
+    expect(onDisk.root).toBe(rec.root);
+    expect(existsSync(join(rec.root, '.pal-lock.json'))).toBe(false);
+  });
+
+  it('改名：锁被另一个活着的进程占着就拒绝，名字不变、别人的锁不删', async () => {
+    const rec = await createInstance({ name: 'rename-locked', harness: 'dir', packDir: PACK });
+    // 父进程活着且一定不是自己；拿不到可靠 pid 就不硬造锁冲突
+    const holder = process.ppid;
+    if (!holder || holder === process.pid || !isPidAlive(holder)) return;
+    writeFileSync(
+      join(rec.root, '.pal-lock.json'),
+      JSON.stringify({ pid: holder, op: 'update', at: new Date().toISOString() }, null, 2),
+      'utf8',
+    );
+
+    let caught: unknown;
+    try {
+      renameInstance('rename-locked', 'should-not-apply');
+    } catch (err) {
+      caught = err;
+    }
+    expect(isPalError(caught)).toBe(true);
+    if (isPalError(caught)) expect(caught.code).toBe('busy');
+    expect(readInstance(rec.id)?.name).toBe('rename-locked');
+    expect(JSON.parse(readFileSync(join(rec.root, 'instance.json'), 'utf8')).name).toBe('rename-locked');
+    expect(existsSync(join(rec.root, '.pal-lock.json'))).toBe(true);
+  });
+
+  it('改名：等锁期间记录被删掉就抛 unknown-instance，不把实例写回来', async () => {
+    const rec = await createInstance({ name: 'rename-gone', harness: 'dir', packDir: PACK });
+    // requireInstance 已经看到记录；模拟另一个进程在写锁前（锁内重读前）remove 掉 instance.json
+    fsRemoveOnLock.recordFile = join(rec.root, 'instance.json');
+    fsRemoveOnLock.lockFile = join(rec.root, '.pal-lock.json');
+
+    let caught: unknown;
+    try {
+      renameInstance('rename-gone', 'resurrected');
+    } catch (err) {
+      caught = err;
+    }
+    expect(isPalError(caught)).toBe(true);
+    if (isPalError(caught)) expect(caught.code).toBe('unknown-instance');
+    // 记录没有被旧内存写回来
+    expect(existsSync(fsRemoveOnLock.recordFile)).toBe(false);
+    // 锁也照常放掉
+    expect(existsSync(fsRemoveOnLock.lockFile)).toBe(false);
   });
 
   it('复制接管来的实例：克隆体归 PAL 管，来源记成 copy 且不可复现', async () => {

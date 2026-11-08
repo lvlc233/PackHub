@@ -1211,10 +1211,21 @@ export function renameInstance(nameOrId: string, newName: string): InstanceRecor
   const name = newName.trim();
   if (!name) throw new PalError('invalid-input', '新名字不能为空');
   if (name === record.name) return record;
-  assertNameFree(name);
-  const next = { ...record, name };
-  writeInstance(next);
-  return readRecord(record.root)!;
+  // 重名检查与写记录必须在同一把锁里：并发 rename/remove/update 时，
+  // 检查和落盘之间插进来的写会把名字或记录覆盖掉。
+  return withInstanceLockSync(record.root, 'rename', () => {
+    // 锁内重读：等锁期间记录可能已经被别的进程改过或删掉
+    const current = readRecord(record.root);
+    if (!current) {
+      // 记录已经没了就不能拿旧内存写回去，否则等于把删掉的实例复活
+      throw new PalError('unknown-instance', `这个实例已经不在了：${nameOrId}`);
+    }
+    if (current.name === name) return current;
+    assertNameFree(name);
+    writeInstance({ ...current, name });
+    // 读回落盘结果，别把内存里的 draft 当事实
+    return readRecord(record.root)!;
+  });
 }
 
 /** 回滚迁移：把目录挪回原路径，并把记录改回旧 root。 */
