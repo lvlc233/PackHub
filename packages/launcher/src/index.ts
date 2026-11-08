@@ -10,7 +10,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { basename, dirname, join, resolve, sep } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { planFor, type PackContext, type Plan, type TargetId } from '@packhub/kernel';
 import {
   installPack,
@@ -37,6 +37,7 @@ import {
 import { LOCK, readLock, releaseInstanceLock, withInstanceLock, withInstanceLockSync } from './lock.ts';
 import { API_VERSION, readRecord, readRecordResult, recordFile, type InstanceRecord } from './records.ts';
 import { nowIso } from './time.ts';
+import { removeLink, writeInstance } from './recordWrite.ts';
 
 // 锁与基线的实现搬到了 lock.ts / baseline.ts；这里继续按原名导出，调用方（start/server/cli/测试）不受影响
 export { instanceLock, withInstanceLock } from './lock.ts';
@@ -47,6 +48,9 @@ export { nowIso } from './time.ts';
 // 记录的读写搬到了 records.ts；这里继续按原名导出，调用方（start/server/cli/测试）不受影响
 export { API_VERSION, RECORD, readRecord, readRecordResult, recordFile } from './records.ts';
 export type { InstanceRecord, InstanceStatus, RecordRead } from './records.ts';
+
+// 写记录（带 .links 副作用）搬到了 recordWrite.ts；removeLink 只是内部用，不对外导出
+export { writeInstance } from './recordWrite.ts';
 
 export interface CreateInstanceOptions {
   name: string;
@@ -113,29 +117,6 @@ export interface InstanceScan {
   broken: Array<{ dir: string; reason: string; quarantined?: string; link?: string }>;
 }
 
-/* ---------- 写记录（读记录在 records.ts；这里保留写，因为它带 .links 副作用） ---------- */
-
-/** 原子写：临时文件 + rename。写到一半崩溃只会留临时文件，不会留半份配置。 */
-export function writeInstance(record: InstanceRecord): void {
-  const next: InstanceRecord = { ...record, apiVersion: API_VERSION, updatedAt: nowIso() };
-  const file = recordFile(record.root);
-  mkdirSync(dirname(file), { recursive: true });
-  const tmp = `${file}.tmp-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
-  writeFileSync(tmp, JSON.stringify(next, null, 2) + '\n', 'utf8');
-  try {
-    renameSync(tmp, file);
-  } catch (err) {
-    try {
-      rmSync(tmp, { force: true });
-    } catch {
-      /* 临时文件删不掉就留着，不影响主流程 */
-    }
-    throw err;
-  }
-  record.updatedAt = next.updatedAt;
-  writeLink(next);
-}
-
 /* ---------- 隔离与归档 ---------- */
 
 function moveAside(from: string, dir: string, meta: Record<string, unknown>): string | undefined {
@@ -173,38 +154,6 @@ export function failInstance(root: string, error: { code: string; message: strin
 }
 
 /* ---------- 列表 ---------- */
-
-function linksDir(): string {
-  return join(instancesRoot(), '.links');
-}
-
-function linkFile(id: string): string {
-  return join(linksDir(), `${id}.json`);
-}
-
-function insideInstances(dir: string): boolean {
-  const base = resolve(instancesRoot());
-  const target = resolve(dir);
-  return target === base || target.startsWith(base + sep) || target.startsWith(base + '/');
-}
-
-/**
- * 接管的目录在实例根之外：记录仍然写在那个目录里（root 就是身份），
- * 另外在 .links 留一个指针，列表才找得到它。删指针不动用户的目录。
- */
-function writeLink(record: InstanceRecord): void {
-  const file = linkFile(record.id);
-  if (insideInstances(record.root)) {
-    rmSync(file, { force: true });
-    return;
-  }
-  mkdirSync(linksDir(), { recursive: true });
-  writeFileSync(file, JSON.stringify({ id: record.id, name: record.name, root: record.root }, null, 2) + '\n', 'utf8');
-}
-
-function removeLink(id: string): void {
-  rmSync(linkFile(id), { force: true });
-}
 
 /** 扫实例根；坏记录只报告不移动（读操作不该有副作用）。 */
 export function scanInstances(): InstanceScan {
