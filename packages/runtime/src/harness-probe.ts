@@ -2,6 +2,17 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+/**
+ * dsh 探针固定用到的命令与开关。
+ * `--profile headless` 是 dsh 的无头探针 profile（一次性问答，不进 web 壳）；
+ * 命令预览和真实 argv 都从这些常量取，免得同一个值在两处各写一份。
+ */
+const DSH_PROBE_COMMAND = 'dsh';
+const DSH_PROBE_PROFILE = 'headless';
+const DSH_PROFILE_FLAG = '--profile';
+const DSH_PATCH_FLAG = '--patch';
+const DSH_JSON_FLAG = '--json';
+
 export type HarnessTarget = 'dsh' | 'claude-code' | 'opencode' | 'codex';
 
 export interface RunnerResult {
@@ -132,7 +143,7 @@ export function askHarness(opts: AskOptions): AskResult {
   const prompt = opts.prompt;
   const command =
     opts.target === 'dsh'
-      ? `dsh --profile headless${opts.patchFile ? ` --patch ${opts.patchFile}` : ''} --json "<prompt>"`
+      ? `${DSH_PROBE_COMMAND} ${DSH_PROFILE_FLAG} ${DSH_PROBE_PROFILE}${opts.patchFile ? ` ${DSH_PATCH_FLAG} ${opts.patchFile}` : ''} ${DSH_JSON_FLAG} "<prompt>"`
       : opts.target === 'opencode'
         ? `opencode run --model ${model} "<prompt>"`
         : opts.target === 'codex'
@@ -142,12 +153,12 @@ export function askHarness(opts: AskOptions): AskResult {
   const res =
     opts.target === 'dsh'
       ? runner(
-          'dsh',
+          DSH_PROBE_COMMAND,
           [
-            '--profile',
-            'headless',
-            ...(opts.patchFile ? ['--patch', opts.patchFile] : []),
-            '--json',
+            DSH_PROFILE_FLAG,
+            DSH_PROBE_PROFILE,
+            ...(opts.patchFile ? [DSH_PATCH_FLAG, opts.patchFile] : []),
+            DSH_JSON_FLAG,
             prompt,
           ],
           opts.projectDir,
