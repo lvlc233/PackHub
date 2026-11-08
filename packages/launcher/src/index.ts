@@ -35,6 +35,7 @@ import {
   type BaselineFile,
 } from './baseline.ts';
 import { LOCK, readLock, releaseInstanceLock, withInstanceLock, withInstanceLockSync } from './lock.ts';
+import { API_VERSION, readRecord, readRecordResult, recordFile, type InstanceRecord } from './records.ts';
 import { nowIso } from './time.ts';
 
 // 锁与基线的实现搬到了 lock.ts / baseline.ts；这里继续按原名导出，调用方（start/server/cli/测试）不受影响
@@ -43,52 +44,9 @@ export { BASELINE, readBaseline, writeBaseline } from './baseline.ts';
 export type { Baseline, BaselineFile } from './baseline.ts';
 export { nowIso } from './time.ts';
 
-export const RECORD = 'instance.json';
-export const API_VERSION = 'packhub.dev/instance/v1';
-
-export type InstanceStatus =
-  | 'installing'
-  | 'installed'
-  | 'running'
-  | 'stopped'
-  | 'broken'
-  | 'failed';
-
-export interface InstanceRecord {
-  apiVersion: typeof API_VERSION;
-  /** 与名字无关的身份 */
-  id: string;
-  name: string;
-  harness: TargetId;
-  /** 宿主自己的版本；探测不到就不写 */
-  harnessVersion?: string;
-  /** 实例根：配置、数据、缓存、会话都在它下面 */
-  root: string;
-  /** 实例自己的 home 段（dsh: DSH_HOME）；dir 没有 */
-  home?: string;
-  pack: { name: string; version: string; ref?: string };
-  planHash: string;
-  createdAt: string;
-  updatedAt: string;
-  status: InstanceStatus;
-  /** 这个根是 PAL 建的（false = 接管已有目录）：只有 true 才允许整根删除 */
-  managed: boolean;
-  /** 从哪来：pack 引用、接管目录或复制；导出模板只认 kind='pack' 且有 ref */
-  origin?: { kind: 'pack' | 'adopted' | 'copy'; ref?: string; dir?: string; from?: string; seededFrom?: string };
-  /** 运行中的进程与端口；停掉后清空。url 已摘掉凭据，凭据在 secrets.json */
-  pid?: number;
-  port?: number;
-  /** 启动时分配过的端口（旧到新），排障用 */
-  ports?: number[];
-  url?: string;
-  startedAt?: string;
-  /** 最近一次运行结束的原因；崩溃诊断看这里 */
-  lastExit?: { code: number | null; signal: NodeJS.Signals | null; at: string; restarts: number };
-  lastError?: { code: string; message: string; at: string };
-  /** on-failure 时由 PAL 的守护重起；默认 never */
-  restart?: 'never' | 'on-failure';
-  maxRestarts?: number;
-}
+// 记录的读写搬到了 records.ts；这里继续按原名导出，调用方（start/server/cli/测试）不受影响
+export { API_VERSION, RECORD, readRecord, readRecordResult, recordFile } from './records.ts';
+export type { InstanceRecord, InstanceStatus, RecordRead } from './records.ts';
 
 export interface CreateInstanceOptions {
   name: string;
@@ -155,50 +113,7 @@ export interface InstanceScan {
   broken: Array<{ dir: string; reason: string; quarantined?: string; link?: string }>;
 }
 
-/* ---------- 记录读写 ---------- */
-
-export function recordFile(root: string): string {
-  return join(root, RECORD);
-}
-
-function parseRecord(root: string, text: string): InstanceRecord {
-  const data = JSON.parse(text) as InstanceRecord;
-  if (!data || typeof data !== 'object' || typeof data.id !== 'string' || typeof data.name !== 'string') {
-    throw new Error('记录缺字段');
-  }
-  const harness = (data.harness ?? 'dir') as TargetId;
-  const normalized: InstanceRecord = {
-    ...data,
-    apiVersion: API_VERSION,
-    harness,
-    root: data.root ?? root,
-    updatedAt: data.updatedAt ?? data.createdAt ?? nowIso(),
-    managed: data.managed ?? true,
-    ports: Array.isArray(data.ports) ? data.ports : [],
-    pack: data.pack ?? { name: 'unknown', version: '0.0.0' },
-  };
-  return normalized;
-}
-
-export interface RecordRead {
-  record?: InstanceRecord;
-  error?: string;
-}
-
-/** 读一份记录；坏记录给出原因，由调用方决定隔离还是跳过。 */
-export function readRecordResult(root: string): RecordRead {
-  const file = recordFile(root);
-  if (!existsSync(file)) return { error: '没有 instance.json' };
-  try {
-    return { record: parseRecord(root, readFileSync(file, 'utf8')) };
-  } catch (err) {
-    return { error: `instance.json 读不了：${(err as Error).message}` };
-  }
-}
-
-export function readRecord(root: string): InstanceRecord | undefined {
-  return readRecordResult(root).record;
-}
+/* ---------- 写记录（读记录在 records.ts；这里保留写，因为它带 .links 副作用） ---------- */
 
 /** 原子写：临时文件 + rename。写到一半崩溃只会留临时文件，不会留半份配置。 */
 export function writeInstance(record: InstanceRecord): void {
