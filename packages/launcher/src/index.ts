@@ -24,6 +24,7 @@ import {
 import { ADAPTERS, HARNESS_IDS, targetVarsFor } from './layout.ts';
 import { PalError } from './errors.ts';
 import { isPidAlive, killTree, waitForExit } from './process.ts';
+import { clearStopping, markStopping } from './stopMark.ts';
 import { archiveRoot, failedRoot, instancesRoot, newId, quarantineRoot, stamp } from './paths.ts';
 
 export const RECORD = 'instance.json';
@@ -57,8 +58,8 @@ export interface InstanceRecord {
   status: InstanceStatus;
   /** 这个根是 PAL 建的（false = 接管已有目录）：只有 true 才允许整根删除 */
   managed: boolean;
-  /** 从哪来：pack 引用或接管目录；clone / 导出模板靠它 */
-  origin?: { kind: 'pack' | 'adopted'; ref?: string; dir?: string; seededFrom?: string };
+  /** 从哪来：pack 引用、接管目录或复制；导出模板只认 kind='pack' 且有 ref */
+  origin?: { kind: 'pack' | 'adopted' | 'copy'; ref?: string; dir?: string; from?: string; seededFrom?: string };
   /** 运行中的进程与端口；停掉后清空。url 已摘掉凭据，凭据在 secrets.json */
   pid?: number;
   port?: number;
@@ -735,6 +736,8 @@ export interface RemoveOptions {
   force?: boolean;
   kill?: (pid: number) => void;
   isAlive?: (pid: number) => boolean;
+  /** 等进程退出的上限；默认 10s（测试用短值） */
+  timeoutMs?: number;
 }
 
 export interface RemoveResult {
@@ -771,12 +774,22 @@ export async function removeInstance(
         });
       }
       stopped = record.pid;
-      kill(record.pid);
-      const gone = await waitForExit(record.pid, { isAlive, timeoutMs: 10_000 });
-      if (!gone) {
-        throw new PalError('busy', `停不掉这个进程：pid ${record.pid}`, {
-          hint: '手工结束它，或用任务管理器；然后重试删除',
-        });
+      const pid = record.pid;
+      // 标记必须先于 kill 落盘：pal serve 里的看护一看到进程退出就会走 onExit，
+      // 没有标记就会把正在删除的 on-failure 实例又拉起来。
+      markStopping(record.root, pid);
+      try {
+        kill(pid);
+        const gone = await waitForExit(pid, { isAlive, timeoutMs: opts.timeoutMs ?? 10_000 });
+        if (!gone) {
+          throw new PalError('busy', `停不掉这个进程：pid ${pid}`, {
+            hint: '手工结束它，或用任务管理器；然后重试删除',
+          });
+        }
+      } finally {
+        // 成功失败都清：失败留着标记会把之后真实的崩溃一直压掉。
+        // 这里在卸包/搬根之前清，归档目录不会带着标记走。
+        clearStopping(record.root);
       }
     }
 
@@ -1155,10 +1168,13 @@ export async function cloneInstance(
     createdAt: nowIso(),
     updatedAt: nowIso(),
     status: 'installed',
+    // 目标目录是这里新建并拷贝出来的，删实例时整个根都归 PAL 管
+    managed: true,
+    // 复制体不是从 Pack 重建的：只记它从哪份实例拷来，绝不复用源的 pack 来源
+    origin: { kind: 'copy', from: source.id },
     ports: [],
     restart: source.restart ?? 'never',
     maxRestarts: source.maxRestarts ?? 3,
-    origin: { kind: 'pack', ...(source.pack.ref ? { ref: source.pack.ref } : {}), dir: source.origin?.dir },
   };
   delete record.pid;
   delete record.port;

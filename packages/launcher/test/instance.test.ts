@@ -30,6 +30,7 @@ import {
 } from '../src/index.ts';
 import { isPalError } from '../src/errors.ts';
 import { isPidAlive } from '../src/process.ts';
+import { isStopping, stoppingMarkFile } from '../src/stopMark.ts';
 import { baselineDrift } from '../src/health.ts';
 import { archiveRoot, failedRoot, quarantineRoot } from '../src/paths.ts';
 
@@ -200,6 +201,92 @@ describe('实例配置', () => {
     expect(existsSync(record.root)).toBe(false);
   });
 
+  it('删除运行中的 on-failure 实例：kill 时带停止标记，删完不留', async () => {
+    const record = await createInstance({ name: 'restarting', harness: 'dsh', packDir: PACK });
+    // 造一个会被看护重起的记录：删除如果不落标记，serve 里的 onExit 会把它拉起来
+    writeFileSync(
+      join(record.root, 'instance.json'),
+      JSON.stringify(
+        { ...readInstance(record.id)!, status: 'running', pid: 4343, port: 41235, restart: 'on-failure' },
+        null,
+        2,
+      ),
+      'utf8',
+    );
+    const markFile = stoppingMarkFile(record.root);
+    let alive = true;
+    const result = await removeInstance('restarting', {
+      isAlive: () => alive,
+      kill: (pid) => {
+        expect(pid).toBe(4343);
+        // 标记必须已经在磁盘上，另一个进程里的看护才认得出这是删除不是崩溃
+        expect(existsSync(markFile)).toBe(true);
+        alive = false;
+      },
+    });
+    expect(result.stopped).toBe(4343);
+    expect(existsSync(markFile)).toBe(false);
+    expect(existsSync(record.root)).toBe(false);
+  });
+
+  it('删除失败（kill 后进程还活）也要清掉停止标记', async () => {
+    const record = await createInstance({ name: 'stuck-remove', harness: 'dsh', packDir: PACK });
+    writeFileSync(
+      join(record.root, 'instance.json'),
+      JSON.stringify(
+        { ...readInstance(record.id)!, status: 'running', pid: 4344, port: 41236, restart: 'on-failure' },
+        null,
+        2,
+      ),
+      'utf8',
+    );
+    const markFile = stoppingMarkFile(record.root);
+    let caught: unknown;
+    try {
+      await removeInstance('stuck-remove', {
+        isAlive: () => true,
+        kill: () => {
+          expect(existsSync(markFile)).toBe(true);
+        },
+        timeoutMs: 150,
+      });
+    } catch (err) {
+      caught = err;
+    }
+    expect(isPalError(caught) && caught.code).toBe('busy');
+    // 留着标记会把之后真实的崩溃一直压掉
+    expect(existsSync(markFile)).toBe(false);
+    expect(isStopping(record.root, 4344)).toBe(false);
+    // 删除没成：记录和根都还在
+    expect(readInstance(record.id)?.status).toBe('running');
+    expect(existsSync(record.root)).toBe(true);
+  });
+
+  it('keepData 搬根不把停止标记带进归档', async () => {
+    const record = await createInstance({ name: 'archive-marked', harness: 'dsh', packDir: PACK });
+    writeFileSync(
+      join(record.root, 'instance.json'),
+      JSON.stringify(
+        { ...readInstance(record.id)!, status: 'running', pid: 4345, port: 41237, restart: 'on-failure' },
+        null,
+        2,
+      ),
+      'utf8',
+    );
+    let alive = true;
+    const result = await removeInstance('archive-marked', {
+      keepData: true,
+      isAlive: () => alive,
+      kill: () => {
+        alive = false;
+      },
+    });
+    expect(result.archivedTo).toBeDefined();
+    // 标记在搬根之前就清了，归档根里不该再有它
+    expect(existsSync(stoppingMarkFile(result.archivedTo!))).toBe(false);
+    expect(listInstances()).toEqual([]);
+  });
+
   it('保留数据：根挪进归档区，列表里不再有它', async () => {
     const record = await createInstance({ name: 'keep-me', harness: 'dsh', packDir: PACK });
     writeFileSync(join(record.home!, 'session.txt'), 'my session', 'utf8');
@@ -296,6 +383,52 @@ describe('实例配置', () => {
     expect(template.pack.name).toBe('lvlc233/doc-review');
     const file = writeTemplate(template, join(tmp, 'src.pal.json'));
     expect(readTemplate(file).name).toBe('src');
+  });
+
+  it('复制接管来的实例：克隆体归 PAL 管，来源记成 copy 且不可复现', async () => {
+    const dir = join(tmp, 'adopt-src');
+    mkdirSync(join(dir, 'home', 'dsh'), { recursive: true });
+    writeFileSync(join(dir, 'mine.txt'), 'keep', 'utf8');
+    const src = adoptInstance({ dir, name: 'adopt-src', harness: 'dsh' });
+    expect(src.managed).toBe(false);
+    expect(src.origin?.kind).toBe('adopted');
+
+    const copy = await cloneInstance('adopt-src', { name: 'adopt-copy' });
+    expect(copy.managed).toBe(true);
+    expect(copy.origin).toEqual({ kind: 'copy', from: src.id });
+    // 落盘记录与返回值一致
+    expect(readInstance(copy.id)?.managed).toBe(true);
+    expect(readInstance(copy.id)?.origin).toEqual({ kind: 'copy', from: src.id });
+    const template = exportTemplate('adopt-copy');
+    expect(template.reproducible).toBe(false);
+    expect(template.origin?.kind).toBe('copy');
+
+    // 克隆体是 PAL 建的目录：删除时整个根都消失，而不是像接管源那样留下
+    await removeInstance('adopt-copy');
+    expect(existsSync(copy.root)).toBe(false);
+    expect(existsSync(dir)).toBe(true);
+  });
+
+  it('复制 Pack 实例：克隆体来源是 copy，不带 pack 引用，导出模板不可复现', async () => {
+    const source = await createInstance({
+      name: 'pack-src',
+      harness: 'dsh',
+      packDir: PACK,
+      packRef: PACK,
+    });
+    expect(source.origin?.kind).toBe('pack');
+    expect(source.origin?.ref).toBe(PACK);
+
+    const copy = await cloneInstance('pack-src', { name: 'pack-copy' });
+    expect(copy.managed).toBe(true);
+    expect(copy.origin).toEqual({ kind: 'copy', from: source.id });
+    // pack 元数据还在（它是什么版本），但来源不能再冒充 Pack
+    expect(copy.pack.ref).toBe(PACK);
+
+    const template = exportTemplate('pack-copy');
+    expect(template.reproducible).toBe(false);
+    const file = writeTemplate(template, join(tmp, 'pack-copy.pal.json'));
+    expect(() => readTemplate(file)).toThrow('不可复现');
   });
 
   it('迁移：记录跟到新路径，旧路径不存在，锁不留在新根', async () => {

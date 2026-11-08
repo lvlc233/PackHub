@@ -5,10 +5,7 @@ import {
   fstatSync,
   mkdirSync,
   openSync,
-  readFileSync,
   readSync,
-  rmSync,
-  writeFileSync,
 } from 'node:fs';
 import { extname, join } from 'node:path';
 import { ADAPTERS, parseStartUrl, type HarnessAdapter } from './layout.ts';
@@ -26,8 +23,11 @@ import {
 import { clearSecrets, splitUrl, writeSecrets } from './secrets.ts';
 import { isPidAlive, killTree, waitForExit } from './process.ts';
 import { writeDshMcpPatch } from './mcp.ts';
+import { clearStopping, isStopping, markStopping } from './stopMark.ts';
 
 export { isPidAlive, killTree } from './process.ts';
+// 标记实现搬到了 stopMark.ts；这里继续按原名导出，调用方（cli/server/测试）不受影响
+export { clearStopping, isStopping, markStopping, stoppingMarkFile } from './stopMark.ts';
 
 export type SpawnFn = (
   file: string,
@@ -244,63 +244,6 @@ export interface StartResult {
 }
 
 const STOP_TIMEOUT_MS = 10_000;
-
-/* ---------- 「正在停止」标记 ---------- */
-
-/**
- * 主动停止的标记文件，落在实例根上：`pal stop` 与看护进程（`pal serve`）可能是两个进程，
- * 只有磁盘上的标记才跨得过去。内存里的 Set 在 CLI 里写完就没了。
- */
-const STOPPING = '.pal-stopping';
-/** 标记有效期：正常 stop 最多等 10s；过期的当残留，不再抑制看护（stop 进程自己被杀也不会永久压制）。 */
-const STOPPING_TTL_MS = 5 * 60_000;
-
-interface StopMark {
-  pid: number;
-  at: string;
-}
-
-/** 标记文件路径（诊断/测试用）。 */
-export function stoppingMarkFile(root: string): string {
-  return join(root, STOPPING);
-}
-
-/**
- * 在 kill 之前落盘。写不进去也不挡住停止：最坏退化成原来的「退出即崩溃」行为，
- * 不能因为标记写不了就让用户停不掉实例。
- */
-export function markStopping(root: string, pid: number): void {
-  const mark: StopMark = { pid, at: nowIso() };
-  try {
-    writeFileSync(stoppingMarkFile(root), JSON.stringify(mark, null, 2) + '\n', 'utf8');
-  } catch {
-    /* 见上 */
-  }
-}
-
-export function clearStopping(root: string): void {
-  try {
-    rmSync(stoppingMarkFile(root), { force: true });
-  } catch {
-    /* 删不掉也不影响停止本身 */
-  }
-}
-
-/** 这次退出是不是我们自己停的：只认同一 pid、未过期的标记。 */
-export function isStopping(root: string, pid?: number, now = Date.now()): boolean {
-  const file = stoppingMarkFile(root);
-  if (!existsSync(file)) return false;
-  let mark: Partial<StopMark>;
-  try {
-    mark = JSON.parse(readFileSync(file, 'utf8')) as Partial<StopMark>;
-  } catch {
-    return false;
-  }
-  if (typeof mark?.pid !== 'number') return false;
-  if (pid !== undefined && mark.pid !== pid) return false;
-  const at = Date.parse(String(mark.at ?? ''));
-  return Number.isFinite(at) && now - at <= STOPPING_TTL_MS;
-}
 
 function aliveOf(opts: StartOptions): (pid: number) => boolean {
   return opts.isAlive ?? isPidAlive;
