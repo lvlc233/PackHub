@@ -25,7 +25,7 @@ import { readIndex, resolveRegistry } from '@packhub/runtime';
 import { PalError, errorBody } from './errors.ts';
 import { discoverAll } from './harness.ts';
 import { assertAbsolutePath, assertExternalRoot } from './validators.ts';
-import { instancesRoot } from './paths.ts';
+import { exportsRoot } from './paths.ts';
 import { readEvents, readLog } from './logs.ts';
 import { readSecrets, redactText, withSecrets } from './secrets.ts';
 import { checkInstance } from './health.ts';
@@ -377,10 +377,10 @@ async function handle(req: IncomingMessage, res: ServerResponse, insecure: boole
     if (action === 'export' && req.method === 'POST') {
       const body = await readJson(req);
       const template = exportTemplate(id);
-      // 默认落在 <instancesRoot>/exports/<name>.pal.json；自定义输出必须是绝对路径
+      // 默认落在 <PACKHUB_HOME>/exports/<name>.pal.json；不能放 instancesRoot，扫描会当坏记录隔离
       const out =
         body.out === undefined
-          ? join(instancesRoot(), 'exports', `${exportFileStem(template.name)}.pal.json`)
+          ? join(exportsRoot(), `${exportFileStem(template.name)}.pal.json`)
           : assertAbsolutePath(body.out, '导出文件', 'out');
       sendJson(res, 200, { file: writeTemplate(template, out), template });
       return;

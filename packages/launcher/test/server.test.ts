@@ -399,8 +399,12 @@ describe('PAL 本地界面 API', () => {
       body: JSON.stringify({ pack: 'examples/doc-review', name: 'export-me', harness: 'dir' }),
     });
     const result = await json(`/api/instances/${rec.id}/export`, { method: 'POST', body: '{}' });
-    const expected = join(tmp, 'instances', 'exports', 'export-me.pal.json');
+    // 默认导出在 PAL home 的 exports，不在 instancesRoot（否则会被扫描当坏记录隔离）
+    const expected = join(tmp, 'home', 'exports', 'export-me.pal.json');
     expect(result.file).toBe(expected);
+    // 触发一次列表扫描后模板文件还在（旧实现放 instancesRoot 时会被当坏记录隔离掉）
+    await call('/api/instances');
+    expect(existsSync(expected)).toBe(true);
     expect(result.template.apiVersion).toBe('packhub.dev/instance-template/v0');
     expect(result.template.name).toBe('export-me');
     expect(result.template.reproducible).toBe(true);

@@ -25,6 +25,14 @@ export function cacheRoot(): string {
   return join(homeBase(), 'cache', 'packs');
 }
 
+/**
+ * 实例模板的默认导出目录：放在 PAL home 下，不能放进 instancesRoot。
+ * instancesRoot 只放实例目录；扫描会把没有 instance.json 的目录当坏记录隔离。
+ */
+export function exportsRoot(): string {
+  return join(homeBase(), 'exports');
+}
+
 /** 坏记录/失败现场的隔离区：移到这里，不留在实例列表里，也不删。 */
 export function quarantineRoot(): string {
   return join(instancesRoot(), '.quarantine');
