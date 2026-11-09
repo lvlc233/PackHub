@@ -15,7 +15,7 @@ PAL 把 Pack 装进一个独立实例根，并按宿主起停进程。代码在 
 ```text
 <instancesRoot>/<id>/
   instance.json        实例记录（原子写）
-  baseline.json        Pack 装过的文件 + sha256
+  baseline.json        Pack 装过的文件 + sha256，以及 pack / version / planHash
   .packhub/            安装 state、快照、版本镜像
   home/dsh/            dsh 的 DSH_HOME（skills、knowledge、cordis 配置）
   home/claude/         claude-code 的 CLAUDE_CONFIG_DIR
@@ -38,7 +38,7 @@ PAL 把 Pack 装进一个独立实例根，并按宿主起停进程。代码在 
 默认策略存在 `<PACKHUB_HOME>/config.json` 的 `isolation`；`pal create --isolation assembly=shared,session=instance` 可显式覆盖，`pal config` 可看/改默认。策略在**建实例那一刻**快照进记录，之后改全局默认不追溯已有实例；`pal adopt` 也按当时的默认值记一份。旧记录与坏策略值回落默认。凭据只支持 copy（每实例一份，建实例时从已有 home 复制）；shared-ro 未实现，策略里写 `credentials=shared` 会在写任何东西之前被拒绝（`invalid-input`，提示改回 `credentials=instance`）；`keepData` 归档与备份默认剥离 `secrets.json`，备份要带凭据得显式 `--include-secrets`。
 
 ## 记录与状态
-`instance.json` 的字段：`id`、`name`、`harness`、`harnessVersion`、`root`、`home`、`pack{name,version,ref}`、`planHash`、`status`、`managed`、`origin`、`pid`、`port`、`ports[]`、`url`（已摘凭据）、`startedAt`、`lastExit{code,signal,at,restarts}`、`lastError`、`restart`。
+`instance.json` 的字段：`id`、`name`、`harness`、`harnessVersion`、`root`、`home`、`pack{name,version,ref}`、`status`、`managed`、`origin`、`isolation`、`pid`、`port`、`ports[]`、`url`（已摘凭据）、`startedAt`、`lastExit{code,signal,at,restarts}`、`lastError`、`restart`。`planHash` 只记在 `baseline.json`：`update` 用它判断计划有没有变，没有 baseline 视为已变；旧记录里残留的 `planHash` 读取时忽略、不再写回。
 
 状态：`installing` → `installed` → `running` / `stopped`；进程死了是 `broken`，安装失败是 `failed`。建实例时先写 `installing` 再装，所以中途崩溃也能在列表里看到它、能删能查。`pal status` 会把 pid 已死的实例真正写成 `broken`（收回 pid/port/url）；GET 列表与体检只在返回值里标，不改记录。
 
@@ -130,12 +130,12 @@ Pack 里的 `type: mcp` 资源安装时写进实例的 `.packhub/config.json`（
 
 `start` 会立刻退出（宿主 detach）；要看着护就用 `pal serve`。「实例流转」目前只有 CLI。
 
-`adopt` 只有实例 state 里恰好 1 个 Pack 时才记下它的名字/版本与 planHash；0 个或多个一律记 `external`（planHash 留空），免得记录谎称身份。`clone` 复制出来的记录是 `managed: true`、`origin: {kind:'copy', from}`，端口与运行信息清空 —— 它是拷贝，不从 Pack 重建，导出的模板不可复现。
+`adopt` 只有实例 state 里恰好 1 个 Pack 时才记下它的名字/版本；0 个或多个一律记 `external`，免得记录谎称身份。`planHash` 不进记录，只在 `baseline.json` 里维护。`clone` 复制出来的记录是 `managed: true`、`origin: {kind:'copy', from}`，端口与运行信息清空 —— 它是拷贝，不从 Pack 重建，导出的模板不可复现。
 
 `show` / `rename` / `migrate` / `use` 也认 `--json`（`show` 本来只输出记录 JSON）；`current --json` 同样只输出一份 JSON。
 
 `update` 要求实例已停。计划确实会变（`changed`）且 Pack 写过的文件被本地改过时默认拒绝，一个文件都不写；确认覆盖要带 `--force`（API 是 `body.force=true`）。同版本重跑不写盘、也不拦。放行后装上新版本，把上一版独有的文件删掉（删不掉就留着），刷新基线与记录，并回报这次被覆盖的本地改动。
-`rebaseline` 把当前磁盘状态认作基线：本地改动被接受，体检不再报漂移；`baseline.json` 里的 `ignore` 原样保留。
+`rebaseline` 把当前磁盘状态认作基线：本地改动被接受，体检不再报漂移；`baseline.json` 里的 `planHash` 与 `ignore` 原样保留。
 
 ## CI
 
