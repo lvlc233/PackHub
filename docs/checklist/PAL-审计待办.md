@@ -1,6 +1,6 @@
 # PAL 审计待办（37 条）
 
-> 日期：2026-11-09 ／ 基线：`d40ea05`，`pnpm check` 全绿 ／ 口径：2026-11-09 的 PAL 全量审计 50 条，已关闭 45 条（A 11、B 15、C 12、D 7），本文只记**原始剩余 5 条**与新增未完成的 E 3 条，共 **8 条**。
+> 日期：2026-11-09 ／ 基线：`bdad584`，`pnpm check` 全绿 ／ 口径：2026-11-09 的 PAL 全量审计 50 条，已关闭 46 条（A 12、B 15、C 12、D 7），本文只记**原始剩余 4 条**与新增未完成的 E 3 条，共 **7 条**。
 > 需要拍板的四组语义（A3/B12/E3/E5）与结构项顺序见 [PAL-剩余决策](PAL-剩余决策.md)。
 > 用途：跨会话派工，不依赖聊天记录。编号沿用审计原号，新增组往后排，**不重排、不复用**。
 > 相关：功能现状见 [PackHub-功能全量清单](PackHub-功能全量清单.md) 的 PAL 域，机制细节见 [details/pal.md](details/pal.md)。本表只记待办，做完就改状态；现状描述不在这里续写。
@@ -32,7 +32,7 @@ A3 凭据已定为 **copy**（`0d4f6d6`）：`credentials=shared` 明确拒绝�
 | A4 | 取包缓存管理面（`pal cache ls/clean`、meta、GC） | `cache.ts` + `pal cache`：ls/clean（`--all`/`--ref`/`--older-than`）、缓存 meta、命中补写 | `[done]` 65e2183 | A1 的缓存层 |
 | A5 | 实例根可选 | `create` / `clone` / `import` 的 CLI `--root`、API `body.root` 已支持；只收绝对路径，拒绝盘符根/文件系统根与 PAL 实例根内（`assertExternalRoot`） | `[done]` 8a722fa | 无 |
 | A6 | 界面缺实例流转 | 新建对话框「来源」：pack / 接管目录 / 导入模板；详情「更多」：克隆、改名、迁移、导出（APIs 见 A6a，web 见 `app.js`） | `[done]` f8cb9b8 | 提案已有 6 个 API 形状 |
-| A7 | 策略变更没有迁移工具 | `migrate.ts` 只挪根，不按新策略重排 home | `[open]` | A1、A3 |
+| A7 | 策略变更没有迁移工具 | 有意不提供原地迁移：策略在创建时快照、不追溯；改默认只影响新实例，换策略用新建/克隆。`writePalConfig` 写盘前就拒绝 `credentials=shared` | `[done]` bdad584 | A3 |
 | A8 | 没有整实例快照 / 备份 / 恢复 | `pal backup <id> [--include-secrets]` 目录快照到 `PACKHUB_HOME/backups`；`pal restore <dir> [--name] [--root]` 重写 id/root/home 后恢复 | `[done]` 71e0b94 | 无 |
 | A9 | 没有发现 / 导入已有实例 | `pal scan <dir> [--depth] [--json]` 只读识别三类：instance.json / packhub.yaml / .packhub/state.json；`scan.ts` + test | `[done]` dae2efc | 无 |
 | A10 | 系统级看护缺失 | `pal watch [--interval]`：headless 轮询 scanInstances，对 running 但 pid 已死的记录按 on-failure 预算重起，否则写 broken；与 `pal serve` 二选一 | `[done]` 6fea5d6 | 无 |
@@ -93,14 +93,14 @@ A3 凭据已定为 **copy**（`0d4f6d6`）：`credentials=shared` 明确拒绝�
 
 | 组 | 编号 | 条数 |
 |---|---|---|
-| A | A7、A11 | 2 |
+| A | A11 | 1 |
 | B | B12 | 1 |
 | C | — | 0 |
 | D | D1、D7 | 2 |
-| 小计 | 原始剩余 | **5** |
+| 小计 | 原始剩余 | **4** |
 | E | E3–E5 | 3 |
 | N | — | 0 |
-| 合计 |  | **8** |
+| 合计 |  | **7** |
 
 ## 建议开工顺序
 
@@ -117,7 +117,7 @@ Electron 这条线独立于 A–D：先 **E1**（壳能起来），再 **E2**（
 
 新会话开场可直接写：
 
-> 继续 PackHub PAL 审计剩余 8 条（原 5 + E3–E5），仓库在 `d40ea05`。A1–A6/A8–A10/A12/A13/B14/C1–C12/E1/E2/N2 已完成；D1 类型层、D3 已完成；下一步 A7/A11 或 D1 持久化；B12 仍待定。
+> 继续 PackHub PAL 审计剩余 7 条（原 4 + E3–E5），仓库在 `bdad584`。A1–A10/A12/A13/B14/C1–C12/D3/E1/E2/N2 已完成；A7 按「不追溯」收口；剩 A11、B12、D1 半、D7 半、E3–E5。
 
 ## 完成判据
 
