@@ -2,22 +2,24 @@ import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'no
 import { join, resolve } from 'node:path';
 import { planFor, type PackContext, type TargetId } from '@packhub/kernel';
 import { installPack, loadLock, loadPack, loadState, withLockPins } from '@packhub/runtime';
-import { ADAPTERS, HARNESS_IDS, targetVarsFor } from './layout.ts';
+import { ADAPTERS, targetVarsFor } from './layout.ts';
 import { baselineFromState, writeBaseline } from './baseline.ts';
 import { withInstanceLock } from './lock.ts';
 import { API_VERSION, readRecord, recordFile, type InstanceRecord } from './records.ts';
 import { parseIsolation, type Isolation } from './isolation.ts';
 import { readPalConfig } from './config.ts';
-import { dropActive, listInstances, readActiveMap, writeActiveMap } from './catalog.ts';
+import { dropActive, readActiveMap, writeActiveMap } from './catalog.ts';
 import { failInstance } from './quarantine.ts';
 import { writeInstance } from './recordWrite.ts';
 import { instancesRoot, newId } from './paths.ts';
 import { nowIso } from './time.ts';
 import { PalError } from './errors.ts';
+import { assertHarness, assertNameFree } from './validators.ts';
 
 /**
  * 建实例与接管：出计划、装 Pack、写记录与基线；接管只写指针，不动用户目录。
  * 从 index.ts 搬出来；不 import index.ts（避免循环），依赖只走 kernel/runtime 与包内底层模块。
+ * 名字/宿主的校验在 validators.ts，这里只 import 使用，不重新导出。
  */
 
 export interface CreateInstanceOptions {
@@ -84,25 +86,6 @@ export function seedHome(from: string, to: string): string[] {
   return copied;
 }
 
-/* ---------- 校验 ---------- */
-
-/** 名字不能撞上已有实例。建实例、接管、复制、改名都要过这一关，所以从这里导出共用。 */
-export function assertNameFree(name: string): void {
-  if (listInstances().some((i) => i.name === name)) {
-    throw new PalError('name-taken', `实例名已存在：${name}`, { hint: '换一个名字，或先删掉旧实例' });
-  }
-}
-
-export function assertHarness(value: string): TargetId {
-  if (!(HARNESS_IDS as string[]).includes(value)) {
-    throw new PalError('unknown-harness', `没有这个宿主：${value}`, {
-      hint: `可选：${HARNESS_IDS.join(' / ')}`,
-      details: { harness: value, choices: HARNESS_IDS },
-    });
-  }
-  return value as TargetId;
-}
-
 /**
  * 一份新实例该用哪套隔离策略：显式给的最优先（照样过一遍 parseIsolation），
  * 没给就用全局配置里的默认。配置坏/策略坏都在建目录之前抛，不留半份实例。
@@ -129,7 +112,6 @@ export async function createInstance(opts: CreateInstanceOptions): Promise<Insta
   const name = opts.name.trim();
   if (!name) throw new PalError('invalid-input', '实例名不能为空');
   const harness = assertHarness(opts.harness);
-  if (!ADAPTERS[harness]) throw new PalError('unknown-harness', `没有这个宿主：${harness}`);
   assertNameFree(name);
   // 先定策略：配置读不了就在这里失败，不往下建目录
   const isolation = isolationFor(opts.isolation);

@@ -27,7 +27,8 @@ export {
 } from './catalog.ts';
 export type { InstanceScan } from './catalog.ts';
 
-// 建实例与接管搬到了 create.ts；入口继续按原名导出（assertNameFree、assertHarness 只是包内共用，不对外导出）
+// 建实例与接管搬到了 create.ts；入口继续按原名导出（assertNameFree、assertHarness 只是包内共用，不对外导出，
+// 现在定义在 validators.ts，create / migrate 都从那里 import）
 export { adoptInstance, createInstance, seedHome } from './create.ts';
 export type { AdoptOptions, CreateInstanceOptions } from './create.ts';
 

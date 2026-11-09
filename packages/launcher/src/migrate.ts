@@ -9,11 +9,12 @@ import { DEFAULT_ISOLATION, parseIsolation } from './isolation.ts';
 import { readActiveMap, requireInstance, writeActiveMap } from './catalog.ts';
 import { nowIso } from './time.ts';
 import { writeInstance } from './recordWrite.ts';
-import { assertNameFree } from './create.ts';
+import { assertNameFree } from './validators.ts';
 
 /**
  * 复制 / 改名 / 迁移：整个实例根的搬运与记录改写。
- * 从 index.ts 搬出来；不 import index.ts（避免循环），重名检查直接用 create.ts 的 assertNameFree。
+ * 从 index.ts 搬出来；不 import index.ts（避免循环），重名检查用 validators.ts 的 assertNameFree
+ * （不经过 create.ts，避免为一个校验函数拖上整个建实例模块）。
  */
 
 /** 复制一份实例：连 home 一起拷，得到可独立改的副本；端口与运行信息清空。 */
