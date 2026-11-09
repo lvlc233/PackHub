@@ -670,6 +670,34 @@ const current = defineCommand({
   },
 });
 
+/**
+ * D7：侧车（桌面壳）的关闭入口。对端关掉 stdin 的写端后，这里关掉 HTTP server 再以 0 退出；
+ * 桌面壳就不必直接 taskkill /F。'end' 与 'close' 可能先后都到，用一次性开关挡重复触发
+ * （server.close 第二次会抛 ERR_SERVER_NOT_RUNNING）。不开启这个开关时完全不碰 stdin。
+ */
+function watchStdinClose(close: () => Promise<void>): void {
+  let closing = false;
+  const shutdown = (): void => {
+    if (closing) return;
+    closing = true;
+    // 还有 keep-alive 连接时 server.close 会一直等，别让壳跟着卡住
+    const timer = setTimeout(() => process.exit(0), 1500);
+    timer.unref();
+    close()
+      .catch(() => {
+        /* 关服务失败也照常退出：调用方只关心进程有没有走 */
+      })
+      .finally(() => {
+        clearTimeout(timer);
+        process.exit(0);
+      });
+  };
+  process.stdin.on('end', shutdown);
+  process.stdin.on('close', shutdown);
+  // 管道对端关闭只有在读的时候才会变成 'end'：不 resume 就永远等不到
+  process.stdin.resume();
+}
+
 const serve = defineCommand({
   meta: { name: 'serve', description: '起本地界面：实例列表、创建、启停、健康检查、日志' },
   args: {
@@ -677,6 +705,11 @@ const serve = defineCommand({
     host: { type: 'string', default: '127.0.0.1' },
     open: { type: 'boolean', default: false, description: '用 Edge 应用窗口打开' },
     insecure: { type: 'boolean', default: false, description: '关掉来源校验（只给调试用）' },
+    'exit-on-stdin-close': {
+      type: 'boolean',
+      default: false,
+      description: 'stdin 被对端关闭时关掉服务并正常退出 0（桌面壳收侧车用）；不开启时行为不变',
+    },
     json: { type: 'boolean', default: false },
   },
   async run({ args }) {
@@ -691,6 +724,7 @@ const serve = defineCommand({
       console.log(`PAL 界面：${server.url}`);
     }
     if (args.open) openAppWindow(server.url);
+    if (args['exit-on-stdin-close']) watchStdinClose(server.close);
   },
 });
 

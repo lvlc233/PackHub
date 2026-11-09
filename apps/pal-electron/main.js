@@ -19,15 +19,26 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 /** 仓库根：本文件在 apps/pal-electron/ 下，往上两级；PAL_REPO 可显式指定。 */
 const repoRoot = process.env.PAL_REPO ?? path.resolve(here, '..', '..');
 const SERVE_TIMEOUT_MS = 20_000;
+/** D7：先关 stdin 请 sidecar 自己退，最多等这么久，之后才硬收。 */
+const GRACEFUL_EXIT_MS = 1500;
+/** 硬收之后再等这么久，仍未退出就不再等它。 */
+const FORCE_EXIT_MS = 1000;
+/** before-quit 的兜底：等 sidecar 再久，也不能让窗口关不掉。 */
+const QUIT_DEADLINE_MS = GRACEFUL_EXIT_MS + FORCE_EXIT_MS + 1000;
 
 /** @type {import('node:child_process').ChildProcess | null} */
 let sidecar = null;
 /** @type {BrowserWindow | null} */
 let window = null;
-/** 主动收摊（关窗 / 退出 / 失败处理）时为 true，此时侧车退出不算异常。 */
+/** 主动收摊（关窗 / 退出 / 失败处理）时为 true，此时 sidecar 退出不算异常。 */
 let stopping = false;
 let failed = false;
 let stderrTail = '';
+/** stopSidecar 的单一入口：关窗与退出可能并发调用，共用同一个 Promise。 */
+/** @type {Promise<void> | null} */
+let stopPromise = null;
+/** before-quit 已经在等 sidecar 时为 true，避免重复拦截。 */
+let quitting = false;
 
 /** 侧车怎么起：dev 走仓库源码，打包入口 E1 先不实现。 */
 function resolveSidecar() {
@@ -46,6 +57,8 @@ function resolveSidecar() {
       '--port',
       '0',
       '--json',
+      // D7：关掉 stdin 时 sidecar 自己关服务并退 0，别等着被 taskkill
+      '--exit-on-stdin-close',
     ],
     cwd: repoRoot,
   };
@@ -110,13 +123,16 @@ function startSidecar() {
         cwd,
         env: process.env,
         windowsHide: true,
-        stdio: ['ignore', 'pipe', 'pipe'],
+        // D7：stdin 是关闭通道（关掉就让 sidecar 自己退），stdout/stderr 仍按行解析
+        stdio: ['pipe', 'pipe', 'pipe'],
       });
     } catch (err) {
       reject(new Error(`起不了 pal serve（${command}）：${err.message}`));
       return;
     }
     sidecar = proc;
+    // 收摊时侧车可能已经走了：再写 stdin 只会得到 EPIPE，别让它变成未捕获异常
+    proc.stdin.on('error', () => {});
 
     let buffered = '';
     let settled = false;
@@ -169,14 +185,18 @@ function startSidecar() {
   });
 }
 
+/** 等 ms 毫秒；用来给“等进程退出”加时限，返回 false 表示到点了。 */
+function wait(ms) {
+  return new Promise((resolve) => {
+    setTimeout(() => resolve(false), ms);
+  });
+}
+
 /**
- * 收掉侧车。Windows 上没有进程组，`pal serve` 再拉起子进程时 child.kill 收不干净，
- * 所以用 taskkill /T；其它平台发 SIGTERM。
+ * 硬收。Windows 上没有进程组，`pal serve` 再拉起子进程时 child.kill 收不干净，
+ * 所以用 taskkill /T /F；其它平台先 SIGTERM（更晚的 SIGKILL 在 stopSidecar 里补）。
  */
-function stopSidecar() {
-  const proc = sidecar;
-  sidecar = null;
-  if (!proc || proc.exitCode !== null || proc.signalCode !== null) return;
+function forceKill(proc) {
   try {
     if (process.platform === 'win32') {
       const result = spawnSync('taskkill', ['/PID', String(proc.pid), '/T', '/F'], {
@@ -194,6 +214,41 @@ function stopSidecar() {
       /* 收摊失败不挡关窗 */
     }
   }
+}
+
+/**
+ * 收掉侧车（D7 的优雅路径）：先 `proc.stdin.end()`，让 `pal serve --exit-on-stdin-close`
+ * 自己关 HTTP server 并退出 0；最多等 GRACEFUL_EXIT_MS，没退再 forceKill。
+ * 重复调用共用同一个 Promise：关窗与 before-quit 都会走到这里。
+ */
+function stopSidecar() {
+  if (stopPromise) return stopPromise;
+  stopping = true;
+  const proc = sidecar;
+  sidecar = null;
+  if (!proc || proc.exitCode !== null || proc.signalCode !== null) {
+    stopPromise = Promise.resolve();
+    return stopPromise;
+  }
+  stopPromise = (async () => {
+    const exited = new Promise((resolve) => proc.once('exit', () => resolve(true)));
+    try {
+      proc.stdin.end();
+    } catch {
+      /* stdin 已经坏了就直接走硬收 */
+    }
+    if (await Promise.race([exited, wait(GRACEFUL_EXIT_MS)])) return;
+    forceKill(proc);
+    if (await Promise.race([exited, wait(FORCE_EXIT_MS)])) return;
+    if (process.platform !== 'win32') {
+      try {
+        proc.kill('SIGKILL');
+      } catch {
+        /* 已经没了 */
+      }
+    }
+  })();
+  return stopPromise;
 }
 
 function openWindow(url) {
@@ -215,7 +270,8 @@ function openWindow(url) {
   window.once('ready-to-show', () => window?.show());
   window.on('closed', () => {
     window = null;
-    stopSidecar();
+    // 关窗走优雅路径（关 stdin → 等退 → 兜底硬收）；不 await，别挡住窗口销毁
+    void stopSidecar();
   });
   window.loadURL(url).catch((err) => {
     fail(`窗口加载 ${url} 失败：${err.message}`);
@@ -225,9 +281,24 @@ function openWindow(url) {
 app.on('window-all-closed', () => app.quit());
 
 // 退出前收侧车：窗口关掉、任务管理器结束等路径之外的最后一道保险。
-app.on('before-quit', () => {
+// D7：这里先拦一次，给侧车最多 QUIT_DEADLINE_MS 优雅收摊的时间；到点 app.exit() 直接走，
+// 绝不让“等侧车”卡住关窗（app.exit 不会再触发 before-quit）。
+app.on('before-quit', (event) => {
   stopping = true;
-  stopSidecar();
+  if (quitting) {
+    event.preventDefault();
+    return;
+  }
+  if (!sidecar && !stopPromise) return;
+  quitting = true;
+  event.preventDefault();
+  const deadline = setTimeout(() => app.exit(0), QUIT_DEADLINE_MS);
+  stopSidecar()
+    .catch(() => {})
+    .finally(() => {
+      clearTimeout(deadline);
+      app.exit(0);
+    });
 });
 
 app
