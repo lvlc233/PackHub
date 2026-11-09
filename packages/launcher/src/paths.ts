@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -38,6 +39,12 @@ export function stamp(date = new Date()): string {
   return date.toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
 }
 
+/**
+ * 实例 id：`yyyyMMddHHmmss-` + 12 位十六进制随机串（node:crypto，48 bit）。
+ * 前缀是 14 位时间戳，排序即时间序；后缀只含 [0-9a-f]，可直接当目录名、`.links/<id>.json` 与 URL 段。
+ * 不用 Math.random：可预测，且 36 进制截 4 位时同毫秒只有 36^4 种（1000 个同时建约 26% 撞上），
+ * slice(2, 6) 还可能不足 4 位。48 bit 下同毫秒 1000 个的碰撞概率约 2e-9。
+ */
 export function newId(date = new Date()): string {
-  return `${stamp(date)}-${Math.random().toString(36).slice(2, 6)}`;
+  return `${stamp(date)}-${randomBytes(6).toString('hex')}`;
 }
