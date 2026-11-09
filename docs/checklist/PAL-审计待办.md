@@ -1,6 +1,6 @@
 # PAL 审计待办（37 条）
 
-> 日期：2026-11-09 ／ 基线：`5ca4cab`，`pnpm check` 全绿 ／ 口径：2026-11-09 的 PAL 全量审计 50 条，已关闭 23 条（B 组 14、C 组 7、D 组 2），本文只记**剩余 27 条**与审计后**新增 10 条**（E 组 Electron 迁移、N 组本轮实现暴露）。
+> 日期：2026-11-09 ／ 基线：`65e2183`，`pnpm check` 全绿（78 文件 / 405 用例）／ 口径：2026-11-09 的 PAL 全量审计 50 条，已关闭 30 条（A 3、B 15、C 7、D 5），本文只记**原始剩余 20 条**与新增未完成的 E 3 条 / N 1 条，共 **24 条**。
 > 用途：跨会话派工，不依赖聊天记录。编号沿用审计原号，新增组往后排，**不重排、不复用**。
 > 相关：功能现状见 [PackHub-功能全量清单](PackHub-功能全量清单.md) 的 PAL 域，机制细节见 [details/pal.md](details/pal.md)。本表只记待办，做完就改状态；现状描述不在这里续写。
 
@@ -27,7 +27,7 @@
 | A1 | 隔离策略模型（层、模式、字段） | `isolation.ts`：五层 + instance/shared + `DEFAULT_ISOLATION` + `parseIsolation`；新建/接管写默认值，旧记录与坏策略回落默认，clone 沿用源策略 | `[done]` 59ed357 | A2/A3 用这套词汇 |
 | A2 | 默认策略与每实例覆盖 | `~/.packhub/config.json` 存新实例默认（`pal config` 可看/改）；`pal create --isolation` 显式覆盖；坏配置报错不回落，已有实例不追溯 | `[done]` 15d4086 | A3/A7/A13 用这套语义 |
 | A3 | 凭据没有 copy/shared-ro 策略，禁 link，归档剥离 | `seedHome`（`create.ts`）只在建实例时复制一次，之后宿主登录的凭据不回写 | `[decision]` | A1；等你选 copy / shared-ro |
-| A4 | 取包缓存没有管理面（`pal cache ls/clean`、meta、GC） | `materialize.ts` 只有取与复用，没有列出、清理、配额 | `[open]` | A1 的缓存层 |
+| A4 | 取包缓存管理面（`pal cache ls/clean`、meta、GC） | `cache.ts` + `pal cache`：ls/clean（`--all`/`--ref`/`--older-than`）、缓存 meta、命中补写 | `[done]` 65e2183 | A1 的缓存层 |
 | A5 | 实例根不可选 | `create` / `clone` / `import` 的 CLI args 里都没有 `--root`，API 与界面也没有 | `[open]` | 无 |
 | A6 | 界面缺实例流转 | `web/app.js` 有建 / 启停 / 重起 / 更新 / 设为当前 / 删；adopt / clone / rename / migrate / export / import 没有入口 | `[open]` | 提案已有 6 个 API 形状 |
 | A7 | 策略变更没有迁移工具 | `migrate.ts` 只挪根，不按新策略重排 home | `[open]` | A1、A3 |
@@ -63,7 +63,7 @@
 | D2 | 外壳边界糊 | launcher 直接 `installPack`，与「外壳只依赖 kernel/runtime」的说明不一致 | `[open]` | 无 |
 | D3 | `ADAPTERS` 缺能力字段 | 只有 label/homeDir/homeEnv/executable/versionArgs，没有隔离旋钮、凭据位置、可共享层（`layout.ts`） | `[open]` | 与 A1 绑定 |
 | D4 | 实例 id 是「时间戳 + 随机后缀」 | `newId`（`paths.ts`）改为 14 位时间戳 + 12 位 crypto 十六进制；旧 id 不迁移，两种并存可读 | `[done]` 8a02c18 | 无 |
-| D5 | 错误文案回显绝对路径 | `PalError` 的 message / hint 直接拼 root、home | `[open]` | 无 |
+| D5 | 错误文案回显绝对路径 | 错误消息改为 `details`/`hint`，message 不再拼 root/home（`create/migrate/remove/update` 等） | `[done]` 65e2183 | 无 |
 | D7 | 桌面壳 `taskkill /F` 硬杀 | `apps/pal-desktop` 以 `/T /F` 收进程；E1 的 Electron 壳同样 `/T /F`。优雅退出要先给 `pal serve` 一个关闭入口 | `[open]` | E3/A10 |
 | D9 | 取包缓存 slug 只截末 40 字符 | `slug()` 现在拼完整引用的 sha256 前 10 hex；旧缓存目录被弃用，等 A4 清理 | `[done]` 9793c18 | A4 |
 
@@ -81,7 +81,7 @@
 
 | 编号 | 事项 | 位置 / 证据 | 状态 | 前置 |
 |---|---|---|---|---|
-| N1 | 界面强制更新入口 | 界面「更新」发空 body；`update.ts` 遇本地改动且无 force 就抛，界面只能报错。需要勾选或二次确认后再带 force | `[open]` | 无 |
+| N1 | 界面强制更新入口 | 详情页「覆盖本地改动」勾选，勾了才给 `body.force`；失败文案按界面改写 | `[done]` 65e2183 | 无 |
 | N2 | `remove` 不再 `removePack` 的副作用边界 | `remove.ts` 默认直接删根；当前根内没有外部副作用，将来若写宿主级 MCP / 配置注册要补清理 | `[open]` | 无 |
 | N3 | `uninstalled` 报告语义 | `RemoveResult.uninstalled` 注释写清「删前读到的 Pack key，非逐个卸载凭据」；CLI 分「随根删除 / 随根归档 / 已卸包」三种说法 | `[done]` b8afeed | 无 |
 | N4 | 校验函数位置 | `assertNameFree` / `assertHarness` 已收进 `validators.ts`，create / migrate 直接 import；顺带去掉了 create 里不可达的宿主检查 | `[done]` 297c4a9 | 无 |
@@ -91,14 +91,14 @@
 
 | 组 | 编号 | 条数 |
 |---|---|---|
-| A | A1–A13 | 13 |
-| B | B12、B14 | 2 |
+| A | A3、A5–A13 | 10 |
+| B | B12 | 1 |
 | C | C4、C7、C8、C9、C10 | 5 |
-| D | D1–D5、D7、D9 | 7 |
-| 小计 | 原始剩余 | **27** |
-| E | E1–E5 | 5 |
-| N | N1–N5 | 5 |
-| 合计 |  | **37** |
+| D | D1–D3、D7 | 4 |
+| 小计 | 原始剩余 | **20** |
+| E | E3–E5 | 3 |
+| N | N2 | 1 |
+| 合计 |  | **24** |
 
 ## 建议开工顺序
 
@@ -115,7 +115,7 @@ Electron 这条线独立于 A–D：先 **E1**（壳能起来），再 **E2**（
 
 新会话开场可直接写：
 
-> 继续 PackHub PAL 审计剩余 37 条（原 27 + E1–E5 + N1–N5），仓库在 `5ca4cab`。先做 A1/A2；Electron 迁移从 E1 开始；B12/凭据策略待定。
+> 继续 PackHub PAL 审计剩余 24 条（原 20 + E3–E5 + N2），仓库在 `65e2183`。A1/A2/A4/B14/E1/E2 已完成；下一步 A5/A6；B12/凭据策略待定。
 
 ## 完成判据
 
