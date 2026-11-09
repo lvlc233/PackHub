@@ -363,6 +363,9 @@ let confirmResolve = null;
  * `keep` 只给删除用：传了就显示「保留数据」那一行，`keep.disabled` 控制能不能勾。
  */
 function askConfirm(opts) {
+  // 上一份确认还挂着（极少见）：先按取消结算，别让 showModal 撞上已打开的对话框
+  settleConfirm(null);
+  if ($('#confirm').open) $('#confirm').close();
   return new Promise((resolve) => {
     confirmResolve = resolve;
     $('#confirm-title').textContent = opts.title;

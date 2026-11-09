@@ -293,6 +293,8 @@ input, select {
   background: var(--bg);
   padding: 8px 10px;
   color: var(--text);
+  /* grid 里的 select 默认按最长 option 撑宽，会把 row2 顶出对话框 */
+  min-width: 0;
 }
 
 /* 字段级错误（name-taken / root-occupied / 路径不合法）：框变红，输入一改就撤 */
@@ -376,6 +378,8 @@ label.check {
   font-size: 13px;
 }
 label.check input { margin-top: 3px; }
+/* label.check 的 display:flex 会盖掉 [hidden] 的 display:none，删除以外的确认框要显式藏掉这一行 */
+label.check[hidden] { display: none; }
 
 /* 详情页：更新旁边的「覆盖本地改动」勾选（只在有更新时出现）。
  * 放在按钮行里，DOM 紧挨更新按钮（Tab 顺序跟着它）；视觉上单独占一行。 */
@@ -402,10 +406,15 @@ label.check input { margin-top: 3px; }
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface-2);
+  /* grid 默认按 min-content 撑宽；三颗按钮挤不下时会顶出横向滚动条 */
+  min-width: 0;
 }
 .seg label {
   display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   padding: 6px 10px;
   border-radius: 8px;
@@ -413,7 +422,12 @@ label.check input { margin-top: 3px; }
   cursor: pointer;
   font-size: 13px;
 }
-.seg label.on { background: var(--surface); color: var(--text); }
+/* 深色下 --surface 与 --surface-2 差得不多，补一道内描边把选中态分清 */
+.seg label.on {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
 .seg input { margin: 0; accent-color: var(--accent); }
 
 .src { display: grid; gap: 14px; }
@@ -465,6 +479,7 @@ label.check input { margin-top: 3px; }
   margin: 0;
   font-size: 12.5px;
 }
+.more-result[hidden] { display: none; }
 .more-result .mono {
   flex: 1;
   min-width: 0;
