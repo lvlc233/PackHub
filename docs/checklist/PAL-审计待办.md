@@ -1,6 +1,6 @@
 # PAL 审计待办（37 条）
 
-> 日期：2026-11-09 ／ 基线：`cb160a3`，`pnpm check` 全绿 ／ 口径：2026-11-09 的 PAL 全量审计 50 条，已关闭 40 条（A 9、B 15、C 10、D 6），本文只记**原始剩余 10 条**与新增未完成的 E 3 条，共 **13 条**。
+> 日期：2026-11-09 ／ 基线：`0d4f6d6`，`pnpm check` 全绿 ／ 口径：2026-11-09 的 PAL 全量审计 50 条，已关闭 42 条（A 11、B 15、C 10、D 6），本文只记**原始剩余 8 条**与新增未完成的 E 3 条，共 **11 条**。
 > 需要拍板的四组语义（A3/B12/E3/E5）与结构项顺序见 [PAL-剩余决策](PAL-剩余决策.md)。
 > 用途：跨会话派工，不依赖聊天记录。编号沿用审计原号，新增组往后排，**不重排、不复用**。
 > 相关：功能现状见 [PackHub-功能全量清单](PackHub-功能全量清单.md) 的 PAL 域，机制细节见 [details/pal.md](details/pal.md)。本表只记待办，做完就改状态；现状描述不在这里续写。
@@ -19,7 +19,8 @@
 | 决策 | 阻塞 | 现状与选项 |
 |---|---|---|
 | B12 pid 语义 | B12、A10、D7 | 提案是记 `spawnPid`、杀前校验 pid 仍属于该实例，不再靠端口反查。2026-11-09 讨论时你说「等一下」，未定 |
-| A3 凭据策略 | A3、A7、A13 | `copy`（每实例一份）或 `shared-ro`（只读共享宿主凭据），两者都禁 `link`，归档时剥离。参考：PCL 把账号存在启动器全局设置（`LoginMsJson`）里，由启动器单写入 —— 据 2026-11-09 对其源码的查证 |
+
+A3 凭据已定为 **copy**（`0d4f6d6`）：`credentials=shared` 明确拒绝，归档/备份剥离 `secrets.json`。
 
 ## A 组：缺的能力（13 条）
 
@@ -27,7 +28,7 @@
 |---|---|---|---|---|
 | A1 | 隔离策略模型（层、模式、字段） | `isolation.ts`：五层 + instance/shared + `DEFAULT_ISOLATION` + `parseIsolation`；新建/接管写默认值，旧记录与坏策略回落默认，clone 沿用源策略 | `[done]` 59ed357 | A2/A3 用这套词汇 |
 | A2 | 默认策略与每实例覆盖 | `~/.packhub/config.json` 存新实例默认（`pal config` 可看/改）；`pal create --isolation` 显式覆盖；坏配置报错不回落，已有实例不追溯 | `[done]` 15d4086 | A3/A7/A13 用这套语义 |
-| A3 | 凭据没有 copy/shared-ro 策略，禁 link，归档剥离 | `seedHome`（`create.ts`）只在建实例时复制一次，之后宿主登录的凭据不回写 | `[decision]` | A1；等你选 copy / shared-ro |
+| A3 | 凭据没有 copy/shared-ro 策略，禁 link，归档剥离 | 定为 copy：`seedHome` 复制；`credentials=shared` 在建实例前 `invalid-input` 拒绝；`keepData` 归档先删 `secrets.json`；备份默认剥离 | `[done]` 0d4f6d6 | A1；copy 已定 |
 | A4 | 取包缓存管理面（`pal cache ls/clean`、meta、GC） | `cache.ts` + `pal cache`：ls/clean（`--all`/`--ref`/`--older-than`）、缓存 meta、命中补写 | `[done]` 65e2183 | A1 的缓存层 |
 | A5 | 实例根可选 | `create` / `clone` / `import` 的 CLI `--root`、API `body.root` 已支持；只收绝对路径，拒绝盘符根/文件系统根与 PAL 实例根内（`assertExternalRoot`） | `[done]` 8a722fa | 无 |
 | A6 | 界面缺实例流转 | 新建对话框「来源」：pack / 接管目录 / 导入模板；详情「更多」：克隆、改名、迁移、导出（APIs 见 A6a，web 见 `app.js`） | `[done]` f8cb9b8 | 提案已有 6 个 API 形状 |
@@ -37,7 +38,7 @@
 | A10 | 系统级看护缺失 | `pal watch [--interval]`：headless 轮询 scanInstances，对 running 但 pid 已死的记录按 on-failure 预算重起，否则写 broken；与 `pal serve` 二选一 | `[done]` 6fea5d6 | 无 |
 | A11 | 没有运行时版本管理 | PAL-23 是 `[part]`；分发自带 node.exe，不能切换 | `[open]` | 无 |
 | A12 | 没有并发多实例管理面 | `pal ps [--json]`：running/pid 实例、端口冲突、stale、坏记录与总计；纯读不写盘（`ps.ts`） | `[done]` 1ea038c | 无 |
-| A13 | 决策没写回文档 | `pal.md` 已补「隔离策略」：五层/模式/默认/`--isolation`/建实例快照/不追溯；凭据 copy/shared-ro 与 A7 的决定待 A3 | `[part]` | A3 |
+| A13 | 决策没写回文档 | `pal.md` 已写清隔离五层/默认/覆盖/快照与凭据 copy/shared-ro 拒绝、归档/备份剥离；`concepts.md` 未动（你的未提交文件） | `[done]` 0d4f6d6 | A3 |
 
 ## B 组：坏影响（2 条）
 
@@ -92,14 +93,14 @@
 
 | 组 | 编号 | 条数 |
 |---|---|---|
-| A | A3、A7、A11、A13 | 4 |
+| A | A7、A11 | 2 |
 | B | B12 | 1 |
 | C | C4、C9 | 2 |
 | D | D1、D3、D7 | 3 |
-| 小计 | 原始剩余 | **10** |
+| 小计 | 原始剩余 | **8** |
 | E | E3–E5 | 3 |
 | N | — | 0 |
-| 合计 |  | **13** |
+| 合计 |  | **11** |
 
 ## 建议开工顺序
 
@@ -116,7 +117,7 @@ Electron 这条线独立于 A–D：先 **E1**（壳能起来），再 **E2**（
 
 新会话开场可直接写：
 
-> 继续 PackHub PAL 审计剩余 14 条（原 11 + E3–E5），仓库在 `cb160a3`。A1/A2/A4/A5/A6/A8/A9/A10/A12/B14/C7/C8/C10/E1/E2/N2 已完成；下一步 C4 或 D1；B12/凭据策略待定。
+> 继续 PackHub PAL 审计剩余 11 条（原 8 + E3–E5），仓库在 `0d4f6d6`。A1/A2/A3/A4/A5/A6/A8/A9/A10/A12/A13/B14/C7/C8/C10/E1/E2/N2 已完成；下一步 C4 或 D1；B12 仍待定。
 
 ## 完成判据
 
