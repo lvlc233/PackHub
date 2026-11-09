@@ -16,6 +16,7 @@ import {
   startInstanceDetailed,
   stopInstance,
   stoppingMarkFile,
+  statusView,
   refreshStatuses,
   trackExit,
   type SpawnFn,
@@ -447,6 +448,66 @@ resources:
     expect(shim.verbatim).toBe(true);
     expect(shim.args.slice(0, 3)).toEqual(['/d', '/s', '/c']);
     expect(shim.args[3]).toContain('--port');
+  });
+});
+
+describe('状态视图（stale 只读不写）', () => {
+  /** 把记录改成「说在跑」的现场：pid 给了就带上端口/url，没给就是 pid 缺席。 */
+  async function runningRecord(name: string, pid?: number): Promise<{ id: string; file: string }> {
+    const rec = await createInstance({ name, harness: 'dsh', packDir: 'examples/doc-review' });
+    const file = join(rec.root, 'instance.json');
+    const runtime = pid === undefined ? {} : { pid, port: 5123, url: 'http://127.0.0.1:5123/' };
+    writeFileSync(
+      file,
+      JSON.stringify({ ...requireInstance(rec.id), status: 'running', ...runtime }, null, 2),
+      'utf8',
+    );
+    return { id: rec.id, file };
+  }
+
+  it('running + pid 已死：视图给 broken + stale，记录文件内容与 mtime 不变', async () => {
+    const { id, file } = await runningRecord('view-dead', 777777);
+    const before = readFileSync(file, 'utf8');
+    const mtimeBefore = statSync(file).mtimeMs;
+
+    const view = statusView([requireInstance(id)], () => false)[0]!;
+
+    expect(view.status).toBe('broken');
+    expect(view.stale).toBe(true);
+    expect(view.pid).toBeUndefined();
+    expect(readFileSync(file, 'utf8')).toBe(before);
+    expect(statSync(file).mtimeMs).toBe(mtimeBefore);
+  });
+
+  it('running + pid 还活着：原 status、原 pid，不带 stale', async () => {
+    const { id } = await runningRecord('view-alive', 4321);
+
+    const view = statusView([requireInstance(id)], () => true)[0]!;
+
+    expect(view.status).toBe('running');
+    expect(view.pid).toBe(4321);
+    expect('stale' in view).toBe(false);
+  });
+
+  it('running + pid 缺席：也按 stale 视图给 broken', async () => {
+    const { id } = await runningRecord('view-nopid');
+
+    const view = statusView([requireInstance(id)], () => true)[0]!;
+
+    expect(view.status).toBe('broken');
+    expect(view.stale).toBe(true);
+    expect(view.pid).toBeUndefined();
+  });
+
+  it('refreshStatuses 落盘：status 写 broken，记录里没有 stale 字段', async () => {
+    const { id, file } = await runningRecord('view-refresh', 777777);
+
+    const rows = refreshStatuses(() => false);
+
+    expect(rows.find((row) => row.id === id)?.status).toBe('broken');
+    const persisted = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+    expect(persisted.status).toBe('broken');
+    expect('stale' in persisted).toBe(false);
   });
 });
 

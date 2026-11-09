@@ -621,7 +621,13 @@ export async function restartInstance(idOrName: string, opts: StartOptions = {})
   return startInstance(rec.id, opts);
 }
 
-/** 推导一条记录的状态视图：pid 已经不在就当 broken 并收回 pid/port/url，其余原样返回。 */
+/**
+ * 状态视图：记录 + 只算不写的运行态提示。
+ * `stale` 只出现在视图里（进程已死或 pid 缺席），永远不写进 instance.json。
+ */
+export type InstanceView = InstanceRecord & { stale?: true };
+
+/** 推导一条记录要落盘的状态：pid 已经不在就当 broken 并收回 pid/port/url，其余原样返回。 */
 function deriveStatus(rec: InstanceRecord, isAlive: (pid: number) => boolean): InstanceRecord {
   if (!rec.pid || isAlive(rec.pid)) return rec;
   const { pid: _pid, port: _port, url: _url, ...rest } = rec;
@@ -635,16 +641,33 @@ function deriveStatus(rec: InstanceRecord, isAlive: (pid: number) => boolean): I
 /**
  * 纯函数版状态视图：只算不写。GET 这类读路径用它，读列表/体检不会改 instance.json，
  * 也不会把坏记录搬进 .quarantine。
+ *
+ * 与 deriveStatus 的差别是 running 但 pid 缺席也算 stale：记录说在跑、却没有可核对的 pid，
+ * 调用方应当能看出这是「视图推断」而不是「已确认并刷新过」。
  */
-export function statusView(records: InstanceRecord[], isAlive: (pid: number) => boolean = isPidAlive): InstanceRecord[] {
-  return records.map((rec) => deriveStatus(rec, isAlive));
+export function statusView(records: InstanceRecord[], isAlive: (pid: number) => boolean = isPidAlive): InstanceView[] {
+  return records.map((rec) => {
+    if (rec.status !== 'running') return deriveStatus(rec, isAlive);
+    if (rec.pid && isAlive(rec.pid)) return rec;
+    const { pid: _pid, port: _port, url: _url, ...rest } = rec;
+    return {
+      ...rest,
+      status: 'broken',
+      lastExit: rec.lastExit ?? { code: null, signal: null, at: nowIso(), restarts: 0 },
+      stale: true,
+    };
+  });
 }
 
 /** 进程已经不在了的实例标成 broken，并记下端口收回了；其余原样返回。 */
 export function refreshStatuses(isAlive: (pid: number) => boolean = isPidAlive): InstanceRecord[] {
   return listInstances().map((rec) => {
     const next = deriveStatus(rec, isAlive);
-    if (next !== rec) writeInstance(next);
+    if (next !== rec) {
+      // stale 是视图字段：即便某份记录里混进了它，落盘前也剥掉
+      const { stale: _stale, ...persisted } = next as InstanceView;
+      writeInstance(persisted);
+    }
     return next;
   });
 }
