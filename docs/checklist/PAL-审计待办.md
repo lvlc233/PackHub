@@ -24,8 +24,8 @@
 
 | 编号 | 事项 | 位置 / 证据 | 状态 | 前置 |
 |---|---|---|---|---|
-| A1 | 没有隔离策略模型（层、模式、字段） | `records.ts` 的 `InstanceRecord` 只有 `root` / `home`，没有隔离字段；提案走「收口版」：`config.json` + 五层（assembly 含配置 / session / credentials / cache / runtime） | `[proposal]` | 决策已定（收口版） |
-| A2 | 没有默认策略与每实例覆盖 | 默认值当前无处存；提案落在 `~/.packhub/config.json`，记录可覆盖 | `[proposal]` | A1 |
+| A1 | 隔离策略模型（层、模式、字段） | `isolation.ts`：五层 + instance/shared + `DEFAULT_ISOLATION` + `parseIsolation`；新建/接管写默认值，旧记录与坏策略回落默认，clone 沿用源策略 | `[done]` 59ed357 | A2/A3 用这套词汇 |
+| A2 | 没有默认策略与每实例覆盖 | 默认值目前只有代码里的 `DEFAULT_ISOLATION`；`~/.packhub/config.json` 与每实例覆盖还没有 | `[open]` | A1 |
 | A3 | 凭据没有 copy/shared-ro 策略，禁 link，归档剥离 | `seedHome`（`create.ts`）只在建实例时复制一次，之后宿主登录的凭据不回写 | `[decision]` | A1；等你选 copy / shared-ro |
 | A4 | 取包缓存没有管理面（`pal cache ls/clean`、meta、GC） | `materialize.ts` 只有取与复用，没有列出、清理、配额 | `[open]` | A1 的缓存层 |
 | A5 | 实例根不可选 | `create` / `clone` / `import` 的 CLI args 里都没有 `--root`，API 与界面也没有 | `[open]` | 无 |
@@ -62,16 +62,16 @@
 | D1 | 记录同时是配置与运行态 | `InstanceRecord` 把 status/pid/url/lastExit 与 pack/planHash 混装 | `[open]` | 与 A1 绑定 |
 | D2 | 外壳边界糊 | launcher 直接 `installPack`，与「外壳只依赖 kernel/runtime」的说明不一致 | `[open]` | 无 |
 | D3 | `ADAPTERS` 缺能力字段 | 只有 label/homeDir/homeEnv/executable/versionArgs，没有隔离旋钮、凭据位置、可共享层（`layout.ts`） | `[open]` | 与 A1 绑定 |
-| D4 | 实例 id 是「时间戳 + 4 位随机」 | `newId`（`paths.ts`）为 `stamp + Math.random().toString(36).slice(2, 6)`，排序与碰撞靠字符串 | `[open]` | 无 |
+| D4 | 实例 id 是「时间戳 + 随机后缀」 | `newId`（`paths.ts`）改为 14 位时间戳 + 12 位 crypto 十六进制；旧 id 不迁移，两种并存可读 | `[done]` 8a02c18 | 无 |
 | D5 | 错误文案回显绝对路径 | `PalError` 的 message / hint 直接拼 root、home | `[open]` | 无 |
-| D7 | 桌面壳 `taskkill /F` 硬杀 | `apps/pal-desktop` 以 `/T /F` 收进程，没有优雅退出 | `[open]` | 迁 Electron 后重做（E4） |
-| D9 | 取包缓存 slug 只截末 40 字符 | `slug()`（`materialize.ts`）长引用会撞目录 | `[open]` | A4 |
+| D7 | 桌面壳 `taskkill /F` 硬杀 | `apps/pal-desktop` 以 `/T /F` 收进程；E1 的 Electron 壳同样 `/T /F`。优雅退出要先给 `pal serve` 一个关闭入口 | `[open]` | E3/A10 |
+| D9 | 取包缓存 slug 只截末 40 字符 | `slug()` 现在拼完整引用的 sha256 前 10 hex；旧缓存目录被弃用，等 A4 清理 | `[done]` 9793c18 | A4 |
 
 ## E 组：Electron 工作流（5 条）
 
 | 编号 | 事项 | 位置 / 证据 | 状态 | 前置 |
 |---|---|---|---|---|
-| E1 | 最小 Electron 壳 | 主进程 spawn `pal serve`、从输出读地址、窗口加载页面；先验证 Electron 二进制能否装上（很可能要镜像） | `[open]` | 无；已知坑：Electron 不能拿来当 node 做语法检查 |
+| E1 | 最小 Electron 壳 | `apps/pal-electron`：spawn `pal serve --json`、读地址、窗口加载；侧车异常有可见错误。pnpm 跳过 electron postinstall，二进制要手动补一次（README 已写） | `[done]` e48ea2d | 无 |
 | E2 | 前端 API 层抽离 + IPC 桥 | `web/app.js` 的 `api()` 直接 fetch；拆出 `api.js`，浏览器走 fetch、Electron 走 preload 的 IPC | `[open]` | E1 |
 | E3 | 侧车传输收敛 | `pal serve` 保留 HTTP（仅 dev）还是改 stdio / 内部 RPC；决定 B14 是「加 token」还是「去掉 HTTP 面」 | `[decision]` | E1、E2 |
 | E4 | 退役 WinForms/WebView2 壳 | 删 `apps/pal-desktop/*.cs`；同步 `README.md`、`.github/workflows/pal.yml`、`build:pal-desktop` 与分发脚本 | `[open]` | E1 可用后 |
