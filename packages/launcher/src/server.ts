@@ -141,11 +141,14 @@ export function isTrustedRequest(
   req: IncomingMessage,
   mutating: boolean,
   token: string,
+  requireToken = true,
 ): { ok: boolean; reason?: string } {
   const host = req.headers.host ?? '';
   const origin = req.headers.origin;
   const fromBrowser = typeof origin === 'string' && origin.length > 0;
-  if (fromBrowser) {
+  // 静态资源（app.js / style.css）被浏览器按 module/CORS 模式取时会带 Origin，
+  // 但它们拿不到页面里的 token；token 只保护 /api/*，静态资源不校验 Origin/token。
+  if (fromBrowser && requireToken) {
     let originHost = '';
     try {
       originHost = new URL(origin).host;
@@ -176,7 +179,8 @@ async function handle(req: IncomingMessage, res: ServerResponse, insecure: boole
   const mutating = req.method !== 'GET' && req.method !== 'HEAD';
 
   if (!insecure) {
-    const trusted = isTrustedRequest(req, mutating, token);
+    // 只有 /api/* 需要页面 token；静态资源放行（浏览器取 module 脚本会带 Origin，但没法带头）
+    const trusted = isTrustedRequest(req, mutating, token, path.startsWith('/api/'));
     if (!trusted.ok) {
       throw new PalError('forbidden', trusted.reason ?? '不受信任的请求', {
         hint: `请从 PAL 的界面操作；浏览器请求需要页面里的 ${TOKEN_HEADER}（刷新界面会重新注入）`,

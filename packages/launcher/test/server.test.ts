@@ -244,6 +244,18 @@ describe('PAL 本地界面 API', () => {
     expect(app).not.toContain('__PAL_TOKEN__');
   });
 
+  it('静态资源带 Origin（浏览器 module 请求）不要求 token；/api 仍要求', async () => {
+    const origin = new URL(server.url).origin;
+    // 浏览器按 module 取 app.js 会带 Origin，但它拿不到页面 token，不能因此 403
+    const app = await fetch(url('/app.js'), { headers: { origin } });
+    expect(app.status).toBe(200);
+    const css = await fetch(url('/style.css'), { headers: { origin } });
+    expect(css.status).toBe(200);
+    // /api/* 仍然要 token
+    const api = await fetch(url('/api/instances'), { headers: { origin } });
+    expect(api.status).toBe(403);
+  });
+
   it('未知实例 404、未知宿主 400，错误里带稳定 code', async () => {
     const missing = await call('/api/instances/nope/stop', { method: 'POST' });
     expect(missing.status).toBe(404);
