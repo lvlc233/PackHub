@@ -1,17 +1,19 @@
 /**
- * PAL 最小 Electron 壳（E1）。
+ * PAL 最小 Electron 壳（E1 起）+ API 桥（E2）。
  *
- * 只做三件事：
+ * 只做四件事：
  *   1. spawn 侧车 `pal serve`（仓库内走 node --experimental-strip-types …/bin.ts）；
  *   2. 从它 stdout 的 JSON（`--json` 时打印 `{"url":"http://127.0.0.1:PORT/"}`）里读出实际地址；
- *   3. 把地址装进 BrowserWindow，窗口关闭 / 应用退出时收掉侧车。
+ *   3. 把地址装进 BrowserWindow，窗口关闭 / 应用退出时收掉侧车；
+ *   4. 注册 `pal:request` IPC，把页面的 /api/ 请求转给侧车（转发规则在 forward.mjs）。
  *
- * 不做 IPC 业务桥（E2）、不做打包入口（E5）。侧车异常退出必须给出可见错误，不能静默失败。
+ * 不做打包入口（E5）。侧车异常退出必须给出可见错误，不能静默失败。
  */
 import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { app, BrowserWindow, dialog } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { forwardRequest, sidecarOrigin } from './forward.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 /** 仓库根：本文件在 apps/pal-electron/ 下，往上两级；PAL_REPO 可显式指定。 */
@@ -59,6 +61,33 @@ function readUrl(line) {
   } catch {
     return null;
   }
+}
+
+/**
+ * 页面发起的 /api/ 请求：先确认来源帧就是侧车页面，再交给 forward.mjs 转发。
+ * IPC 的返回值必须能结构化克隆，所以任何异常都收敛成 `{ ok: false, error }`，
+ * 让渲染侧（web/api.js）统一转成 Error。
+ */
+function registerBridge(url) {
+  const origin = sidecarOrigin(url);
+  ipcMain.removeHandler('pal:request');
+  ipcMain.handle('pal:request', async (event, payload) => {
+    try {
+      let frameOrigin = '';
+      try {
+        frameOrigin = new URL(event.senderFrame?.url ?? '').origin;
+      } catch {
+        frameOrigin = '';
+      }
+      // senderFrame 拿不到时（帧已销毁）就按“来源不明”拒掉，这里没有需要兼容的旧客户端
+      if (!origin || frameOrigin !== origin) {
+        return { ok: false, error: '拒绝转发：请求不是来自 PAL 界面' };
+      }
+      return await forwardRequest({ baseUrl: url, path: payload?.path, options: payload?.options });
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
 }
 
 /** pal serve 没给地址就结束：带退出码与 stderr 尾巴，别只说“失败了”。 */
@@ -205,6 +234,8 @@ app
   .whenReady()
   .then(async () => {
     const url = await startSidecar();
+    // 窗口加载前先挂好桥：页面一进来就可能发请求
+    registerBridge(url);
     openWindow(url);
   })
   .catch((err) => {

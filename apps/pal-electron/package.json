@@ -2,7 +2,7 @@
   "name": "@packhub/pal-electron",
   "version": "0.0.1",
   "private": true,
-  "description": "PAL 最小 Electron 壳（E1）：起 pal serve、加载本地界面、关窗收侧车",
+  "description": "PAL 的 Electron 壳：起 pal serve、加载本地界面，页面的 /api/ 请求经 preload 的 IPC 桥转给侧车",
   "type": "module",
   "main": "main.js",
   "scripts": {

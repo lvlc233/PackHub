@@ -2,6 +2,8 @@
  * 轮询不重建 DOM：列表按 id 复用节点，详情按字段赋新值，
  * 展开态/选区/正在输入的内容都不受刷新影响。 */
 
+import { api } from './api.js';
+
 const $ = (sel) => document.querySelector(sel);
 
 const STATUS_TEXT = {
@@ -27,32 +29,6 @@ const state = {
   rows: new Map(),
   detailKey: '',
 };
-
-async function api(path, options = {}) {
-  const { method = 'GET', body } = options;
-  const res = await fetch(path, {
-    method,
-    headers: {
-      'x-pal-client': 'pal-ui',
-      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
-    },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-  const text = await res.text();
-  let data = {};
-  try {
-    data = text ? JSON.parse(text) : {};
-  } catch {
-    data = { error: text.slice(0, 400) };
-  }
-  if (!res.ok) {
-    const err = new Error(data.error || `HTTP ${res.status}`);
-    err.hint = data.hint || '';
-    err.code = data.code || '';
-    throw err;
-  }
-  return data;
-}
 
 function setText(el, value) {
   const text = value == null ? '' : String(value);
