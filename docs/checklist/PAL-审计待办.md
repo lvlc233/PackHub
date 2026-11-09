@@ -1,6 +1,6 @@
 # PAL 审计待办（37 条）
 
-> 日期：2026-11-09 ／ 基线：`26d46a5`，`pnpm check` 全绿 ／ 口径：2026-11-09 的 PAL 全量审计 50 条，已关闭 43 条（A 11、B 15、C 11、D 6），本文只记**原始剩余 7 条**与新增未完成的 E 3 条，共 **10 条**。
+> 日期：2026-11-09 ／ 基线：`5b18904`，`pnpm check` 全绿 ／ 口径：2026-11-09 的 PAL 全量审计 50 条，已关闭 43 条（A 11、B 15、C 11、D 6），本文只记**原始剩余 7 条**与新增未完成的 E 3 条，共 **10 条**。
 > 需要拍板的四组语义（A3/B12/E3/E5）与结构项顺序见 [PAL-剩余决策](PAL-剩余决策.md)。
 > 用途：跨会话派工，不依赖聊天记录。编号沿用审计原号，新增组往后排，**不重排、不复用**。
 > 相关：功能现状见 [PackHub-功能全量清单](PackHub-功能全量清单.md) 的 PAL 域，机制细节见 [details/pal.md](details/pal.md)。本表只记待办，做完就改状态；现状描述不在这里续写。
@@ -61,7 +61,7 @@ A3 凭据已定为 **copy**（`0d4f6d6`）：`credentials=shared` 明确拒绝�
 
 | 编号 | 事项 | 位置 / 证据 | 状态 | 前置 |
 |---|---|---|---|---|
-| D1 | 记录同时是配置与运行态 | `InstanceRecord` 把 status/pid/url/lastExit 与 pack/planHash 混装 | `[open]` | 与 A1 绑定 |
+| D1 | 记录同时是配置与运行态 | 类型已拆 `InstanceConfig` / `RuntimeState` + `partitionRecord`/`mergeRecord`；持久化仍是同一个 `instance.json`（兼容旧记录），拆文件待后续 | `[part]` 5b18904 | A1 |
 | D2 | 外壳边界糊 | `pal.md` 明确三层：PackHub CLI / PAL launcher（装配外壳，可调 runtime.installPack）/ 桌面壳（只起 serve、不碰实例文件）；不设限定的「外壳」指桌面壳 | `[done]` 本次文档 | 无 |
 | D3 | `ADAPTERS` 缺能力字段 | 只有 label/homeDir/homeEnv/executable/versionArgs，没有隔离旋钮、凭据位置、可共享层（`layout.ts`） | `[open]` | 与 A1 绑定 |
 | D4 | 实例 id 是「时间戳 + 随机后缀」 | `newId`（`paths.ts`）改为 14 位时间戳 + 12 位 crypto 十六进制；旧 id 不迁移，两种并存可读 | `[done]` 8a02c18 | 无 |
@@ -117,7 +117,7 @@ Electron 这条线独立于 A–D：先 **E1**（壳能起来），再 **E2**（
 
 新会话开场可直接写：
 
-> 继续 PackHub PAL 审计剩余 10 条（原 7 + E3–E5），仓库在 `26d46a5`。A1/A2/A3/A4/A5/A6/A8/A9/A10/A12/A13/B14/C1–C8/C10–C12/E1/E2/N2 已完成；下一步 D1 或 C9；B12 仍待定。
+> 继续 PackHub PAL 审计剩余 10 条（原 7 + E3–E5），仓库在 `5b18904`。A1/A2/A3/A4/A5/A6/A8/A9/A10/A12/A13/B14/C1–C8/C10–C12/E1/E2/N2 已完成；D1 类型层已拆；下一步 D1 持久化或 C9；B12 仍待定。
 
 ## 完成判据
 
