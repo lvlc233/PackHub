@@ -1,9 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { packArchive } from '@packhub/runtime';
-import { materializePack } from '../src/materialize.ts';
+import { materializePack, packCacheRoot, slug } from '../src/materialize.ts';
 
 let tmp: string;
 let archive: string;
@@ -62,8 +72,71 @@ describe('Pack 取用', () => {
   it('取不回来时不留半份目录', async () => {
     const missing = join(tmp, 'nope.phub');
     await expect(materializePack(missing)).rejects.toThrow('没有这个归档');
-    const cache = join(tmp, 'cache', 'packs', 'nope');
+    const cache = join(packCacheRoot(), slug(missing));
     expect(existsSync(cache) ? readdirSafe(cache) : []).toEqual([]);
+  });
+});
+
+describe('缓存目录名 slug', () => {
+  // 只在前段不同的长引用：两者末 40 字符完全一样，旧的「只留末 40 字符」会撞成一个目录
+  const sharedTail = 'x'.repeat(40);
+  const refA = `https://registry.example.com/team-one/${sharedTail}`;
+  const refB = `https://registry.example.com/team-two/${sharedTail}`;
+
+  it('末 40 字符相同、前段不同的引用得到不同目录', () => {
+    expect(refA.slice(-40)).toBe(refB.slice(-40));
+    expect(slug(refA)).not.toBe(slug(refB));
+  });
+
+  it('同一引用多次调用名字稳定', () => {
+    const once = slug(refA);
+    expect(slug(refA)).toBe(once);
+    expect(slug(refA)).toBe(once);
+    expect(slug(refB)).toBe(slug(refB));
+  });
+
+  it('名字合法：无 Windows 非法字符、不以点或空格结尾、长度 ≤60', () => {
+    const refs = [
+      refA,
+      refB,
+      'git+https://github.com/org/repo@v1.0.0',
+      'C:\\Users\\name\\repo.phub',
+      'a<b>c:"d|e?f*g\\h/phub.phub',
+      '  trailing.  ',
+      '...',
+      '..\\..\\..\\evil',
+      'x'.repeat(200),
+    ];
+    for (const ref of refs) {
+      const name = slug(ref);
+      expect(name.length, ref).toBeGreaterThan(0);
+      expect(name.length, ref).toBeLessThanOrEqual(60);
+      expect(name, ref).toMatch(/-[0-9a-f]{8,}$/);
+      expect(name, ref).not.toMatch(/[<>:"/\\|?*\u0000-\u001f]/);
+      expect(name, ref).not.toMatch(/[. ]$/);
+      expect(['.', '..'], ref).not.toContain(name);
+      expect(name, ref).not.toMatch(/^\.\.?$/);
+    }
+  });
+
+  it('组合落点：同尾段不同目录的 .phub 不共用缓存目录', async () => {
+    // 文件名去掉 .phub 后仍以 40 个 y 结尾：旧规则下两个 ref 的 slug 与 variant（显式版本）都会相同
+    const name = `${'y'.repeat(40)}.phub`;
+    const one = join(tmp, 'src-a', name);
+    const two = join(tmp, 'src-b', name);
+    mkdirSync(join(tmp, 'src-a'), { recursive: true });
+    mkdirSync(join(tmp, 'src-b'), { recursive: true });
+    copyFileSync(archive, one);
+    copyFileSync(archive, two);
+
+    const dirOne = await materializePack(one, { version: '0.1.0' });
+    const dirTwo = await materializePack(two, { version: '0.1.0' });
+
+    expect(dirOne).not.toBe(dirTwo);
+    expect(dirOne).toBe(join(packCacheRoot(), slug(one), '0.1.0'));
+    expect(dirTwo).toBe(join(packCacheRoot(), slug(two), '0.1.0'));
+    expect(existsSync(join(dirOne, 'packhub.yaml'))).toBe(true);
+    expect(existsSync(join(dirTwo, 'packhub.yaml'))).toBe(true);
   });
 });
 

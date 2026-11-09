@@ -17,15 +17,29 @@ export function packCacheRoot(): string {
   return cacheRoot();
 }
 
-function slug(packRef: string): string {
-  return (
-    packRef
-      .replace(/^git\+/, '')
-      .replace(/\.phub$/, '')
-      .replace(/[@/\\:]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(-40) || 'pack'
-  );
+/** 可读尾段的上限；加 1 个分隔符与 10 位哈希后，目录名最长 51 字符（要求 ≤60）。 */
+const SLUG_TAIL = 40;
+/** 完整 packRef 的 sha256 短哈希长度（要求 ≥8 hex）。 */
+const SLUG_HASH = 10;
+
+/**
+ * 把 Pack 引用映射成缓存目录名：可读尾段（最多 40 字符）+ 完整引用的 sha256 前 10 hex。
+ * 单看末 40 字符时，前段不同、尾段相同的长引用会共用一个目录，所以哈希必须覆盖整串。
+ * 名称清掉 Windows 非法字符，并去掉首尾的连字符/点/空格（不能以点或空格结尾，也不会得到 . / ..）。
+ *
+ * @internal 导出只为单元测试直接用；包对外入口（index.ts）没有再导出它。
+ */
+export function slug(packRef: string): string {
+  const readable = packRef
+    .replace(/^git\+/, '')
+    .replace(/\.phub$/, '')
+    .replace(/[@/\\:?*"<>|]+/g, '-')
+    .replace(/[\u0000-\u001f\u007f]+/g, '')
+    .replace(/^[-. ]+|[-. ]+$/g, '')
+    .slice(-SLUG_TAIL)
+    .replace(/^[-. ]+|[-. ]+$/g, '');
+  const hash = createHash('sha256').update(packRef).digest('hex').slice(0, SLUG_HASH);
+  return `${readable || 'pack'}-${hash}`;
 }
 
 /** 同一来源的不同版本必须落到不同目录：换版本时不会叠在旧文件上。 */
