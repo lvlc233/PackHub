@@ -33,6 +33,15 @@ export function exportsRoot(): string {
   return join(homeBase(), 'exports');
 }
 
+/**
+ * 整实例快照的默认落点：<PACKHUB_HOME>/backups/<名字>-<时间戳>/。
+ * 和 exportsRoot 一样不能放进 instancesRoot：备份目录里也有 instance.json，
+ * 放进去会被列表当成第二份实例。
+ */
+export function backupsRoot(): string {
+  return join(homeBase(), 'backups');
+}
+
 /** 坏记录/失败现场的隔离区：移到这里，不留在实例列表里，也不删。 */
 export function quarantineRoot(): string {
   return join(instancesRoot(), '.quarantine');

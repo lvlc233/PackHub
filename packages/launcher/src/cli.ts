@@ -26,6 +26,7 @@ import {
 import { materializePack } from './materialize.ts';
 import { cacheStats, cleanCache, formatBytes, planClean, scanCache } from './cache.ts';
 import { DEFAULT_SCAN_DEPTH, scanDirectory, type ScanEntry } from './scan.ts';
+import { backupInstance, restoreBackup } from './backup.ts';
 import { refreshStatuses, restartInstance, startInstance, startInstanceDetailed, stopInstance } from './start.ts';
 import { activeEntries, setActive } from './active.ts';
 import { startPalServer } from './server.ts';
@@ -838,6 +839,70 @@ const importCmd = defineCommand({
   },
 });
 
+const backup = defineCommand({
+  meta: {
+    name: 'backup',
+    description: '整实例快照（目录复制）：含 home 与数据，默认不含凭据；排除锁、停止标记与 logs/',
+  },
+  args: {
+    target: { type: 'positional', required: true, description: '实例 id 或名字' },
+    out: {
+      type: 'string',
+      description: '备份目录；默认 <PACKHUB_HOME>/backups/<名字>-<时间戳>（目标必须不存在）',
+    },
+    'include-secrets': {
+      type: 'boolean',
+      default: false,
+      description: '连 secrets.json 一起备份；默认不带凭据',
+    },
+    json: { type: 'boolean', default: false },
+  },
+  run({ args }) {
+    const result = backupInstance(requireTarget(args.target), {
+      ...(args.out ? { out: String(args.out) } : {}),
+      includeSecrets: Boolean(args['include-secrets']),
+    });
+    if (args.json) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    console.log(`✓ 已备份 ${result.meta.instance.name} → ${result.dir}`);
+    console.log(
+      `  ${result.meta.fileCount} 个文件${result.meta.includesSecrets ? '（含凭据）' : '（不含凭据）'}`,
+    );
+    if (!result.meta.includesSecrets) {
+      console.log('· 默认不备份 secrets.json：要带凭据请显式加 --include-secrets。');
+    }
+  },
+});
+
+const restore = defineCommand({
+  meta: { name: 'restore', description: '从备份恢复成一份新实例（新 id、新根，不覆盖已有实例）' },
+  args: {
+    dir: { type: 'positional', required: true, description: '备份目录（含 backup.json 的那一层）' },
+    name: { type: 'string', description: '新实例名；默认沿用备份里的名字（重名时另给）' },
+    root: {
+      type: 'string',
+      description: '新实例根（绝对路径，不能落在 PAL 的实例根里）；不写就由系统分配',
+    },
+    json: { type: 'boolean', default: false },
+  },
+  run({ args }) {
+    const root = args.root === undefined ? undefined : assertExternalRoot(String(args.root));
+    const rec = restoreBackup(String(args.dir), {
+      ...(args.name ? { name: String(args.name) } : {}),
+      ...(root ? { root } : {}),
+    });
+    if (args.json) {
+      console.log(JSON.stringify(rec, null, 2));
+      return;
+    }
+    console.log(`✓ 已恢复成 ${rec.id}（${rec.name}）`);
+    console.log(`  ${rec.root}`);
+    if (!rec.home) console.log('· 备份里没有 home 段：这份实例只有实例根内容。');
+  },
+});
+
 const recover = defineCommand({
   meta: { name: 'recover', description: '看隔离区/失败现场/归档区里有什么' },
   args: { json: { type: 'boolean', default: false } },
@@ -907,6 +972,8 @@ export const main = defineCommand({
     rebaseline,
     export: exportCmd,
     import: importCmd,
+    backup,
+    restore,
     recover,
   },
 });
