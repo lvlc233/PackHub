@@ -10,7 +10,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
-import { join } from 'node:path';
+import { join, parse } from 'node:path';
 import {
   adoptInstance,
   cloneInstance,
@@ -177,7 +177,8 @@ describe('实例配置', () => {
     expect(listInstances().map((row) => row.id)).toEqual([rec.id]);
     expect(listDirNames(join(tmp, 'instances'))).toEqual(['.links']);
 
-    const rejected = ['relative/inst', join(tmp, 'instances'), join(tmp, 'instances', 'nested')];
+    // 相对路径、盘符根/文件系统根、实例根以内的路径都拒绝
+    const rejected = ['relative/inst', parse(tmp).root, join(tmp, 'instances'), join(tmp, 'instances', 'nested')];
     for (const [index, root] of rejected.entries()) {
       let caught: unknown;
       try {
