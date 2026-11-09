@@ -6,6 +6,7 @@ import {
   readBaseline,
   requireInstance,
   scanInstances,
+  type Baseline,
   type InstanceRecord,
 } from './index.ts';
 import { isPidAlive } from './process.ts';
@@ -37,6 +38,11 @@ export interface InstanceHealth {
   mcp?: { servers: number; wired: boolean; file?: string };
 }
 
+export interface HealthOptions {
+  /** 当前 node 版本；默认 process.version。测试可注入，PAL 只报告不切换 */
+  runtime?: string;
+}
+
 function hashOf(file: string): string | undefined {
   try {
     return createHash('sha256').update(readFileSync(file)).digest('hex');
@@ -49,6 +55,10 @@ function hashOf(file: string): string | undefined {
 export function baselineDrift(record: InstanceRecord): BaselineDrift | undefined {
   const baseline = readBaseline(record.root);
   if (!baseline) return undefined;
+  return driftFrom(record, baseline);
+}
+
+function driftFrom(record: InstanceRecord, baseline: Baseline): BaselineDrift {
   const missing: string[] = [];
   const changed: string[] = [];
   for (const file of baseline.files) {
@@ -63,8 +73,30 @@ export function baselineDrift(record: InstanceRecord): BaselineDrift | undefined
   return { checked: baseline.files.length, missing, changed, added: [] };
 }
 
+/**
+ * A11：运行时版本只做可见/可追踪。分发自带 node，PAL 不能切换，
+ * 所以基线里的版本与当前不一致时只提醒，不阻断。
+ */
+export function runtimeCheck(baselineRuntime: string | undefined, current: string): HealthCheck {
+  if (!baselineRuntime) {
+    // 老基线没记版本：不能拿它当漂移，也不要每次体检都报一条 warn
+    return { name: 'runtime', status: 'ok', detail: `老基线没记 node 版本，跳过对比（当前 ${current}）` };
+  }
+  if (baselineRuntime === current) {
+    return { name: 'runtime', status: 'ok', detail: `运行时没换：node ${current}` };
+  }
+  return {
+    name: 'runtime',
+    status: 'warn',
+    detail: `运行时换过：baseline ${baselineRuntime} / 当前 ${current}`,
+  };
+}
+
 /** 一个实例的健康检查：进程、端口、home、基线、MCP 接线。只读，不改状态。 */
-export async function checkInstance(nameOrId: string): Promise<InstanceHealth> {
+export async function checkInstance(
+  nameOrId: string,
+  options: HealthOptions = {},
+): Promise<InstanceHealth> {
   const record = requireInstance(nameOrId);
   const checks: HealthCheck[] = [];
 
@@ -129,7 +161,8 @@ export async function checkInstance(nameOrId: string): Promise<InstanceHealth> {
     });
   }
 
-  const drift = baselineDrift(record);
+  const baseline = readBaseline(record.root);
+  const drift = baseline ? driftFrom(record, baseline) : undefined;
   if (drift) {
     const problems = drift.missing.length + drift.changed.length;
     checks.push({
@@ -143,6 +176,9 @@ export async function checkInstance(nameOrId: string): Promise<InstanceHealth> {
   } else {
     checks.push({ name: 'baseline', status: 'warn', detail: '没有 baseline.json（老实例）；重新建一次才有基线' });
   }
+
+  // A11：运行时版本可见/可追踪。换过只提醒，不阻断（PAL 不能切换 node）
+  checks.push(runtimeCheck(baseline?.runtime, options.runtime ?? process.version));
 
   let mcp: InstanceHealth['mcp'];
   if (record.harness === 'dsh') {
@@ -174,7 +210,7 @@ export async function checkInstance(nameOrId: string): Promise<InstanceHealth> {
   };
 }
 
-export async function checkAll(): Promise<InstanceHealth[]> {
+export async function checkAll(options: HealthOptions = {}): Promise<InstanceHealth[]> {
   const { records } = scanInstances();
-  return Promise.all(records.map((record) => checkInstance(record.id)));
+  return Promise.all(records.map((record) => checkInstance(record.id, options)));
 }

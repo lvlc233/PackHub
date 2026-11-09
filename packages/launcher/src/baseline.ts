@@ -27,6 +27,8 @@ export interface Baseline {
   planHash: string;
   at: string;
   files: BaselineFile[];
+  /** 建/更新基线时的 node 版本（如 v22.13.0）。PAL 只记录、不切换；旧基线没有这个字段 */
+  runtime?: string;
   /** 只属于运行时、不参与漂移判断的路径前缀 */
   ignore?: string[];
 }
@@ -61,7 +63,13 @@ export function baselineFromState(root: string): BaselineFile[] {
 
 /** 建完实例写基线：后面查“Pack 更新了什么、本地改了什么”都以它为准。 */
 export function writeBaseline(root: string, baseline: Omit<Baseline, 'apiVersion' | 'at'>): Baseline {
-  const value: Baseline = { apiVersion: 'packhub.dev/baseline/v0', at: nowIso(), ...baseline };
+  const value: Baseline = {
+    apiVersion: 'packhub.dev/baseline/v0',
+    at: nowIso(),
+    ...baseline,
+    // 没显式给就记下写盘时的 node 版本：分发自带 node，切换能力不在 0.x（见 A11）
+    runtime: baseline.runtime ?? process.version,
+  };
   const file = join(root, BASELINE);
   const tmp = `${file}.tmp-${process.pid}`;
   writeFileSync(tmp, JSON.stringify(value, null, 2) + '\n', 'utf8');
@@ -69,6 +77,7 @@ export function writeBaseline(root: string, baseline: Omit<Baseline, 'apiVersion
   return value;
 }
 
+/** 旧基线没有 runtime 字段：按可选读，缺了就是缺省，不当读取失败。 */
 export function readBaseline(root: string): Baseline | undefined {
   const file = join(root, BASELINE);
   if (!existsSync(file)) return undefined;

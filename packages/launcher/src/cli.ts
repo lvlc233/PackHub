@@ -578,17 +578,25 @@ const health = defineCommand({
 });
 
 const doctor = defineCommand({
-  meta: { name: 'doctor', description: '看宿主发现结果：装没装、什么版本、能不能起' },
+  meta: { name: 'doctor', description: '看运行时与宿主发现结果：node 版本、装没装、什么版本、能不能起' },
   args: {
     probe: { type: 'boolean', default: true, description: '跑 --version 探测版本' },
     json: { type: 'boolean', default: false },
   },
   run({ args }) {
     const infos = discoverAll({ probeVersion: Boolean(args.probe) });
+    // A11：分发自带 node，PAL 只能报告自己跑在哪个运行时上，不能切换
+    const runtime = {
+      node: process.version,
+      platform: process.platform,
+      arch: process.arch,
+      pal: pkg.version,
+    };
     if (args.json) {
-      console.log(JSON.stringify(infos, null, 2));
+      console.log(JSON.stringify({ runtime, hosts: infos }, null, 2));
       return;
     }
+    console.log(`运行时：node ${runtime.node} (${runtime.platform}-${runtime.arch})，pal ${runtime.pal}`);
     for (const info of infos) {
       const state = !info.available ? '未安装' : info.startable ? '可启动' : '只装配 home';
       console.log(`${info.id}\t${state}\t${info.version ?? info.probeError ?? '-'}`);
