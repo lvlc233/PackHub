@@ -1,6 +1,6 @@
 # PAL 审计待办（37 条）
 
-> 日期：2026-11-09 ／ 基线：`1ea038c`，`pnpm check` 全绿 ／ 口径：2026-11-09 的 PAL 全量审计 50 条，已关闭 35 条（A 8、B 15、C 7、D 5），本文只记**原始剩余 15 条**与新增未完成的 E 3 条，共 **18 条**。
+> 日期：2026-11-09 ／ 基线：`6fea5d6`，`pnpm check` 全绿 ／ 口径：2026-11-09 的 PAL 全量审计 50 条，已关闭 36 条（A 9、B 15、C 7、D 5），本文只记**原始剩余 14 条**与新增未完成的 E 3 条，共 **17 条**。
 > 用途：跨会话派工，不依赖聊天记录。编号沿用审计原号，新增组往后排，**不重排、不复用**。
 > 相关：功能现状见 [PackHub-功能全量清单](PackHub-功能全量清单.md) 的 PAL 域，机制细节见 [details/pal.md](details/pal.md)。本表只记待办，做完就改状态；现状描述不在这里续写。
 
@@ -33,7 +33,7 @@
 | A7 | 策略变更没有迁移工具 | `migrate.ts` 只挪根，不按新策略重排 home | `[open]` | A1、A3 |
 | A8 | 没有整实例快照 / 备份 / 恢复 | `pal backup <id> [--include-secrets]` 目录快照到 `PACKHUB_HOME/backups`；`pal restore <dir> [--name] [--root]` 重写 id/root/home 后恢复 | `[done]` 71e0b94 | 无 |
 | A9 | 没有发现 / 导入已有实例 | `pal scan <dir> [--depth] [--json]` 只读识别三类：instance.json / packhub.yaml / .packhub/state.json；`scan.ts` + test | `[done]` dae2efc | 无 |
-| A10 | 系统级看护缺失 | supervisor 在 `pal serve` 进程内（`start.ts`）；壳退出后 `on-failure` 失效 | `[open]` | 无 |
+| A10 | 系统级看护缺失 | `pal watch [--interval]`：headless 轮询 scanInstances，对 running 但 pid 已死的记录按 on-failure 预算重起，否则写 broken；与 `pal serve` 二选一 | `[done]` 6fea5d6 | 无 |
 | A11 | 没有运行时版本管理 | PAL-23 是 `[part]`；分发自带 node.exe，不能切换 | `[open]` | 无 |
 | A12 | 没有并发多实例管理面 | `pal ps [--json]`：running/pid 实例、端口冲突、stale、坏记录与总计；纯读不写盘（`ps.ts`） | `[done]` 1ea038c | 无 |
 | A13 | 决策没写回文档 | `concepts.md`、`details/pal.md` 只写现状，没写隔离与凭据策略 | `[open]` | A1、A3 定稿 |
@@ -91,14 +91,14 @@
 
 | 组 | 编号 | 条数 |
 |---|---|---|
-| A | A3、A7、A10、A11、A13 | 5 |
+| A | A3、A7、A11、A13 | 4 |
 | B | B12 | 1 |
 | C | C4、C7、C8、C9、C10 | 5 |
 | D | D1–D3、D7 | 4 |
-| 小计 | 原始剩余 | **15** |
+| 小计 | 原始剩余 | **14** |
 | E | E3–E5 | 3 |
 | N | — | 0 |
-| 合计 |  | **18** |
+| 合计 |  | **17** |
 
 ## 建议开工顺序
 
@@ -115,7 +115,7 @@ Electron 这条线独立于 A–D：先 **E1**（壳能起来），再 **E2**（
 
 新会话开场可直接写：
 
-> 继续 PackHub PAL 审计剩余 18 条（原 15 + E3–E5），仓库在 `1ea038c`。A1/A2/A4/A5/A6/A8/A9/A12/B14/E1/E2/N2 已完成；下一步 A7 或 C4；B12/凭据策略待定。
+> 继续 PackHub PAL 审计剩余 17 条（原 14 + E3–E5），仓库在 `6fea5d6`。A1/A2/A4/A5/A6/A8/A9/A10/A12/B14/E1/E2/N2 已完成；下一步 A7 或 C4；B12/凭据策略待定。
 
 ## 完成判据
 
