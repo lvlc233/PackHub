@@ -257,8 +257,10 @@ describe('实例启动', () => {
 
     const record = result.record;
     expect(record.status).toBe('running');
-    // pid 记的是真正在监听的那个，不是垫片进程
-    expect(record.pid).toBe(4321);
+    // pid = spawnPid（PAL 自己 spawn 的，唯一 kill 目标）；端口反查到的监听者只记在 listenPid
+    expect(record.pid).toBe(9999);
+    expect(record.spawnPid).toBe(9999);
+    expect(record.listenPid).toBe(4321);
     expect(record.port).toBe(51234);
     expect(record.ports).toEqual([51234]);
     // 记录与 API 里都不出现 token
@@ -327,7 +329,8 @@ describe('实例启动', () => {
       isAlive: () => false,
       ownerOf: () => 555,
     });
-    expect(requireInstance('twice').pid).toBe(555);
+    expect(requireInstance('twice').pid).toBe(9999);
+    expect(requireInstance('twice').listenPid).toBe(555);
 
     let caught: unknown;
     try {
@@ -641,6 +644,8 @@ describe('主动停止与看护', () => {
         polls += 1;
         return polls <= 3;
       },
+      // 旧记录没有 spawnPid：端口主人就是记录里的 pid 时按旧行为杀它
+      ownerOf: () => 24680,
       timeoutMs: 5000,
     });
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -729,6 +734,8 @@ describe('主动停止与看护', () => {
           expect(existsSync(stoppingMarkFile(created.root))).toBe(true);
         },
         isAlive: () => true,
+        // 旧记录：端口主人就是记录里的 pid，才允许按旧行为杀它
+        ownerOf: () => 11111,
         timeoutMs: 150,
       });
     } catch (err) {
@@ -740,5 +747,156 @@ describe('主动停止与看护', () => {
     const after = requireInstance(created.id);
     expect(after.status).toBe('running');
     expect(after.pid).toBe(11111);
+  });
+});
+
+describe('pid 归属判定（B12：spawnPid 唯一 kill 目标，listenPid 只作证据）', () => {
+  /** 造一条「在跑」的记录；不给 spawnPid 就模拟旧版记录（pid 来自端口反查）。 */
+  async function runningRecord(name: string, runtime: Partial<InstanceRecord>): Promise<InstanceRecord> {
+    const created = await createInstance({ name, harness: 'dsh', packDir: 'examples/doc-review' });
+    const record: InstanceRecord = {
+      ...requireInstance(created.id),
+      status: 'running',
+      port: 51400,
+      url: 'http://127.0.0.1:51400/',
+      ...runtime,
+    };
+    writeInstance(record);
+    return record;
+  }
+
+  it('stop 只杀 spawnPid：listenPid 从不出现在 kill 参数里', async () => {
+    const rec = await runningRecord('spawn-alive', { pid: 9999, spawnPid: 9999, listenPid: 4321 });
+    const killed: number[] = [];
+    let spawnAlive = true;
+
+    const stopped = await stopInstance(rec.id, {
+      kill: (pid) => {
+        killed.push(pid);
+        spawnAlive = false;
+      },
+      // 两个进程都「活着」：正好能证明 kill 的是 spawnPid 而不是端口主人
+      isAlive: (pid) => (pid === 9999 ? spawnAlive : pid === 4321),
+      ownerOf: () => 4321,
+    });
+
+    expect(killed).toEqual([9999]);
+    expect(stopped.status).toBe('stopped');
+    expect(stopped.pid).toBeUndefined();
+    expect(stopped.spawnPid).toBeUndefined();
+    expect(stopped.listenPid).toBeUndefined();
+  });
+
+  it('listenPid 变了只留警告，不改 kill 目标', async () => {
+    const rec = await runningRecord('listen-changed', { pid: 9999, spawnPid: 9999, listenPid: 4321 });
+    const killed: number[] = [];
+    let spawnAlive = true;
+
+    await stopInstance(rec.id, {
+      kill: (pid) => {
+        killed.push(pid);
+        spawnAlive = false;
+      },
+      isAlive: (pid) => (pid === 9999 ? spawnAlive : pid === 7777),
+      ownerOf: () => 7777,
+    });
+
+    expect(killed).toEqual([9999]);
+    const events = readEvents(rec.root, 50);
+    expect(events.some((event) => event.event === 'pid-mismatch')).toBe(true);
+  });
+
+  it('spawnPid 已死、监听者还活着：busy 拒杀，kill 未调用，不留下停止标记', async () => {
+    const rec = await runningRecord('listen-ours', { pid: 9999, spawnPid: 9999, listenPid: 4321 });
+    const killed: number[] = [];
+    let caught: unknown;
+    try {
+      await stopInstance(rec.id, {
+        kill: (pid) => killed.push(pid),
+        isAlive: (pid) => pid === 4321,
+        ownerOf: () => 4321,
+      });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(isPalError(caught) && caught.code).toBe('busy');
+    expect((caught as Error).message).toContain('不在本实例的进程树里');
+    expect(killed).toEqual([]);
+    expect(existsSync(stoppingMarkFile(rec.root))).toBe(false);
+    // 拒杀后记录原样留着，等人手工确认
+    const after = requireInstance(rec.id);
+    expect(after.status).toBe('running');
+    expect(after.pid).toBe(9999);
+    expect(after.listenPid).toBe(4321);
+  });
+
+  it('旧记录（没有 spawnPid）里记录 pid 与端口主人不一致：busy 拒杀', async () => {
+    const rec = await runningRecord('legacy-suspect', { pid: 4321, port: 51401 });
+    const killed: number[] = [];
+    let caught: unknown;
+    try {
+      await stopInstance(rec.id, {
+        kill: (pid) => killed.push(pid),
+        isAlive: () => true,
+        ownerOf: () => 5555,
+      });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(isPalError(caught) && caught.code).toBe('busy');
+    expect(killed).toEqual([]);
+    expect(requireInstance(rec.id).status).toBe('running');
+  });
+
+  it('进程树亡、端口空：不发 kill，直接按已停处理', async () => {
+    const rec = await runningRecord('gone', { pid: 9999, spawnPid: 9999, listenPid: 4321 });
+    const killed: number[] = [];
+
+    const stopped = await stopInstance(rec.id, {
+      kill: (pid) => killed.push(pid),
+      isAlive: () => false,
+      ownerOf: () => undefined,
+    });
+
+    expect(killed).toEqual([]);
+    expect(stopped.status).toBe('stopped');
+    expect(stopped.pid).toBeUndefined();
+  });
+
+  it('--force 只把记录里的 pid 当目标；listenPid 仍然不杀', async () => {
+    const legacy = await runningRecord('legacy-force', { pid: 4321, port: 51402 });
+    const killed: number[] = [];
+    let alive = true;
+    const stopped = await stopInstance(legacy.id, {
+      force: true,
+      kill: (pid) => {
+        killed.push(pid);
+        alive = false;
+      },
+      isAlive: (pid) => pid === 4321 && alive,
+      ownerOf: () => undefined,
+    });
+    expect(killed).toEqual([4321]);
+    expect(stopped.status).toBe('stopped');
+
+    // 进程树已经没了、端口换人：--force 也不会去杀监听者
+    const ours = await runningRecord('listen-force', { pid: 9999, spawnPid: 9999, listenPid: 4321 });
+    const killedAgain: number[] = [];
+    let caught: unknown;
+    try {
+      await stopInstance(ours.id, {
+        force: true,
+        kill: (pid) => killedAgain.push(pid),
+        isAlive: (pid) => pid === 4321,
+        ownerOf: () => 4321,
+      });
+    } catch (err) {
+      caught = err;
+    }
+    expect(isPalError(caught)).toBe(false);
+    expect(killedAgain).toEqual([]);
+    expect(requireInstance(ours.id).status).toBe('stopped');
   });
 });

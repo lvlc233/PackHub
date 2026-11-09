@@ -50,6 +50,8 @@ function fullRecord(): InstanceRecord {
     maxRestarts: 5,
     status: 'running',
     pid: 4321,
+    spawnPid: 9999,
+    listenPid: 4321,
     port: 5123,
     ports: [5000, 5123],
     url: 'http://127.0.0.1:5123/',
@@ -67,7 +69,7 @@ describe('记录分层：partitionRecord / mergeRecord', () => {
     expect(mergeRecord(config, runtime)).toEqual(rec);
     expect(runtime.status).toBe('installed');
     expect(runtime.ports).toEqual([]);
-    for (const key of ['pid', 'port', 'url', 'startedAt', 'lastExit', 'lastError']) {
+    for (const key of ['pid', 'spawnPid', 'listenPid', 'port', 'url', 'startedAt', 'lastExit', 'lastError']) {
       expect(key in runtime).toBe(false);
     }
     for (const key of ['harnessVersion', 'home', 'isolation', 'origin', 'restart', 'maxRestarts']) {
@@ -92,6 +94,8 @@ describe('记录分层：partitionRecord / mergeRecord', () => {
     expect(runtime).toEqual({
       status: 'running',
       pid: 4321,
+      spawnPid: 9999,
+      listenPid: 4321,
       port: 5123,
       ports: [5000, 5123],
       url: 'http://127.0.0.1:5123/',
@@ -104,7 +108,7 @@ describe('记录分层：partitionRecord / mergeRecord', () => {
   it('配置侧不残留运行态字段，运行态侧不混进配置字段', () => {
     const { config, runtime } = partitionRecord(fullRecord());
 
-    for (const key of ['status', 'pid', 'port', 'ports', 'url', 'startedAt', 'lastExit', 'lastError']) {
+    for (const key of ['status', 'pid', 'spawnPid', 'listenPid', 'port', 'ports', 'url', 'startedAt', 'lastExit', 'lastError']) {
       expect(key in config).toBe(false);
     }
     expect('root' in runtime).toBe(false);
@@ -134,6 +138,8 @@ describe('记录分层：partitionRecord / mergeRecord', () => {
 
     const stopped: RuntimeState = { ...runtime, status: 'stopped' };
     delete stopped.pid;
+    delete stopped.spawnPid;
+    delete stopped.listenPid;
     delete stopped.port;
     delete stopped.url;
     const merged = mergeRecord(config, stopped);

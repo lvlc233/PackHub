@@ -9,7 +9,7 @@ import {
   type InstanceRecord,
 } from './index.ts';
 import { isPidAlive } from './process.ts';
-import { isPortListening } from './port.ts';
+import { isPortListening, portOwner } from './port.ts';
 import { readMcpServers, DSH_PATCH_FILE } from './mcp.ts';
 
 export type CheckStatus = 'ok' | 'warn' | 'fail';
@@ -85,10 +85,11 @@ export async function checkInstance(nameOrId: string): Promise<InstanceHealth> {
 
   if (record.pid) {
     const alive = isPidAlive(record.pid);
+    const who = record.spawnPid !== undefined ? `pid ${record.pid}（spawnPid）` : `pid ${record.pid}`;
     checks.push({
       name: 'process',
       status: alive ? 'ok' : 'fail',
-      detail: alive ? `pid ${record.pid} 在` : `pid ${record.pid} 已经不在了`,
+      detail: alive ? `${who} 在` : `${who} 已经不在了`,
     });
   } else {
     checks.push({
@@ -104,6 +105,19 @@ export async function checkInstance(nameOrId: string): Promise<InstanceHealth> {
       name: 'port',
       status: listening ? 'ok' : record.status === 'running' ? 'fail' : 'warn',
       detail: listening ? `端口 ${record.port} 有人听` : `端口 ${record.port} 没有响应`,
+    });
+  }
+
+  // B12：listenPid 只是证据。端口主人换了就提醒（不阻断），说明记录里的监听者已经不是它
+  if (record.listenPid !== undefined && record.port !== undefined) {
+    const owner = portOwner(record.port)?.pid;
+    const changed = owner !== undefined && owner !== record.listenPid;
+    checks.push({
+      name: 'listen-pid',
+      status: changed ? 'warn' : 'ok',
+      detail: changed
+        ? `端口 ${record.port} 的主人换了：记录是 listenPid ${record.listenPid}，现在是 ${owner}`
+        : `端口 ${record.port} 的主人仍是 listenPid ${record.listenPid}`,
     });
   }
 

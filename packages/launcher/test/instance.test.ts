@@ -418,6 +418,8 @@ describe('实例配置', () => {
     let alive = true;
     const result = await removeInstance('busy-one', {
       isAlive: () => alive,
+      // 旧记录：端口主人和记录里的 pid 一致，才允许按旧行为停
+      ownerOf: () => 4242,
       kill: (pid) => {
         killed.push(pid);
         alive = false;
@@ -446,6 +448,7 @@ describe('实例配置', () => {
     let alive = true;
     const result = await removeInstance('restarting', {
       isAlive: () => alive,
+      ownerOf: () => 4343,
       kill: (pid) => {
         expect(pid).toBe(4343);
         // 标记必须已经在磁盘上，另一个进程里的看护才认得出这是删除不是崩溃
@@ -474,6 +477,7 @@ describe('实例配置', () => {
     try {
       await removeInstance('stuck-remove', {
         isAlive: () => true,
+        ownerOf: () => 4344,
         kill: () => {
           expect(existsSync(markFile)).toBe(true);
         },
@@ -488,6 +492,69 @@ describe('实例配置', () => {
     expect(isStopping(record.root, 4344)).toBe(false);
     // 删除没成：记录和根都还在
     expect(readInstance(record.id)?.status).toBe('running');
+    expect(existsSync(record.root)).toBe(true);
+  });
+
+  it('删除运行中的实例：只杀 PAL 自己 spawn 的进程，端口主人不动', async () => {
+    const record = await createInstance({ name: 'pid-split', harness: 'dsh', packDir: PACK });
+    writeFileSync(
+      join(record.root, 'instance.json'),
+      JSON.stringify(
+        {
+          ...readInstance(record.id)!,
+          status: 'running',
+          pid: 9999,
+          spawnPid: 9999,
+          listenPid: 4321,
+          port: 41238,
+        },
+        null,
+        2,
+      ),
+      'utf8',
+    );
+    const killed: number[] = [];
+    let alive = true;
+    const result = await removeInstance('pid-split', {
+      // 两个都「活着」：能证明 kill 的是 spawnPid
+      isAlive: (pid) => (pid === 9999 ? alive : pid === 4321),
+      ownerOf: () => 4321,
+      kill: (pid) => {
+        killed.push(pid);
+        alive = false;
+      },
+    });
+    expect(killed).toEqual([9999]);
+    expect(result.stopped).toBe(9999);
+    expect(result.removed).toBe(true);
+  });
+
+  it('删除运行中的实例：记录 pid 与端口主人对不上就拒杀，记录与根原样留着', async () => {
+    const record = await createInstance({ name: 'pid-suspect', harness: 'dsh', packDir: PACK });
+    writeFileSync(
+      join(record.root, 'instance.json'),
+      JSON.stringify(
+        { ...readInstance(record.id)!, status: 'running', pid: 4321, port: 41239 },
+        null,
+        2,
+      ),
+      'utf8',
+    );
+    const killed: number[] = [];
+    let caught: unknown;
+    try {
+      await removeInstance('pid-suspect', {
+        isAlive: () => true,
+        ownerOf: () => 5555,
+        kill: (pid) => killed.push(pid),
+      });
+    } catch (err) {
+      caught = err;
+    }
+    expect(isPalError(caught) && caught.code).toBe('busy');
+    expect(killed).toEqual([]);
+    expect(readInstance(record.id)?.status).toBe('running');
+    expect(readInstance(record.id)?.pid).toBe(4321);
     expect(existsSync(record.root)).toBe(true);
   });
 
@@ -506,6 +573,7 @@ describe('实例配置', () => {
     const result = await removeInstance('archive-marked', {
       keepData: true,
       isAlive: () => alive,
+      ownerOf: () => 4345,
       kill: () => {
         alive = false;
       },

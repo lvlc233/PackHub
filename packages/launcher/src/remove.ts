@@ -7,11 +7,14 @@ import { PalError } from './errors.ts';
 import { withInstanceLock } from './lock.ts';
 import { credentialRels } from './layout.ts';
 import { archiveRoot } from './paths.ts';
+import { portOwner } from './port.ts';
 import { isPidAlive, killTree, waitForExit } from './process.ts';
 import { moveAside } from './quarantine.ts';
 import { removeLink } from './recordWrite.ts';
 import { recordFile, type InstanceRecord } from './records.ts';
+import { killTargetFor } from './start.ts';
 import { clearStopping, markStopping } from './stopMark.ts';
+import { appendEvent } from './logs.ts';
 
 /**
  * 删实例：先停进程；默认直接删根（删不动就改名归档），keepData 才先按 state 卸包再归档；
@@ -51,6 +54,8 @@ export interface RemoveOptions {
   force?: boolean;
   kill?: (pid: number) => void;
   isAlive?: (pid: number) => boolean;
+  /** 查端口主人；默认走 portOwner（netstat/lsof） */
+  ownerOf?: (port: number) => number | undefined;
   /** 等进程退出的上限；默认 10s（测试用短值） */
   timeoutMs?: number;
 }
@@ -91,19 +96,37 @@ export async function removeInstance(
   const record = requireInstance(nameOrId);
   const isAlive = opts.isAlive ?? isPidAlive;
   const kill = opts.kill ?? killTree;
+  const ownerOf = opts.ownerOf ?? ((port: number) => portOwner(port)?.pid);
   const uninstalled: string[] = [];
   let stopped: number | undefined;
   let archivedTo: string | undefined;
 
   await withInstanceLock(record.root, 'remove', async () => {
-    if (record.pid && isAlive(record.pid)) {
+    // B12：和 pal stop 用同一套判定——只杀 PAL 自己 spawn 的进程，记录里的 pid 不再直接当目标。
+    // 判定可疑（端口主人换了、旧记录没有 spawnPid）就拒杀，删除失败并保持记录。
+    const decision = killTargetFor(record, { isAlive, ownerOf });
+    for (const warning of decision.warnings) {
+      appendEvent(record.root, { event: 'pid-mismatch', message: warning });
+    }
+    if (decision.refusal) {
       if (opts.force === false) {
         throw new PalError('already-running', `实例还在运行：pid ${record.pid}`, {
           hint: '先 pal stop，或让删除自己停（默认行为）',
         });
       }
-      stopped = record.pid;
-      const pid = record.pid;
+      throw new PalError('busy', decision.refusal.message, {
+        hint: decision.refusal.hint,
+        details: decision.refusal.details,
+      });
+    }
+    const pid = decision.target;
+    if (pid !== undefined) {
+      if (opts.force === false) {
+        throw new PalError('already-running', `实例还在运行：pid ${record.pid}`, {
+          hint: '先 pal stop，或让删除自己停（默认行为）',
+        });
+      }
+      stopped = pid;
       // 标记必须先于 kill 落盘：pal serve 里的看护一看到进程退出就会走 onExit，
       // 没有标记就会把正在删除的 on-failure 实例又拉起来。
       markStopping(record.root, pid);

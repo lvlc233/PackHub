@@ -58,8 +58,16 @@ export interface InstanceConfig {
  */
 export interface RuntimeState {
   status: InstanceStatus;
-  /** 运行中的进程与端口；停掉后清空。url 已摘掉凭据，凭据在 secrets.json */
+  /**
+   * 运行中的进程与端口；停掉后清空。url 已摘掉凭据，凭据在 secrets.json。
+   * 语义 = `spawnPid ?? listenPid`（旧记录没有这两个字段时就是旧版的端口反查 pid）。
+   * 只有 `spawnPid` 是可杀目标；`listenPid` 是证据，详见 start.ts 的 killTargetFor。
+   */
   pid?: number;
+  /** PAL 自己 spawn 出来的进程（Windows 上可能是 .cmd 垫片）；唯一允许 kill 的目标 */
+  spawnPid?: number;
+  /** 启动后按端口反查到的监听者：只作证据，永远不直接杀它 */
+  listenPid?: number;
   port?: number;
   /** 启动时分配过的端口（旧到新），排障用 */
   ports?: number[];
@@ -81,12 +89,14 @@ export interface InstanceRecord extends InstanceConfig, RuntimeState {}
  * 记录里将来多出来的字段（未知/旧字段）会原样留在 config 侧，不会在往返中丢掉。
  */
 export function partitionRecord(record: InstanceRecord): { config: InstanceConfig; runtime: RuntimeState } {
-  const { status, pid, port, ports, url, startedAt, lastExit, lastError, ...config } = record;
+  const { status, pid, spawnPid, listenPid, port, ports, url, startedAt, lastExit, lastError, ...config } = record;
   return {
     config,
     runtime: {
       status,
       ...(pid === undefined ? {} : { pid }),
+      ...(spawnPid === undefined ? {} : { spawnPid }),
+      ...(listenPid === undefined ? {} : { listenPid }),
       ...(port === undefined ? {} : { port }),
       ...(ports === undefined ? {} : { ports }),
       ...(url === undefined ? {} : { url }),
@@ -102,11 +112,13 @@ export function partitionRecord(record: InstanceRecord): { config: InstanceConfi
  * 可选字段按存在性带，缺省的不补成 undefined。
  */
 export function mergeRecord(config: InstanceConfig, runtime: RuntimeState): InstanceRecord {
-  const { status, pid, port, ports, url, startedAt, lastExit, lastError } = runtime;
+  const { status, pid, spawnPid, listenPid, port, ports, url, startedAt, lastExit, lastError } = runtime;
   return {
     ...config,
     status,
     ...(pid === undefined ? {} : { pid }),
+    ...(spawnPid === undefined ? {} : { spawnPid }),
+    ...(listenPid === undefined ? {} : { listenPid }),
     ...(port === undefined ? {} : { port }),
     ...(ports === undefined ? {} : { ports }),
     ...(url === undefined ? {} : { url }),

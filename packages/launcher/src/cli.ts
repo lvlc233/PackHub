@@ -412,13 +412,20 @@ const start = defineCommand({
 });
 
 const stop = defineCommand({
-  meta: { name: 'stop', description: '停掉一个在跑的实例' },
+  meta: { name: 'stop', description: '停掉一个在跑的实例（只杀本实例 spawn 的进程；可疑 pid 默认拒杀）' },
   args: {
     target: { type: 'positional', required: true, description: '实例 id 或名字' },
+    force: {
+      type: 'boolean',
+      default: false,
+      description: '跳过「可疑 pid」拒杀检查；仍不会杀端口反查到的 listenPid',
+    },
     json: { type: 'boolean', default: false },
   },
   async run({ args }) {
-    const rec = await stopInstance(requireTarget(args.target));
+    const rec = await stopInstance(requireTarget(args.target), {
+      ...(args.force ? { force: true } : {}),
+    });
     if (args.json) {
       console.log(JSON.stringify(rec, null, 2));
       return;

@@ -288,6 +288,8 @@ export async function startInstanceDetailed(
     appendEvent(rec.root, { event: 'stale-pid', pid: rec.pid });
     const healed = { ...rec, status: 'broken' as const };
     delete healed.pid;
+    delete healed.spawnPid;
+    delete healed.listenPid;
     delete healed.port;
     delete healed.url;
     writeInstance(healed);
@@ -366,6 +368,8 @@ export async function startInstanceDetailed(
     });
   }
 
+  // 运行态里的进程证据：spawnPid 是唯一可杀目标，listenPid 只作证据（B12）。
+  // Windows 上 spawn 的是 cmd 垫片，真正监听的是它的子进程，所以两者本来就常常不同。
   const spawnPid = child.pid;
   const exited = trackExit(child);
   // 起完就该放手：CLI 不因为宿主还活着而挂着；看护交给 pal serve
@@ -395,8 +399,9 @@ export async function startInstanceDetailed(
 
   // pid 要记真正在监听的进程（Windows 上 .cmd 垫片会让 spawn 的 pid 是 cmd 的）
   const listenPort = ready.port ?? port;
-  const ownerPid = opts.ownerOf ? opts.ownerOf(listenPort) : portOwner(listenPort)?.pid;
-  const pid = ownerPid ?? spawnPid;
+  // 端口反查到的监听者只是证据：记录它，但 kill 目标永远是 spawnPid（B12）
+  const listenPid = opts.ownerOf ? opts.ownerOf(listenPort) : portOwner(listenPort)?.pid;
+  const pid = spawnPid ?? listenPid;
   const split = splitUrl(ready.url);
   writeSecrets(rec.root, split.secrets);
 
@@ -405,6 +410,8 @@ export async function startInstanceDetailed(
     ...current,
     status: 'running',
     ...(pid ? { pid } : {}),
+    ...(spawnPid ? { spawnPid } : {}),
+    ...(listenPid ? { listenPid } : {}),
     port: ready.port ?? port,
     ports: [...new Set([...(current.ports ?? []), ready.port ?? port])].slice(-5),
     url: split.url,
@@ -413,7 +420,14 @@ export async function startInstanceDetailed(
   };
   delete next.lastError;
   writeInstance(next);
-  appendEvent(rec.root, { event: 'ready', pid, port: next.port, url: split.url });
+  appendEvent(rec.root, {
+    event: 'ready',
+    pid,
+    spawnPid,
+    listenPid,
+    port: next.port,
+    url: split.url,
+  });
 
   if (opts.supervise) attachSupervisor(next, exited);
   return { record: readInstance(rec.id)!, logFile: log.file, url: ready.url };
@@ -552,6 +566,8 @@ async function onExit(record: InstanceRecord, info: ExitInfo): Promise<void> {
   appendEvent(current.root, { event: 'exit', code: info.code, signal: info.signal, restarts });
   const crashed = { ...current, status: 'broken' as const, lastExit: { ...info, restarts } };
   delete crashed.pid;
+  delete crashed.spawnPid;
+  delete crashed.listenPid;
   delete crashed.port;
   delete crashed.url;
   writeInstance(crashed);
@@ -568,10 +584,125 @@ async function onExit(record: InstanceRecord, info: ExitInfo): Promise<void> {
 
 /* ---------- 停止 ---------- */
 
+/**
+ * B12：pid 归属判定。
+ *
+ * 记录里最多有三个 pid：
+ * - `spawnPid`：PAL 自己 spawn 出来的，**唯一**允许 kill 的目标；
+ * - `listenPid`：启动后按端口反查到的监听者，只作证据。Windows 上 spawn 的是 cmd 垫片，
+ *   真正监听的是它的子进程，所以两者不同是常态，不是异常；
+ * - `pid`：兼容字段，= `spawnPid ?? listenPid`，不额外承担 kill 目标语义。
+ *
+ * 判定只回答「能不能杀、杀谁」：没有正面证据就拒杀，绝不退回去杀记录里的 `pid`。
+ */
+export type KillRefusalReason = 'listen-not-ours' | 'pid-suspect';
+
+export interface KillRefusal {
+  reason: KillRefusalReason;
+  message: string;
+  hint: string;
+  details: Record<string, unknown>;
+}
+
+export interface KillDecision {
+  /** 要杀的 pid；undefined = 不发 kill，按已停处理 */
+  target?: number;
+  /** 可疑现场：默认拒杀，由调用方抛 busy */
+  refusal?: KillRefusal;
+  /** --force 时允许改用的目标：只可能是记录自己的 pid，永远不会是 listenPid */
+  forceTarget?: number;
+  /** 证据对不上但不该改目标的提醒（例如 listenPid 变了） */
+  warnings: string[];
+}
+
+export interface KillProbe {
+  isAlive: (pid: number) => boolean;
+  ownerOf: (port: number) => number | undefined;
+}
+
+/** 拒杀时统一的行动建议：不要去杀记录里的 pid。 */
+const SUSPECT_HINT = '确认端口主人后手工处理；不要直接杀记录里的 pid';
+
+export function killTargetFor(record: InstanceRecord, probe: KillProbe): KillDecision {
+  const warnings: string[] = [];
+  const port = record.port;
+  const owner = port === undefined ? undefined : probe.ownerOf(port);
+
+  // a. 自己 spawn 的进程还活着：只杀它；listenPid 变了也只是提醒
+  if (record.spawnPid !== undefined) {
+    const spawnPid = record.spawnPid;
+    if (probe.isAlive(spawnPid)) {
+      const listenPid = record.listenPid;
+      if (listenPid !== undefined && owner !== undefined && owner !== listenPid) {
+        warnings.push(
+          `端口 ${port} 的主人从 listenPid ${listenPid} 换成了 ${owner}：只杀本实例的 spawnPid ${spawnPid}`,
+        );
+      }
+      return { target: spawnPid, warnings };
+    }
+    // b. 进程树已经没了，但端口主人还活着且就是当初记下的监听者：不是我们的进程，拒杀
+    const listenPid = record.listenPid;
+    if (listenPid !== undefined && owner === listenPid && probe.isAlive(listenPid)) {
+      return {
+        refusal: {
+          reason: 'listen-not-ours',
+          message: '监听进程还活着，但不在本实例的进程树里',
+          hint: SUSPECT_HINT,
+          details: { port, spawnPid, listenPid, owner },
+        },
+        warnings,
+      };
+    }
+    return { warnings };
+  }
+
+  // c. legacy（没有 spawnPid）：`pid` 是旧版反查来的监听者，只能当嫌疑人
+  const pid = record.pid;
+  if (pid === undefined || !probe.isAlive(pid)) return { warnings };
+  if (owner !== undefined && owner !== pid) {
+    return {
+      refusal: {
+        reason: 'pid-suspect',
+        message: '监听进程还活着，但不在本实例的进程树里',
+        hint: SUSPECT_HINT,
+        details: { port, pid, owner },
+      },
+      warnings,
+    };
+  }
+  if (owner === undefined) {
+    // 端口上查不到主人：无法确认 pid 是谁，按可疑处理（--force 才按记录里的 pid 处理）
+    return {
+      refusal: {
+        reason: 'pid-suspect',
+        message: '记录里的 pid 还活着，但端口上查不到主人，没法确认它是本实例的进程',
+        hint: '先确认这个进程；pal stop --force 会按记录里的 pid 处理',
+        details: { port, pid },
+      },
+      forceTarget: pid,
+      warnings,
+    };
+  }
+  // d. 证据一致（端口主人就是记录里的 pid）：按旧行为杀它
+  return { target: pid, warnings };
+}
+
 export interface StopOptions {
   kill?: (pid: number) => void;
   isAlive?: (pid: number) => boolean;
+  /** 查端口主人；默认走 portOwner（netstat/lsof） */
+  ownerOf?: (port: number) => number | undefined;
+  /** 跳过可疑拒杀：仍不会杀 listenPid，只影响「记录里的 pid 能不能当目标」 */
+  force?: boolean;
   timeoutMs?: number;
+}
+
+/** 收回运行态里的进程证据：pid/spawnPid/listenPid/port/url 一起清。 */
+function withoutProcessState<T extends Pick<InstanceRecord, 'pid' | 'spawnPid' | 'listenPid' | 'port' | 'url'>>(
+  record: T,
+): Omit<T, 'pid' | 'spawnPid' | 'listenPid' | 'port' | 'url'> {
+  const { pid: _pid, spawnPid: _spawnPid, listenPid: _listenPid, port: _port, url: _url, ...rest } = record;
+  return rest;
 }
 
 export async function stopInstance(idOrName: string, opts: StopOptions = {}): Promise<InstanceRecord> {
@@ -581,28 +712,38 @@ export async function stopInstance(idOrName: string, opts: StopOptions = {}): Pr
       hint: rec.status === 'broken' ? '状态已经是异常，可以直接删或重起' : undefined,
     });
   }
-  const pid = rec.pid;
   const alive = opts.isAlive ?? isPidAlive;
+  const ownerOf = opts.ownerOf ?? ((port: number) => portOwner(port)?.pid);
+  const decision = killTargetFor(rec, { isAlive: alive, ownerOf });
+  for (const warning of decision.warnings) appendEvent(rec.root, { event: 'pid-mismatch', message: warning });
+  if (decision.refusal && !opts.force) {
+    throw new PalError('busy', decision.refusal.message, {
+      hint: decision.refusal.hint,
+      details: decision.refusal.details,
+    });
+  }
+  // --force 只让「记录里的 pid」变成可杀目标；listenPid 永远不进这里
+  const target = decision.refusal ? decision.forceTarget : decision.target;
+  const stoppingPid = target ?? rec.pid;
   // 标记必须先于 kill 落盘：看护可能活在另一个进程（pal serve）里，它一看到退出就会走 onExit
-  markStopping(rec.root, pid);
+  markStopping(rec.root, stoppingPid);
   try {
-    if (alive(pid)) {
-      (opts.kill ?? killTree)(pid);
-      const gone = await waitForExit(pid, {
+    if (target !== undefined && alive(target)) {
+      (opts.kill ?? killTree)(target);
+      const gone = await waitForExit(target, {
         isAlive: alive,
         timeoutMs: opts.timeoutMs ?? STOP_TIMEOUT_MS,
       });
       if (!gone) {
-        throw new PalError('busy', `停不掉这个进程：pid ${pid}`, {
+        throw new PalError('busy', `停不掉这个进程：pid ${target}`, {
           hint: '它可能卡在 IO 上；用任务管理器结束，或等一会儿再试',
         });
       }
     }
-    const { pid: _pid, port: _port, url: _url, ...rest } = rec;
-    const next: InstanceRecord = { ...rest, status: 'stopped' };
+    const next: InstanceRecord = { ...withoutProcessState(rec), status: 'stopped' };
     writeInstance(next);
     clearSecrets(rec.root);
-    appendEvent(rec.root, { event: 'stop', pid });
+    appendEvent(rec.root, { event: 'stop', pid: stoppingPid });
     return readInstance(rec.id)!;
   } finally {
     // 成功失败都清：失败时留着标记，后面真实的崩溃会被一直压掉
@@ -635,9 +776,8 @@ export type InstanceView = InstanceRecord & { stale?: true };
 function deriveStatus(rec: InstanceRecord, isAlive: (pid: number) => boolean): InstanceRecord {
   if (!rec.pid || isAlive(rec.pid)) return rec;
   const { config, runtime } = partitionRecord(rec);
-  const { pid: _pid, port: _port, url: _url, ...rest } = runtime;
   return mergeRecord(config, {
-    ...rest,
+    ...withoutProcessState(runtime),
     status: 'broken',
     lastExit: runtime.lastExit ?? { code: null, signal: null, at: nowIso(), restarts: 0 },
   });
@@ -654,7 +794,7 @@ export function statusView(records: InstanceRecord[], isAlive: (pid: number) => 
   return records.map((rec) => {
     if (rec.status !== 'running') return deriveStatus(rec, isAlive);
     if (rec.pid && isAlive(rec.pid)) return rec;
-    const { pid: _pid, port: _port, url: _url, ...rest } = rec;
+    const rest = withoutProcessState(rec);
     return {
       ...rest,
       status: 'broken',
