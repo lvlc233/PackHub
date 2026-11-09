@@ -1,0 +1,14 @@
+{
+  "name": "@packhub/pal-electron",
+  "version": "0.0.1",
+  "private": true,
+  "description": "PAL 最小 Electron 壳（E1）：起 pal serve、加载本地界面、关窗收侧车",
+  "type": "module",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "devDependencies": {
+    "electron": "^45.2.3"
+  }
+}

@@ -21,6 +21,7 @@
     "pal:smoke": "node scripts/pal/smoke.mjs",
     "pal:bundle": "node scripts/pal/bundle.mjs",
     "build:pal-desktop": "node scripts/pal/build-desktop.mjs",
+    "electron:pal": "pnpm --filter @packhub/pal-electron start",
     "build:local": "node scripts/build-local.mjs",
     "pack:local": "node scripts/build-local.mjs && cd dist/local && npm pack",
     "registry:index": "node --experimental-strip-types scripts/registry/build-index.mjs",
