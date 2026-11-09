@@ -6,7 +6,7 @@ import { ADAPTERS, targetVarsFor } from './layout.ts';
 import { baselineFromState, writeBaseline } from './baseline.ts';
 import { withInstanceLock } from './lock.ts';
 import { API_VERSION, readRecord, recordFile, type InstanceRecord } from './records.ts';
-import { parseIsolation, type Isolation } from './isolation.ts';
+import { assertIsolationSupported, parseIsolation, type Isolation } from './isolation.ts';
 import { readPalConfig } from './config.ts';
 import { dropActive, readActiveMap, writeActiveMap } from './catalog.ts';
 import { failInstance } from './quarantine.ts';
@@ -122,10 +122,14 @@ export function seedHome(from: string, to: string, onProblem?: (line: string) =>
 
 /**
  * 一份新实例该用哪套隔离策略：显式给的最优先（照样过一遍 parseIsolation），
- * 没给就用全局配置里的默认。配置坏/策略坏都在建目录之前抛，不留半份实例。
+ * 没给就用全局配置里的默认。配置坏/策略坏/策略还没实现都在建目录之前抛，不留半份实例。
  */
 function isolationFor(explicit: Isolation | undefined): Isolation {
-  if (explicit === undefined) return readPalConfig().isolation;
+  if (explicit === undefined) {
+    const configured = readPalConfig().isolation;
+    assertIsolationSupported(configured);
+    return configured;
+  }
   const parsed = parseIsolation(explicit);
   if (!parsed) {
     throw new PalError('invalid-input', '隔离策略不合法：五层必须齐全，每层只能是 instance / shared', {
@@ -133,6 +137,7 @@ function isolationFor(explicit: Isolation | undefined): Isolation {
       details: { isolation: explicit },
     });
   }
+  assertIsolationSupported(parsed);
   return parsed;
 }
 
@@ -303,8 +308,10 @@ export function adoptInstance(opts: AdoptOptions): InstanceRecord {
   }
   const harness = assertHarness(opts.harness);
   assertNameFree(opts.name.trim());
-  // 接管来的目录不动，但记录里的默认策略跟新建实例一样看全局配置
+  // 接管来的目录不动，但记录里的默认策略跟新建实例一样看全局配置；
+  // 配置里写了还没实现的语义（凭据 shared）同样在写记录之前拒绝。
   const isolation = readPalConfig().isolation;
+  assertIsolationSupported(isolation);
   if (existsSync(recordFile(dir))) {
     throw new PalError('root-occupied', '这个目录已经是一份实例', {
       hint: '换个目录，或先删掉它的旧记录',

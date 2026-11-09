@@ -288,7 +288,7 @@ describe('实例配置', () => {
     // 显式给的策略优先于配置文件
     const explicit: Isolation = {
       version: 1,
-      layers: { ...configured.layers, credentials: 'shared', runtime: 'instance' },
+      layers: { ...configured.layers, session: 'shared', runtime: 'instance' },
     };
     const rec = await createInstance({ name: 'iso-explicit', harness: 'dir', packDir: PACK, isolation: explicit });
     expect(rec.isolation).toEqual(explicit);
@@ -305,6 +305,29 @@ describe('实例配置', () => {
     expect(isPalError(caught)).toBe(true);
     if (isPalError(caught)) expect(caught.code).toBe('invalid-input');
     expect(listInstances().map((i) => i.name)).not.toContain('iso-bad');
+  });
+
+  it('凭据共享（shared-ro）还没实现：写任何东西之前就拒绝，不建目录', async () => {
+    const shared: Isolation = {
+      version: 1,
+      layers: { ...DEFAULT_ISOLATION.layers, credentials: 'shared' },
+    };
+    let caught: unknown;
+    try {
+      await createInstance({ name: 'iso-shared', harness: 'dir', packDir: PACK, isolation: shared });
+    } catch (err) {
+      caught = err;
+    }
+    expect(isPalError(caught)).toBe(true);
+    if (isPalError(caught)) {
+      expect(caught.code).toBe('invalid-input');
+      expect(caught.message).toContain('shared-ro');
+      // 明确告诉人怎么改，而不是让它静默按 copy 走
+      expect(caught.hint).toContain('credentials=instance');
+    }
+    expect(listInstances().map((i) => i.name)).not.toContain('iso-shared');
+    // 根目录都没造出来：instances 根下空空如也
+    expect(listDirNames(join(tmp, 'instances'))).toEqual([]);
   });
 
   it('配置文件坏了：建实例直接报错，不静默用默认策略', async () => {
@@ -504,6 +527,19 @@ describe('实例配置', () => {
     expect(archived).toHaveLength(1);
     const keep = join(archiveRoot(), archived[0]!, 'home', 'dsh', 'session.txt');
     expect(readFileSync(keep, 'utf8')).toBe('my session');
+  });
+
+  it('keepData 归档：先把 secrets.json 删掉，归档里不留 PAL token', async () => {
+    const record = await createInstance({ name: 'archive-secrets', harness: 'dsh', packDir: PACK });
+    writeFileSync(join(record.root, 'secrets.json'), JSON.stringify({ token: 'pal-secret' }), 'utf8');
+
+    const result = await removeInstance('archive-secrets', { keepData: true });
+
+    expect(result.archivedTo).toBeDefined();
+    // 凭据不跟着归档走；其余数据照常保留
+    expect(existsSync(join(result.archivedTo!, 'secrets.json'))).toBe(false);
+    expect(existsSync(join(result.archivedTo!, 'home', 'dsh'))).toBe(true);
+    expect(listInstances()).toEqual([]);
   });
 
   it('删根失败（目录占用且归档也失败）：Pack 文件没动、state 与记录原样留着，可以重试', async () => {

@@ -1,6 +1,9 @@
+import { PalError } from './errors.ts';
+
 /**
  * 隔离策略：五层各自决定「每实例一份（instance）」还是「全局共享（shared）」。
  * 只做模型与校验；按策略复制/链接哪些目录是 A2/A3 的事，这里不碰启动与装配。
+ * 另外如实标出「还没实现」的语义（凭据 shared-ro）：收下策略再静默当 copy 用，比直接拒绝更糟。
  */
 
 export type IsolationLayer = 'assembly' | 'session' | 'credentials' | 'cache' | 'runtime';
@@ -59,4 +62,18 @@ export function parseIsolation(value: unknown): Isolation | undefined {
     next[layer] = mode;
   }
   return { version: 1, layers: next };
+}
+
+/**
+ * 只放行已经实现的隔离语义：凭据当前只有 copy（每实例一份），shared-ro 还没做。
+ * 收下一份 credentials=shared 的策略再当 copy 用，就是在记录里撒谎「凭据是共享的」，
+ * 所以这里明确拒绝，让调用方在写任何东西之前失败。其它层先不限制。
+ */
+export function assertIsolationSupported(iso: Isolation): void {
+  if (iso.layers.credentials === 'shared') {
+    throw new PalError('invalid-input', '凭据共享（shared-ro）尚未实现，当前只支持 copy', {
+      hint: '把凭据层改成 credentials=instance（每个实例复制一份）；shared-ro 要等只读共享与 refresh token 轮换做完',
+      details: { layer: 'credentials', mode: iso.layers.credentials, supported: ['copy'] },
+    });
+  }
 }
