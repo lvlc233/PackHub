@@ -1,6 +1,6 @@
 # PAL 审计待办（37 条）
 
-> 日期：2026-11-09 ／ 基线：`e1fc2ce`，`pnpm check` 全绿 ／ 口径：2026-11-09 的 PAL 全量审计 50 条，已关闭 47 条（A 12、B 16、C 12、D 7），本文只记**原始剩余 3 条**与 E 组未完成的 1 条（E4），共 **4 条**。
+> 日期：2026-11-09 ／ 基线：`6d4cf2f`，`pnpm check` 全绿 ／ 口径：2026-11-09 的 PAL 全量审计 50 条，已关闭 47 条（A 12、B 16、C 12、D 7），本文只记**原始剩余 3 条**与 E 组未完成的 1 条（E4），共 **4 条**。
 > 需要拍板的四组语义（A3/B12/E3/E5）与结构项顺序见 [PAL-剩余决策](PAL-剩余决策.md)。
 > 用途：跨会话派工，不依赖聊天记录。编号沿用审计原号，新增组往后排，**不重排、不复用**。
 > 相关：功能现状见 [PackHub-功能全量清单](PackHub-功能全量清单.md) 的 PAL 域，机制细节见 [details/pal.md](details/pal.md)。本表只记待办，做完就改状态；现状描述不在这里续写。
@@ -33,7 +33,7 @@
 | A8 | 没有整实例快照 / 备份 / 恢复 | `pal backup <id> [--include-secrets]` 目录快照到 `PACKHUB_HOME/backups`；`pal restore <dir> [--name] [--root]` 重写 id/root/home 后恢复 | `[done]` 71e0b94 | 无 |
 | A9 | 没有发现 / 导入已有实例 | `pal scan <dir> [--depth] [--json]` 只读识别三类：instance.json / packhub.yaml / .packhub/state.json；`scan.ts` + test | `[done]` dae2efc | 无 |
 | A10 | 系统级看护缺失 | `pal watch [--interval]`：headless 轮询 scanInstances，对 running 但 pid 已死的记录按 on-failure 预算重起，否则写 broken；与 `pal serve` 二选一 | `[done]` 6fea5d6 | 无 |
-| A11 | 没有运行时版本管理 | PAL-23 是 `[part]`；分发自带 node.exe，不能切换 | `[open]` | 无 |
+| A11 | 没有运行时版本管理 | 第一步：baseline 记 node 版本、`pal doctor` 展示（文本/JSON）、体检在版本变化时给 warn；不支持切换（0.x Windows-only，见 E5） | `[part]` 6d4cf2f | 无 |
 | A12 | 没有并发多实例管理面 | `pal ps [--json]`：running/pid 实例、端口冲突、stale、坏记录与总计；纯读不写盘（`ps.ts`） | `[done]` 1ea038c | 无 |
 | A13 | 决策没写回文档 | `pal.md` 已写清隔离五层/默认/覆盖/快照与凭据 copy/shared-ro 拒绝、归档/备份剥离；`concepts.md` 未动（你的未提交文件） | `[done]` 0d4f6d6 | A3 |
 
@@ -114,7 +114,7 @@ Electron 这条线独立于 A–D：先 **E1**（壳能起来），再 **E2**（
 
 新会话开场可直接写：
 
-> 继续 PackHub PAL 审计剩余 4 条，仓库在 `e1fc2ce`。A1–A10/A12/A13/B1–B16/C1–C12/D3/E1–E3/E5/N2 已完成；剩 A11、D1 半、D7 半、E4（删旧壳需你点头）。
+> 继续 PackHub PAL 审计剩余 4 条，仓库在 `6d4cf2f`。A1–A10/A12/A13/B1–B16/C1–C12/D3/E1–E3/E5/N2 已完成；A11 记录/展示版本（不切换）；剩 D1 持久化、D7 旧壳、E4 删旧壳（需你点头）。
 
 ## 完成判据
 
