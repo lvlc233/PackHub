@@ -214,7 +214,6 @@ export async function createInstance(opts: CreateInstanceOptions): Promise<Insta
       version: ctx.manifest.metadata.version,
       ...(opts.packRef ? { ref: opts.packRef } : {}),
     },
-    planHash: plan.planHash,
     createdAt: nowIso(),
     updatedAt: nowIso(),
     status: 'installing',
@@ -321,14 +320,12 @@ export function adoptInstance(opts: AdoptOptions): InstanceRecord {
   const adapter = ADAPTERS[harness];
   const home = adapter.homeDir && existsSync(join(dir, adapter.homeDir)) ? join(dir, adapter.homeDir) : undefined;
   let pack = { name: 'external', version: '0.0.0' };
-  let planHash = '';
   try {
     const entries = Object.values(loadState(dir).packs);
     // 只有恰好一个 Pack 时它的名字才能代表这个实例；多个 Pack 里「第一个」只是对象顺序，
     // 拿来当身份会让记录撒谎，updateInstance 也会把别的 Pack 当成同一个。此时记 external。
     const only = entries.length === 1 ? entries[0] : undefined;
     if (only?.pack) pack = { name: only.pack, version: only.version ?? '0.0.0' };
-    if (only?.planHash) planHash = only.planHash;
   } catch {
     /* 没有 state 就是空环境 */
   }
@@ -341,7 +338,6 @@ export function adoptInstance(opts: AdoptOptions): InstanceRecord {
     ...(home ? { home } : {}),
     isolation,
     pack,
-    planHash,
     createdAt: nowIso(),
     updatedAt: nowIso(),
     status: 'installed',

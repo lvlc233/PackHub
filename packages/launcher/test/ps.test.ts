@@ -23,7 +23,6 @@ function writeRecord(id: string, overrides: Partial<InstanceRecord> = {}): strin
     harness: 'dsh',
     root: dir,
     pack: { name: 'demo/ps-pack', version: '0.1.0' },
-    planHash: 'abc',
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
     status: 'running',

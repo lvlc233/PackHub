@@ -36,7 +36,6 @@ export interface InstanceRecord {
   /** 隔离策略：每层是每实例一份还是全局共享；旧记录没有这个字段，读出来是默认策略 */
   isolation?: Isolation;
   pack: { name: string; version: string; ref?: string };
-  planHash: string;
   createdAt: string;
   updatedAt: string;
   status: InstanceStatus;
@@ -64,10 +63,12 @@ export function recordFile(root: string): string {
 }
 
 function parseRecord(root: string, text: string): InstanceRecord {
-  const data = JSON.parse(text) as InstanceRecord;
+  // 旧记录可能带 planHash：事实只在 baseline.json，读的时候直接丢掉，写回时也不会再带上
+  const data = JSON.parse(text) as InstanceRecord & { planHash?: unknown };
   if (!data || typeof data !== 'object' || typeof data.id !== 'string' || typeof data.name !== 'string') {
     throw new Error('记录缺字段');
   }
+  delete data.planHash;
   const harness = (data.harness ?? 'dir') as TargetId;
   const normalized: InstanceRecord = {
     ...data,

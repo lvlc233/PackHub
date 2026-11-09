@@ -173,7 +173,7 @@ describe('实例配置', () => {
     expect(existsSync(join(record.root, '.packhub', 'state.json'))).toBe(true);
 
     const baseline = readBaseline(record.root);
-    expect(baseline?.planHash).toBe(record.planHash);
+    expect(baseline?.planHash).toMatch(/^sha256-/);
     expect(baseline!.files.length).toBeGreaterThan(0);
 
     expect(listInstances().map((i) => i.name)).toEqual(['demo']);
@@ -662,20 +662,20 @@ describe('实例配置', () => {
     const multiBefore = readFileSync(multiState, 'utf8');
     const multiRecord = adoptInstance({ dir: multi, name: 'adopt-multi', harness: 'dsh' });
     expect(multiRecord.pack).toEqual({ name: 'external', version: '0.0.0' });
-    expect(multiRecord.planHash).toBe('');
+    expect('planHash' in multiRecord).toBe(false);
     expect(multiRecord.managed).toBe(false);
     expect(multiRecord.origin).toEqual({ kind: 'adopted', dir: multi });
     // 用户目录保持原样：state 没被改写，业务文件也在
     expect(readFileSync(multiState, 'utf8')).toBe(multiBefore);
     expect(readFileSync(join(multi, 'mine.txt'), 'utf8')).toBe('keep');
 
-    // 单个 Pack：仍然沿用它的名字与 planHash
+    // 单个 Pack：仍然沿用它的名字（planHash 只留在 baseline / state，不进记录）
     const single = join(tmp, 'adopt-single');
     mkdirSync(single, { recursive: true });
     writeState(single, { 'lvlc233/doc-review@0.1.0': stateEntry('lvlc233/doc-review', '0.1.0', 'hash-a') });
     const singleRecord = adoptInstance({ dir: single, name: 'adopt-single', harness: 'dsh' });
     expect(singleRecord.pack).toEqual({ name: 'lvlc233/doc-review', version: '0.1.0' });
-    expect(singleRecord.planHash).toBe('hash-a');
+    expect('planHash' in singleRecord).toBe(false);
 
     // 一个 Pack 都没有：external
     const empty = join(tmp, 'adopt-empty');
@@ -683,7 +683,7 @@ describe('实例配置', () => {
     writeState(empty, {});
     const emptyRecord = adoptInstance({ dir: empty, name: 'adopt-empty', harness: 'dsh' });
     expect(emptyRecord.pack).toEqual({ name: 'external', version: '0.0.0' });
-    expect(emptyRecord.planHash).toBe('');
+    expect('planHash' in emptyRecord).toBe(false);
   });
 
   it('复制、改名、导出模板', async () => {
@@ -1039,6 +1039,28 @@ resources:
     expect(readFileSync(aPath, 'utf8')).toBe('# 本地改的\n');
     expect(readInstance(rec.id)?.pack.version).toBe('0.1.0');
     expect(readBaseline(rec.root)).toEqual(before);
+  });
+
+  it('旧记录带 planHash 仍可读；更新后 instance.json 不再写 planHash，baseline 仍保留', async () => {
+    const v1 = knowledgePack(join(tmp, 'legacy-v1'), '0.1.0', { 'a.md': '# a1\n' });
+    const v2 = knowledgePack(join(tmp, 'legacy-v2'), '0.2.0', { 'a.md': '# a2\n' });
+    const rec = await createInstance({ name: 'legacy', harness: 'dir', packDir: v1, packRef: v1 });
+    const file = join(rec.root, 'instance.json');
+    // 模拟旧版记录：planHash 还写在 instance.json 里
+    const legacy = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+    legacy.planHash = 'sha256-legacy';
+    writeFileSync(file, JSON.stringify(legacy, null, 2) + '\n', 'utf8');
+
+    const old = readRecordResult(rec.root);
+    expect(old.error).toBeUndefined();
+    expect(old.record?.pack.name).toBe('demo/guard');
+    expect(old.record && 'planHash' in old.record).toBe(false);
+
+    const result = await updateInstance('legacy', { packDir: v2 });
+    expect(result.changed).toBe(true);
+    expect(JSON.parse(readFileSync(file, 'utf8')).planHash).toBeUndefined();
+    expect(readBaseline(rec.root)?.planHash).toBe(result.planHash);
+    expect(readInstance(rec.id)?.pack.version).toBe('0.2.0');
   });
 
   it('运行中的实例拒绝更新', async () => {

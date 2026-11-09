@@ -26,7 +26,6 @@ const INSTANCE = {
   name: 'demo-instance',
   harness: 'dsh',
   pack: { name: 'demo/scan-pack', version: '0.1.0' },
-  planHash: 'abc',
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',
   status: 'installed',

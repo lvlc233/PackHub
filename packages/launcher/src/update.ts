@@ -138,7 +138,8 @@ export async function updateInstance(
   // 更新会覆盖 Pack 装过的文件，所以先看哪些已经被本地改过：改过的要提前告诉人
   const localChanges = localChangesOf(record.root, baseline);
 
-  const changed = record.planHash !== plan.planHash || record.pack.version !== ctx.manifest.metadata.version;
+  // 计划是否变过以 baseline 为准（instance.json 不再存 planHash）；没有 baseline 视为变了
+  const changed = baseline?.planHash !== plan.planHash || record.pack.version !== ctx.manifest.metadata.version;
 
   // P0：计划真的会覆盖 Pack 装过的文件时，先停下来问人；--force / body.force 才继续。
   // 同版本重跑（changed=false）本来不写盘，不拦。
@@ -199,7 +200,6 @@ export async function updateInstance(
         version: ctx.manifest.metadata.version,
         ...(opts.packRef ? { ref: opts.packRef } : record.pack.ref ? { ref: record.pack.ref } : {}),
       },
-      planHash: plan.planHash,
       status: 'installed',
     };
     delete next.lastError;
@@ -230,7 +230,8 @@ export function rebaselineInstance(nameOrId: string): Baseline {
     pack: record.pack.name,
     version: record.pack.version,
     harness: record.harness,
-    planHash: record.planHash,
+    // 记录里不再存 planHash：重基准化只刷新文件清单，计划哈希沿用已有 baseline
+    planHash: baseline?.planHash ?? '',
     files: baselineFromState(record.root),
     ...(baseline?.ignore ? { ignore: baseline.ignore } : {}),
   });
