@@ -28,6 +28,7 @@ import { cacheStats, cleanCache, formatBytes, planClean, scanCache } from './cac
 import { DEFAULT_SCAN_DEPTH, scanDirectory, type ScanEntry } from './scan.ts';
 import { backupInstance, restoreBackup } from './backup.ts';
 import { refreshStatuses, restartInstance, startInstance, startInstanceDetailed, stopInstance } from './start.ts';
+import { psReport } from './ps.ts';
 import { activeEntries, setActive } from './active.ts';
 import { startPalServer } from './server.ts';
 import { discoverAll } from './harness.ts';
@@ -463,6 +464,47 @@ const status = defineCommand({
       const where = rec.url ?? (rec.pid ? `pid ${rec.pid}` : '-');
       console.log(`${rec.id}\t${rec.status}\t${rec.harness}\t${where}`);
     }
+  },
+});
+
+const ps = defineCommand({
+  meta: {
+    name: 'ps',
+    description: '只读并发账本：在跑的实例、端口、运行时长、端口冲突与已死的 pid（不写记录、不杀进程）',
+  },
+  args: { json: { type: 'boolean', default: false } },
+  run({ args }) {
+    const report = psReport();
+    if (args.json) {
+      // 结构只约定三段：坏记录不混进来，只在人读模式下单列。
+      console.log(
+        JSON.stringify(
+          { instances: report.instances, conflicts: report.conflicts, total: report.total },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
+    if (report.instances.length === 0) console.log('没有在跑的实例');
+    for (const item of report.instances) {
+      const state = item.stale ? 'stale' : 'running';
+      console.log(
+        `${state}\t${item.id}\t${item.name}\t${item.harness}\tpid ${item.pid ?? '-'}\tport ${item.port ?? '-'}\t${item.uptime}`,
+      );
+      if (item.startedAt) console.log(`  启动于 ${item.startedAt}`);
+      if (item.url) console.log(`  ${item.url}`);
+      if (item.stale) console.log(`  ! pid ${item.pid} 已经不在了（记录没改，pal status 才会刷新）`);
+    }
+    for (const conflict of report.conflicts) {
+      console.log(`! 端口冲突 ${conflict.port}：${conflict.names.join(', ')}（${conflict.ids.join(', ')}）`);
+    }
+    for (const bad of report.broken) console.log(`! 坏记录 ${bad.dir}\t${bad.reason}`);
+    console.log(
+      `共 ${report.total.running} 条在跑（账本 ${report.total.instances} 条），占 ${report.total.ports} 个端口` +
+        `${report.total.stale ? `，${report.total.stale} 条 pid 已死` : ''}` +
+        `${report.total.conflicts ? `，${report.total.conflicts} 处端口冲突` : ''}`,
+    );
   },
 });
 
@@ -957,6 +999,7 @@ export const main = defineCommand({
     stop,
     restart,
     status,
+    ps,
     health,
     doctor,
     logs,
