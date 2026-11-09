@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * PAL 端到端冒烟：起本地服务 → 建实例 → 体检 → 停/删 → 关服务。
+ * PAL 端到端冒烟：起本地服务 → 建实例 → 体检 → 删实例 → 关服务。
+ * 删除只走默认路径（不传 keepData）：先停进程，直接删根；根删不掉会改名进归档，冒烟按失败处理。
  * 跑的是真实 HTTP 接口与真实安装流程（不含浏览器），CI 里用它替代手跑。
  */
 import { spawn } from 'node:child_process';
@@ -76,9 +77,12 @@ async function main() {
   if (failedCheck) throw new Error(`体检不通过：${failedCheck.name} ${failedCheck.detail}`);
   console.log(`· 体检：${health.checks.map((check) => `${check.name}=${check.status}`).join(' ')}`);
 
+  // 默认删除（不传 keepData）：先停进程，再直接删根；根删不掉会改名进归档，这时 removed 为 false。
+  // 该实例没启动过，所以冒烟里实际没有要停的进程。只断言「根真的删掉了」，
+  // 不复查记录与 .links，也不校验响应里的 uninstalled / archivedTo。
   const removed = await call(`/api/instances/${created.id}`, { method: 'DELETE' });
-  if (!removed.removed) throw new Error('删除没有真的删掉实例根');
-  console.log('· 删除：已卸包并删根');
+  if (!removed.removed) throw new Error('删除没有真的删掉实例根（可能被占用，改走归档了）');
+  console.log('· 删除：直删根成功（removed=true，未走归档）');
 
   child.kill();
 }

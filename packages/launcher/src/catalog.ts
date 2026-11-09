@@ -8,7 +8,7 @@ import { readRecordResult, type InstanceRecord } from './records.ts';
 /**
  * 实例清单与「当前实例」一览表：扫实例根、按名字/身份找记录、坏记录隔离，以及每个宿主记住的默认实例。
  * 只依赖 fs/path、records.ts、quarantine.ts、paths.ts 与 PalError；不 import index.ts（避免循环）。
- * 建/删/改实例的写入流程仍在 index.ts。
+ * 建/删/改实例的写入流程在 create.ts / update.ts / remove.ts / migrate.ts；index.ts 只做 re-export。
  */
 
 /** 实例根清单：正常记录 + 坏记录（坏记录不静默消失，移进隔离区并留下原因）。 */
