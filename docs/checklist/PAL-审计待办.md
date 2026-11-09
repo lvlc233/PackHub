@@ -1,6 +1,6 @@
 # PAL 审计待办（37 条）
 
-> 日期：2026-11-09 ／ 基线：`dae2efc`，`pnpm check` 全绿 ／ 口径：2026-11-09 的 PAL 全量审计 50 条，已关闭 33 条（A 6、B 15、C 7、D 5），本文只记**原始剩余 17 条**与新增未完成的 E 3 条 / N 1 条，共 **21 条**。
+> 日期：2026-11-09 ／ 基线：`71e0b94`，`pnpm check` 全绿 ／ 口径：2026-11-09 的 PAL 全量审计 50 条，已关闭 34 条（A 7、B 15、C 7、D 5），本文只记**原始剩余 16 条**与新增未完成的 E 3 条 / N 1 条，共 **20 条**。
 > 用途：跨会话派工，不依赖聊天记录。编号沿用审计原号，新增组往后排，**不重排、不复用**。
 > 相关：功能现状见 [PackHub-功能全量清单](PackHub-功能全量清单.md) 的 PAL 域，机制细节见 [details/pal.md](details/pal.md)。本表只记待办，做完就改状态；现状描述不在这里续写。
 
@@ -31,7 +31,7 @@
 | A5 | 实例根可选 | `create` / `clone` / `import` 的 CLI `--root`、API `body.root` 已支持；只收绝对路径，拒绝盘符根/文件系统根与 PAL 实例根内（`assertExternalRoot`） | `[done]` 8a722fa | 无 |
 | A6 | 界面缺实例流转 | 新建对话框「来源」：pack / 接管目录 / 导入模板；详情「更多」：克隆、改名、迁移、导出（APIs 见 A6a，web 见 `app.js`） | `[done]` f8cb9b8 | 提案已有 6 个 API 形状 |
 | A7 | 策略变更没有迁移工具 | `migrate.ts` 只挪根，不按新策略重排 home | `[open]` | A1、A3 |
-| A8 | 没有整实例快照 / 备份 / 恢复 | `export` 只导出 Pack 引用模板（`template.ts`），不含 home 与数据 | `[open]` | 无 |
+| A8 | 没有整实例快照 / 备份 / 恢复 | `pal backup <id> [--include-secrets]` 目录快照到 `PACKHUB_HOME/backups`；`pal restore <dir> [--name] [--root]` 重写 id/root/home 后恢复 | `[done]` 71e0b94 | 无 |
 | A9 | 没有发现 / 导入已有实例 | `pal scan <dir> [--depth] [--json]` 只读识别三类：instance.json / packhub.yaml / .packhub/state.json；`scan.ts` + test | `[done]` dae2efc | 无 |
 | A10 | 系统级看护缺失 | supervisor 在 `pal serve` 进程内（`start.ts`）；壳退出后 `on-failure` 失效 | `[open]` | 无 |
 | A11 | 没有运行时版本管理 | PAL-23 是 `[part]`；分发自带 node.exe，不能切换 | `[open]` | 无 |
@@ -91,14 +91,14 @@
 
 | 组 | 编号 | 条数 |
 |---|---|---|
-| A | A3、A7、A8、A10–A13 | 7 |
+| A | A3、A7、A10–A13 | 6 |
 | B | B12 | 1 |
 | C | C4、C7、C8、C9、C10 | 5 |
 | D | D1–D3、D7 | 4 |
-| 小计 | 原始剩余 | **17** |
+| 小计 | 原始剩余 | **16** |
 | E | E3–E5 | 3 |
 | N | N2 | 1 |
-| 合计 |  | **21** |
+| 合计 |  | **20** |
 
 ## 建议开工顺序
 
@@ -115,7 +115,7 @@ Electron 这条线独立于 A–D：先 **E1**（壳能起来），再 **E2**（
 
 新会话开场可直接写：
 
-> 继续 PackHub PAL 审计剩余 21 条（原 17 + E3–E5 + N2），仓库在 `dae2efc`。A1/A2/A4/A5/A6/A9/B14/E1/E2 已完成；下一步 A8 或 C4；B12/凭据策略待定。
+> 继续 PackHub PAL 审计剩余 20 条（原 16 + E3–E5 + N2），仓库在 `71e0b94`。A1/A2/A4/A5/A6/A8/A9/B14/E1/E2 已完成；下一步 A7 或 C4；B12/凭据策略待定。
 
 ## 完成判据
 
