@@ -65,7 +65,7 @@
 | D3 | `ADAPTERS` 缺能力字段 | 只有 label/homeDir/homeEnv/executable/versionArgs，没有隔离旋钮、凭据位置、可共享层（`layout.ts`） | `[open]` | 与 A1 绑定 |
 | D4 | 实例 id 是「时间戳 + 随机后缀」 | `newId`（`paths.ts`）改为 14 位时间戳 + 12 位 crypto 十六进制；旧 id 不迁移，两种并存可读 | `[done]` 8a02c18 | 无 |
 | D5 | 错误文案回显绝对路径 | 错误消息改为 `details`/`hint`，message 不再拼 root/home（`create/migrate/remove/update` 等） | `[done]` 65e2183 | 无 |
-| D7 | 桌面壳 `taskkill /F` 硬杀 | `apps/pal-desktop` 以 `/T /F` 收进程；E1 的 Electron 壳同样 `/T /F`。优雅退出要先给 `pal serve` 一个关闭入口 | `[open]` | E3/A10 |
+| D7 | 桌面壳 `taskkill /F` 硬杀 | 新壳：`pal serve --exit-on-stdin-close`，Electron 先 `stdin.end()` 等 1.5s，再 `taskkill /T /F` 兜底；旧 `apps/pal-desktop` 仍硬杀，随 E4 退役 | `[part]` 087c940 | E3/A10 |
 | D9 | 取包缓存 slug 只截末 40 字符 | `slug()` 现在拼完整引用的 sha256 前 10 hex；旧缓存目录被弃用，等 A4 清理 | `[done]` 9793c18 | A4 |
 
 ## E 组：Electron 工作流（5 条）
