@@ -593,7 +593,9 @@ async function onExit(record: InstanceRecord, info: ExitInfo): Promise<void> {
  *   真正监听的是它的子进程，所以两者不同是常态，不是异常；
  * - `pid`：兼容字段，= `spawnPid ?? listenPid`，不额外承担 kill 目标语义。
  *
- * 判定只回答「能不能杀、杀谁」：没有正面证据就拒杀，绝不退回去杀记录里的 `pid`。
+ * 判定只回答「能不能杀、杀谁」：spawnPid 活着就只杀它；进程树没了、端口却换到别人手里就拒杀。
+ * 旧记录（没有 spawnPid）里 `pid` 是反查来的监听者，只有端口主人与它一致时才当目标，
+ * 其余情况拒杀；`--force` 也只允许退回「按记录里的 pid 处理」，永远不会去杀 listenPid。
  */
 export type KillRefusalReason = 'listen-not-ours' | 'pid-suspect';
 
@@ -626,29 +628,39 @@ const SUSPECT_HINT = '确认端口主人后手工处理；不要直接杀记录�
 export function killTargetFor(record: InstanceRecord, probe: KillProbe): KillDecision {
   const warnings: string[] = [];
   const port = record.port;
-  const owner = port === undefined ? undefined : probe.ownerOf(port);
+  // 端口反查（netstat/lsof）不便宜：只在真的要拿证据时查一次。查不到就是 undefined，不代表「没有主人」。
+  let ownerQueried = false;
+  let ownerPid: number | undefined;
+  const owner = (): number | undefined => {
+    if (!ownerQueried) {
+      ownerQueried = true;
+      ownerPid = port === undefined ? undefined : probe.ownerOf(port);
+    }
+    return ownerPid;
+  };
 
   // a. 自己 spawn 的进程还活着：只杀它；listenPid 变了也只是提醒
   if (record.spawnPid !== undefined) {
     const spawnPid = record.spawnPid;
     if (probe.isAlive(spawnPid)) {
       const listenPid = record.listenPid;
-      if (listenPid !== undefined && owner !== undefined && owner !== listenPid) {
+      const current = listenPid === undefined ? undefined : owner();
+      if (listenPid !== undefined && current !== undefined && current !== listenPid) {
         warnings.push(
-          `端口 ${port} 的主人从 listenPid ${listenPid} 换成了 ${owner}：只杀本实例的 spawnPid ${spawnPid}`,
+          `端口 ${port} 的主人从 listenPid ${listenPid} 换成了 ${current}：只杀本实例的 spawnPid ${spawnPid}`,
         );
       }
       return { target: spawnPid, warnings };
     }
     // b. 进程树已经没了，但端口主人还活着且就是当初记下的监听者：不是我们的进程，拒杀
     const listenPid = record.listenPid;
-    if (listenPid !== undefined && owner === listenPid && probe.isAlive(listenPid)) {
+    if (listenPid !== undefined && owner() === listenPid && probe.isAlive(listenPid)) {
       return {
         refusal: {
           reason: 'listen-not-ours',
           message: '监听进程还活着，但不在本实例的进程树里',
           hint: SUSPECT_HINT,
-          details: { port, spawnPid, listenPid, owner },
+          details: { port, spawnPid, listenPid, owner: ownerPid },
         },
         warnings,
       };
@@ -659,18 +671,19 @@ export function killTargetFor(record: InstanceRecord, probe: KillProbe): KillDec
   // c. legacy（没有 spawnPid）：`pid` 是旧版反查来的监听者，只能当嫌疑人
   const pid = record.pid;
   if (pid === undefined || !probe.isAlive(pid)) return { warnings };
-  if (owner !== undefined && owner !== pid) {
+  const current = owner();
+  if (current !== undefined && current !== pid) {
     return {
       refusal: {
         reason: 'pid-suspect',
         message: '监听进程还活着，但不在本实例的进程树里',
         hint: SUSPECT_HINT,
-        details: { port, pid, owner },
+        details: { port, pid, owner: current },
       },
       warnings,
     };
   }
-  if (owner === undefined) {
+  if (current === undefined) {
     // 端口上查不到主人：无法确认 pid 是谁，按可疑处理（--force 才按记录里的 pid 处理）
     return {
       refusal: {

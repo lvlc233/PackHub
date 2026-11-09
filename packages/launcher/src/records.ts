@@ -152,6 +152,9 @@ function parseRecord(root: string, text: string): InstanceRecord {
     // 隔离策略坏了不至于让整份记录变坏记录：解析不了就按默认策略读
     isolation: parseIsolation(data.isolation) ?? DEFAULT_ISOLATION,
   };
+  // pid 证据只认数字：手写/旧记录里的坏值直接丢掉，宁可当没有，也不当证据
+  if (typeof normalized.spawnPid !== 'number' || !Number.isFinite(normalized.spawnPid)) delete normalized.spawnPid;
+  if (typeof normalized.listenPid !== 'number' || !Number.isFinite(normalized.listenPid)) delete normalized.listenPid;
   return normalized;
 }
 
