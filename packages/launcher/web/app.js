@@ -24,6 +24,8 @@ const state = {
   selected: null,
   busy: null,
   error: null,
+  /** 一次操作的成功提示；跨轮询保留，直到下一次操作或换实例 */
+  flash: null,
   health: null,
   offline: false,
   rows: new Map(),
@@ -40,7 +42,25 @@ function setHidden(el, hidden) {
 }
 
 function setDisabled(el, disabled) {
-  if (el.disabled !== disabled) el.disabled = disabled;
+  if (el && el.disabled !== disabled) el.disabled = disabled;
+}
+
+/**
+ * 字段级错误标记：配 aria-invalid（CSS 只有这一条规则），focus 到出错的输入。
+ * code 到字段的对应关系由各流程自己给，不给就只在消息区说话。
+ */
+function markField(el, bad) {
+  if (!el) return;
+  if (bad) el.setAttribute('aria-invalid', 'true');
+  else el.removeAttribute('aria-invalid');
+}
+
+function focusErrorField(err, map) {
+  const el = map?.[err?.code];
+  if (!el) return false;
+  markField(el, true);
+  el.focus();
+  return true;
 }
 
 function harnessOf(id) {
@@ -55,8 +75,8 @@ function renderList() {
   const sameOrder =
     state.rows.size === ids.length && ids.every((id) => state.rows.has(id));
   if (!sameOrder) {
-    // 只在「实例集合变了」时重建节点
-    for (const node of list.children) node.remove();
+    // 只在「实例集合变了」时重建节点；list.children 是活集合，边遍历边删会漏掉一半
+    list.replaceChildren();
     state.rows.clear();
     for (const rec of state.instances) {
       const li = document.createElement('li');
@@ -116,8 +136,10 @@ function select(id) {
   if (state.selected === id) return;
   state.selected = id;
   state.health = null;
+  state.flash = null;
   // 换实例后「覆盖本地改动」回到默认不勾
   $('#d-force').checked = false;
+  clearMoreInputs();
   clearError();
   renderList();
   renderDetail();
@@ -190,8 +212,15 @@ function renderDetail() {
   setDisabled($('#d-restart'), !startable || Boolean(state.busy));
   setDisabled($('#d-use'), isActive || Boolean(state.busy));
   setDisabled($('#d-remove'), Boolean(state.busy));
+  // 「更多」里的按钮跟主按钮同一把单飞锁
+  for (const id of ['#clone-go', '#rename-go', '#migrate-go', '#export-go']) {
+    setDisabled($(id), Boolean(state.busy));
+  }
+  $('#clone-name').placeholder = `${rec.name}-copy`;
+  $('#rename-name').placeholder = rec.name;
 
   const notes = [];
+  if (state.flash) notes.push(state.flash);
   if (!startable && harness?.reason) notes.push(`${harness.reason}`);
   if (harness && !harness.available && startable) notes.push(`宿主没装：找不到 ${rec.harness}，先装或用 PAL_*_BIN 指定路径。`);
   if (rec.status === 'broken') notes.push('进程已经不在了。可以重起，或删掉重建。');
@@ -263,6 +292,7 @@ async function act(name) {
   const rec = currentRecord();
   if (!rec || state.busy) return;
   clearError();
+  state.flash = null;
   if (name === 'open') {
     window.open(`/api/instances/${encodeURIComponent(rec.id)}/open`, '_blank', 'noopener');
     return;
@@ -289,7 +319,7 @@ async function act(name) {
       return;
     }
     if (name === 'remove') {
-      askRemove(rec);
+      await removeFlow(rec);
       return;
     }
     const path = routes[name];
@@ -324,27 +354,59 @@ async function act(name) {
   }
 }
 
-/* ---------- 删除确认 ---------- */
+/* ---------- 确认对话框 ---------- */
 
-let removing = null;
+let confirmResolve = null;
 
-function askRemove(rec) {
-  removing = rec;
-  $('#confirm-title').textContent = `删除 ${rec.name}`;
-  $('#confirm-body').textContent = rec.managed
-    ? '默认直接删掉整个实例根（Pack 装进去的文件一并消失）；勾选「保留数据」会先卸掉 Pack 文件，再把剩下的根挪进归档区。'
-    : '这是接管来的目录：只会摘掉 PAL 的记录，目录里的东西一个都不动。';
-  $('#confirm-keep').checked = false;
-  $('#confirm-keep').disabled = !rec.managed;
-  $('#confirm').showModal();
+/**
+ * 打开确认框，用 Promise 把结果交回调用处：确认给 { keep }，取消 / ESC 给 null。
+ * `keep` 只给删除用：传了就显示「保留数据」那一行，`keep.disabled` 控制能不能勾。
+ */
+function askConfirm(opts) {
+  return new Promise((resolve) => {
+    confirmResolve = resolve;
+    $('#confirm-title').textContent = opts.title;
+    $('#confirm-body').textContent = opts.body;
+    $('#confirm-ok').textContent = opts.ok ?? '确定';
+    $('#confirm-ok').className = opts.danger ? 'danger' : 'primary';
+    $('#confirm-keep-row').hidden = !opts.keep;
+    $('#confirm-keep').checked = false;
+    $('#confirm-keep').disabled = Boolean(opts.keep?.disabled);
+    $('#confirm').showModal();
+  });
 }
 
-$('#confirm-form').addEventListener('submit', async (event) => {
+/** 先结算再关：close() 会同步派发 close 事件，反过来会把「保留数据」的勾选吞掉。 */
+function settleConfirm(value) {
+  const resolve = confirmResolve;
+  confirmResolve = null;
+  if (resolve) resolve(value);
+}
+
+$('#confirm-form').addEventListener('submit', (event) => {
   event.preventDefault();
-  const rec = removing;
-  if (!rec) return;
-  const keep = $('#confirm-keep').checked ? '?keepData=1' : '';
+  const keep = $('#confirm-keep').checked;
+  settleConfirm({ keep });
   $('#confirm').close();
+});
+$('#confirm-cancel').addEventListener('click', () => {
+  settleConfirm(null);
+  $('#confirm').close();
+});
+$('#confirm').addEventListener('close', () => settleConfirm(null));
+
+async function removeFlow(rec) {
+  const answer = await askConfirm({
+    title: `删除 ${rec.name}`,
+    body: rec.managed
+      ? '默认直接删掉整个实例根（Pack 装进去的文件一并消失）；勾选「保留数据」会先卸掉 Pack 文件，再把剩下的根挪进归档区。'
+      : '这是接管来的目录：只会摘掉 PAL 的记录，目录里的东西一个都不动。',
+    ok: '删除',
+    danger: true,
+    keep: { disabled: !rec.managed },
+  });
+  if (!answer) return;
+  const keep = answer.keep ? '?keepData=1' : '';
   try {
     state.busy = 'remove';
     renderDetail();
@@ -356,11 +418,9 @@ $('#confirm-form').addEventListener('submit', async (event) => {
     showError(err, '删除');
   } finally {
     state.busy = null;
-    removing = null;
     renderDetail();
   }
-});
-$('#confirm-cancel').addEventListener('click', () => $('#confirm').close());
+}
 
 /* ---------- 新建 ---------- */
 
@@ -377,15 +437,52 @@ async function loadPacks() {
   return state.packs;
 }
 
+/* 新建对话框的三种来源：从 Pack 安装 / 接管已有目录 / 导入模板。
+ * 每种来源各占一段 .src，切过去时把别的段整段 disable —— 既不会被 HTML 的 required 拦住，
+ * 也不会把隐藏字段混进提交体。 */
+const SOURCE = {
+  pack: { title: '新建实例', ok: '创建', busy: '创建中…' },
+  adopt: { title: '接管已有目录', ok: '接管', busy: '接管中…' },
+  import: { title: '导入模板', ok: '导入', busy: '导入中…' },
+};
+
+let source = 'pack';
+
+function currentSource() {
+  return source;
+}
+
+function setSource(next) {
+  source = SOURCE[next] ? next : 'pack';
+  for (const box of document.querySelectorAll('#create-form .src')) {
+    const on = box.dataset.src === source;
+    box.hidden = !on;
+    for (const field of box.querySelectorAll('input, select')) field.disabled = !on;
+  }
+  for (const label of document.querySelectorAll('#create-form .seg label')) {
+    const radio = label.querySelector('input');
+    const on = Boolean(radio?.checked);
+    label.classList.toggle('on', on);
+  }
+  $('#create-title').textContent = SOURCE[source].title;
+  $('#submit').textContent = SOURCE[source].ok;
+}
+
+$('#create-form').addEventListener('change', (event) => {
+  if (event.target?.name === 'source') setSource(event.target.value);
+});
+
 async function openCreate() {
   const form = $('#create-form');
   form.reset();
   $('#create-msg').hidden = true;
   $('#submit').disabled = false;
   $('#create').showModal();
+  setSource('pack');
   form.querySelector('input[name="pack"]').focus();
 
-  fillHarnessSelect();
+  fillHarnessSelect($('#harness-select'), $('#harness-note'));
+  fillHarnessSelect($('#adopt-harness'), $('#adopt-harness-note'));
   const packs = await loadPacks();
   const options = $('#pack-options');
   const names = [
@@ -428,8 +525,9 @@ function harnessLabel(h) {
   return h.available ? h.id : `${h.id}（未安装）`;
 }
 
-function fillHarnessSelect() {
-  const selectEl = $('#harness-select');
+/** 填宿主导航，pack 段与 adopt 段各一个 select，共用这套选项与提示。 */
+function fillHarnessSelect(selectEl, noteEl) {
+  if (!selectEl) return;
   if (selectEl.options.length === 0 && state.harnesses.length > 0) {
     selectEl.innerHTML = state.harnesses
       .map((h) => `<option value="${escapeHtml(h.id)}">${escapeHtml(harnessLabel(h))}</option>`)
@@ -442,9 +540,9 @@ function fillHarnessSelect() {
   }
   const update = () => {
     const harness = harnessOf(selectEl.value);
-    const note = $('#harness-note');
+    if (!noteEl) return;
     if (!harness) {
-      note.hidden = true;
+      noteEl.hidden = true;
       return;
     }
     const bits = [];
@@ -452,18 +550,58 @@ function fillHarnessSelect() {
     if (harness.kind === 'project') {
       if (harness.reason) bits.push(harness.reason);
     } else if (!harness.available) {
-      bits.push('这台机器上没找到命令：实例能建，但起不来');
+      bits.push('这台机器上还没找到命令：实例能建，但起不来');
     }
-    note.textContent = bits.join('；');
-    note.hidden = bits.length === 0;
+    noteEl.textContent = bits.join('；');
+    noteEl.hidden = bits.length === 0;
   };
   selectEl.onchange = update;
   update();
 }
 
-$('#create-form').addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const form = new FormData(event.target);
+/** 各来源的字段与错误 code 的对应：name-taken 指名字，root-occupied 指根/目录。 */
+function createFieldOf(src, err) {
+  const code = err?.code;
+  const message = String(err?.message ?? '');
+  if (src === 'adopt') {
+    if (code === 'name-taken') return $('#adopt-name');
+    if (code === 'unknown-harness') return $('#adopt-harness');
+    // dir 缺席 / 不是绝对路径 / 已经是一份实例 / 目录不存在：都指回目录输入
+    if (['invalid-input', 'root-occupied', 'not-found'].includes(code)) return $('#adopt-dir');
+    return null;
+  }
+  if (src === 'import') {
+    if (code === 'name-taken') return $('#import-name');
+    if (code === 'root-occupied') return $('#import-root');
+    if (code === 'invalid-input') {
+      // 「模板文件…」与「实例根…」都是 invalid-input，只能按文案分开
+      return /实例根/.test(message) ? $('#import-root') : $('#import-file');
+    }
+    if (code === 'not-found') return $('#import-file');
+    return null;
+  }
+  if (code === 'name-taken') return $('#create-form input[name="name"]');
+  if (code === 'invalid-input' && /home/i.test(message)) return $('#create-form input[name="fromHome"]');
+  return null;
+}
+
+function buildCreatePayload(src, form) {
+  if (src === 'adopt') {
+    return {
+      dir: $('#adopt-dir').value.trim(),
+      name: $('#adopt-name').value.trim(),
+      harness: $('#adopt-harness').value || 'dsh',
+    };
+  }
+  if (src === 'import') {
+    const payload = { file: $('#import-file').value.trim() };
+    const name = $('#import-name').value.trim();
+    const root = $('#import-root').value.trim();
+    if (name) payload.name = name;
+    if (root) payload.root = root;
+    if (state.packs.index) payload.index = state.packs.index;
+    return payload;
+  }
   const payload = {
     pack: String(form.get('pack') ?? '').trim(),
     name: String(form.get('name') ?? '').trim(),
@@ -474,26 +612,253 @@ $('#create-form').addEventListener('submit', async (event) => {
   const fromHome = String(form.get('fromHome') ?? '').trim();
   if (fromHome) payload.fromHome = fromHome;
   if (state.packs.index) payload.index = state.packs.index;
+  return payload;
+}
 
+/** 接管 / 导入前先确认：这两条都会写记录或真去取包，不适合点一下就跑。 */
+async function confirmSource(src, payload) {
+  if (src === 'adopt') {
+    const answer = await askConfirm({
+      title: `接管 ${payload.name}`,
+      body: [
+        '目录原样不动，只写一条 PAL 记录：',
+        payload.dir,
+        '',
+        '之后删实例只摘记录，不删这个目录。',
+      ].join('\n'),
+      ok: '接管',
+    });
+    return Boolean(answer);
+  }
+  if (src === 'import') {
+    const answer = await askConfirm({
+      title: '导入模板',
+      body: [
+        '按模板里的 Pack 引用重新取包并建一份新实例：',
+        payload.file,
+        `名字：${payload.name || '（用模板里的）'}`,
+        `实例根：${payload.root || '（由 PAL 分配）'}`,
+      ].join('\n'),
+      ok: '导入',
+    });
+    return Boolean(answer);
+  }
+  return true;
+}
+
+$('#create-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const src = currentSource();
+  const target = event.target;
   const msg = $('#create-msg');
   const submit = $('#submit');
   msg.hidden = true;
+  for (const el of target.querySelectorAll('[aria-invalid]')) markField(el, false);
+
+  const payload = buildCreatePayload(src, new FormData(target));
+  if (!(await confirmSource(src, payload))) return;
+
+  const route = src === 'adopt' ? '/api/instances/adopt' : src === 'import' ? '/api/instances/import' : '/api/instances';
   submit.disabled = true;
-  submit.textContent = '创建中…';
+  submit.textContent = SOURCE[src].busy;
   try {
-    const rec = await api('/api/instances', { method: 'POST', body: payload });
+    const rec = await api(route, { method: 'POST', body: payload });
     $('#create').close();
     state.selected = rec.id;
+    state.health = null;
+    state.flash = null;
     await refresh();
   } catch (err) {
+    const field = createFieldOf(src, err);
+    if (field) {
+      markField(field, true);
+      field.focus();
+    }
     msg.textContent = err.hint ? `${err.message}\n${err.hint}` : err.message;
     msg.hidden = false;
   } finally {
     submit.disabled = false;
-    submit.textContent = '创建';
+    submit.textContent = SOURCE[src].ok;
   }
 });
 
+/* ---------- 更多：克隆 / 改名 / 迁移 / 导出 ---------- */
+
+function clearExportResult() {
+  setHidden($('#export-result'), true);
+  setText($('#export-path'), '');
+}
+
+function clearMoreInputs() {
+  for (const id of ['#clone-name', '#clone-root', '#rename-name', '#migrate-to', '#export-out']) {
+    const el = $(id);
+    if (el) el.value = '';
+    markField(el, false);
+  }
+  clearExportResult();
+}
+
+async function moreClone() {
+  const rec = currentRecord();
+  if (!rec || state.busy) return;
+  const nameEl = $('#clone-name');
+  const rootEl = $('#clone-root');
+  const name = nameEl.value.trim();
+  const root = rootEl.value.trim();
+  clearError();
+  state.flash = null;
+  markField(nameEl, false);
+  markField(rootEl, false);
+  if (!name) {
+    markField(nameEl, true);
+    nameEl.focus();
+    showError(new Error('复制出来的实例要一个新名字'), '克隆');
+    return;
+  }
+  state.busy = 'clone';
+  renderDetail();
+  try {
+    const body = root ? { name, root } : { name };
+    const created = await api(`/api/instances/${encodeURIComponent(rec.id)}/clone`, { method: 'POST', body });
+    state.flash = `已复制成「${created.name}」：${created.root}`;
+    clearMoreInputs();
+    state.selected = created.id;
+    state.health = null;
+    await refresh();
+  } catch (err) {
+    focusErrorField(err, { 'name-taken': nameEl, 'root-occupied': rootEl, 'invalid-input': rootEl });
+    showError(err, '克隆');
+  } finally {
+    state.busy = null;
+    renderDetail();
+  }
+}
+
+async function moreRename() {
+  const rec = currentRecord();
+  if (!rec || state.busy) return;
+  const nameEl = $('#rename-name');
+  const name = nameEl.value.trim();
+  clearError();
+  state.flash = null;
+  markField(nameEl, false);
+  if (!name) {
+    markField(nameEl, true);
+    nameEl.focus();
+    showError(new Error('新名字不能为空'), '改名');
+    return;
+  }
+  state.busy = 'rename';
+  renderDetail();
+  try {
+    const next = await api(`/api/instances/${encodeURIComponent(rec.id)}`, { method: 'PATCH', body: { name } });
+    state.flash = `已改名为「${next.name}」`;
+    nameEl.value = '';
+    await refresh();
+  } catch (err) {
+    focusErrorField(err, { 'name-taken': nameEl, 'invalid-input': nameEl });
+    showError(err, '改名');
+  } finally {
+    state.busy = null;
+    renderDetail();
+  }
+}
+
+async function moreMigrate() {
+  const rec = currentRecord();
+  if (!rec || state.busy) return;
+  const toEl = $('#migrate-to');
+  const to = toEl.value.trim();
+  clearError();
+  state.flash = null;
+  markField(toEl, false);
+  if (!to) {
+    markField(toEl, true);
+    toEl.focus();
+    showError(new Error('要写到哪个目录（绝对路径）'), '迁移');
+    return;
+  }
+  const answer = await askConfirm({
+    title: `迁移 ${rec.name}`,
+    body: [
+      '把整个实例根挪到：',
+      to,
+      `现在的位置：${rec.root}`,
+      '',
+      '同盘是重命名，很快；跨盘（换盘符 / 换卷）会直接失败——PAL 不做跨盘复制。',
+      '真要换盘：先手动把目录复制到新位置，再用「接管已有目录」把它接进来，旧目录自己删。',
+      '',
+      '实例必须先停止；目标目录必须还不存在。',
+    ].join('\n'),
+    ok: '迁移',
+    danger: true,
+  });
+  if (!answer) return;
+  state.busy = 'migrate';
+  renderDetail();
+  try {
+    const next = await api(`/api/instances/${encodeURIComponent(rec.id)}/migrate`, { method: 'POST', body: { to } });
+    state.flash = `实例根已挪到 ${next.root}`;
+    toEl.value = '';
+    state.health = null;
+    await refresh();
+  } catch (err) {
+    focusErrorField(err, { 'root-occupied': toEl, 'invalid-input': toEl });
+    showError(err, '迁移');
+  } finally {
+    state.busy = null;
+    renderDetail();
+  }
+}
+
+async function moreExport() {
+  const rec = currentRecord();
+  if (!rec || state.busy) return;
+  const outEl = $('#export-out');
+  const out = outEl.value.trim();
+  clearError();
+  state.flash = null;
+  clearExportResult();
+  markField(outEl, false);
+  state.busy = 'export';
+  renderDetail();
+  try {
+    const result = await api(`/api/instances/${encodeURIComponent(rec.id)}/export`, {
+      method: 'POST',
+      body: out ? { out } : {},
+    });
+    setText($('#export-path'), result.file);
+    setHidden($('#export-result'), false);
+    state.flash = result.template?.reproducible
+      ? '模板已导出，可以拿去「导入模板」重建'
+      : '模板已导出，但这份实例不可复现：模板只记它是什么，不能复原内容';
+    await refresh();
+  } catch (err) {
+    focusErrorField(err, { 'invalid-input': outEl });
+    showError(err, '导出');
+  } finally {
+    state.busy = null;
+    renderDetail();
+  }
+}
+
+async function copyExportPath() {
+  const text = $('#export-path').textContent ?? '';
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    state.flash = '导出路径已复制';
+  } catch {
+    // 剪贴板不给写：把路径选中，让人自己按 Ctrl+C
+    const range = document.createRange();
+    range.selectNodeContents($('#export-path'));
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    state.flash = '浏览器不让写剪贴板：路径已选中，按 Ctrl+C 复制';
+  }
+  renderDetail();
+}
 /* ---------- 日志 ---------- */
 
 let logsTimer = null;
@@ -640,5 +1005,23 @@ $('#d-use').addEventListener('click', () => act('use'));
 $('#d-health').addEventListener('click', () => act('health'));
 $('#d-logs').addEventListener('click', () => act('logs'));
 $('#d-remove').addEventListener('click', () => act('remove'));
+
+$('#clone-go').addEventListener('click', () => void moreClone());
+$('#rename-go').addEventListener('click', () => void moreRename());
+$('#migrate-go').addEventListener('click', () => void moreMigrate());
+$('#export-go').addEventListener('click', () => void moreExport());
+$('#export-copy').addEventListener('click', () => void copyExportPath());
+
+// 点「更多」以外的地方就收起来；轮询重绘不会碰 details 的 open
+document.addEventListener('click', (event) => {
+  const more = $('#d-more');
+  if (more?.open && !more.contains(event.target)) more.open = false;
+});
+
+// 输入一改就撤掉错误标记，别让红框一直挂着
+document.addEventListener('input', (event) => {
+  const el = event.target;
+  if (el && typeof el.removeAttribute === 'function' && el.hasAttribute?.('aria-invalid')) markField(el, false);
+});
 
 void refresh();

@@ -65,6 +65,58 @@
             <button id="d-health" type="button">体检</button>
             <button id="d-logs" type="button">日志</button>
             <span class="spacer"></span>
+            <details id="d-more" class="more">
+              <summary>更多</summary>
+              <div class="more-body">
+                <div class="more-sec">
+                  <div class="more-head">
+                    <h4>克隆</h4>
+                    <span class="muted">连 home 一起拷；源实例要先停</span>
+                  </div>
+                  <label>新实例名
+                    <input id="clone-name" placeholder="demo-copy" />
+                  </label>
+                  <label>实例根（可选）
+                    <input id="clone-root" placeholder="绝对路径；不填由 PAL 分配" />
+                  </label>
+                  <button type="button" id="clone-go">复制一份</button>
+                </div>
+                <div class="more-sec">
+                  <div class="more-head">
+                    <h4>改名</h4>
+                    <span class="muted">只改记录里的名字，目录不动</span>
+                  </div>
+                  <label>新名字
+                    <input id="rename-name" placeholder="demo" />
+                  </label>
+                  <button type="button" id="rename-go">改名</button>
+                </div>
+                <div class="more-sec">
+                  <div class="more-head">
+                    <h4>迁移实例根</h4>
+                    <span class="muted">同盘重命名；跨盘不支持</span>
+                  </div>
+                  <label>目标目录
+                    <input id="migrate-to" placeholder="绝对路径；目录必须还不存在" />
+                  </label>
+                  <button type="button" id="migrate-go">迁移</button>
+                </div>
+                <div class="more-sec">
+                  <div class="more-head">
+                    <h4>导出模板</h4>
+                    <span class="muted">只含 Pack 引用，不含 home 与数据</span>
+                  </div>
+                  <label>输出文件（可选）
+                    <input id="export-out" placeholder="绝对路径；不填落到 PAL 的 exports 目录" />
+                  </label>
+                  <button type="button" id="export-go">导出</button>
+                  <p id="export-result" class="more-result" hidden>
+                    <span id="export-path" class="mono"></span>
+                    <button type="button" id="export-copy" class="ghost">复制路径</button>
+                  </p>
+                </div>
+              </div>
+            </details>
             <button id="d-remove" class="danger" type="button">删除</button>
           </div>
           <p id="d-note" class="hint" hidden></p>
@@ -79,37 +131,73 @@
 
     <dialog id="create">
       <form id="create-form">
-        <h2>新建实例</h2>
-        <label>Pack
-          <input name="pack" list="pack-options" required placeholder="索引里的名字、./x.phub、git+https、本地目录" />
-          <datalist id="pack-options"></datalist>
-        </label>
-        <div class="row2">
-          <label>从索引挑
-            <select id="pack-pick">
-              <option value="">（手填上面的 Pack）</option>
-            </select>
-          </label>
-          <label>版本
-            <select name="version" id="pack-version">
-              <option value="">latest</option>
-            </select>
-          </label>
+        <h2 id="create-title">新建实例</h2>
+        <div class="seg" role="radiogroup" aria-label="来源">
+          <label><input type="radio" name="source" value="pack" checked /><span>从 Pack 安装</span></label>
+          <label><input type="radio" name="source" value="adopt" /><span>接管已有目录</span></label>
+          <label><input type="radio" name="source" value="import" /><span>导入模板</span></label>
         </div>
-        <div class="row2">
-          <label>实例名
-            <input name="name" required placeholder="demo" />
+        <div class="src" data-src="pack">
+          <label>Pack
+            <input name="pack" list="pack-options" required placeholder="索引里的名字、./x.phub、git+https、本地目录" />
+            <datalist id="pack-options"></datalist>
           </label>
-          <label>宿主
-            <select name="harness" id="harness-select"></select>
+          <div class="row2">
+            <label>从索引挑
+              <select id="pack-pick">
+                <option value="">（手填上面的 Pack）</option>
+              </select>
+            </label>
+            <label>版本
+              <select name="version" id="pack-version">
+                <option value="">latest</option>
+              </select>
+            </label>
+          </div>
+          <div class="row2">
+            <label>实例名
+              <input name="name" required placeholder="demo" />
+            </label>
+            <label>宿主
+              <select name="harness" id="harness-select"></select>
+            </label>
+          </div>
+          <p id="harness-note" class="hint" hidden></p>
+          <label>沿用已有 home（可选）
+            <input name="fromHome" placeholder="绝对路径，例如 C:\Users\me\.dsh —— 带模型凭据与 AGENTS.md 过来，不覆盖 Pack 的文件" />
           </label>
+          <p class="hint" id="create-hint" hidden></p>
         </div>
-        <p id="harness-note" class="hint" hidden></p>
-        <label>沿用已有 home（可选）
-          <input name="fromHome" placeholder="C:\Users\me\.dsh —— 带模型凭据与 AGENTS.md 过来，不覆盖 Pack 的文件" />
-        </label>
+        <div class="src" data-src="adopt" hidden>
+          <label>要接管的目录
+            <input id="adopt-dir" required placeholder="绝对路径，例如 D:\work\my-dsh" />
+          </label>
+          <p class="hint">目录原样不动，只写一条记录；删实例时只摘记录，不删目录。目录必须已经存在。</p>
+          <div class="row2">
+            <label>实例名
+              <input id="adopt-name" required placeholder="demo" />
+            </label>
+            <label>宿主
+              <select id="adopt-harness"></select>
+            </label>
+          </div>
+          <p id="adopt-harness-note" class="hint" hidden></p>
+        </div>
+        <div class="src" data-src="import" hidden>
+          <label>模板文件
+            <input id="import-file" required placeholder="绝对路径，例如 D:\exports\demo.pal.json" />
+          </label>
+          <div class="row2">
+            <label>实例名（可选）
+              <input id="import-name" placeholder="默认用模板里的名字" />
+            </label>
+            <label>实例根（可选）
+              <input id="import-root" placeholder="绝对路径" />
+            </label>
+          </div>
+          <p class="hint">按模板里的 Pack 引用重新取包；模板只含引用，不含 home 与数据。</p>
+        </div>
         <p id="create-msg" class="msg" hidden></p>
-        <p class="hint" id="create-hint" hidden></p>
         <div class="actions">
           <button type="button" id="cancel" class="ghost">取消</button>
           <button type="submit" id="submit" class="primary">创建</button>
@@ -121,7 +209,7 @@
       <form id="confirm-form">
         <h2 id="confirm-title">删除实例</h2>
         <p id="confirm-body" class="hint"></p>
-        <label class="check">
+        <label class="check" id="confirm-keep-row" hidden>
           <input type="checkbox" id="confirm-keep" />
           <span>保留数据（home、会话、凭据；Pack 装进去的文件仍然会卸掉）</span>
         </label>
