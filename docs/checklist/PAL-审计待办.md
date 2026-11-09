@@ -1,6 +1,6 @@
 # PAL 审计待办（37 条）
 
-> 日期：2026-11-09 ／ 基线：`acaab37`，`pnpm check` 全绿 ／ 口径：2026-11-09 的 PAL 全量审计 50 条，已关闭 37 条（A 9、B 15、C 8、D 5），本文只记**原始剩余 13 条**与新增未完成的 E 3 条，共 **16 条**。
+> 日期：2026-11-09 ／ 基线：`a2e1a9e`，`pnpm check` 全绿 ／ 口径：2026-11-09 的 PAL 全量审计 50 条，已关闭 38 条（A 9、B 15、C 9、D 5），本文只记**原始剩余 12 条**与新增未完成的 E 3 条，共 **15 条**。
 > 用途：跨会话派工，不依赖聊天记录。编号沿用审计原号，新增组往后排，**不重排、不复用**。
 > 相关：功能现状见 [PackHub-功能全量清单](PackHub-功能全量清单.md) 的 PAL 域，机制细节见 [details/pal.md](details/pal.md)。本表只记待办，做完就改状态；现状描述不在这里续写。
 
@@ -51,7 +51,7 @@
 |---|---|---|---|---|
 | C4 | 三份事实 | `instance.json` 的 pack/planHash、`.packhub/state.json`、`baseline.json` 各存一份，更新要同步三处 | `[open]` | 无 |
 | C7 | 静默失败 | `seedHome` 单文件失败经 `onWarn` 报告（CLI stderr）；`update` 删旧文件失败进 `warnings`；日志读取仍 best-effort | `[done]` acaab37 | 无 |
-| C8 | 状态机缺 `unknown`/`stale` | 进程自然退出、无人刷新时记录仍是 `running`（读接口已改成纯视图） | `[open]` | 无 |
+| C8 | 状态机缺 `unknown`/`stale` | 只读视图 `statusView` 对 running 但 pid 已死/缺席的记录给 `status:broken` + `stale:true`（不落盘）；不新增 `unknown` 状态，记录 schema 不变 | `[done]` a2e1a9e | 无 |
 | C9 | 没有 service 层 | HTTP handler 直接调 materialize/create/update，CLI 又重复一遍 | `[open]` | 无 |
 | C10 | 测试缺口 | 隔离策略（尚无）、并发看护 / 停止、迁移回滚失败分支、Electron 壳均未覆盖 | `[open]` | 随对应条目补 |
 
@@ -93,12 +93,12 @@
 |---|---|---|
 | A | A3、A7、A11、A13 | 4 |
 | B | B12 | 1 |
-| C | C4、C8、C9、C10 | 4 |
+| C | C4、C9、C10 | 3 |
 | D | D1–D3、D7 | 4 |
-| 小计 | 原始剩余 | **13** |
+| 小计 | 原始剩余 | **12** |
 | E | E3–E5 | 3 |
 | N | — | 0 |
-| 合计 |  | **16** |
+| 合计 |  | **15** |
 
 ## 建议开工顺序
 
@@ -115,7 +115,7 @@ Electron 这条线独立于 A–D：先 **E1**（壳能起来），再 **E2**（
 
 新会话开场可直接写：
 
-> 继续 PackHub PAL 审计剩余 16 条（原 13 + E3–E5），仓库在 `acaab37`。A1/A2/A4/A5/A6/A8/A9/A10/A12/B14/C7/E1/E2/N2 已完成；下一步 C4 或 C8；B12/凭据策略待定。
+> 继续 PackHub PAL 审计剩余 15 条（原 12 + E3–E5），仓库在 `a2e1a9e`。A1/A2/A4/A5/A6/A8/A9/A10/A12/B14/C7/C8/E1/E2/N2 已完成；下一步 C4 或 C10；B12/凭据策略待定。
 
 ## 完成判据
 
