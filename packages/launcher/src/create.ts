@@ -6,6 +6,7 @@ import { ADAPTERS, HARNESS_IDS, targetVarsFor } from './layout.ts';
 import { baselineFromState, writeBaseline } from './baseline.ts';
 import { withInstanceLock } from './lock.ts';
 import { API_VERSION, readRecord, recordFile, type InstanceRecord } from './records.ts';
+import { DEFAULT_ISOLATION } from './isolation.ts';
 import { dropActive, listInstances, readActiveMap, writeActiveMap } from './catalog.ts';
 import { failInstance } from './quarantine.ts';
 import { writeInstance } from './recordWrite.ts';
@@ -157,6 +158,7 @@ export async function createInstance(opts: CreateInstanceOptions): Promise<Insta
     ...(opts.harnessVersion ? { harnessVersion: opts.harnessVersion } : {}),
     root,
     ...(home ? { home } : {}),
+    isolation: DEFAULT_ISOLATION,
     pack: {
       name: ctx.manifest.metadata.name,
       version: ctx.manifest.metadata.version,
@@ -277,6 +279,7 @@ export function adoptInstance(opts: AdoptOptions): InstanceRecord {
     harness,
     root: dir,
     ...(home ? { home } : {}),
+    isolation: DEFAULT_ISOLATION,
     pack,
     planHash,
     createdAt: nowIso(),

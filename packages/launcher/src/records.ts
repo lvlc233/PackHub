@@ -1,12 +1,13 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { TargetId } from '@packhub/kernel';
+import { DEFAULT_ISOLATION, parseIsolation, type Isolation } from './isolation.ts';
 import { nowIso } from './time.ts';
 
 /**
  * 实例记录：文件名、记录类型、解析与读取。
- * 只做纯文件读写，依赖 fs/path、time.ts 和 kernel 的类型；不 import index.ts（避免循环）。
- * 带副作用的写记录在 recordWrite.ts；列表、隔离与归档仍在 index.ts。
+ * 只做纯文件读写，依赖 fs/path、time.ts、isolation.ts 和 kernel 的类型；不 import index.ts（避免循环）。
+ * 带副作用的写记录在 recordWrite.ts；列表、隔离区与归档仍在 index.ts。
  */
 
 export const RECORD = 'instance.json';
@@ -32,6 +33,8 @@ export interface InstanceRecord {
   root: string;
   /** 实例自己的 home 段（dsh: DSH_HOME）；dir 没有 */
   home?: string;
+  /** 隔离策略：每层是每实例一份还是全局共享；旧记录没有这个字段，读出来是默认策略 */
+  isolation?: Isolation;
   pack: { name: string; version: string; ref?: string };
   planHash: string;
   createdAt: string;
@@ -75,6 +78,8 @@ function parseRecord(root: string, text: string): InstanceRecord {
     managed: data.managed ?? true,
     ports: Array.isArray(data.ports) ? data.ports : [],
     pack: data.pack ?? { name: 'unknown', version: '0.0.0' },
+    // 隔离策略坏了不至于让整份记录变坏记录：解析不了就按默认策略读
+    isolation: parseIsolation(data.isolation) ?? DEFAULT_ISOLATION,
   };
   return normalized;
 }

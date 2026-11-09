@@ -5,6 +5,7 @@ import { isPidAlive } from './process.ts';
 import { instancesRoot, newId } from './paths.ts';
 import { LOCK, readLock, releaseInstanceLock, withInstanceLockSync } from './lock.ts';
 import { readRecord, readRecordResult, type InstanceRecord } from './records.ts';
+import { DEFAULT_ISOLATION, parseIsolation } from './isolation.ts';
 import { readActiveMap, requireInstance, writeActiveMap } from './catalog.ts';
 import { nowIso } from './time.ts';
 import { writeInstance } from './recordWrite.ts';
@@ -52,6 +53,8 @@ export async function cloneInstance(
     name,
     root: target,
     ...(source.home ? { home: source.home.replace(source.root, target) } : {}),
+    // 复制体沿用源的隔离策略；源记录里缺这一段或写坏了就按默认来
+    isolation: parseIsolation(source.isolation) ?? DEFAULT_ISOLATION,
     createdAt: nowIso(),
     updatedAt: nowIso(),
     status: 'installed',

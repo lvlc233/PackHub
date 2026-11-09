@@ -20,6 +20,7 @@ import {
   migrateInstance,
   readBaseline,
   readInstance,
+  readRecordResult,
   readTemplate,
   rebaselineInstance,
   removeInstance,
@@ -29,6 +30,7 @@ import {
   writeTemplate,
 } from '../src/index.ts';
 import { isPalError } from '../src/errors.ts';
+import { DEFAULT_ISOLATION, type Isolation } from '../src/isolation.ts';
 import { isPidAlive } from '../src/process.ts';
 import { isStopping, stoppingMarkFile } from '../src/stopMark.ts';
 import { baselineDrift } from '../src/health.ts';
@@ -158,6 +160,59 @@ describe('实例配置', () => {
     expect(result.removed).toBe(true);
     expect(listInstances()).toEqual([]);
     expect(existsSync(record.root)).toBe(false);
+  });
+
+  it('新建实例与接管都写默认隔离策略，旧记录读出来也是默认', async () => {
+    const record = await createInstance({ name: 'iso-new', harness: 'dir', packDir: PACK });
+    expect(record.isolation).toEqual(DEFAULT_ISOLATION);
+    const onDisk = JSON.parse(readFileSync(join(record.root, 'instance.json'), 'utf8')) as { isolation?: unknown };
+    expect(onDisk.isolation).toEqual(DEFAULT_ISOLATION);
+
+    const dir = join(tmp, 'iso-adopt');
+    mkdirSync(dir, { recursive: true });
+    const adopted = adoptInstance({ dir, name: 'iso-adopt', harness: 'dir' });
+    expect(adopted.isolation).toEqual(DEFAULT_ISOLATION);
+
+    // 旧记录（没有 isolation 字段）：读出来就是默认策略，不算坏记录
+    const legacy = { ...record } as Record<string, unknown>;
+    delete legacy.isolation;
+    writeFileSync(join(record.root, 'instance.json'), JSON.stringify(legacy, null, 2), 'utf8');
+    const read = readRecordResult(record.root);
+    expect(read.error).toBeUndefined();
+    expect(read.record?.isolation).toEqual(DEFAULT_ISOLATION);
+
+    // 坏策略也只回落默认，不把整份记录判坏
+    writeFileSync(
+      join(record.root, 'instance.json'),
+      JSON.stringify({ ...legacy, isolation: { version: 2, layers: {} } }, null, 2),
+      'utf8',
+    );
+    const fallback = readRecordResult(record.root);
+    expect(fallback.error).toBeUndefined();
+    expect(fallback.record?.isolation).toEqual(DEFAULT_ISOLATION);
+  });
+
+  it('复制实例带上源记录的隔离策略，源记录缺这段就用默认', async () => {
+    const source = await createInstance({ name: 'iso-src', harness: 'dir', packDir: PACK });
+    const custom: Isolation = {
+      version: 1,
+      layers: { assembly: 'shared', session: 'shared', credentials: 'shared', cache: 'shared', runtime: 'shared' },
+    };
+    writeFileSync(
+      join(source.root, 'instance.json'),
+      JSON.stringify({ ...readInstance(source.id)!, isolation: custom }, null, 2),
+      'utf8',
+    );
+    const copy = await cloneInstance('iso-src', { name: 'iso-copy' });
+    expect(copy.isolation).toEqual(custom);
+    expect(readInstance(copy.id)?.isolation).toEqual(custom);
+
+    // 源记录里没有 isolation 的老记录：复制体用默认，而不是 undefined
+    const bare = { ...readInstance(source.id)! } as Record<string, unknown>;
+    delete bare.isolation;
+    writeFileSync(join(source.root, 'instance.json'), JSON.stringify(bare, null, 2), 'utf8');
+    const fallback = await cloneInstance('iso-src', { name: 'iso-copy-default' });
+    expect(fallback.isolation).toEqual(DEFAULT_ISOLATION);
   });
 
   it('重名、未知宿主、未声明的 target 都有稳定错误码', async () => {
