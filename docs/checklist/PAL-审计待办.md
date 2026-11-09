@@ -1,6 +1,6 @@
 # PAL 审计待办（37 条）
 
-> 日期：2026-11-09 ／ 基线：`5b18904`，`pnpm check` 全绿 ／ 口径：2026-11-09 的 PAL 全量审计 50 条，已关闭 43 条（A 11、B 15、C 11、D 6），本文只记**原始剩余 7 条**与新增未完成的 E 3 条，共 **10 条**。
+> 日期：2026-11-09 ／ 基线：`80b7e87`，`pnpm check` 全绿 ／ 口径：2026-11-09 的 PAL 全量审计 50 条，已关闭 44 条（A 11、B 15、C 12、D 6），本文只记**原始剩余 6 条**与新增未完成的 E 3 条，共 **9 条**。
 > 需要拍板的四组语义（A3/B12/E3/E5）与结构项顺序见 [PAL-剩余决策](PAL-剩余决策.md)。
 > 用途：跨会话派工，不依赖聊天记录。编号沿用审计原号，新增组往后排，**不重排、不复用**。
 > 相关：功能现状见 [PackHub-功能全量清单](PackHub-功能全量清单.md) 的 PAL 域，机制细节见 [details/pal.md](details/pal.md)。本表只记待办，做完就改状态；现状描述不在这里续写。
@@ -54,7 +54,7 @@ A3 凭据已定为 **copy**（`0d4f6d6`）：`credentials=shared` 明确拒绝�
 | C4 | 三份事实 | `planHash` 只在 baseline；pack 身份由 `packIdentityFromState` 从 state 派生（0/≥2 个包才 external），record 只存派生快照；update 写完回读 state | `[done]` 26d46a5 | 无 |
 | C7 | 静默失败 | `seedHome` 单文件失败经 `onWarn` 报告（CLI stderr）；`update` 删旧文件失败进 `warnings`；日志读取仍 best-effort | `[done]` acaab37 | 无 |
 | C8 | 状态机缺 `unknown`/`stale` | 只读视图 `statusView` 对 running 但 pid 已死/缺席的记录给 `status:broken` + `stale:true`（不落盘）；不新增 `unknown` 状态，记录 schema 不变 | `[done]` a2e1a9e | 无 |
-| C9 | 没有 service 层 | HTTP handler 直接调 materialize/create/update，CLI 又重复一遍 | `[open]` | 无 |
+| C9 | 没有 service 层 | `service.ts` 收 `createFromRef` / `updateFromRef` / `importFromFile`：CLI 与 HTTP 共用「取包 → 装配/更新」；参数解析、json、错误展示仍归两侧 | `[done]` 80b7e87 | 无 |
 | C10 | 测试缺口 | 已覆盖：隔离策略（config/isolation 测试）、并发看护/停止（start/watch）、迁移回滚失败（instance）、Electron 转发器路径/头/token（apps/pal-electron/test/forward.test.ts） | `[done]` cb160a3 | 随对应条目补 |
 
 ## D 组：坏味道（7 条）
@@ -95,12 +95,12 @@ A3 凭据已定为 **copy**（`0d4f6d6`）：`credentials=shared` 明确拒绝�
 |---|---|---|
 | A | A7、A11 | 2 |
 | B | B12 | 1 |
-| C | C9 | 1 |
+| C | — | 0 |
 | D | D1、D3、D7 | 3 |
-| 小计 | 原始剩余 | **7** |
+| 小计 | 原始剩余 | **6** |
 | E | E3–E5 | 3 |
 | N | — | 0 |
-| 合计 |  | **10** |
+| 合计 |  | **9** |
 
 ## 建议开工顺序
 
@@ -117,7 +117,7 @@ Electron 这条线独立于 A–D：先 **E1**（壳能起来），再 **E2**（
 
 新会话开场可直接写：
 
-> 继续 PackHub PAL 审计剩余 10 条（原 7 + E3–E5），仓库在 `5b18904`。A1/A2/A3/A4/A5/A6/A8/A9/A10/A12/A13/B14/C1–C8/C10–C12/E1/E2/N2 已完成；D1 类型层已拆；下一步 D1 持久化或 C9；B12 仍待定。
+> 继续 PackHub PAL 审计剩余 9 条（原 6 + E3–E5），仓库在 `80b7e87`。A1–A6/A8–A10/A12/A13/B14/C1–C12/E1/E2/N2 已完成；D1 类型层已拆；下一步 D1 持久化或 D3；B12 仍待定。
 
 ## 完成判据
 
