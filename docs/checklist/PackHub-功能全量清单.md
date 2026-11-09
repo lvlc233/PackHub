@@ -283,7 +283,7 @@ PAL 是 `packages/launcher` 里的实例内核 + Windows 壳（`apps/pal-desktop
 | PAL-01 | 实例记录 | `instance.json` 记 id/name/harness/harnessVersion/pack/root/home/planHash/status/ports[]/managed/lastExit | [done] | `launcher/src/index.ts` |
 | PAL-02 | 建实例 | `pal create` 从 Pack 建目录；先落 `installing`，失败进 `.failed` 并写原因 | [done] | `createInstance`、`test/instance.test.ts` |
 | PAL-03 | 失败清理 | 复用已有目录时不删目录；只有自己造的根才移走 | [done] | `test/instance.test.ts` |
-| PAL-04 | 删除 | 先停进程再卸包；`--keep-data` 归档；接管目录只摘记录 | [done] | `removeInstance`、`test` |
+| PAL-04 | 删除 | 先停进程，默认直接删根（不卸包）；`--keep-data` 先卸包再归档；接管目录只摘记录 | [done] | `removeInstance`、`test` |
 | PAL-05 | 启动 | 不拼 shell；日志走 fd；等地址超时贴日志尾部 | [done] | `start.ts`、`test/start.test.ts` |
 | PAL-06 | pid 与退出码 | 记真正在监听的 pid（Windows 垫片不再记成 cmd）；退出码/信号进 `lastExit` | [done] | `portOwner`、`attachSupervisor` |
 | PAL-07 | 端口 | 自动挑空闲端口；冲突报占用者 pid/进程名 | [done] | `port.ts` |

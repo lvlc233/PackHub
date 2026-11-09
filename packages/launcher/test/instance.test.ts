@@ -331,10 +331,10 @@ describe('实例配置', () => {
     expect(readFileSync(join(failedRoot(), failed[0]!, 'reason.json'), 'utf8')).toContain('skill 源目录不存在');
   });
 
-  it('删除运行中的实例：先停进程再卸包，不再出现删一半', async () => {
+  it('删除运行中的实例：先停进程再直接删根（不逐个卸包），不再出现删一半', async () => {
     const record = await createInstance({ name: 'busy-one', harness: 'dsh', packDir: PACK });
     const killed: number[] = [];
-    // 让记录看起来在跑：删除必须调 kill 并等进程退出，再卸包、删根
+    // 让记录看起来在跑：删除必须调 kill 并等进程退出，再直接删根
     writeFileSync(
       join(record.root, 'instance.json'),
       JSON.stringify({ ...readInstance(record.id)!, status: 'running', pid: 4242, port: 41234 }, null, 2),
@@ -454,7 +454,7 @@ describe('实例配置', () => {
     expect(readFileSync(keep, 'utf8')).toBe('my session');
   });
 
-  it('删根失败（目录占用且归档也失败）：包没卸、state 与记录原样留着，可以重试', async () => {
+  it('删根失败（目录占用且归档也失败）：Pack 文件没动、state 与记录原样留着，可以重试', async () => {
     const record = await createInstance({ name: 'root-busy', harness: 'dsh', packDir: PACK });
     const stateFile = join(record.root, '.packhub', 'state.json');
     const before = readFileSync(stateFile, 'utf8');

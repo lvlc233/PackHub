@@ -195,10 +195,14 @@ const show = defineCommand({
 });
 
 const remove = defineCommand({
-  meta: { name: 'remove', description: '删一份实例（先停进程，再卸包；--keep-data 保留数据）' },
+  meta: { name: 'remove', description: '删一份实例（先停进程；默认直接删根，--keep-data 先卸包再归档）' },
   args: {
     target: { type: 'positional', required: true, description: '实例 id 或名字' },
-    'keep-data': { type: 'boolean', default: false, description: '保留 home / 会话 / 凭据，挪进归档区' },
+    'keep-data': {
+      type: 'boolean',
+      default: false,
+      description: '先按 state 卸包，再把实例根（home / 会话 / 凭据）挪进归档区',
+    },
     yes: { type: 'boolean', default: false, description: '跳过确认' },
     json: { type: 'boolean', default: false },
   },
@@ -207,9 +211,9 @@ const remove = defineCommand({
     const keep = Boolean(args['keep-data']);
     const what = rec.managed
       ? keep
-        ? '卸掉 Pack 装进去的文件，实例根挪进归档区'
-        : '卸掉 Pack 装进去的文件，然后删掉整个实例根'
-      : '只摘掉记录（接管来的目录不动）';
+        ? '先按 state 卸掉 Pack 装进去的文件，再把实例根（home / 会话 / 凭据）挪进归档区'
+        : '直接删掉整个实例根（Pack 装进去的文件随根一起消失）'
+      : '只摘掉记录，接管来的目录不动';
     const ok = await confirm(`删除 ${rec.name}：${what}？`, Boolean(args.yes));
     if (!ok) {
       console.log('已取消');
@@ -221,17 +225,26 @@ const remove = defineCommand({
       return;
     }
     if (result.stopped) console.log(`· 先停掉了 pid ${result.stopped}`);
-    console.log(`· 卸载：${result.uninstalled.join(', ') || '（没有 Pack 记录）'}`);
-    const outcome = !rec.managed
-      ? '已摘掉记录（接管目录未动）'
-      : keep
-        ? result.archivedTo
-          ? `已归档到 ${result.archivedTo}`
-          : `已摘掉记录：${rec.id}`
-        : result.removed
-          ? `已删除 ${rec.id}`
-          : `已摘掉记录：${rec.id}`;
-    console.log(`✓ ${outcome}`);
+    // 接管来的实例不按 state 卸包，只有摘记录，没有 Pack 可报告。
+    if (!rec.managed) {
+      console.log('✓ 已摘掉记录（接管目录未动）');
+      return;
+    }
+    const packs = result.uninstalled.join(', ') || '（没有 Pack 记录）';
+    if (keep) {
+      console.log(`· 已卸包：${packs}`);
+      console.log(
+        result.archivedTo
+          ? `✓ 已归档到 ${result.archivedTo}`
+          : `✓ 已从列表移除：${rec.id}（归档去向未知）`,
+      );
+      return;
+    }
+    // 默认路径不逐个卸包：Pack 文件随根删除，或随根一起进归档目录。
+    console.log(`· ${result.removed ? '随根删除的 Pack 记录' : '随根归档的 Pack 记录'}：${packs}`);
+    if (result.removed) console.log(`✓ 已删除 ${rec.id}`);
+    else if (result.archivedTo) console.log(`✓ 根删不掉，已改名归档到 ${result.archivedTo}`);
+    else console.log(`✓ 已从列表移除：${rec.id}（根未确认删掉）`);
   },
 });
 

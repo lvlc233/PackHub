@@ -305,7 +305,7 @@ function askRemove(rec) {
   removing = rec;
   $('#confirm-title').textContent = `删除 ${rec.name}`;
   $('#confirm-body').textContent = rec.managed
-    ? 'Pack 装进去的文件会先卸掉；勾选「保留数据」就把整个实例根挪进归档区，否则连根删掉。'
+    ? '默认直接删掉整个实例根（Pack 装进去的文件一并消失）；勾选「保留数据」会先卸掉 Pack 文件，再把剩下的根挪进归档区。'
     : '这是接管来的目录：只会摘掉 PAL 的记录，目录里的东西一个都不动。';
   $('#confirm-keep').checked = false;
   $('#confirm-keep').disabled = !rec.managed;

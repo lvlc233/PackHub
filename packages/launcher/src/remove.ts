@@ -13,8 +13,8 @@ import { recordFile, type InstanceRecord } from './records.ts';
 import { clearStopping, markStopping } from './stopMark.ts';
 
 /**
- * 删实例：停进程、按需卸包或归档、摘 link/active。
- * 从 index.ts 搬来，只依赖 fs/path、runtime 和各叶子模块；不 import index.ts（没有循环）。
+ * 删实例：先停进程；默认直接删根（删不动就改名归档），keepData 才先按 state 卸包再归档；
+ * 最后摘 link/active。从 index.ts 搬来，只依赖 fs/path、runtime 和各叶子模块；不 import index.ts（没有循环）。
  */
 
 /**
@@ -39,7 +39,10 @@ async function removeTreeWithRetry(dir: string, tries = 6): Promise<{ removed: b
 }
 
 export interface RemoveOptions {
-  /** 保留数据：卸掉 Pack 装进去的文件，把实例根移进 .archive，记录从列表里去掉 */
+  /**
+   * 保留数据：先按 state 卸掉 Pack 装进去的文件，再把实例根（剩下的 home / 会话 / 凭据）
+   * 移进 .archive，记录从列表里去掉。不传则直接删根。
+   */
   keepData?: boolean;
   /** 已经在跑就先停掉；默认 true */
   force?: boolean;
@@ -53,17 +56,25 @@ export interface RemoveResult {
   record: InstanceRecord;
   /** 停掉的进程 pid */
   stopped?: number;
+  /**
+   * 删除前从实例 state 里读到的 Pack key。它只说明「删之前装过哪些 Pack」，
+   * **不是**「这些 Pack 被逐个卸载成功」的凭据：
+   * - 默认删除：不逐个卸包，文件随实例根一起消失；根删不掉转归档时，文件仍在归档目录里。
+   * - keepData：这些 Pack 确实按 state 卸掉了，归档里只剩 home / 会话 / 凭据。
+   * - 接管来的实例：不按 state 卸包，恒为空数组。
+   * 字段名沿用 uninstalled 是为了不动 server/UI 的 JSON；要改名应连同 API 一起升级。
+   */
   uninstalled: string[];
-  /** keepData 时的去向 */
+  /** keepData 时的去向；默认删除走了归档兜底时也有值 */
   archivedTo?: string;
-  /** 目录是否真的删掉了（接管来的实例默认不删） */
+  /** 实例根是否真的被删掉：只有默认删除成功才是 true；keepData、接管实例、转归档都是 false */
   removed: boolean;
 }
 
 /**
  * 删一份实例：先停进程，再按需处理根。
- * - 默认：直接删根（删不动就归档），成功后才摘 link/active；失败则记录、state、包都原样留着。
- * - keepData：先按 state 卸包，再把根归档。
+ * - 默认：直接删根（删不动就改名归档），成功后才摘 link/active；失败则记录、state、Pack 文件都原样留着。
+ * - keepData：先按 state 卸包，再把剩下的根（home / 会话 / 凭据）归档。
  * 运行中的实例不再出现“删一半”（EBUSY、包卸了目录还在）的情况。
  */
 export async function removeInstance(
@@ -114,7 +125,7 @@ export async function removeInstance(
       return;
     }
 
-    // keepData 要先把 Pack 写进去的文件卸掉，再把（剩下的）根归档
+    // keepData 才逐个卸包：先按 state 删掉 Pack 写进去的文件，再把剩下的根（home / 会话 / 凭据）归档
     if (opts.keepData) {
       try {
         const state = loadState(record.root);
@@ -149,7 +160,8 @@ export async function removeInstance(
     // 默认删除：根是唯一真实的删除动作，先走它。
     // 顺序反了（先 removePack 再删根）一旦删根失败，包已经卸掉、目录和记录还在，
     // 没有回滚手段；反过来根删不掉就整根原样留着，state 和记录都完整，可以直接重试。
-    // 包 key 只在删根前读一次，纯粹为了结果里的 uninstalled 报告（删完 state 就没了）。
+    // 读包 key 只为结果报告：默认路径不逐个卸包，uninstalled 列的是
+    // 「随根一起消失（或随根进归档）的 Pack」，不是「已单独卸载」。
     let packKeys: string[] = [];
     try {
       packKeys = Object.keys(loadState(record.root).packs);
