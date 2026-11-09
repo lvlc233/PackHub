@@ -23,6 +23,12 @@ PAL 把 Pack 装进一个独立实例根，并按宿主起停进程。代码在 
 
 新建实例的 home 是空的：宿主起来也没有模型可用。两条路把已有环境接过来 —— `pal create --from-home ~/.dsh`（只补空缺地复制凭据与用户指令，Pack 写好的文件不被覆盖；`sessions`、`cache`、`attachments`、`dsh-runtimes`、`storages`、`profiles`、`logs` 不搬），或 `pal adopt`（直接接管整个已有目录，一个字节不动）。
 
+## 隔离策略
+
+记录里的 `isolation` 描述五层各自怎么放：`assembly`（Pack 装出来的文件）、`session`（会话/缓存）、`credentials`（凭据）、`cache`（取包缓存）、`runtime`（宿主运行时）。每层两种模式：`instance`（这个实例独有）或 `shared`（跟宿主共用）。默认值见 `isolation.ts`：`assembly`/`session`/`credentials` 为 `instance`，`cache`/`runtime` 为 `shared`。
+
+默认策略存在 `<PACKHUB_HOME>/config.json` 的 `isolation`；`pal create --isolation assembly=shared,session=instance` 可显式覆盖，`pal config` 可看/改默认。策略在**建实例那一刻**快照进记录，之后改全局默认不追溯已有实例；`pal adopt` 也按当时的默认值记一份。旧记录与坏策略值回落默认。凭据的 copy / shared-ro 语义还在 A3 决策里；当前实现是按 `instance` 复制，备份默认不带凭据。
+
 ## 记录与状态
 `instance.json` 的字段：`id`、`name`、`harness`、`harnessVersion`、`root`、`home`、`pack{name,version,ref}`、`planHash`、`status`、`managed`、`origin`、`pid`、`port`、`ports[]`、`url`（已摘凭据）、`startedAt`、`lastExit{code,signal,at,restarts}`、`lastError`、`restart`。
 

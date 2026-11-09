@@ -37,7 +37,7 @@
 | A10 | 系统级看护缺失 | `pal watch [--interval]`：headless 轮询 scanInstances，对 running 但 pid 已死的记录按 on-failure 预算重起，否则写 broken；与 `pal serve` 二选一 | `[done]` 6fea5d6 | 无 |
 | A11 | 没有运行时版本管理 | PAL-23 是 `[part]`；分发自带 node.exe，不能切换 | `[open]` | 无 |
 | A12 | 没有并发多实例管理面 | `pal ps [--json]`：running/pid 实例、端口冲突、stale、坏记录与总计；纯读不写盘（`ps.ts`） | `[done]` 1ea038c | 无 |
-| A13 | 决策没写回文档 | `concepts.md`、`details/pal.md` 只写现状，没写隔离与凭据策略 | `[open]` | A1、A3 定稿 |
+| A13 | 决策没写回文档 | `pal.md` 已补「隔离策略」：五层/模式/默认/`--isolation`/建实例快照/不追溯；凭据 copy/shared-ro 与 A7 的决定待 A3 | `[part]` | A3 |
 
 ## B 组：坏影响（2 条）
 
