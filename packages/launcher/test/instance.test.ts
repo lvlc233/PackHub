@@ -542,6 +542,28 @@ describe('实例配置', () => {
     expect(listInstances()).toEqual([]);
   });
 
+  it('keepData 归档：宿主凭据文件按 ADAPTERS.credentialFiles 剥离，业务数据留下', async () => {
+    const record = await createInstance({ name: 'archive-cred', harness: 'dsh', packDir: PACK });
+    const home = join(record.root, 'home', 'dsh');
+    mkdirSync(home, { recursive: true });
+    writeFileSync(join(home, 'auth.json'), JSON.stringify({ token: 'host-token' }), 'utf8');
+    writeFileSync(join(home, '.credentials.yaml'), 'apiKey: sk-host\n', 'utf8');
+    writeFileSync(join(home, 'session.txt'), 'my session', 'utf8');
+    writeFileSync(join(record.root, 'secrets.json'), JSON.stringify({ token: 'pal-secret' }), 'utf8');
+
+    const result = await removeInstance('archive-cred', { keepData: true });
+
+    expect(result.archivedTo).toBeDefined();
+    const archivedHome = join(result.archivedTo!, 'home', 'dsh');
+    // PAL 的 secrets.json 与宿主凭据文件都不跟着归档走
+    expect(existsSync(join(result.archivedTo!, 'secrets.json'))).toBe(false);
+    expect(existsSync(join(archivedHome, 'auth.json'))).toBe(false);
+    expect(existsSync(join(archivedHome, '.credentials.yaml'))).toBe(false);
+    // 其余数据照常保留
+    expect(readFileSync(join(archivedHome, 'session.txt'), 'utf8')).toBe('my session');
+    expect(listInstances()).toEqual([]);
+  });
+
   it('删根失败（目录占用且归档也失败）：Pack 文件没动、state 与记录原样留着，可以重试', async () => {
     const record = await createInstance({ name: 'root-busy', harness: 'dsh', packDir: PACK });
     const stateFile = join(record.root, '.packhub', 'state.json');

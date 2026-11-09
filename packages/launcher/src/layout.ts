@@ -1,3 +1,4 @@
+import { isAbsolute, relative } from 'node:path';
 import type { TargetId } from '@packhub/kernel';
 
 /** 启动时能拿到的上下文，交给适配器拼参数。 */
@@ -36,6 +37,11 @@ export interface HarnessAdapter {
   executable?: string;
   /** 探测版本用的参数 */
   versionArgs?: string[];
+  /**
+   * 宿主自己的凭据文件（相对 homeDir 的文件名，可含子路径）。
+   * 只用于备份/归档时剥离，**不是安装落点**：PAL 不往这些位置写东西，也不在这列表里找什么。
+   */
+  credentialFiles?: string[];
   /** 启动模板；没有就说明这个宿主没有可托管的常驻服务 */
   start?: StartTemplate;
   /** 不能启动时给用户看的原因（不是错误码，是能力说明） */
@@ -67,6 +73,7 @@ const dshAdapter: HarnessAdapter = {
   startProfile: 'web',
   executable: 'dsh',
   versionArgs: ['--version'],
+  credentialFiles: ['.credentials.yaml', 'auth.json'],
   start: {
     command: 'dsh',
     args: (ctx) => dshStartArgs(ctx, dshAdapter),
@@ -87,6 +94,7 @@ export const ADAPTERS: Record<TargetId, HarnessAdapter> = {
     homeEnv: 'CLAUDE_CONFIG_DIR',
     executable: 'claude',
     versionArgs: ['--version'],
+    credentialFiles: ['auth.json', '.credentials.json'],
     noStartReason:
       'Claude Code 是终端交互程序，没有可托管的常驻服务；PAL 只负责给它装配 home（技能、MCP、指令）。',
   },
@@ -96,6 +104,7 @@ export const ADAPTERS: Record<TargetId, HarnessAdapter> = {
     homeEnv: 'CODEX_HOME',
     executable: 'codex',
     versionArgs: ['--version'],
+    credentialFiles: ['auth.json'],
     noStartReason: 'Codex 是终端交互程序，没有可托管的常驻服务；PAL 只负责给它装配 home。',
   },
 };
@@ -118,6 +127,30 @@ export function targetVarsFor(harness: TargetId): Record<string, string> | undef
     knowledgeDir: `${adapter.homeDir}/knowledge`,
     promptsDir: `${adapter.homeDir}/prompts`,
   };
+}
+
+/**
+ * 实例 home 相对实例根的段（统一 /）。home 缺失、就在根上、或落在根外（接管来的外部 home）
+ * 时用适配器声明的 homeDir 兜底 —— 它本来就是「相对实例根」的约定。
+ */
+export function instanceHomeRel(harness: TargetId, root: string, home?: string): string | undefined {
+  if (home) {
+    const rel = relative(root, home).replace(/\\/g, '/').replace(/\/+$/, '');
+    if (rel && rel !== '..' && !rel.startsWith('../') && !isAbsolute(rel)) return rel;
+  }
+  return ADAPTERS[harness].homeDir;
+}
+
+/**
+ * 宿主凭据文件在实例根里的相对路径：`<实例 home 段>/<credentialFiles 里的文件名>`。
+ * 备份默认排除与 keepData 归档前删除都读这一份，不另立第二份清单。
+ * 只按适配器的 home 段匹配：实例根上或别的子目录里的同名文件不在范围里。
+ */
+export function credentialRels(harness: TargetId, root: string, home?: string): string[] {
+  const files = ADAPTERS[harness].credentialFiles ?? [];
+  const dir = instanceHomeRel(harness, root, home);
+  if (!dir) return [];
+  return files.map((file) => `${dir}/${file.replace(/\\/g, '/').replace(/^\.?\//, '')}`);
 }
 
 /** 从启动输出里取 URL 与端口；取不到就返回 undefined。 */

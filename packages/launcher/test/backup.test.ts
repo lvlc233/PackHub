@@ -114,6 +114,30 @@ describe('整实例备份', () => {
     expect(existsSync(join(out, '.pal-stopping'))).toBe(false);
   });
 
+  it('宿主凭据文件按 ADAPTERS.credentialFiles 剥离：默认不带，includeSecrets 才带', async () => {
+    const source = await makeSource();
+    const home = source.home!;
+    writeFileSync(join(home, 'auth.json'), JSON.stringify({ token: 'host-token' }), 'utf8');
+    writeFileSync(join(home, '.credentials.yaml'), 'apiKey: sk-host\n', 'utf8');
+    // 别处同名文件不是宿主凭据：剥离只按适配器 home 段匹配，不能误删
+    writeFileSync(join(source.root, 'auth.json'), JSON.stringify({ token: 'root-token' }), 'utf8');
+    mkdirSync(join(home, 'sessions'), { recursive: true });
+    writeFileSync(join(home, 'sessions', 'auth.json'), JSON.stringify({ token: 'session-token' }), 'utf8');
+
+    const plain = backupInstance('src', { out: join(tmp, 'cred-plain') });
+    expect(existsSync(join(plain.dir, 'home', 'dsh', 'auth.json'))).toBe(false);
+    expect(existsSync(join(plain.dir, 'home', 'dsh', '.credentials.yaml'))).toBe(false);
+    // 根上与 home 子目录里的同名文件照常备份
+    expect(readFileSync(join(plain.dir, 'auth.json'), 'utf8')).toContain('root-token');
+    expect(readFileSync(join(plain.dir, 'home', 'dsh', 'sessions', 'auth.json'), 'utf8')).toContain(
+      'session-token',
+    );
+
+    const withSecrets = backupInstance('src', { includeSecrets: true, out: join(tmp, 'cred-with') });
+    expect(readFileSync(join(withSecrets.dir, 'home', 'dsh', 'auth.json'), 'utf8')).toContain('host-token');
+    expect(readFileSync(join(withSecrets.dir, 'home', 'dsh', '.credentials.yaml'), 'utf8')).toContain('sk-host');
+  });
+
   it('运行中的实例拒绝备份（拷一份正在写的 home 没有意义）', async () => {
     const source = await makeSource();
     writeFileSync(

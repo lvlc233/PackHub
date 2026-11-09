@@ -14,7 +14,7 @@ import { PalError } from './errors.ts';
 import { API_VERSION, readRecordResult, type InstanceRecord } from './records.ts';
 import { writeInstance } from './recordWrite.ts';
 import { requireInstance } from './catalog.ts';
-import { ADAPTERS } from './layout.ts';
+import { ADAPTERS, credentialRels } from './layout.ts';
 import { LOCK } from './lock.ts';
 import { STOPPING_MARK } from './stopMark.ts';
 import { isPidAlive } from './process.ts';
@@ -25,7 +25,8 @@ import { assertExternalRoot, assertHarness, assertNameFree } from './validators.
 /**
  * 整实例备份与恢复：目录快照，不引 tar 依赖。
  *
- * 备份就是「把实例根原样拷一份」：excluded 的只有运行痕迹（锁、停止标记、logs/）与凭据（secrets.json），
+ * 备份就是「把实例根原样拷一份」：excluded 的只有运行痕迹（锁、停止标记、logs/）与凭据 ——
+ * 根里的 secrets.json，以及宿主自己的凭据文件（`ADAPTERS.credentialFiles`，如 auth.json）。
  * 凭据默认不带——对齐 A3 的 copy 方向，要带必须显式 includeSecrets。
  *
  * 恢复总是生成一份新实例：新 id、新根（显式 root 只收外部目录），记录整体重写；
@@ -58,7 +59,7 @@ export interface BackupMeta {
 export interface BackupOptions {
   /** 备份目录；默认 <PACKHUB_HOME>/backups/<名字>-<时间戳> */
   out?: string;
-  /** 把 secrets.json 也带上；默认不带凭据 */
+  /** 把凭据也带上（根里的 secrets.json 与宿主凭据文件）；默认不带 */
   includeSecrets?: boolean;
 }
 
@@ -119,10 +120,11 @@ const SKIP_RUNTIME = new Set([LOCK, STOPPING_MARK, 'logs', 'secrets.json']);
 /**
  * cpSync 的过滤器：按「相对实例根」的路径判断，绝不接受解析后落到根外的条目
  * （源路径由 cpSync 自己给出，这里是兜底，防止符号链接/怪路径把备份带到别处）。
+ * skipCred 是宿主凭据文件的相对路径集合（由 layout 的 credentialRels 给出）；includeSecrets 时不传。
  */
 function copyFilter(
   root: string,
-  opts: { includeSecrets: boolean; extra?: ReadonlySet<string> },
+  opts: { includeSecrets: boolean; skipCred?: ReadonlySet<string>; extra?: ReadonlySet<string> },
 ): (src: string) => boolean {
   return (src) => {
     const rel = relOf(root, src);
@@ -131,6 +133,7 @@ function copyFilter(
     if (SKIP_RUNTIME.has(rel)) {
       return rel === 'secrets.json' && opts.includeSecrets;
     }
+    if (opts.skipCred?.has(rel)) return false;
     if (opts.extra?.has(rel)) return false;
     return true;
   };
@@ -152,6 +155,10 @@ export function backupInstance(idOrName: string, opts: BackupOptions = {}): Back
   }
   // 凭据默认不带：要带必须显式给 includeSecrets
   const includeSecrets = opts.includeSecrets === true;
+  // 宿主凭据文件按 ADAPTERS.credentialFiles 剥离，路径由 layout 统一算，不在这里另立清单
+  const skipCred = includeSecrets
+    ? undefined
+    : new Set(credentialRels(record.harness, record.root, record.home));
   const dir = opts.out === undefined ? join(backupsRoot(), backupDirName(record.name)) : resolve(opts.out);
   if (existsSync(dir)) {
     throw new PalError('root-occupied', '备份目录已存在', {
@@ -165,7 +172,7 @@ export function backupInstance(idOrName: string, opts: BackupOptions = {}): Back
       recursive: true,
       force: true,
       errorOnExist: false,
-      filter: copyFilter(record.root, { includeSecrets }),
+      filter: copyFilter(record.root, { includeSecrets, skipCred }),
     });
   } catch (err) {
     // 目标目录是这次新建的：拷一半失败就清掉，别留一份看不懂的半份备份

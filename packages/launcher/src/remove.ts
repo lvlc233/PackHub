@@ -5,6 +5,7 @@ import { BASELINE } from './baseline.ts';
 import { dropActive, requireInstance } from './catalog.ts';
 import { PalError } from './errors.ts';
 import { withInstanceLock } from './lock.ts';
+import { credentialRels } from './layout.ts';
 import { archiveRoot } from './paths.ts';
 import { isPidAlive, killTree, waitForExit } from './process.ts';
 import { moveAside } from './quarantine.ts';
@@ -41,8 +42,9 @@ async function removeTreeWithRetry(dir: string, tries = 6): Promise<{ removed: b
 
 export interface RemoveOptions {
   /**
-   * 保留数据：先按 state 卸掉 Pack 装进去的文件，删掉根里的 secrets.json，
-   * 再把实例根（剩下的 home / 会话）移进 .archive，记录从列表里去掉。不传则直接删根。
+   * 保留数据：先按 state 卸掉 Pack 装进去的文件，删掉根里的 secrets.json 与宿主凭据文件
+   * （`ADAPTERS.credentialFiles`），再把实例根（剩下的 home / 会话）移进 .archive，记录从列表里去掉。
+   * 不传则直接删根。
    */
   keepData?: boolean;
   /** 已经在跑就先停掉；默认 true */
@@ -61,7 +63,7 @@ export interface RemoveResult {
    * 删除前从实例 state 里读到的 Pack key。它只说明「删之前装过哪些 Pack」，
    * **不是**「这些 Pack 被逐个卸载成功」的凭据：
    * - 默认删除：不逐个卸包，文件随实例根一起消失；根删不掉转归档时，文件仍在归档目录里。
-   * - keepData：这些 Pack 确实按 state 卸掉了，归档里只剩 home / 会话（secrets.json 已先删）。
+   * - keepData：这些 Pack 确实按 state 卸掉了，归档里只剩 home / 会话（secrets.json 与宿主凭据文件已先删）。
    * - 接管来的实例：不按 state 卸包，恒为空数组。
    * 字段名沿用 uninstalled 是为了不动 server/UI 的 JSON；要改名应连同 API 一起升级。
    */
@@ -75,7 +77,7 @@ export interface RemoveResult {
 /**
  * 删一份实例：先停进程，再按需处理根。
  * - 默认：直接删根（删不动就改名归档），成功后才摘 link/active；失败则记录、state、Pack 文件都原样留着。
- * - keepData：先按 state 卸包，删掉根里的 secrets.json，再把剩下的根（home / 会话）归档。
+ * - keepData：先按 state 卸包，删掉根里的 secrets.json 与宿主凭据文件，再把剩下的根（home / 会话）归档。
  * 运行中的实例不再出现“删一半”（EBUSY、包卸了目录还在）的情况。
  *
  * 边界（N2）：默认删除不逐文件调 removePack，只删根。当前所有安装落点都在实例根内，
@@ -146,6 +148,8 @@ export async function removeInstance(
       }
       // 归档是长期留着的东西，不是这次删除的替代品：凭据先删掉，
       // 免得实例根里的 PAL token 跟着进 .archive（copy 策略下它是这份实例独有的）。
+      // 宿主自己的凭据文件（ADAPTERS.credentialFiles）同理：按 layout 给的清单删，
+      // 只落在适配器 home 段内，实例根上或别的子目录里的同名文件不碰。
       // 删不掉不阻断归档：目录里还会带着它，但至少要让人从 stderr 看到。
       const secrets = join(record.root, 'secrets.json');
       if (existsSync(secrets)) {
@@ -154,6 +158,16 @@ export async function removeInstance(
         } catch (err) {
           const code = (err as NodeJS.ErrnoException).code ?? '未知原因';
           process.stderr.write(`警告：归档前没能删掉 secrets.json（${code}），归档里仍带着凭据\n`);
+        }
+      }
+      for (const rel of credentialRels(record.harness, record.root, record.home)) {
+        const file = join(record.root, rel);
+        if (!existsSync(file)) continue;
+        try {
+          rmSync(file, { force: true });
+        } catch (err) {
+          const code = (err as NodeJS.ErrnoException).code ?? '未知原因';
+          process.stderr.write(`警告：归档前没能删掉 ${rel}（${code}），归档里仍带着凭据\n`);
         }
       }
       const target = moveAside(record.root, archiveRoot(), {
