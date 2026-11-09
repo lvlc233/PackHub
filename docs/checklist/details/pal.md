@@ -35,7 +35,7 @@ PAL 把 Pack 装进一个独立实例根，并按宿主起停进程。代码在 
 ## 危险动作怎么保护
 
 - **建实例失败**：只清理自己造的根。复用已有目录时不删目录，只摘 `instance.json`；自己造的根移进 `instances/.failed/` 并写 `reason.json`。
-- **删除**：先停进程并等它真的退出，再删根（默认既不先卸包，也不搬目录；包记录只用来填结果里的 `uninstalled`）。`--keep-data` 才先按 state 卸包、再把根挪进 `instances/.archive/`。删目录会重试，仍被占用就改名进归档；删根失败时记录与 state 都原样留着，可以直接重试。
+- **删除**：先停进程并等它真的退出，再删根（默认既不先卸包，也不搬目录；包记录只用来填结果里的 `uninstalled`）。`--keep-data` 才先按 state 卸包、再把根挪进 `instances/.archive/`。删目录会重试，仍被占用就改名进归档；删根失败时记录与 state 都原样留着，可以直接重试。默认删除不逐文件调 `removePack`：当前安装落点都在实例根内，删根即清干净；以后若写入宿主级副作用（全局 MCP 注册、宿主配置键），必须在这里补反向清理，不能只靠删根。
 - **停止标记**：`stopInstance` 与 `removeInstance` 都在 kill 之前写 `<root>/.pal-stopping`（pid + 时间，60s TTL），结束时清掉。`pal serve` 的 onExit 有三道闸：标记与 pid 对得上、记录里的 pid 已经换人、记录已是 `stopped` —— 任一成立都不按崩溃处理，也不触发 `on-failure` 重起。
 - **迁移**：rename 与写记录在同一把实例锁里做完，写完必须能从新根读回记录；失败就把目录挪回原路径、记录改回旧 `root`，回滚也失败才报 `internal`。
 - **坏记录**：`instance.json` 解析失败不再静默跳过 —— `pal list` / `pal status` 会把它移进 `instances/.quarantine/` 并写原因（接管实例只收走 `.links` 指针，目录不动），`pal recover` 能看。读接口（GET `/api/instances`、体检）只把问题列进 `broken`，不写记录、也不隔离。

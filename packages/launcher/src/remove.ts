@@ -77,6 +77,10 @@ export interface RemoveResult {
  * - 默认：直接删根（删不动就改名归档），成功后才摘 link/active；失败则记录、state、Pack 文件都原样留着。
  * - keepData：先按 state 卸包，再把剩下的根（home / 会话 / 凭据）归档。
  * 运行中的实例不再出现“删一半”（EBUSY、包卸了目录还在）的情况。
+ *
+ * 边界（N2）：默认删除不逐文件调 removePack，只删根。当前所有安装落点都在实例根内，
+ * 所以根删掉就等于清干净；如果以后引入宿主级副作用（全局 MCP 注册、宿主配置键等），
+ * 必须在这里补对应的反向清理，不能只靠删根。
  */
 export async function removeInstance(
   nameOrId: string,
