@@ -37,14 +37,30 @@ export function defaultTransport() {
  * 用给定的 transport 造一个 api(path, options) 函数，语义与旧的本地 fetch 完全一致：
  *   - method 默认 GET，body 存在时按 JSON 序列化并补 content-type；
  *   - 每个请求都带 x-pal-client: pal-ui（服务端用它挡跨源写请求）；
+ *   - 每次请求都重读页面里的 <meta name="pal-token">，有就带上 x-pal-token（服务端重启会换 token，
+ *     缓存住只会一直 403）；没有这个 meta（例如直接打开别的页面）就不带，由服务端决定；
  *   - 非 2xx 抛 Error，并把响应里的 hint / code 挂到错误上；
  *   - 响应不是 JSON 时回退成 { error: 原文前 400 字 }。
  */
+
+/** 页面凭据的 meta 名；服务端出首页时把占位符替换成真 token。 */
+const TOKEN_META = 'pal-token';
+
+/** 每次调用都读一次：token 可能随服务端重启变化，模块级缓存会把它钉死。 */
+function readToken() {
+  if (typeof document === 'undefined') return '';
+  const el = typeof document.querySelector === 'function' ? document.querySelector(`meta[name="${TOKEN_META}"]`) : null;
+  const value = el && typeof el.getAttribute === 'function' ? el.getAttribute('content') : '';
+  return typeof value === 'string' ? value.trim() : '';
+}
+
 export function createApi(transport) {
   return async function api(path, options = {}) {
     const { method = 'GET', body } = options;
     const send = transport ?? defaultTransport();
     const headers = { 'x-pal-client': 'pal-ui' };
+    const token = readToken();
+    if (token) headers['x-pal-token'] = token;
     let payload;
     if (body !== undefined) {
       headers['content-type'] = 'application/json';

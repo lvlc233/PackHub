@@ -59,11 +59,12 @@ web/api.js              createApi(transport) / api(path, options)
                                                     │
 preload.cjs  只传 method / headers（字符串）/ body（字符串），不传函数或 DOM
 main.js      ipcMain.handle：校验来源帧 + path，调 forward.mjs，异常收敛成 { ok: false, error }
-forward.mjs  拼 x-pal-client: pal-ui 与 origin: <侧车 origin>，用 Node fetch 请求侧车
+forward.mjs  拼 x-pal-client: pal-ui 与 origin: <侧车 origin>，另把页面 meta 里的 x-pal-token 转过去（B14）
 ```
 
 - 转发只放行 `/api/` 开头的站内路径，URL 归一化后仍须落在侧车 origin 与 `/api/` 下；方法限 GET/HEAD/POST/PUT/PATCH/DELETE。
-- `server.ts` 的 `isTrustedRequest` 没改：桥自己补 `x-pal-client` 与 `origin`，所以缺头仍然 403（信任规则没被绕开）。
+- 桥自己补 `x-pal-client` 与 `origin`；渲染侧传来的头只有两个例外会被转过去：`content-type`（限 JSON）与形状合法的 `x-pal-token`。
+- 带 Origin 的请求（Electron 桥每条都带）还要求 `x-pal-token` 与侧车启动时生成的一致，否则 403；浏览器直连时页面从首页 meta 里读同一个 token。
 - 返回 `{ ok, status, text }`；网络层失败是 `{ ok: false, error }`（没有 status）。页面在 `web/api.js` 里统一转成 Error，带 `hint` / `code`。
 - `window.open('/api/instances/:id/open')` 仍是页面导航（服务端 302 拼凭据），不走桥。
 

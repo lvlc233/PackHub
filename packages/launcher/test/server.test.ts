@@ -69,6 +69,11 @@ function headers(extra: Record<string, string> = {}): Record<string, string> {
   return { 'content-type': 'application/json', 'x-pal-client': 'pal-ui', ...extra };
 }
 
+/** 浏览器里的界面：带 Origin，还要带 index.html 里注入的 token。 */
+function browserHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  return headers({ origin: new URL(server.url).origin, 'x-pal-token': server.token, ...extra });
+}
+
 async function call(path: string, init: RequestInit = {}): Promise<{ status: number; body: any }> {
   const res = await fetch(url(path), { ...init, headers: headers((init.headers as Record<string, string>) ?? {}) });
   const text = await res.text();
@@ -165,6 +170,78 @@ describe('PAL 本地界面 API', () => {
 
     // 读接口不受影响
     expect((await call('/api/instances')).status).toBe(200);
+  });
+
+  it('带 Origin 的请求要页面 token：缺 / 错 403，对了回到原行为', async () => {
+    const origin = new URL(server.url).origin;
+    const body = JSON.stringify({ pack: 'examples/doc-review', name: 'browser', harness: 'dir' });
+    const base = { 'content-type': 'application/json', 'x-pal-client': 'pal-ui', origin };
+
+    const missing = await fetch(url('/api/instances'), { method: 'POST', headers: base, body });
+    expect(missing.status).toBe(403);
+    const missingBody = (await missing.json()) as { code: string; error: string };
+    expect(missingBody.code).toBe('forbidden');
+    expect(missingBody.error).toContain('x-pal-token');
+    expect(missingBody.error).toContain('缺少');
+
+    // 形状合法但值不对：换掉首字符，保证和真 token 不同且仍像 token
+    const wrongToken = server.token.replace(/^./, (ch: string) => (ch === 'a' ? 'b' : 'a'));
+    const wrong = await fetch(url('/api/instances'), {
+      method: 'POST',
+      headers: { ...base, 'x-pal-token': wrongToken },
+      body,
+    });
+    expect(wrong.status).toBe(403);
+    const wrongBody = (await wrong.json()) as { code: string; error: string };
+    expect(wrongBody.code).toBe('forbidden');
+    expect(wrongBody.error).toContain('x-pal-token');
+
+    // 读接口也一样：带 Origin 就说明是浏览器页面在发，没 token 不放行
+    const read = await fetch(url('/api/instances'), { headers: { origin } });
+    expect(read.status).toBe(403);
+
+    // 带对 token：写请求照旧（还要 x-pal-client），能创建实例
+    const good = await fetch(url('/api/instances'), {
+      method: 'POST',
+      headers: browserHeaders(),
+      body,
+    });
+    expect(good.status).toBe(200);
+    expect(((await good.json()) as { name: string }).name).toBe('browser');
+  });
+
+  it('不带 Origin 的写请求仍按原规则：x-pal-client 就够', async () => {
+    const rec = await json('/api/instances', {
+      method: 'POST',
+      body: JSON.stringify({ pack: 'examples/doc-review', name: 'cli', harness: 'dir' }),
+    });
+    expect(rec.name).toBe('cli');
+
+    const noHeader = await fetch(url('/api/instances'), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pack: 'examples/doc-review', name: 'csrf', harness: 'dir' }),
+    });
+    expect(noHeader.status).toBe(403);
+  });
+
+  it('首页注入真实 token，占位符不残留；其它静态文件原样', async () => {
+    expect(server.token).toMatch(/^[0-9a-f]{32,}$/);
+
+    const res = await fetch(server.url);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain(`<meta name="pal-token" content="${server.token}" />`);
+    expect(html).not.toContain('__PAL_TOKEN__');
+
+    // 直接点 /index.html 也一样注入
+    const direct = await (await fetch(url('/index.html'))).text();
+    expect(direct).toContain(server.token);
+
+    // 只有首页带凭据：别把 token 铺到每个静态资源上
+    const app = await (await fetch(url('/app.js'))).text();
+    expect(app).not.toContain(server.token);
+    expect(app).not.toContain('__PAL_TOKEN__');
   });
 
   it('未知实例 404、未知宿主 400，错误里带稳定 code', async () => {
@@ -305,6 +382,27 @@ describe('PAL 本地界面 API', () => {
       expect((await json('/api/instances')).instances).toEqual([]);
     } finally {
       agent.destroy();
+    }
+  });
+
+  it('服务关掉后 token 不再可用', async () => {
+    const extra = await startPalServer({ port: 0 });
+    let closed = false;
+    try {
+      // 每次启动都是新 token：旧页面的凭据不会跟着新进程用
+      expect(extra.token).toMatch(/^[0-9a-f]{32}$/);
+      expect(extra.token).not.toBe(server.token);
+
+      const before = await fetch(extra.url);
+      expect(before.status).toBe(200);
+      expect(await before.text()).toContain(extra.token);
+
+      await extra.close();
+      closed = true;
+      // 地址已经没了，token 自然没有可用之处
+      await expect(fetch(extra.url)).rejects.toThrow();
+    } finally {
+      if (!closed) await extra.close().catch(() => {});
     }
   });
 });

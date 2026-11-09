@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, extname, join, resolve, sep } from 'node:path';
 import {
@@ -44,6 +45,33 @@ const TYPES: Record<string, string> = {
 const CLIENT_HEADER = 'x-pal-client';
 const CLIENT_VALUE = 'pal-ui';
 
+/**
+ * 浏览器凭据（B14）：起服务时随机生成，只有从 index.html 里读得到。
+ * 只对“带 Origin 的请求”校验——本机进程直连（CLI / curl / 测试）没有 Origin，照旧放行，
+ * 威胁模型只针对浏览器页面，不是全量鉴权。
+ */
+const TOKEN_HEADER = 'x-pal-token';
+/** index.html 里的占位符；serveStatic 出首页时替换成真 token。 */
+const TOKEN_PLACEHOLDER = '__PAL_TOKEN__';
+
+/** 32 位小写 hex（16 字节），够长也方便按形状校验。 */
+function createToken(): string {
+  return randomBytes(16).toString('hex');
+}
+
+/** 定长比较，别把 token 逐字节的差异暴露成时序。 */
+function sameToken(left: string, right: string): boolean {
+  const a = Buffer.from(left, 'utf8');
+  const b = Buffer.from(right, 'utf8');
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+/** Node 的头值可能是数组；只认第一个字符串并去掉空白。 */
+function headerText(value: string | string[] | undefined): string {
+  const raw = Array.isArray(value) ? value[0] : value;
+  return typeof raw === 'string' ? raw.trim() : '';
+}
+
 export interface ServeOptions {
   port?: number;
   host?: string;
@@ -53,6 +81,8 @@ export interface ServeOptions {
 
 export interface PalServer {
   url: string;
+  /** 本机调用方的凭据：浏览器页面从 index.html 的 meta 里拿，测试直接从这里拿。 */
+  token: string;
   close: () => Promise<void>;
 }
 
@@ -60,8 +90,9 @@ export interface PalServer {
 export async function startPalServer(opts: ServeOptions = {}): Promise<PalServer> {
   const host = opts.host ?? '127.0.0.1';
   const insecure = opts.insecure ?? process.env.PAL_INSECURE === '1';
+  const token = createToken();
   const server: Server = createServer((req, res) => {
-    handle(req, res, insecure).catch((err: unknown) => {
+    handle(req, res, insecure, token).catch((err: unknown) => {
       const body = errorBody(err);
       if (res.headersSent) {
         res.end();
@@ -81,6 +112,7 @@ export async function startPalServer(opts: ServeOptions = {}): Promise<PalServer
 
   return {
     url,
+    token,
     close: () =>
       new Promise<void>((resolve, reject) => {
         server.close((err) => (err ? reject(err) : resolve()));
@@ -92,11 +124,19 @@ export async function startPalServer(opts: ServeOptions = {}): Promise<PalServer
  * 来源校验：本地服务不接受别的站点发起的写请求。
  * 浏览器跨源请求一定带 Origin，所以比对 Origin 与 Host 就够了；再叠一个自定义头，
  * 让跨源的简单表单（不带 Origin 也能发）也进不来。
+ *
+ * B14 追加：带 Origin 的请求还必须带 index.html 里注入的 x-pal-token（浏览器读不到别的页面）。
+ * 不带 Origin 的请求（CLI、curl、测试、本机脚本）跳过 token 校验——只挡浏览器，不做全量鉴权。
  */
-export function isTrustedRequest(req: IncomingMessage, mutating: boolean): { ok: boolean; reason?: string } {
+export function isTrustedRequest(
+  req: IncomingMessage,
+  mutating: boolean,
+  token: string,
+): { ok: boolean; reason?: string } {
   const host = req.headers.host ?? '';
   const origin = req.headers.origin;
-  if (typeof origin === 'string' && origin) {
+  const fromBrowser = typeof origin === 'string' && origin.length > 0;
+  if (fromBrowser) {
     let originHost = '';
     try {
       originHost = new URL(origin).host;
@@ -104,6 +144,13 @@ export function isTrustedRequest(req: IncomingMessage, mutating: boolean): { ok:
       return { ok: false, reason: 'Origin 不是合法地址' };
     }
     if (originHost !== host) return { ok: false, reason: `跨源请求被拒绝：${origin}` };
+    const supplied = headerText(req.headers[TOKEN_HEADER]);
+    if (!supplied) {
+      return { ok: false, reason: `带 Origin 的请求缺少 ${TOKEN_HEADER} 头` };
+    }
+    if (!token || !sameToken(supplied, token)) {
+      return { ok: false, reason: `${TOKEN_HEADER} 不对` };
+    }
   }
   if (mutating) {
     const marker = req.headers[CLIENT_HEADER];
@@ -114,16 +161,16 @@ export function isTrustedRequest(req: IncomingMessage, mutating: boolean): { ok:
   return { ok: true };
 }
 
-async function handle(req: IncomingMessage, res: ServerResponse, insecure: boolean): Promise<void> {
+async function handle(req: IncomingMessage, res: ServerResponse, insecure: boolean, token: string): Promise<void> {
   const url = new URL(req.url ?? '/', 'http://localhost');
   const path = url.pathname;
   const mutating = req.method !== 'GET' && req.method !== 'HEAD';
 
   if (!insecure) {
-    const trusted = isTrustedRequest(req, mutating);
+    const trusted = isTrustedRequest(req, mutating, token);
     if (!trusted.ok) {
       throw new PalError('forbidden', trusted.reason ?? '不受信任的请求', {
-        hint: '请从 PAL 的界面操作；本地服务只接受同源请求',
+        hint: `请从 PAL 的界面操作；浏览器请求需要页面里的 ${TOKEN_HEADER}（刷新界面会重新注入）`,
       });
     }
   }
@@ -296,7 +343,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, insecure: boole
   }
 
   if (req.method === 'GET' || req.method === 'HEAD') {
-    serveStatic(path, res);
+    serveStatic(path, res, token);
     return;
   }
 
@@ -361,7 +408,7 @@ function staticRelPath(path: string): string | null {
   return segments.join('/');
 }
 
-function serveStatic(path: string, res: ServerResponse): void {
+function serveStatic(path: string, res: ServerResponse, token: string): void {
   const root = resolve(WEB_ROOT);
   const rel = path === '/' ? 'index.html' : staticRelPath(path);
   const file = rel === null ? null : resolve(root, rel);
@@ -372,8 +419,16 @@ function serveStatic(path: string, res: ServerResponse): void {
     res.end('not found');
     return;
   }
-  res.writeHead(200, { 'content-type': TYPES[extname(file)] ?? 'application/octet-stream' });
-  res.end(readFileSync(file));
+  const type = TYPES[extname(file)] ?? 'application/octet-stream';
+  // 只有首页带凭据：其它资源原样吐，也避免把 token 铺到每个静态文件上
+  if (rel !== 'index.html') {
+    res.writeHead(200, { 'content-type': type });
+    res.end(readFileSync(file));
+    return;
+  }
+  // token 每次启动都换：首页不能进缓存，否则刷新后界面还拿着旧 token，写请求会全 403
+  res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store' });
+  res.end(readFileSync(file, 'utf8').split(TOKEN_PLACEHOLDER).join(token));
 }
 
 /** 界面上「包列表」用：不连索引也能列出本地 Pack 目录。 */

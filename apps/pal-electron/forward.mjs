@@ -9,7 +9,8 @@
  *     免得 `/api/../x`、协议相对地址之类的输入把它变成任意 URL 读取器；
  *   - method 只允许 GET / HEAD / POST / PUT / PATCH / DELETE；
  *   - 请求头由这里自己拼：`x-pal-client: pal-ui` 与 `origin: <侧车 origin>`，不信任渲染侧传的
- *     header（只从中拿一个合法 content-type），保证 server.ts 的 isTrustedRequest 照旧生效；
+ *     header，保证 server.ts 的 isTrustedRequest 照旧生效；唯一的例外是渲染侧从页面 meta
+ *     读到的 `x-pal-token`——只放行形状合法的值（B14：带 Origin 的请求必须带正确 token）；
  *   - 网络层失败（拒连、超时、被 abort）返回 `{ ok: false, error }`，HTTP 的 4xx/5xx 原样带回
  *     `{ ok: false, status, text }`，由页面统一转成 Error。
  */
@@ -17,6 +18,9 @@
 const ORIGIN_HEADER = 'origin';
 const CLIENT_HEADER = 'x-pal-client';
 const CLIENT_VALUE = 'pal-ui';
+const TOKEN_HEADER = 'x-pal-token';
+/** 侧车 token 是 crypto.randomBytes(16).toString('hex')：32 位小写 hex；按形状先筛一遍。 */
+const TOKEN_PATTERN = /^[0-9a-f]{16,}$/;
 const ALLOWED_METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE']);
 const API_PREFIX = '/api/';
 
@@ -56,6 +60,23 @@ function contentTypeOf(headers) {
   return 'application/json';
 }
 
+/** 按名字取渲染侧的头值；渲染侧大小写不一定稳定，这里不区分大小写。 */
+function headerOf(headers, name) {
+  if (!headers || typeof headers !== 'object') return undefined;
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() === name) return value;
+  }
+  return undefined;
+}
+
+/** 渲染侧传来的 token：形状不合法就当没传（不把它原样塞给侧车）。 */
+function tokenOf(headers) {
+  const value = headerOf(headers, TOKEN_HEADER);
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  return TOKEN_PATTERN.test(trimmed) ? trimmed : '';
+}
+
 /** 把 transport 的 request 组装成 fetch 参数；不合法时返回 { error }。 */
 function buildRequest(origin, options) {
   const src = options && typeof options === 'object' ? options : {};
@@ -66,6 +87,10 @@ function buildRequest(origin, options) {
     [ORIGIN_HEADER]: origin,
     [CLIENT_HEADER]: CLIENT_VALUE,
   };
+
+  // 页面在 Electron 里同样从 meta 读 token；只转这一条，其它渲染侧头继续忽略
+  const token = tokenOf(src.headers);
+  if (token) headers[TOKEN_HEADER] = token;
 
   const init = { method, headers };
   if (src.body !== undefined && src.body !== null && method !== 'GET' && method !== 'HEAD') {
