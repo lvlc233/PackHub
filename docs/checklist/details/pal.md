@@ -38,7 +38,7 @@ PAL 把 Pack 装进一个独立实例根，并按宿主起停进程。代码在 
 默认策略存在 `<PACKHUB_HOME>/config.json` 的 `isolation`；`pal create --isolation assembly=shared,session=instance` 可显式覆盖，`pal config` 可看/改默认。策略在**建实例那一刻**快照进记录，之后改全局默认不追溯已有实例；`pal adopt` 也按当时的默认值记一份。旧记录与坏策略值回落默认。凭据只支持 copy（每实例一份，建实例时从已有 home 复制）；shared-ro 未实现，策略里写 `credentials=shared` 会在写任何东西之前被拒绝（`invalid-input`，提示改回 `credentials=instance`）；`keepData` 归档与备份默认剥离 `secrets.json`，备份要带凭据得显式 `--include-secrets`。
 
 ## 记录与状态
-`instance.json` 的字段：`id`、`name`、`harness`、`harnessVersion`、`root`、`home`、`pack{name,version,ref}`、`status`、`managed`、`origin`、`isolation`、`pid`、`port`、`ports[]`、`url`（已摘凭据）、`startedAt`、`lastExit{code,signal,at,restarts}`、`lastError`、`restart`。`planHash` 只记在 `baseline.json`：`update` 用它判断计划有没有变，没有 baseline 视为已变；旧记录里残留的 `planHash` 读取时忽略、不再写回。
+`instance.json` 的字段：`id`、`name`、`harness`、`harnessVersion`、`root`、`home`、`pack{name,version,ref}`、`status`、`managed`、`origin`、`isolation`、`pid`、`port`、`ports[]`、`url`（已摘凭据）、`startedAt`、`lastExit{code,signal,at,restarts}`、`lastError`、`restart`。类型上分 `InstanceConfig`（身份与配置）与 `RuntimeState`（`status`/`pid`/`port`/`ports`/`url`/`startedAt`/`lastExit`/`lastError`），`InstanceRecord` 是两者之和；`records.ts` 的 `partitionRecord` / `mergeRecord` 负责拆分与合回。持久化仍是同一个 `instance.json`（兼容旧记录），后续如需拆文件再迁移。`planHash` 只记在 `baseline.json`：`update` 用它判断计划有没有变，没有 baseline 视为已变；旧记录里残留的 `planHash` 读取时忽略、不再写回。
 
 `pack{name,version}` 不另立事实：`create` / `update` 装完后、`adopt` 写记录前都走 `packIdentityFromState`，按 `.packhub/state.json` 里**恰好一个** Pack 的名字版本写回（旧 state 没写 version 时用清单值或 `0.0.0`）；0 个 / 多个 Pack、state 读不出来时退回清单值（`adopt` 是 `external`@`0.0.0`）。记录漂移会在下一次 `update` 被纠正，`pack.ref` 仍记原始引用。
 

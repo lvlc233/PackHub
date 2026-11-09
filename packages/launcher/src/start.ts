@@ -10,6 +10,7 @@ import {
 import { extname, join } from 'node:path';
 import { ADAPTERS, parseStartUrl, type HarnessAdapter } from './layout.ts';
 import { listInstances, readInstance, requireInstance, writeInstance, nowIso, type InstanceRecord } from './index.ts';
+import { mergeRecord, partitionRecord } from './records.ts';
 import { PalError } from './errors.ts';
 import { discoverHarness, requireHarnessBinary, whichSync } from './harness.ts';
 import { appendEvent, closeLog, openLog, tailLog } from './logs.ts';
@@ -627,15 +628,19 @@ export async function restartInstance(idOrName: string, opts: StartOptions = {})
  */
 export type InstanceView = InstanceRecord & { stale?: true };
 
-/** 推导一条记录要落盘的状态：pid 已经不在就当 broken 并收回 pid/port/url，其余原样返回。 */
+/**
+ * 推导一条记录要落盘的状态：pid 已经不在就当 broken 并收回 pid/port/url，其余原样返回。
+ * 只动运行态：配置侧原样带过去，未知字段也不丢。
+ */
 function deriveStatus(rec: InstanceRecord, isAlive: (pid: number) => boolean): InstanceRecord {
   if (!rec.pid || isAlive(rec.pid)) return rec;
-  const { pid: _pid, port: _port, url: _url, ...rest } = rec;
-  return {
+  const { config, runtime } = partitionRecord(rec);
+  const { pid: _pid, port: _port, url: _url, ...rest } = runtime;
+  return mergeRecord(config, {
     ...rest,
     status: 'broken',
-    lastExit: rec.lastExit ?? { code: null, signal: null, at: nowIso(), restarts: 0 },
-  };
+    lastExit: runtime.lastExit ?? { code: null, signal: null, at: nowIso(), restarts: 0 },
+  });
 }
 
 /**
