@@ -3,13 +3,20 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, extname, join, resolve, sep } from 'node:path';
 import {
+  adoptInstance,
+  cloneInstance,
   createInstance,
+  exportTemplate,
   listInstances,
+  migrateInstance,
   readInstance,
+  readTemplate,
   removeInstance,
+  renameInstance,
   requireInstance,
   scanInstances,
   updateInstance,
+  writeTemplate,
 } from './index.ts';
 import { restartInstance, startInstance, statusView, stopInstance } from './start.ts';
 import { activeEntries, setActive, readActive } from './active.ts';
@@ -17,7 +24,8 @@ import { materializePack } from './materialize.ts';
 import { readIndex, resolveRegistry } from '@packhub/runtime';
 import { PalError, errorBody } from './errors.ts';
 import { discoverAll } from './harness.ts';
-import { assertExternalRoot } from './validators.ts';
+import { assertAbsolutePath, assertExternalRoot } from './validators.ts';
+import { instancesRoot } from './paths.ts';
 import { readEvents, readLog } from './logs.ts';
 import { readSecrets, redactText, withSecrets } from './secrets.ts';
 import { checkInstance } from './health.ts';
@@ -237,12 +245,77 @@ async function handle(req: IncomingMessage, res: ServerResponse, insecure: boole
     return;
   }
 
-  const match = /^\/api\/instances\/([^/]+)(?:\/(start|stop|restart|update|active|logs|health|open))?$/.exec(path);
+  /*
+   * 实例流转里不带实例 id 的两条，必须排在下面的 :id 正则前面：
+   * 否则 /api/instances/adopt 会被当成 id=adopt 去查记录。
+   */
+
+  // 接管已有环境：目录原样不动，只写记录。dir 必须是绝对路径（相对路径不猜 cwd）。
+  if (path === '/api/instances/adopt' && req.method === 'POST') {
+    const body = await readJson(req);
+    const dir = assertAbsolutePath(body.dir, '要接管的目录', 'dir');
+    const name = String(body.name ?? '').trim();
+    if (!name) throw new PalError('invalid-input', 'name 必填', { hint: '接管来的实例也要一个名字' });
+    const rec = adoptInstance({
+      dir,
+      name,
+      harness: String(body.harness ?? 'dir') as never,
+      ...(body.activate === false ? { activate: false } : {}),
+    });
+    sendJson(res, 200, rec);
+    return;
+  }
+
+  // 从模板重建实例：取包 + 安装是长动作，错误照常按 code 返回。
+  if (path === '/api/instances/import' && req.method === 'POST') {
+    const body = await readJson(req);
+    const file = assertAbsolutePath(body.file, '模板文件', 'file');
+    // readTemplate 的 not-found 会把绝对路径拼进 message；这边先挡掉，路径只进 details。
+    if (!existsSync(file)) {
+      throw new PalError('not-found', '模板文件不存在', {
+        hint: '确认导出的 .pal.json 还在，路径写的是绝对路径',
+        details: { file },
+      });
+    }
+    const template = readTemplate(file);
+    const ref = template.origin?.ref;
+    if (!ref) {
+      throw new PalError('invalid-input', '模板里没有 Pack 引用，重建不了', {
+        hint: '用 pal create 重新建，或从 Pack 引用建的实例导出模板',
+        details: { file },
+      });
+    }
+    const root = body.root === undefined ? undefined : assertExternalRoot(body.root);
+    const packDir = await materializePack(ref, {
+      ...(body.index ? { index: String(body.index) } : {}),
+      version: template.pack.version,
+    });
+    const name = String(body.name ?? '').trim() || template.name;
+    const rec = await createInstance({
+      name,
+      harness: template.harness,
+      packDir,
+      packRef: ref,
+      ...(root ? { root } : {}),
+    });
+    sendJson(res, 200, rec);
+    return;
+  }
+
+  const match = /^\/api\/instances\/([^/]+)(?:\/(start|stop|restart|update|active|logs|health|open|clone|migrate|export))?$/.exec(
+    path,
+  );
   if (match) {
     const id = decodeURIComponent(match[1]!);
     const action = match[2];
     if (!action && req.method === 'GET') {
       sendJson(res, 200, requireInstance(id));
+      return;
+    }
+    if (!action && req.method === 'PATCH') {
+      // 改名：body.name 是唯一要改的字段，重名/空名由 renameInstance 判
+      const body = await readJson(req);
+      sendJson(res, 200, renameInstance(id, String(body.name ?? '')));
       return;
     }
     if (!action && req.method === 'DELETE') {
@@ -277,6 +350,35 @@ async function handle(req: IncomingMessage, res: ServerResponse, insecure: boole
           ...(body.force === true || body.force === 'true' ? { force: true } : {}),
         }),
       );
+      return;
+    }
+    if (action === 'clone' && req.method === 'POST') {
+      const body = await readJson(req);
+      // body.root 与 create 同一套规则：只收外部绝对路径
+      const root = body.root === undefined ? undefined : assertExternalRoot(body.root);
+      sendJson(
+        res,
+        200,
+        await cloneInstance(id, { name: String(body.name ?? ''), ...(root ? { root } : {}) }),
+      );
+      return;
+    }
+    if (action === 'migrate' && req.method === 'POST') {
+      const body = await readJson(req);
+      // 目标根只收绝对路径：相对路径会在服务进程的 cwd 下解析，位置不可预期
+      const to = assertAbsolutePath(body.to, '新的实例根', 'to');
+      sendJson(res, 200, migrateInstance(id, to));
+      return;
+    }
+    if (action === 'export' && req.method === 'POST') {
+      const body = await readJson(req);
+      const template = exportTemplate(id);
+      // 默认落在 <instancesRoot>/exports/<name>.pal.json；自定义输出必须是绝对路径
+      const out =
+        body.out === undefined
+          ? join(instancesRoot(), 'exports', `${exportFileStem(template.name)}.pal.json`)
+          : assertAbsolutePath(body.out, '导出文件', 'out');
+      sendJson(res, 200, { file: writeTemplate(template, out), template });
       return;
     }
     if (action === 'stop' && req.method === 'POST') {
@@ -437,6 +539,17 @@ function serveStatic(path: string, res: ServerResponse, token: string): void {
   // token 每次启动都换：首页不能进缓存，否则刷新后界面还拿着旧 token，写请求会全 403
   res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store' });
   res.end(readFileSync(file, 'utf8').split(TOKEN_PLACEHOLDER).join(token));
+}
+
+/**
+ * 导出文件的默认主干名：清掉 Windows 非法字符与路径分隔符，
+ * 实例名里就算带 `../` 也不会把文件带出 exports 目录。
+ */
+function exportFileStem(name: string): string {
+  const safe = name
+    .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '-')
+    .replace(/^[\s.-]+|[\s.-]+$/g, '');
+  return safe || 'instance';
 }
 
 /** 界面上「包列表」用：不连索引也能列出本地 Pack 目录。 */

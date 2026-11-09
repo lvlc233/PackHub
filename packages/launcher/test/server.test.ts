@@ -279,6 +279,165 @@ describe('PAL 本地界面 API', () => {
     expect(existsSync(join(target, 'instance.json'))).toBe(true);
   });
 
+  it('接管已有目录：绝对路径成功；相对路径 / UNC 400，路径只进 details', async () => {
+    const dir = join(tmp, 'adopt-me');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'notes.md'), 'hello', 'utf8');
+
+    const rec = await json('/api/instances/adopt', {
+      method: 'POST',
+      body: JSON.stringify({ dir, name: 'adopted', harness: 'dir' }),
+    });
+    expect(rec.name).toBe('adopted');
+    expect(rec.root).toBe(dir);
+    // 接管只写记录，目录归用户自己的
+    expect(rec.managed).toBe(false);
+    expect(rec.origin.kind).toBe('adopted');
+    expect(existsSync(join(dir, 'instance.json'))).toBe(true);
+    expect(readFileSync(join(dir, 'notes.md'), 'utf8')).toBe('hello');
+    expect((await json('/api/instances')).instances.map((i: { id: string }) => i.id)).toContain(rec.id);
+
+    const relative = await call('/api/instances/adopt', {
+      method: 'POST',
+      body: JSON.stringify({ dir: 'rel/home', name: 'rel-adopt', harness: 'dir' }),
+    });
+    expect(relative.status).toBe(400);
+    expect(relative.body.code).toBe('invalid-input');
+    expect(relative.body.error).not.toContain('rel/home');
+    expect(relative.body.details?.dir).toBe('rel/home');
+
+    const unc = await call('/api/instances/adopt', {
+      method: 'POST',
+      body: JSON.stringify({ dir: '\\\\server\\share\\home', name: 'unc-adopt', harness: 'dir' }),
+    });
+    expect(unc.status).toBe(400);
+    expect(unc.body.code).toBe('invalid-input');
+    expect(unc.body.error).toContain('UNC');
+    // 两次失败都没有留下半份记录
+    expect((await json('/api/instances')).instances.map((i: { name: string }) => i.name)).toEqual(['adopted']);
+  });
+
+  it('复制实例：自定义 root 生效，源实例不动', async () => {
+    const src = await json('/api/instances', {
+      method: 'POST',
+      body: JSON.stringify({ pack: 'examples/doc-review', name: 'clone-src', harness: 'dir' }),
+    });
+    const target = join(tmp, 'cloned-root');
+    const copy = await json(`/api/instances/${src.id}/clone`, {
+      method: 'POST',
+      body: JSON.stringify({ name: 'clone-copy', root: target }),
+    });
+    expect(copy.id).not.toBe(src.id);
+    expect(copy.name).toBe('clone-copy');
+    expect(copy.root).toBe(target);
+    expect(copy.status).toBe('installed');
+    expect(copy.origin).toEqual({ kind: 'copy', from: src.id });
+    expect(existsSync(join(target, 'instance.json'))).toBe(true);
+    // 源实例还在，没被挪走
+    expect((await json(`/api/instances/${src.id}`)).root).toBe(src.root);
+  });
+
+  it('改名：PATCH /api/instances/:id 换名字，同名重名与空名有明确错误', async () => {
+    const rec = await json('/api/instances', {
+      method: 'POST',
+      body: JSON.stringify({ pack: 'examples/doc-review', name: 'old-name', harness: 'dir' }),
+    });
+    const renamed = await json(`/api/instances/${rec.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name: 'new-name' }),
+    });
+    expect(renamed.id).toBe(rec.id);
+    expect(renamed.name).toBe('new-name');
+    // 读回来的是落盘的结果，不是内存里的 draft
+    expect((await json(`/api/instances/${rec.id}`)).name).toBe('new-name');
+
+    const empty = await call(`/api/instances/${rec.id}`, { method: 'PATCH', body: JSON.stringify({ name: '  ' }) });
+    expect(empty.status).toBe(400);
+    expect(empty.body.code).toBe('invalid-input');
+  });
+
+  it('迁移：绝对目标真的挪根并改记录；相对目标 400 且不动目录', async () => {
+    const rec = await json('/api/instances', {
+      method: 'POST',
+      body: JSON.stringify({ pack: 'examples/doc-review', name: 'move-me', harness: 'dir' }),
+    });
+    const to = join(tmp, 'moved-here');
+    const moved = await json(`/api/instances/${rec.id}/migrate`, {
+      method: 'POST',
+      body: JSON.stringify({ to }),
+    });
+    expect(moved.id).toBe(rec.id);
+    expect(moved.root).toBe(to);
+    expect(existsSync(join(to, 'instance.json'))).toBe(true);
+    expect(existsSync(rec.root)).toBe(false);
+
+    const relative = await call(`/api/instances/${rec.id}/migrate`, {
+      method: 'POST',
+      body: JSON.stringify({ to: 'moved/relative' }),
+    });
+    expect(relative.status).toBe(400);
+    expect(relative.body.code).toBe('invalid-input');
+    expect(relative.body.details?.to).toBe('moved/relative');
+    expect((await json(`/api/instances/${rec.id}`)).root).toBe(to);
+  });
+
+  it('导出模板：默认写进 exports 目录并回 {file,template}；自定义 out 必须是绝对路径', async () => {
+    const rec = await json('/api/instances', {
+      method: 'POST',
+      body: JSON.stringify({ pack: 'examples/doc-review', name: 'export-me', harness: 'dir' }),
+    });
+    const result = await json(`/api/instances/${rec.id}/export`, { method: 'POST', body: '{}' });
+    const expected = join(tmp, 'instances', 'exports', 'export-me.pal.json');
+    expect(result.file).toBe(expected);
+    expect(result.template.apiVersion).toBe('packhub.dev/instance-template/v0');
+    expect(result.template.name).toBe('export-me');
+    expect(result.template.reproducible).toBe(true);
+    expect(JSON.parse(readFileSync(expected, 'utf8'))).toEqual(result.template);
+
+    const relative = await call(`/api/instances/${rec.id}/export`, {
+      method: 'POST',
+      body: JSON.stringify({ out: 'out.pal.json' }),
+    });
+    expect(relative.status).toBe(400);
+    expect(relative.body.code).toBe('invalid-input');
+    expect(relative.body.error).not.toContain('out.pal.json');
+    expect(relative.body.details?.out).toBe('out.pal.json');
+
+    const custom = join(tmp, 'elsewhere', 'custom.pal.json');
+    const customOut = await json(`/api/instances/${rec.id}/export`, {
+      method: 'POST',
+      body: JSON.stringify({ out: custom }),
+    });
+    expect(customOut.file).toBe(custom);
+    expect(existsSync(custom)).toBe(true);
+  });
+
+  it('导入模板：读回导出的文件，按新名字在新根重建', async () => {
+    const rec = await json('/api/instances', {
+      method: 'POST',
+      body: JSON.stringify({ pack: 'examples/doc-review', name: 'import-src', harness: 'dir' }),
+    });
+    const exported = await json(`/api/instances/${rec.id}/export`, { method: 'POST', body: '{}' });
+    const root = join(tmp, 'imported');
+    const imported = await json('/api/instances/import', {
+      method: 'POST',
+      body: JSON.stringify({ file: exported.file, name: 'from-template', root }),
+    });
+    expect(imported.id).not.toBe(rec.id);
+    expect(imported.name).toBe('from-template');
+    expect(imported.root).toBe(root);
+    expect(imported.pack.ref).toBe('examples/doc-review');
+
+    // 模板文件路径也要求绝对：相对路径先挡住，不猜 cwd
+    const relative = await call('/api/instances/import', {
+      method: 'POST',
+      body: JSON.stringify({ file: 'rel.pal.json', name: 'nope' }),
+    });
+    expect(relative.status).toBe(400);
+    expect(relative.body.code).toBe('invalid-input');
+    expect(relative.body.details?.file).toBe('rel.pal.json');
+  });
+
   it('缺字段 400；宿主发现结果带版本与可启动性', async () => {
     const res = await call('/api/instances', { method: 'POST', body: JSON.stringify({ name: 'x' }) });
     expect(res.status).toBe(400);
