@@ -37,6 +37,8 @@ PAL 把 Pack 装进一个独立实例根，并按宿主起停进程。代码在 
 
 默认策略存在 `<PACKHUB_HOME>/config.json` 的 `isolation`；`pal create --isolation assembly=shared,session=instance` 可显式覆盖，`pal config` 可看/改默认。策略在**建实例那一刻**快照进记录，之后改全局默认不追溯已有实例；`pal adopt` 也按当时的默认值记一份。旧记录与坏策略值回落默认。凭据只支持 copy（每实例一份，建实例时从已有 home 复制）；shared-ro 未实现，策略里写 `credentials=shared` 会在写任何东西之前被拒绝（`invalid-input`，提示改回 `credentials=instance`）；`keepData` 归档与备份默认剥离 `secrets.json`，宿主凭据文件（`ADAPTERS.credentialFiles`：dsh 的 `.credentials.yaml` / `auth.json`，claude-code 的 `auth.json` / `.credentials.json`，codex 的 `auth.json`）按同一份清单剥离，只匹配适配器 home 段内的路径；备份要带凭据得显式 `--include-secrets`。
 
+改 `<PACKHUB_HOME>/config.json` 的默认只影响之后新建的实例：已有实例保持创建时那份快照，改默认不动它，也没有原地迁移工具。要换策略就 `pal create --isolation` 新建；`pal clone` 沿用源实例的策略，换不了策略。这是有意取舍，不是功能缺口：按新策略重排一个装好、可能正在跑的 home，要么挪丢文件，要么在不可知的时刻半途失败，而换一次策略的代价本来就只是新建一次实例；`pal migrate` 仍只负责挪根，不碰 home 布局。写默认值时也会先校验：`credentials=shared` 这类未实现的值直接 `invalid-input`，不落盘、不改原文件，`pal config` 设置那一刻就拦住，不必等到 `pal create`。
+
 ## 记录与状态
 `instance.json` 的字段：`id`、`name`、`harness`、`harnessVersion`、`root`、`home`、`pack{name,version,ref}`、`status`、`managed`、`origin`、`isolation`、`pid`、`port`、`ports[]`、`url`（已摘凭据）、`startedAt`、`lastExit{code,signal,at,restarts}`、`lastError`、`restart`。类型上分 `InstanceConfig`（身份与配置）与 `RuntimeState`（`status`/`pid`/`port`/`ports`/`url`/`startedAt`/`lastExit`/`lastError`），`InstanceRecord` 是两者之和；`records.ts` 的 `partitionRecord` / `mergeRecord` 负责拆分与合回。持久化仍是同一个 `instance.json`（兼容旧记录），后续如需拆文件再迁移。`planHash` 只记在 `baseline.json`：`update` 用它判断计划有没有变，没有 baseline 视为已变；旧记录里残留的 `planHash` 读取时忽略、不再写回。
 

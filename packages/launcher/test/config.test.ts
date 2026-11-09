@@ -25,10 +25,19 @@ afterEach(() => {
   rmSync(tmp, { recursive: true, force: true });
 });
 
-/** 五层都共享，和默认值正好处处相反，方便看出覆盖有没有落盘。 */
-const ALL_SHARED: Isolation = {
+/**
+ * 和默认值处处相反、但凭据仍是 instance：这是当前唯一能写进 config 的「反向」策略，
+ * 用来看出覆盖有没有落盘。凭据 shared 尚未实现，是拒绝用例，不能进合法样本。
+ */
+const OPPOSITE: Isolation = {
   version: 1,
-  layers: { assembly: 'shared', session: 'shared', credentials: 'shared', cache: 'shared', runtime: 'shared' },
+  layers: { assembly: 'shared', session: 'shared', credentials: 'instance', cache: 'instance', runtime: 'instance' },
+};
+
+/** 只把凭据层改成 shared：写 config 时必须在落盘前被拒。 */
+const CREDENTIALS_SHARED: Isolation = {
+  version: 1,
+  layers: { ...DEFAULT_ISOLATION.layers, credentials: 'shared' },
 };
 
 function expectPalError(fn: () => unknown): PalError {
@@ -107,12 +116,12 @@ describe('读配置', () => {
 describe('写配置', () => {
   it('写进去再读回来是同一条策略；目录不存在会建出来，不留临时文件', () => {
     expect(existsSync(home)).toBe(false);
-    const written = writePalConfig({ version: CONFIG_VERSION, isolation: ALL_SHARED });
-    expect(written.isolation).toEqual(ALL_SHARED);
-    expect(readPalConfig().isolation).toEqual(ALL_SHARED);
+    const written = writePalConfig({ version: CONFIG_VERSION, isolation: OPPOSITE });
+    expect(written.isolation).toEqual(OPPOSITE);
+    expect(readPalConfig().isolation).toEqual(OPPOSITE);
 
     const onDisk = JSON.parse(readFileSync(palConfigFile(), 'utf8')) as PalConfig;
-    expect(onDisk).toEqual({ version: CONFIG_VERSION, isolation: ALL_SHARED });
+    expect(onDisk).toEqual({ version: CONFIG_VERSION, isolation: OPPOSITE });
     // 原子写：临时文件已经 rename 掉了，不留在 home 里
     expect(readdirSync(home).filter((name) => name.includes('.tmp'))).toEqual([]);
   });
@@ -151,6 +160,30 @@ describe('写配置', () => {
     } as unknown as PalConfig;
     expectPalError(() => writePalConfig(badIsolation));
     expect(existsSync(palConfigFile())).toBe(false);
+  });
+
+  it('未实现的策略（credentials=shared）写盘前就拒绝，原文件逐字节不变；合法配置照旧能写', () => {
+    // 先落一份合法配置当基线
+    writePalConfig({ version: CONFIG_VERSION, isolation: OPPOSITE });
+    const before = readFileSync(palConfigFile());
+
+    const err = expectPalError(() => writePalConfig({ version: CONFIG_VERSION, isolation: CREDENTIALS_SHARED }));
+    expect(err.code).toBe('invalid-input');
+    // 说的是「还没实现什么」以及怎么改，不是「文件写不进去」
+    expect(err.message).toContain('shared-ro');
+    expect(err.hint).toContain('credentials=instance');
+    // message 不回显路径：pal config 自己会报文件名，错误文案不重复它
+    expect(err.message).not.toContain(home);
+    expect(err.message).not.toContain(palConfigFile());
+
+    // 原文件一个字节没动，也没留下临时文件或半份 JSON
+    expect(readFileSync(palConfigFile()).equals(before)).toBe(true);
+    expect(readdirSync(home).filter((name) => name.includes('.tmp'))).toEqual([]);
+
+    // 合法配置仍可写（拒绝只针对没实现的语义）
+    const written = writePalConfig({ version: CONFIG_VERSION, isolation: DEFAULT_ISOLATION });
+    expect(written.isolation).toEqual(DEFAULT_ISOLATION);
+    expect(readPalConfig().isolation).toEqual(DEFAULT_ISOLATION);
   });
 });
 

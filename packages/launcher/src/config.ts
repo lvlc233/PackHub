@@ -4,6 +4,7 @@ import { PalError } from './errors.ts';
 import {
   DEFAULT_ISOLATION,
   ISOLATION_LAYERS,
+  assertIsolationSupported,
   parseIsolation,
   type Isolation,
   type IsolationLayer,
@@ -90,6 +91,10 @@ export function readPalConfig(): PalConfig {
 
 /**
  * 写配置：先校验再原子落盘（临时文件 + rename），写到一半崩掉不会留下半份 JSON。
+ * 校验分两层：结构（parseIsolation）与「已实现的语义」（assertIsolationSupported）——
+ * 后者让 `pal config` 设默认时立刻拒绝 credentials=shared，不必等 `pal create` 才报。
+ * 拒绝发生在 mkdir/写盘之前，原 config 一个字节都不动；那条 message 不带路径，
+ * 文件名交给调用方自己报（这里不是读失败，没有「去改哪个文件」的问题）。
  * 返回真正落盘的那份（校验过的新副本）。
  */
 export function writePalConfig(config: PalConfig): PalConfig {
@@ -99,6 +104,7 @@ export function writePalConfig(config: PalConfig): PalConfig {
   }
   assertVersion(config.version, file);
   const next: PalConfig = { version: CONFIG_VERSION, isolation: assertIsolation(config.isolation, file) };
+  assertIsolationSupported(next.isolation);
   mkdirSync(dirname(file), { recursive: true });
   const tmp = `${file}.tmp-${process.pid}`;
   try {
