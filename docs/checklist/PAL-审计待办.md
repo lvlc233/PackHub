@@ -25,7 +25,7 @@
 | 编号 | 事项 | 位置 / 证据 | 状态 | 前置 |
 |---|---|---|---|---|
 | A1 | 隔离策略模型（层、模式、字段） | `isolation.ts`：五层 + instance/shared + `DEFAULT_ISOLATION` + `parseIsolation`；新建/接管写默认值，旧记录与坏策略回落默认，clone 沿用源策略 | `[done]` 59ed357 | A2/A3 用这套词汇 |
-| A2 | 没有默认策略与每实例覆盖 | 默认值目前只有代码里的 `DEFAULT_ISOLATION`；`~/.packhub/config.json` 与每实例覆盖还没有 | `[open]` | A1 |
+| A2 | 默认策略与每实例覆盖 | `~/.packhub/config.json` 存新实例默认（`pal config` 可看/改）；`pal create --isolation` 显式覆盖；坏配置报错不回落，已有实例不追溯 | `[done]` 15d4086 | A3/A7/A13 用这套语义 |
 | A3 | 凭据没有 copy/shared-ro 策略，禁 link，归档剥离 | `seedHome`（`create.ts`）只在建实例时复制一次，之后宿主登录的凭据不回写 | `[decision]` | A1；等你选 copy / shared-ro |
 | A4 | 取包缓存没有管理面（`pal cache ls/clean`、meta、GC） | `materialize.ts` 只有取与复用，没有列出、清理、配额 | `[open]` | A1 的缓存层 |
 | A5 | 实例根不可选 | `create` / `clone` / `import` 的 CLI args 里都没有 `--root`，API 与界面也没有 | `[open]` | 无 |
@@ -72,7 +72,7 @@
 | 编号 | 事项 | 位置 / 证据 | 状态 | 前置 |
 |---|---|---|---|---|
 | E1 | 最小 Electron 壳 | `apps/pal-electron`：spawn `pal serve --json`、读地址、窗口加载；侧车异常有可见错误。pnpm 跳过 electron postinstall，二进制要手动补一次（README 已写） | `[done]` e48ea2d | 无 |
-| E2 | 前端 API 层抽离 + IPC 桥 | `web/app.js` 的 `api()` 直接 fetch；拆出 `api.js`，浏览器走 fetch、Electron 走 preload 的 IPC | `[open]` | E1 |
+| E2 | 前端 API 层抽离 + IPC 桥 | `web/api.js` 是唯一 API 入口：浏览器 fetch、Electron 走 `pal.request`；`forward.mjs` 校验 `/api/` 路径并补 `x-pal-client`/`origin`；页面代码不动即可换传输 | `[done]` 2f4bd2e | E3 只改 transport 与 forward |
 | E3 | 侧车传输收敛 | `pal serve` 保留 HTTP（仅 dev）还是改 stdio / 内部 RPC；决定 B14 是「加 token」还是「去掉 HTTP 面」 | `[decision]` | E1、E2 |
 | E4 | 退役 WinForms/WebView2 壳 | 删 `apps/pal-desktop/*.cs`；同步 `README.md`、`.github/workflows/pal.yml`、`build:pal-desktop` 与分发脚本 | `[open]` | E1 可用后 |
 | E5 | 打包范围 | Windows-only 还是保留 macOS/Linux；跨平台要先审 `pal serve` 与路径逻辑的 Windows 假设（见 [details/windows.md](details/windows.md)） | `[decision]` | E1 |
@@ -85,7 +85,7 @@
 | N2 | `remove` 不再 `removePack` 的副作用边界 | `remove.ts` 默认直接删根；当前根内没有外部副作用，将来若写宿主级 MCP / 配置注册要补清理 | `[open]` | 无 |
 | N3 | `uninstalled` 报告语义 | 归档兜底时文件仍在归档里，CLI 与 `scripts/pal/smoke.mjs` 仍打印「已卸载 / 已删除」 | `[open]` | 无 |
 | N4 | 校验函数位置 | `assertNameFree` / `assertHarness` 暂放 `create.ts` 并导出给 index / migrate 复用，宜收进 `validators.ts` | `[open]` | C1 遗留结构 |
-| N5 | 过时注释 / 文案 | `catalog.ts` 头注释仍说「写入流程在 index.ts」；`smoke.mjs` 的「已卸包并删根」在 B13 后不准确 | `[open]` | 无 |
+| N5 | 过时注释 / 文案 | `catalog.ts` 头注释、冒烟删除文案已校准（默认删除不卸包、归档时 removed=false） | `[done]` db5325a | 无 |
 
 ## 计数
 
