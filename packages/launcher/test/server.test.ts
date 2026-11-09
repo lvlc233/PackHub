@@ -512,8 +512,9 @@ describe('PAL 本地界面 API', () => {
 
     const list = await json('/api/instances');
     const row = list.instances.find((item: { id: string }) => item.id === rec.id);
-    // 视图里是 broken，但磁盘上的记录一个字节都没动
+    // 视图里是 broken + stale（记录还没刷新过），但磁盘上的记录一个字节都没动
     expect(row?.status).toBe('broken');
+    expect(row?.stale).toBe(true);
     expect(row?.pid).toBeUndefined();
     expect(readFileSync(file, 'utf8')).toBe(before);
     expect(list.broken.map((bad: { dir: string }) => bad.dir)).toContain(badDir);
