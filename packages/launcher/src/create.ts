@@ -1,5 +1,5 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve, sep } from 'node:path';
 import { planFor, type PackContext, type TargetId } from '@packhub/kernel';
 import { installPack, loadLock, loadPack, loadState, withLockPins } from '@packhub/runtime';
 import { ADAPTERS, targetVarsFor } from './layout.ts';
@@ -48,16 +48,40 @@ export interface CreateInstanceOptions {
    * 不写就用 readPalConfig().isolation；写了必须是合法的五层策略。
    */
   isolation?: Isolation;
+  /**
+   * 非致命问题的一行说明（目前只有 seedHome 里单个文件没带过来）。
+   * 建实例不因此失败；CLI 把它写到 stderr，--json 时不打。
+   */
+  onWarn?: (line: string) => void;
 }
 
 /** 从已有 home 带过来时不搬的东西：会话、缓存、附件、运行时、库文件、profile（带绝对路径）。 */
 const SEED_SKIP = new Set(['sessions', 'cache', 'attachments', 'dsh-runtimes', 'storages', 'profiles', 'logs']);
 
 /**
+ * 单个 fs 操作失败的原因文字：优先 code/syscall（不带路径），
+ * 退回错误消息时把绝对路径截成 …，警告行只回显相对路径，不暴露宿主目录结构。
+ */
+export function fsProblem(err: unknown): string {
+  const e = err as NodeJS.ErrnoException | undefined;
+  const head = [
+    typeof e?.code === 'string' ? e.code : '',
+    typeof e?.syscall === 'string' ? e.syscall : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+  if (head) return head;
+  const message = typeof e?.message === 'string' && e.message ? e.message : String(err);
+  return message.replace(/(?:[A-Za-z]:[\\/]|\/)[^\s'"]+/g, '…') || '未知原因';
+}
+
+/**
  * 把已有 home 里的凭据/指令补进实例 home：只补空缺，已存在的路径一律不动。
  * 先装 Pack 再 seed，所以 Pack 写好的 AGENTS.md、skills 不会被全局那份盖掉。
+ * 单个文件搬不过来不阻断建实例，但要收集起来经 onProblem 报告：不然用户只看到「凭据没生效」。
+ * 返回顶层条目名（沿用原有语义）。
  */
-export function seedHome(from: string, to: string): string[] {
+export function seedHome(from: string, to: string, onProblem?: (line: string) => void): string[] {
   const source = resolve(from);
   if (!existsSync(source)) {
     throw new PalError('not-found', '要导入凭据的 home 目录不存在', {
@@ -66,29 +90,33 @@ export function seedHome(from: string, to: string): string[] {
     });
   }
   const copied: string[] = [];
-  const walk = (src: string, dest: string, name: string): void => {
+  const problems: string[] = [];
+  const walk = (src: string, dest: string): void => {
     const stat = statSync(src);
     if (stat.isDirectory()) {
       if (!existsSync(dest)) mkdirSync(dest, { recursive: true });
       for (const entry of readdirSync(src, { withFileTypes: true })) {
         if (SEED_SKIP.has(entry.name)) continue;
-        walk(join(src, entry.name), join(dest, entry.name), entry.name);
+        walk(join(src, entry.name), join(dest, entry.name));
       }
       return;
     }
     if (existsSync(dest)) return;
     try {
       cpSync(src, dest, { force: false, errorOnExist: false });
-    } catch {
-      /* 单个文件搬不过来不影响建实例 */
+    } catch (err) {
+      // 单个文件搬不过来不影响建实例，但要让人看到少了哪个文件、为什么
+      // 相对路径统一用 /，和 update 的 removedFiles 写法一致
+      problems.push(`没带过来：${relative(to, dest).split(sep).join('/')}（${fsProblem(err)}）`);
     }
   };
   for (const entry of readdirSync(source, { withFileTypes: true })) {
     if (SEED_SKIP.has(entry.name)) continue;
     const before = existsSync(join(to, entry.name));
-    walk(join(source, entry.name), join(to, entry.name), entry.name);
+    walk(join(source, entry.name), join(to, entry.name));
     if (!before || entry.isDirectory()) copied.push(entry.name);
   }
+  if (onProblem) for (const line of problems) onProblem(line);
   return copied;
 }
 
@@ -216,7 +244,7 @@ export async function createInstance(opts: CreateInstanceOptions): Promise<Insta
       });
       if (opts.seedFrom && home) {
         // 先装 Pack，再补凭据：Pack 写好的文件不被覆盖
-        seedHome(opts.seedFrom, home);
+        seedHome(opts.seedFrom, home, opts.onWarn);
         draft.origin = { ...(draft.origin ?? { kind: 'pack' }), seededFrom: resolve(opts.seedFrom) };
       }
       writeInstance({ ...draft, status: 'installed' });

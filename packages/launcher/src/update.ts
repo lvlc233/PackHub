@@ -10,6 +10,7 @@ import { writeInstance } from './recordWrite.ts';
 import { targetVarsFor } from './layout.ts';
 import { PalError } from './errors.ts';
 import { isPidAlive } from './process.ts';
+import { fsProblem } from './create.ts';
 
 /**
  * 更新与重新基准化：从 index.ts 搬出（C1）。
@@ -27,6 +28,11 @@ export interface UpdateInstanceResult {
   addedFiles: string[];
   /** 上一版文件里被本地改过、更新会覆盖的（保护提示） */
   localChanges: string[];
+  /**
+   * 更新成功、但有非致命问题：目前只有「旧文件没删掉」。
+   * 每条只带实例内相对路径与原因，不带绝对路径；文件会留在实例里。
+   */
+  warnings: string[];
 }
 
 function writtenOf(root: string, names: string[]): string[] {
@@ -147,6 +153,7 @@ export async function updateInstance(
 
   let removedFiles: string[] = [];
   let addedFiles: string[] = [];
+  const warnings: string[] = [];
 
   await withInstanceLock(record.root, 'update', async () => {
     if (!changed) return;
@@ -162,8 +169,9 @@ export async function updateInstance(
       if (!abs.startsWith(resolve(record.root))) continue;
       try {
         if (existsSync(abs) && statSync(abs).isFile()) rmSync(abs, { force: true });
-      } catch {
-        /* 删不掉就留着，下次更新再说 */
+      } catch (err) {
+        // 删不掉就留着，下次更新再说；但不能静默：告诉人哪个文件还在
+        warnings.push(`旧文件没删掉：${rel}（${fsProblem(err)}）`);
       }
     }
 
@@ -209,6 +217,7 @@ export async function updateInstance(
     removedFiles,
     addedFiles,
     localChanges: [...new Set([...localChanges, ...localChangesAfter])],
+    warnings,
   };
 }
 

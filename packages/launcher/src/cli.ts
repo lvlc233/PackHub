@@ -139,6 +139,8 @@ const create = defineCommand({
       ...(args['from-home'] ? { seedFrom: String(args['from-home']) } : {}),
       ...(info?.version ? { harnessVersion: info.version } : {}),
       ...(isolation ? { isolation } : {}),
+      // 单个凭据文件没带过来：写 stderr，建实例不因此失败；--json 时 log 不输出
+      onWarn: log,
     });
     if (args.json) {
       console.log(JSON.stringify(rec, null, 2));
@@ -849,6 +851,11 @@ const update = defineCommand({
     for (const file of result.removedFiles.slice(0, 10)) console.log(`    ${file}`);
     if (result.localChanges.length > 0) {
       console.log(`  ! ${result.localChanges.length} 个文件在改之前被本地改过，现在是新版本的内容；要保留请先备份`);
+    }
+    if (result.warnings.length > 0) {
+      console.log(`  ! ${result.warnings.length} 个旧文件没删掉（更新已完成，这些文件还留在实例里）`);
+      for (const line of result.warnings.slice(0, 10)) console.log(`    ${line}`);
+      if (result.warnings.length > 10) console.log(`    … 还有 ${result.warnings.length - 10} 条`);
     }
   },
 });

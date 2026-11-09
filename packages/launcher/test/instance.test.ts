@@ -51,6 +51,13 @@ const fsBlock = vi.hoisted(() => ({ root: '' }));
  */
 const fsRemoveOnLock = vi.hoisted(() => ({ lockFile: '', recordFile: '' }));
 
+/**
+ * 静默失败（C7）的现场：让指定文件的 cpSync / rmSync 抛错，其他路径照常。
+ * 同样用开关，只有对应用例打开时才生效。
+ */
+const fsCopyFail = vi.hoisted(() => ({ src: '' }));
+const fsRmFail = vi.hoisted(() => ({ file: '' }));
+
 vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>();
   const blocked = (target: unknown) => fsBlock.root !== '' && String(target) === fsBlock.root;
@@ -58,8 +65,20 @@ vi.mock('node:fs', async (importOriginal) => {
   return {
     ...actual,
     default: actual,
+    cpSync: ((src: string, dest: string, options?: unknown) => {
+      if (fsCopyFail.src !== '' && String(src) === fsCopyFail.src) {
+        throw Object.assign(new Error(`EPERM: 复制失败（测试模拟）'${src}' -> '${dest}'`), {
+          code: 'EPERM',
+          syscall: 'copyfile',
+        });
+      }
+      return actual.cpSync(src, dest, options as never);
+    }) as typeof actual.cpSync,
     rmSync: ((target: string, options?: unknown) => {
       if (blocked(target)) throw busy();
+      if (fsRmFail.file !== '' && String(target) === fsRmFail.file) {
+        throw Object.assign(new Error(`EPERM: 删不掉（测试模拟）'${target}'`), { code: 'EPERM', syscall: 'unlink' });
+      }
       return actual.rmSync(target, options as never);
     }) as typeof actual.rmSync,
     renameSync: ((from: string, to: string) => {
@@ -87,6 +106,8 @@ beforeEach(() => {
 afterEach(() => {
   fsRemoveOnLock.lockFile = '';
   fsRemoveOnLock.recordFile = '';
+  fsCopyFail.src = '';
+  fsRmFail.file = '';
   delete process.env.PACKHUB_INSTANCES;
   delete process.env.PACKHUB_HOME;
   rmSync(tmp, { recursive: true, force: true });
@@ -901,8 +922,35 @@ resources:
     expect(existsSync(bPath)).toBe(false);
     expect(existsSync(join(rec.root, '.packhub', 'knowledge', 'c.md'))).toBe(true);
     expect(result.removedFiles).toContain('.packhub/knowledge/b.md');
+    // 没有失败时 warnings 是空数组，不是 undefined
+    expect(result.warnings).toEqual([]);
     expect(readInstance(rec.id)?.pack.version).toBe('0.2.0');
     expect(readBaseline(rec.root)?.version).toBe('0.2.0');
+  });
+
+  it('更新时旧文件删不掉：warnings 记相对路径与原因，更新照常成功', async () => {
+    const v1 = knowledgePack(join(tmp, 'rm-fail-v1'), '0.1.0', { 'a.md': '# a1\n', 'b.md': '# b\n' });
+    const v2 = knowledgePack(join(tmp, 'rm-fail-v2'), '0.2.0', { 'a.md': '# a2\n' });
+    const rec = await createInstance({ name: 'rm-fail', harness: 'dir', packDir: v1, packRef: v1 });
+    const aPath = join(rec.root, '.packhub', 'knowledge', 'a.md');
+    const bPath = join(rec.root, '.packhub', 'knowledge', 'b.md');
+    expect(existsSync(bPath)).toBe(true);
+
+    fsRmFail.file = bPath;
+    const result = await updateInstance('rm-fail', { packDir: v2 });
+
+    expect(result.changed).toBe(true);
+    expect(result.to).toBe('demo/guard@0.2.0');
+    expect(result.removedFiles).toContain('.packhub/knowledge/b.md');
+    expect(result.warnings).toHaveLength(1);
+    expect(result.warnings[0]).toContain('.packhub/knowledge/b.md');
+    expect(result.warnings[0]).toContain('EPERM');
+    // 警告行只回显相对路径，不带宿主绝对路径
+    expect(result.warnings[0]).not.toContain(rec.root);
+    // 删不掉的文件还在，新版本照样装好
+    expect(existsSync(bPath)).toBe(true);
+    expect(readFileSync(aPath, 'utf8')).toBe('# a2\n');
+    expect(readInstance(rec.id)?.pack.version).toBe('0.2.0');
   });
 
   it('本地改过 Pack 写的文件：不带 force 拒绝更新且不写盘，带 force 才覆盖', async () => {
@@ -1035,5 +1083,52 @@ resources:
     expect(existsSync(join(home, 'sessions'))).toBe(false);
     expect(readFileSync(join(home, 'skills', 'doc-review', 'SKILL.md'), 'utf8')).not.toContain('全局版');
     expect(record.origin?.seededFrom).toBe(source);
+  });
+
+  it('沿用已有 home 时单个文件复制失败：onWarn 收到相对路径与原因，实例照样建成', async () => {
+    const source = join(tmp, 'global-seed-fail');
+    mkdirSync(join(source, 'skills'), { recursive: true });
+    writeFileSync(join(source, '.credentials.yaml'), 'apiKey: sk-test\n', 'utf8');
+    writeFileSync(join(source, 'skills', 'note.md'), '# 带不过来的文件\n', 'utf8');
+    fsCopyFail.src = join(source, 'skills', 'note.md');
+
+    const warns: string[] = [];
+    const record = await createInstance({
+      name: 'seeded-fail',
+      harness: 'dsh',
+      packDir: 'examples/doc-review',
+      seedFrom: source,
+      onWarn: (line) => warns.push(line),
+    });
+
+    const home = record.home!;
+    expect(warns).toHaveLength(1);
+    expect(warns[0]).toContain('skills/note.md');
+    expect(warns[0]).toContain('EPERM');
+    expect(warns[0]).not.toContain(source);
+    expect(warns[0]).not.toContain(tmp);
+    // 失败不阻断建实例：其余文件照常带过来，记录是 installed
+    expect(record.status).toBe('installed');
+    expect(existsSync(join(home, 'skills', 'note.md'))).toBe(false);
+    expect(readFileSync(join(home, '.credentials.yaml'), 'utf8')).toContain('sk-test');
+  });
+
+  it('沿用已有 home 且全部复制成功：onWarn 一条都不收到', async () => {
+    const source = join(tmp, 'global-seed-ok');
+    mkdirSync(source, { recursive: true });
+    writeFileSync(join(source, '.credentials.yaml'), 'apiKey: sk-test\n', 'utf8');
+
+    const warns: string[] = [];
+    const record = await createInstance({
+      name: 'seeded-ok',
+      harness: 'dsh',
+      packDir: 'examples/doc-review',
+      seedFrom: source,
+      onWarn: (line) => warns.push(line),
+    });
+
+    expect(warns).toEqual([]);
+    expect(record.status).toBe('installed');
+    expect(readFileSync(join(record.home!, '.credentials.yaml'), 'utf8')).toContain('sk-test');
   });
 });
