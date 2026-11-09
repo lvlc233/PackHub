@@ -166,6 +166,36 @@ describe('实例配置', () => {
     expect(existsSync(record.root)).toBe(false);
   });
 
+  it('显式 root：建在给的外部目录，记录与列表都指向它；相对路径与实例根以内一律拒绝', async () => {
+    const target = join(tmp, 'beside-project', 'inst');
+    const rec = await createInstance({ name: 'rooted', harness: 'dir', packDir: PACK, root: target });
+
+    expect(rec.root).toBe(target);
+    expect(existsSync(join(target, 'instance.json'))).toBe(true);
+    // 外部根不在 instances 根里：靠 .links 指针进列表，默认根下没有它的副本
+    expect(readInstance(rec.id)?.root).toBe(target);
+    expect(listInstances().map((row) => row.id)).toEqual([rec.id]);
+    expect(listDirNames(join(tmp, 'instances'))).toEqual(['.links']);
+
+    const rejected = ['relative/inst', join(tmp, 'instances'), join(tmp, 'instances', 'nested')];
+    for (const [index, root] of rejected.entries()) {
+      let caught: unknown;
+      try {
+        await createInstance({ name: `root-bad-${index}`, harness: 'dir', packDir: PACK, root });
+      } catch (err) {
+        caught = err;
+      }
+      expect(isPalError(caught), root).toBe(true);
+      if (isPalError(caught)) {
+        expect(caught.code).toBe('invalid-input');
+        // 路径只在 details 里给排障用，message 不回显
+        expect(caught.message).not.toContain(root);
+        expect(caught.details?.root).toBeDefined();
+      }
+    }
+    expect(listInstances().map((row) => row.name)).toEqual(['rooted']);
+  });
+
   it('新建实例与接管都写默认隔离策略，旧记录读出来也是默认', async () => {
     const record = await createInstance({ name: 'iso-new', harness: 'dir', packDir: PACK });
     expect(record.isolation).toEqual(DEFAULT_ISOLATION);

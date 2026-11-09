@@ -17,6 +17,7 @@ import { materializePack } from './materialize.ts';
 import { readIndex, resolveRegistry } from '@packhub/runtime';
 import { PalError, errorBody } from './errors.ts';
 import { discoverAll } from './harness.ts';
+import { assertExternalRoot } from './validators.ts';
 import { readEvents, readLog } from './logs.ts';
 import { readSecrets, redactText, withSecrets } from './secrets.ts';
 import { checkInstance } from './health.ts';
@@ -218,6 +219,8 @@ async function handle(req: IncomingMessage, res: ServerResponse, insecure: boole
     const name = String(body.name ?? '').trim();
     const harness = String(body.harness ?? 'dir');
     if (!pack || !name) throw new PalError('invalid-input', 'pack 与 name 必填');
+    // body.root：实例根必须是绝对路径，且不能落在 PAL 的实例根里（与 CLI --root 同一套校验）
+    const root = body.root === undefined ? undefined : assertExternalRoot(body.root);
     const packDir = await materializePack(pack, {
       ...(body.index ? { index: String(body.index) } : {}),
       ...(body.version ? { version: String(body.version) } : {}),
@@ -227,6 +230,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, insecure: boole
       harness: harness as never,
       packDir,
       packRef: pack,
+      ...(root ? { root } : {}),
       ...(body.fromHome ? { seedFrom: String(body.fromHome) } : {}),
     });
     sendJson(res, 200, rec);

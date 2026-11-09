@@ -14,7 +14,7 @@ import { writeInstance } from './recordWrite.ts';
 import { instancesRoot, newId } from './paths.ts';
 import { nowIso } from './time.ts';
 import { PalError } from './errors.ts';
-import { assertHarness, assertNameFree } from './validators.ts';
+import { assertHarness, assertExternalRoot, assertNameFree } from './validators.ts';
 
 /**
  * 建实例与接管：出计划、装 Pack、写记录与基线；接管只写指针，不动用户目录。
@@ -27,7 +27,10 @@ export interface CreateInstanceOptions {
   harness: TargetId;
   /** 已经落到本地的 Pack 目录 */
   packDir: string;
-  /** 实例根；不写就建在 instances 根下的新目录里 */
+  /**
+   * 实例根；不写就建在 instances 根下的新目录里。
+   * 写了只接受绝对路径，且不能是盘符根/文件系统根、不能落在 instances 根里（见 validators.assertExternalRoot）。
+   */
   root?: string;
   /** 记录来源（materialize 前的原始引用），供导出模板与排障 */
   packRef?: string;
@@ -120,7 +123,8 @@ export async function createInstance(opts: CreateInstanceOptions): Promise<Insta
   const isolation = isolationFor(opts.isolation);
 
   const id = newId();
-  const root = resolve(opts.root ?? join(instancesRoot(), id));
+  // 默认根由系统分配；显式给的根只用于外部目录，先过校验再落盘任何东西
+  const root = opts.root === undefined ? join(instancesRoot(), id) : assertExternalRoot(opts.root);
   const existed = existsSync(root);
   if (existsSync(recordFile(root))) {
     throw new PalError('root-occupied', '这个目录已经是一份实例', {

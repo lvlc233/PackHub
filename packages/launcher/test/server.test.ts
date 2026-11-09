@@ -258,6 +258,27 @@ describe('PAL 本地界面 API', () => {
     expect(badHarness.body.hint).toContain('dsh');
   });
 
+  it('创建接口接受 body.root：相对路径 400，绝对外部路径真的建到那里', async () => {
+    const relative = await call('/api/instances', {
+      method: 'POST',
+      body: JSON.stringify({ pack: 'examples/doc-review', name: 'rel-root', harness: 'dir', root: 'beside/inst' }),
+    });
+    expect(relative.status).toBe(400);
+    expect(relative.body.code).toBe('invalid-input');
+    // 路径只在 details 里，message 不回显
+    expect(relative.body.error).not.toContain('beside/inst');
+    expect(relative.body.details?.root).toBe('beside/inst');
+    expect((await json('/api/instances')).instances).toEqual([]);
+
+    const target = join(tmp, 'beside', 'web-root');
+    const rec = await json('/api/instances', {
+      method: 'POST',
+      body: JSON.stringify({ pack: 'examples/doc-review', name: 'abs-root', harness: 'dir', root: target }),
+    });
+    expect(rec.root).toBe(target);
+    expect(existsSync(join(target, 'instance.json'))).toBe(true);
+  });
+
   it('缺字段 400；宿主发现结果带版本与可启动性', async () => {
     const res = await call('/api/instances', { method: 'POST', body: JSON.stringify({ name: 'x' }) });
     expect(res.status).toBe(400);

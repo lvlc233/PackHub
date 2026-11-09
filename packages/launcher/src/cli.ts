@@ -35,6 +35,7 @@ import { PalError } from './errors.ts';
 import { CONFIG_VERSION, parseIsolationSpec, readPalConfig, writePalConfig } from './config.ts';
 import { ISOLATION_LAYERS } from './isolation.ts';
 import { quarantineRoot, archiveRoot, failedRoot, instancesRoot, palConfigFile } from './paths.ts';
+import { assertExternalRoot } from './validators.ts';
 
 function printRecord(rec: InstanceRecord): void {
   console.log(`${rec.id}\t${rec.status}\t${rec.harness}\t${rec.pack.name}@${rec.pack.version}`);
@@ -78,6 +79,11 @@ const create = defineCommand({
       description: '沿用已有宿主 home 的模型凭据与指令（例如 ~/.dsh）；Pack 写好的文件不会被覆盖',
     },
     version: { type: 'string', description: 'registry 包的版本，默认 latest' },
+    root: {
+      type: 'string',
+      description:
+        '实例根：必须是绝对路径，不能是盘符根/文件系统根，也不能落在 PAL 的实例根里（默认根由系统分配）；相对路径直接拒绝，PAL 不解析 cwd',
+    },
     isolation: {
       type: 'string',
       description:
@@ -89,6 +95,8 @@ const create = defineCommand({
     const log = (line: string): void => {
       if (!args.json) console.error(line);
     };
+    // 先把 --root 定下来：写错了不必去取包，也不会留下半份实例
+    const root = args.root === undefined ? undefined : assertExternalRoot(String(args.root));
     // 先把 --isolation 定下来（以当前配置为底座，只改写出来的层）：写错就不用去取包了
     const isolation =
       args.isolation === undefined
@@ -106,6 +114,7 @@ const create = defineCommand({
       harness: harness as InstanceRecord['harness'],
       packDir,
       packRef: String(args.pack),
+      ...(root ? { root } : {}),
       ...(args['from-home'] ? { seedFrom: String(args['from-home']) } : {}),
       ...(info?.version ? { harnessVersion: info.version } : {}),
       ...(isolation ? { isolation } : {}),
@@ -608,10 +617,18 @@ const clone = defineCommand({
   args: {
     target: { type: 'positional', required: true, description: '源实例 id 或名字' },
     name: { type: 'string', required: true, description: '新实例名' },
+    root: {
+      type: 'string',
+      description: '新实例根（绝对路径，不能落在 PAL 的实例根里）；不写就由系统分配；相对路径直接拒绝',
+    },
     json: { type: 'boolean', default: false },
   },
   async run({ args }) {
-    const rec = await cloneInstance(requireTarget(args.target), { name: String(args.name) });
+    const root = args.root === undefined ? undefined : assertExternalRoot(String(args.root));
+    const rec = await cloneInstance(requireTarget(args.target), {
+      name: String(args.name),
+      ...(root ? { root } : {}),
+    });
     console.log(args.json ? JSON.stringify(rec, null, 2) : `✓ 复制成 ${rec.id}（${rec.root}）`);
   },
 });
@@ -730,12 +747,17 @@ const importCmd = defineCommand({
     file: { type: 'positional', required: true, description: '模板文件' },
     name: { type: 'string', description: '新实例名；默认用模板里的名字' },
     index: { type: 'string', description: 'registry 索引' },
+    root: {
+      type: 'string',
+      description: '实例根（绝对路径，不能落在 PAL 的实例根里）；不写就由系统分配；相对路径直接拒绝',
+    },
     json: { type: 'boolean', default: false },
   },
   async run({ args }) {
     const template = readTemplate(String(args.file));
     const ref = template.origin?.ref;
     if (!ref) throw new PalError('invalid-input', '模板里没有 Pack 引用，重建不了', { hint: '用 pal create 重新建' });
+    const root = args.root === undefined ? undefined : assertExternalRoot(String(args.root));
     const log = (line: string): void => {
       if (!args.json) console.error(line);
     };
@@ -749,6 +771,7 @@ const importCmd = defineCommand({
       harness: template.harness,
       packDir,
       packRef: ref,
+      ...(root ? { root } : {}),
     });
     console.log(args.json ? JSON.stringify(rec, null, 2) : `✓ ${rec.id}\n  ${rec.root}`);
   },
