@@ -1,6 +1,6 @@
 # PAL 审计待办（37 条）
 
-> 日期：2026-11-09 ／ 基线：`65e2183`，`pnpm check` 全绿（78 文件 / 405 用例）／ 口径：2026-11-09 的 PAL 全量审计 50 条，已关闭 30 条（A 3、B 15、C 7、D 5），本文只记**原始剩余 20 条**与新增未完成的 E 3 条 / N 1 条，共 **24 条**。
+> 日期：2026-11-09 ／ 基线：`8a722fa`，`pnpm check` 全绿（78 文件 / 405 用例）／ 口径：2026-11-09 的 PAL 全量审计 50 条，已关闭 31 条（A 4、B 15、C 7、D 5），本文只记**原始剩余 19 条**与新增未完成的 E 3 条 / N 1 条，共 **23 条**。
 > 用途：跨会话派工，不依赖聊天记录。编号沿用审计原号，新增组往后排，**不重排、不复用**。
 > 相关：功能现状见 [PackHub-功能全量清单](PackHub-功能全量清单.md) 的 PAL 域，机制细节见 [details/pal.md](details/pal.md)。本表只记待办，做完就改状态；现状描述不在这里续写。
 
@@ -28,7 +28,7 @@
 | A2 | 默认策略与每实例覆盖 | `~/.packhub/config.json` 存新实例默认（`pal config` 可看/改）；`pal create --isolation` 显式覆盖；坏配置报错不回落，已有实例不追溯 | `[done]` 15d4086 | A3/A7/A13 用这套语义 |
 | A3 | 凭据没有 copy/shared-ro 策略，禁 link，归档剥离 | `seedHome`（`create.ts`）只在建实例时复制一次，之后宿主登录的凭据不回写 | `[decision]` | A1；等你选 copy / shared-ro |
 | A4 | 取包缓存管理面（`pal cache ls/clean`、meta、GC） | `cache.ts` + `pal cache`：ls/clean（`--all`/`--ref`/`--older-than`）、缓存 meta、命中补写 | `[done]` 65e2183 | A1 的缓存层 |
-| A5 | 实例根不可选 | `create` / `clone` / `import` 的 CLI args 里都没有 `--root`，API 与界面也没有 | `[open]` | 无 |
+| A5 | 实例根可选 | `create` / `clone` / `import` 的 CLI `--root`、API `body.root` 已支持；只收绝对路径，拒绝盘符根/文件系统根与 PAL 实例根内（`assertExternalRoot`） | `[done]` 8a722fa | 无 |
 | A6 | 界面缺实例流转 | `web/app.js` 有建 / 启停 / 重起 / 更新 / 设为当前 / 删；adopt / clone / rename / migrate / export / import 没有入口 | `[open]` | 提案已有 6 个 API 形状 |
 | A7 | 策略变更没有迁移工具 | `migrate.ts` 只挪根，不按新策略重排 home | `[open]` | A1、A3 |
 | A8 | 没有整实例快照 / 备份 / 恢复 | `export` 只导出 Pack 引用模板（`template.ts`），不含 home 与数据 | `[open]` | 无 |
@@ -91,14 +91,14 @@
 
 | 组 | 编号 | 条数 |
 |---|---|---|
-| A | A3、A5–A13 | 10 |
+| A | A3、A6–A13 | 9 |
 | B | B12 | 1 |
 | C | C4、C7、C8、C9、C10 | 5 |
 | D | D1–D3、D7 | 4 |
-| 小计 | 原始剩余 | **20** |
+| 小计 | 原始剩余 | **19** |
 | E | E3–E5 | 3 |
 | N | N2 | 1 |
-| 合计 |  | **24** |
+| 合计 |  | **23** |
 
 ## 建议开工顺序
 
@@ -115,7 +115,7 @@ Electron 这条线独立于 A–D：先 **E1**（壳能起来），再 **E2**（
 
 新会话开场可直接写：
 
-> 继续 PackHub PAL 审计剩余 24 条（原 20 + E3–E5 + N2），仓库在 `65e2183`。A1/A2/A4/B14/E1/E2 已完成；下一步 A5/A6；B12/凭据策略待定。
+> 继续 PackHub PAL 审计剩余 23 条（原 19 + E3–E5 + N2），仓库在 `8a722fa`。A1/A2/A4/A5/B14/E1/E2 已完成；下一步 A6；B12/凭据策略待定。
 
 ## 完成判据
 
