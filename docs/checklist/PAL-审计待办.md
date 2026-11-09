@@ -1,6 +1,6 @@
 # PAL 审计待办（37 条）
 
-> 日期：2026-11-09 ／ 基线：`d60049c`，`pnpm check` 全绿 ／ 口径：2026-11-09 的 PAL 全量审计 50 条，已关闭 42 条（A 11、B 15、C 10、D 6），本文只记**原始剩余 8 条**与新增未完成的 E 3 条，共 **11 条**。
+> 日期：2026-11-09 ／ 基线：`26d46a5`，`pnpm check` 全绿 ／ 口径：2026-11-09 的 PAL 全量审计 50 条，已关闭 43 条（A 11、B 15、C 11、D 6），本文只记**原始剩余 7 条**与新增未完成的 E 3 条，共 **10 条**。
 > 需要拍板的四组语义（A3/B12/E3/E5）与结构项顺序见 [PAL-剩余决策](PAL-剩余决策.md)。
 > 用途：跨会话派工，不依赖聊天记录。编号沿用审计原号，新增组往后排，**不重排、不复用**。
 > 相关：功能现状见 [PackHub-功能全量清单](PackHub-功能全量清单.md) 的 PAL 域，机制细节见 [details/pal.md](details/pal.md)。本表只记待办，做完就改状态；现状描述不在这里续写。
@@ -51,7 +51,7 @@ A3 凭据已定为 **copy**（`0d4f6d6`）：`credentials=shared` 明确拒绝�
 
 | 编号 | 事项 | 位置 / 证据 | 状态 | 前置 |
 |---|---|---|---|---|
-| C4 | 三份事实 | 第一步：`planHash` 只留 baseline，`instance.json` 不再存（旧记录读时丢弃）；pack 身份仍在 record/state 两处，第二步再合 | `[part]` d60049c | 无 |
+| C4 | 三份事实 | `planHash` 只在 baseline；pack 身份由 `packIdentityFromState` 从 state 派生（0/≥2 个包才 external），record 只存派生快照；update 写完回读 state | `[done]` 26d46a5 | 无 |
 | C7 | 静默失败 | `seedHome` 单文件失败经 `onWarn` 报告（CLI stderr）；`update` 删旧文件失败进 `warnings`；日志读取仍 best-effort | `[done]` acaab37 | 无 |
 | C8 | 状态机缺 `unknown`/`stale` | 只读视图 `statusView` 对 running 但 pid 已死/缺席的记录给 `status:broken` + `stale:true`（不落盘）；不新增 `unknown` 状态，记录 schema 不变 | `[done]` a2e1a9e | 无 |
 | C9 | 没有 service 层 | HTTP handler 直接调 materialize/create/update，CLI 又重复一遍 | `[open]` | 无 |
@@ -95,12 +95,12 @@ A3 凭据已定为 **copy**（`0d4f6d6`）：`credentials=shared` 明确拒绝�
 |---|---|---|
 | A | A7、A11 | 2 |
 | B | B12 | 1 |
-| C | C4、C9 | 2 |
+| C | C9 | 1 |
 | D | D1、D3、D7 | 3 |
-| 小计 | 原始剩余 | **8** |
+| 小计 | 原始剩余 | **7** |
 | E | E3–E5 | 3 |
 | N | — | 0 |
-| 合计 |  | **11** |
+| 合计 |  | **10** |
 
 ## 建议开工顺序
 
@@ -117,7 +117,7 @@ Electron 这条线独立于 A–D：先 **E1**（壳能起来），再 **E2**（
 
 新会话开场可直接写：
 
-> 继续 PackHub PAL 审计剩余 11 条（原 8 + E3–E5），仓库在 `d60049c`。A1/A2/A3/A4/A5/A6/A8/A9/A10/A12/A13/B14/C7/C8/C10/E1/E2/N2 已完成；C4 第一步已落；下一步 C4 第二步或 D1；B12 仍待定。
+> 继续 PackHub PAL 审计剩余 10 条（原 7 + E3–E5），仓库在 `26d46a5`。A1/A2/A3/A4/A5/A6/A8/A9/A10/A12/A13/B14/C1–C8/C10–C12/E1/E2/N2 已完成；下一步 D1 或 C9；B12 仍待定。
 
 ## 完成判据
 
