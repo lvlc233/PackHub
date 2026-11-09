@@ -1,6 +1,6 @@
 # PAL 审计待办（37 条）
 
-> 日期：2026-11-09 ／ 基线：`aef0f91`，`pnpm check` 全绿 ／ 口径：2026-11-09 的 PAL 全量审计 50 条，已关闭 47 条（A 12、B 16、C 12、D 7），本文只记**原始剩余 3 条**与新增未完成的 E 3 条，共 **6 条**。
+> 日期：2026-11-09 ／ 基线：`e1fc2ce`，`pnpm check` 全绿 ／ 口径：2026-11-09 的 PAL 全量审计 50 条，已关闭 47 条（A 12、B 16、C 12、D 7），本文只记**原始剩余 3 条**与 E 组未完成的 1 条（E4），共 **4 条**。
 > 需要拍板的四组语义（A3/B12/E3/E5）与结构项顺序见 [PAL-剩余决策](PAL-剩余决策.md)。
 > 用途：跨会话派工，不依赖聊天记录。编号沿用审计原号，新增组往后排，**不重排、不复用**。
 > 相关：功能现状见 [PackHub-功能全量清单](PackHub-功能全量清单.md) 的 PAL 域，机制细节见 [details/pal.md](details/pal.md)。本表只记待办，做完就改状态；现状描述不在这里续写。
@@ -72,9 +72,9 @@
 |---|---|---|---|---|
 | E1 | 最小 Electron 壳 | `apps/pal-electron`：spawn `pal serve --json`、读地址、窗口加载；侧车异常有可见错误。pnpm 跳过 electron postinstall，二进制要手动补一次（README 已写） | `[done]` e48ea2d | 无 |
 | E2 | 前端 API 层抽离 + IPC 桥 | `web/api.js` 是唯一 API 入口：浏览器 fetch、Electron 走 `pal.request`；`forward.mjs` 校验 `/api/` 路径并补 `x-pal-client`/`origin`；页面代码不动即可换传输 | `[done]` 2f4bd2e | E3 只改 transport 与 forward |
-| E3 | 侧车传输收敛 | `pal serve` 保留 HTTP（仅 dev）还是改 stdio / 内部 RPC；决定 B14 是「加 token」还是「去掉 HTTP 面」 | `[decision]` | E1、E2 |
+| E3 | 侧车传输收敛 | 决定保留 HTTP + token（仅 127.0.0.1，token 只校验 `/api/*`）；stdio / 内部 RPC 留作以后，不在 0.x 做 | `[done]` 本次文档 | E1、E2 |
 | E4 | 退役 WinForms/WebView2 壳 | 删 `apps/pal-desktop/*.cs`；同步 `README.md`、`.github/workflows/pal.yml`、`build:pal-desktop` 与分发脚本 | `[open]` | E1 可用后 |
-| E5 | 打包范围 | Windows-only 还是保留 macOS/Linux；跨平台要先审 `pal serve` 与路径逻辑的 Windows 假设（见 [details/windows.md](details/windows.md)） | `[decision]` | E1 |
+| E5 | 打包范围 | 决定 0.x 只承诺 Windows；POSIX 进程组/信号/路径假设未审，跨平台另开 | `[done]` 本次文档 | E1 |
 
 ## N 组：本轮实现暴露的（5 条）
 
@@ -95,9 +95,9 @@
 | C | — | 0 |
 | D | D1、D7 | 2 |
 | 小计 | 原始剩余 | **3** |
-| E | E3–E5 | 3 |
+| E | E4 | 1 |
 | N | — | 0 |
-| 合计 |  | **6** |
+| 合计 |  | **4** |
 
 ## 建议开工顺序
 
@@ -114,7 +114,7 @@ Electron 这条线独立于 A–D：先 **E1**（壳能起来），再 **E2**（
 
 新会话开场可直接写：
 
-> 继续 PackHub PAL 审计剩余 6 条（原 3 + E3–E5），仓库在 `aef0f91`。A1–A10/A12/A13/B1–B16/C1–C12/D3/E1/E2/N2 已完成；剩 A11、D1 半、D7 半、E3–E5。
+> 继续 PackHub PAL 审计剩余 4 条，仓库在 `e1fc2ce`。A1–A10/A12/A13/B1–B16/C1–C12/D3/E1–E3/E5/N2 已完成；剩 A11、D1 半、D7 半、E4（删旧壳需你点头）。
 
 ## 完成判据
 

@@ -147,10 +147,12 @@ Pack 里的 `type: mcp` 资源安装时写进实例的 `.packhub/config.json`（
 
 ## 缺口
 
-- 看护只在 `pal serve` 活着时生效，壳退出后没有系统级守护。
-- `adopt` / `clone` / `migrate` 没有界面入口（`update` / `rebaseline` 前者的界面入口是详情页的「更新」按钮，后者只有 CLI）。
-- 没有运行时版本管理；跨盘迁移要手动搬。
-- `update` 的强制放行只有 CLI 的 `--force` 和 API 的 `body.force`：界面没有强制更新入口，改过本地文件的实例只能走 CLI `--force` 覆盖，界面上点「更新」只会报错。
+- 系统级守护只有 `pal watch`（headless 进程），没有 Windows 服务/开机自启；`pal watch` 与 `pal serve` 二选一。
+- 旧壳 `apps/pal-desktop` 仍在，E4 退役前两套壳并存。
+- 没有运行时版本管理（A11）；跨盘迁移要手动搬。
+- 侧车传输固定 HTTP + token（E3 决定保留），stdio / 内部 RPC 未做。
+- 0.x 只承诺 Windows（E5）；POSIX 的进程组/信号/路径假设未审。
+- D1 只在类型上拆了配置/运行态，持久化仍是单个 `instance.json`。
 - 计数与耗时这类性能数字只在本机测过，没有进 CI 基线。
 
 这些缺口与后续工作的编号、证据和顺序见 [PAL 审计待办](../PAL-审计待办.md)。
