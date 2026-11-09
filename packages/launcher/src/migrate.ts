@@ -34,7 +34,10 @@ export async function cloneInstance(
   const id = newId();
   const target = resolve(opts.root ?? join(instancesRoot(), id));
   if (existsSync(target)) {
-    throw new PalError('root-occupied', `目标目录已存在：${target}`);
+    throw new PalError('root-occupied', '目标目录已存在', {
+      hint: '换一个还没被占用的目录',
+      details: { target },
+    });
   }
   try {
     cpSync(source.root, target, { recursive: true, force: true, errorOnExist: false });
@@ -171,16 +174,26 @@ function migrateLocked(record: InstanceRecord, target: string, owned: boolean): 
     const rollback = rollbackMigrate(record, target);
     if (!rollback.ok) {
       if (owned) releaseInstanceLock(target);
-      throw new PalError('internal', `迁移写记录失败，回滚也失败；${rollback.scene}：${(err as Error).message}`, {
-        hint: rollback.error,
+      throw new PalError('internal', '迁移写记录失败，回滚也失败', {
+        hint: '目录与记录可能已经不在同一处；先确认实例目录在旧根还是新根，再手工恢复',
         cause: err,
-        details: { root: record.root, target },
+        details: {
+          root: record.root,
+          target,
+          scene: rollback.scene,
+          reason: (err as Error).message,
+          ...(rollback.error ? { rollbackError: rollback.error } : {}),
+        },
       });
     }
     throw new PalError(
       err instanceof PalError ? err.code : 'internal',
-      `迁移写记录失败，已回滚（目录回到 ${record.root}）：${(err as Error).message}`,
-      { hint: '实例根与记录都回到迁移前的位置，可以重试', cause: err, details: { root: record.root, target } },
+      '迁移写记录失败，已回滚',
+      {
+        hint: '实例根与记录都回到迁移前的位置，可以重试',
+        cause: err,
+        details: { root: record.root, target, reason: (err as Error).message },
+      },
     );
   }
 }
@@ -193,7 +206,10 @@ export function migrateInstance(nameOrId: string, to: string): InstanceRecord {
   }
   const target = resolve(to);
   if (existsSync(target)) {
-    throw new PalError('root-occupied', `目标已存在：${target}`);
+    throw new PalError('root-occupied', '目标已存在', {
+      hint: '换一个还没被占用的目录',
+      details: { target },
+    });
   }
   mkdirSync(dirname(target), { recursive: true });
   return withInstanceLockSync(record.root, 'migrate', (owned) => migrateLocked(record, target, owned));

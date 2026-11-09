@@ -13,7 +13,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { packArchive } from '@packhub/runtime';
-import { materializePack, packCacheRoot, slug } from '../src/materialize.ts';
+import { CACHE_META, materializePack, packCacheRoot, slug, stripUrlSecrets } from '../src/materialize.ts';
 
 let tmp: string;
 let archive: string;
@@ -74,6 +74,74 @@ describe('Pack 取用', () => {
     await expect(materializePack(missing)).rejects.toThrow('没有这个归档');
     const cache = join(packCacheRoot(), slug(missing));
     expect(existsSync(cache) ? readdirSafe(cache) : []).toEqual([]);
+  });
+});
+
+describe('缓存元数据', () => {
+  function readMeta(dir: string): Record<string, unknown> {
+    return JSON.parse(readFileSync(join(dir, CACHE_META), 'utf8')) as Record<string, unknown>;
+  }
+
+  it('registry 取包后写 meta：ref / version / pack / source / fetchedAt', async () => {
+    const dir = await materializePack('testorg/cache-demo', { index, version: '0.1.0' });
+    const meta = readMeta(dir);
+    expect(meta.ref).toBe('testorg/cache-demo');
+    expect(meta.version).toBe('0.1.0');
+    expect(meta.pack).toBe('lvlc233/doc-review');
+    expect(meta.source).toBe('registry');
+    expect(String(meta.fetchedAt)).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it('.phub 来源记 source=archive，版本以清单为准', async () => {
+    const dir = await materializePack(archive, { version: '9.9.9' });
+    const meta = readMeta(dir);
+    expect(meta.source).toBe('archive');
+    expect(meta.version).toBe('0.1.0');
+    expect(meta.ref).toBe(archive);
+  });
+
+  it('命中时缺 meta 只补写，不重新取（目录里的标记文件还在）', async () => {
+    const first = await materializePack('testorg/cache-demo', { index, version: '0.1.0' });
+    rmSync(join(first, CACHE_META));
+    writeFileSync(join(first, 'cached-marker.txt'), 'from-first-run', 'utf8');
+    const manifestMtime = statSync(join(first, 'packhub.yaml')).mtimeMs;
+
+    const lines: string[] = [];
+    const second = await materializePack('testorg/cache-demo', {
+      index,
+      version: '0.1.0',
+      log: (line) => lines.push(line),
+    });
+
+    expect(second).toBe(first);
+    expect(lines.some((line) => line.includes('缓存命中'))).toBe(true);
+    expect(existsSync(join(second, 'cached-marker.txt'))).toBe(true);
+    expect(statSync(join(second, 'packhub.yaml')).mtimeMs).toBe(manifestMtime);
+    const meta = readMeta(second);
+    expect(meta.ref).toBe('testorg/cache-demo');
+    expect(meta.version).toBe('0.1.0');
+    expect(meta.source).toBe('registry');
+  });
+
+  it('命中时已有合法 meta 就不重写（不碰目录 mtime）', async () => {
+    const first = await materializePack('testorg/cache-demo', { index, version: '0.1.0' });
+    const before = statSync(join(first, CACHE_META)).mtimeMs;
+
+    const second = await materializePack('testorg/cache-demo', { index, version: '0.1.0' });
+    expect(second).toBe(first);
+    expect(statSync(join(second, CACHE_META)).mtimeMs).toBe(before);
+  });
+
+  it('本地目录直接用时不写 meta（不污染源目录）', async () => {
+    const dir = await materializePack('examples/doc-review');
+    expect(existsSync(join(dir, CACHE_META))).toBe(false);
+  });
+
+  it('URL 里的凭据不进 meta', async () => {
+    const withSecret = 'git+https://user:token@github.com/org/repo@v1.0.0';
+    expect(stripUrlSecrets(withSecret)).toBe('git+https://github.com/org/repo@v1.0.0');
+    expect(stripUrlSecrets('https://token@example.com/pack.phub')).toBe('https://example.com/pack.phub');
+    expect(stripUrlSecrets('C:\\packs\\repo.phub')).toBe('C:\\packs\\repo.phub');
   });
 });
 

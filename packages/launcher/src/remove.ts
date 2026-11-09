@@ -33,8 +33,9 @@ async function removeTreeWithRetry(dir: string, tries = 6): Promise<{ removed: b
   }
   const moved = moveAside(dir, archiveRoot(), { reason: '删除时目录被占用，改为归档', from: dir });
   if (moved) return { removed: false, movedTo: moved };
-  throw new PalError('busy', `删不掉这个目录：${dir}`, {
+  throw new PalError('busy', '删不掉这个目录', {
     hint: '有进程还握着里面的文件；结束它，或先关掉正在读它的程序',
+    details: { dir },
   });
 }
 
@@ -147,8 +148,9 @@ export async function removeInstance(
         pack: record.pack,
       });
       if (!target) {
-        throw new PalError('busy', `归档失败：${record.root}`, {
+        throw new PalError('busy', '归档失败', {
           hint: '目录可能被占用；关掉正在读它的程序后重试',
+          details: { root: record.root },
         });
       }
       archivedTo = target;

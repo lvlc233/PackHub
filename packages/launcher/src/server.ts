@@ -337,7 +337,11 @@ async function handle(req: IncomingMessage, res: ServerResponse, insecure: boole
         })),
       });
     } catch (err) {
-      throw new PalError('internal', `读不了索引：${(err as Error).message}`, { cause: err });
+      throw new PalError('internal', '读不了索引', {
+        hint: '确认索引地址可读：本地文件要存在，URL 要能访问',
+        cause: err,
+        details: { index, reason: (err as Error).message },
+      });
     }
     return;
   }

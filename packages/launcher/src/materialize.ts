@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, resolve, sep } from 'node:path';
 import { fetchPack, loadManifest, resolveAddSource, resolveRegistry } from '@packhub/runtime';
@@ -53,6 +53,120 @@ function manifestFile(dir: string): string | undefined {
   return existsSync(direct) ? direct : undefined;
 }
 
+/** 每份取回来的 Pack 目录里放一份，给 pal cache 看（不含凭据）。 */
+export const CACHE_META = '.pal-cache.json';
+
+/**
+ * 缓存条目的元数据：这层目录里取的是什么、什么时候取的。
+ * 只描述缓存本身，不记录 registry 索引或任何凭据。
+ */
+export interface CacheMeta {
+  /** Pack 引用；URL 里的 userinfo 会被去掉（见 stripUrlSecrets） */
+  ref: string;
+  /** 实际取回的版本；清单里读不到时为 null */
+  version: string | null;
+  /** 清单 metadata.name */
+  pack?: string;
+  /** 取回时间（ISO） */
+  fetchedAt: string;
+  /** registry / archive / git */
+  source: string;
+}
+
+/**
+ * URL 里的 userinfo 不落盘：git+https://token@host/x → git+https://host/x。
+ * 只处理 http(s) 前缀；.phub 路径等原样返回。
+ */
+export function stripUrlSecrets(ref: string): string {
+  return ref.replace(/^((?:git\+)?https?:\/\/)[^/@\s]+@/i, '$1');
+}
+
+/** 从清单里尽力读 name / version；读不到就给空对象（缓存目录可能不全或清单坏了）。 */
+export function readPackIdentity(dir: string): { name?: string; version?: string } {
+  const file = manifestFile(dir);
+  if (!file) return {};
+  try {
+    const manifest = loadManifest(file).manifest;
+    if (!manifest) return {};
+    return { name: manifest.metadata.name, version: manifest.metadata.version };
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * 读缓存元数据。没有文件返回空对象（老缓存）；文件读不了或格式不对时给 problem，
+ * 条目本身仍然算有效（名字/版本还能从 packhub.yaml 补）。
+ */
+export function readCacheMeta(dir: string): { meta?: CacheMeta; problem?: string } {
+  let text: string;
+  try {
+    text = readFileSync(join(dir, CACHE_META), 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return {};
+    return { problem: `读不了 ${CACHE_META}：${(err as Error).message}` };
+  }
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return { problem: `${CACHE_META} 不是合法 JSON` };
+  }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    return { problem: `${CACHE_META} 不是一个对象` };
+  }
+  const rec = data as Record<string, unknown>;
+  if (typeof rec.ref !== 'string' || !rec.ref) return { problem: `${CACHE_META} 缺 ref` };
+  const str = (value: unknown): string | undefined =>
+    typeof value === 'string' && value ? value : undefined;
+  const pack = str(rec.pack);
+  return {
+    meta: {
+      ref: rec.ref,
+      version: typeof rec.version === 'string' ? rec.version : null,
+      ...(pack ? { pack } : {}),
+      fetchedAt: str(rec.fetchedAt) ?? '',
+      source: str(rec.source) ?? 'unknown',
+    },
+  };
+}
+
+/** 原子写：先写临时文件再 rename，中途失败不会留下半份 JSON。 */
+export function writeCacheMeta(dir: string, meta: CacheMeta): void {
+  const file = join(dir, CACHE_META);
+  const tmp = `${file}.${process.pid}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(meta, null, 2)}\n`, 'utf8');
+  try {
+    renameSync(tmp, file);
+  } catch (err) {
+    rmSync(tmp, { force: true });
+    throw err;
+  }
+}
+
+/** 新取/覆盖后写一份；命中补写时用缓存目录里的清单兜底版本。写失败不影响取包。 */
+function rememberCacheMeta(
+  dest: string,
+  packRef: string,
+  source: string,
+  version: string | undefined,
+  packRoot: string,
+  log?: (line: string) => void,
+): void {
+  const identity = readPackIdentity(packRoot);
+  try {
+    writeCacheMeta(dest, {
+      ref: stripUrlSecrets(packRef),
+      version: identity.version ?? version ?? null,
+      ...(identity.name ? { pack: identity.name } : {}),
+      fetchedAt: new Date().toISOString(),
+      source,
+    });
+  } catch (err) {
+    log?.(`! 缓存元数据没写成（不影响这次取包）：${(err as Error).message}`);
+  }
+}
+
 /** 直接取回来的来源：.phub 归档与 git+，不按 registry 版本落在缓存目录里。 */
 function isDirectSource(packRef: string): boolean {
   return packRef.endsWith('.phub') || packRef.startsWith('git+');
@@ -70,13 +184,7 @@ function isPinnedVersion(version?: string): version is string {
 
 /** 缓存目录里已有清单的版本；清单缺了或读不了就当没缓存。 */
 function cachedVersion(dest: string): string | undefined {
-  const file = manifestFile(dest);
-  if (!file) return undefined;
-  try {
-    return loadManifest(file).manifest?.metadata.version;
-  } catch {
-    return undefined;
-  }
+  return readPackIdentity(dest).version;
 }
 
 /**
@@ -109,6 +217,10 @@ export async function materializePack(
   // C5：明确版本 + registry 来源时，目录里已有同版本清单就直接复用，不 reset 不 fetch。
   // latest 未知、.phub/git+ 内容可能被上游换掉，都仍然重取。
   if (!isDirectSource(packRef) && isPinnedVersion(opts.version) && cachedVersion(dest) === opts.version) {
+    // 命中时只补写缺的 meta（老缓存）：不重新取，也不动目录里的内容；已有合法 meta 就不重写。
+    if (!readCacheMeta(dest).meta) {
+      rememberCacheMeta(dest, packRef, 'registry', opts.version, dest, opts.log);
+    }
     opts.log?.(`缓存命中 ${packRef}@${opts.version} → ${dest}`);
     return dest;
   }
@@ -124,6 +236,8 @@ export async function materializePack(
           hint: '确认 .phub / git+ 指向的是一个 Pack 仓库',
         });
       }
+      // meta 落在缓存目录（dest）这一层；git 仓库的 Pack 根可能在子目录，清单按 Pack 根读。
+      rememberCacheMeta(dest, packRef, resolved.kind, opts.version, resolved.dir, opts.log);
       return resolved.dir;
     }
 
@@ -142,6 +256,7 @@ export async function materializePack(
     if (!manifestFile(fetched.dir)) {
       throw new PalError('invalid-input', `registry 归档里没有 packhub.yaml：${packRef}@${fetched.version}`);
     }
+    rememberCacheMeta(dest, packRef, 'registry', fetched.version, fetched.dir, opts.log);
     return fetched.dir;
   } catch (err) {
     // 取失败不留半份：下次同版本重取，不会把旧文件和新的混在一起

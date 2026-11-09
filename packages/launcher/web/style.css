@@ -374,5 +374,17 @@ label.check {
 }
 label.check input { margin-top: 3px; }
 
+/* 详情页：更新旁边的「覆盖本地改动」勾选（只在有更新时出现）。
+ * 放在按钮行里，DOM 紧挨更新按钮（Tab 顺序跟着它）；视觉上单独占一行。 */
+.actions-row .update-opt {
+  flex: 0 0 100%;
+  order: 1;
+  margin-top: 2px;
+}
+.update-opt label.check { font-size: 12.5px; }
+.update-opt .muted { color: var(--muted); }
+.update-opt input[type="checkbox"] { accent-color: var(--accent); }
+.update-opt.is-busy { opacity: 0.6; }
+
 .logs-tools { display: flex; align-items: center; gap: 8px; }
 .logs-tools select { max-width: 240px; }

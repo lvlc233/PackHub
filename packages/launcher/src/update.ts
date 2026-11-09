@@ -102,7 +102,10 @@ export async function updateInstance(
   const loaded = loadPack(resolve(opts.packDir));
   if (!loaded.manifest) {
     const detail = loaded.issues.filter((i) => i.severity === 'error').map((i) => i.message).join('; ');
-    throw new PalError('invalid-input', `清单有问题：${detail || opts.packDir}`);
+    throw new PalError('invalid-input', `清单有问题${detail ? `：${detail}` : ''}`, {
+      hint: '确认 Pack 目录里有 packhub.yaml，且清单能被解析',
+      details: { packDir: resolve(opts.packDir) },
+    });
   }
   const ctx: PackContext = withLockPins(loaded, loadLock(resolve(opts.packDir)));
   const errors = ctx.issues.filter((i) => i.severity === 'error');

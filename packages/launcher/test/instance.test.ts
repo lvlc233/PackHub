@@ -475,6 +475,11 @@ describe('实例配置', () => {
     }
 
     expect(isPalError(caught) && caught.code).toBe('busy');
+    if (isPalError(caught)) {
+      // 路径只在 details 里给排障用，message 不给人看绝对路径
+      expect(caught.message).not.toContain(record.root);
+      expect(caught.details?.dir).toBe(record.root);
+    }
     // 旧的顺序会留下「包已卸、目录和记录还在」；现在根删不掉就整根不动
     expect(readInstance(record.id)?.status).toBe('installed');
     expect(readFileSync(stateFile, 'utf8')).toBe(before);
@@ -760,7 +765,12 @@ describe('实例配置', () => {
       caught = err;
     }
     expect(isPalError(caught)).toBe(true);
-    if (isPalError(caught)) expect(caught.code).toBe('root-occupied');
+    if (isPalError(caught)) {
+      expect(caught.code).toBe('root-occupied');
+      // 路径只在 details 里给排障用，message 不给人看绝对路径
+      expect(caught.message).not.toContain(target);
+      expect(caught.details?.target).toBe(target);
+    }
     expect(existsSync(rec.root)).toBe(true);
     expect(readInstance(rec.id)?.root).toBe(rec.root);
   });

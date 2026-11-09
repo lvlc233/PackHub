@@ -57,7 +57,10 @@ const SEED_SKIP = new Set(['sessions', 'cache', 'attachments', 'dsh-runtimes', '
 export function seedHome(from: string, to: string): string[] {
   const source = resolve(from);
   if (!existsSync(source)) {
-    throw new PalError('not-found', `这个 home 不存在：${source}`);
+    throw new PalError('not-found', '要导入凭据的 home 目录不存在', {
+      hint: '检查 --seed-from 指向的目录；不需要导入就删掉这个参数',
+      details: { home: source },
+    });
   }
   const copied: string[] = [];
   const walk = (src: string, dest: string, name: string): void => {
@@ -120,8 +123,9 @@ export async function createInstance(opts: CreateInstanceOptions): Promise<Insta
   const root = resolve(opts.root ?? join(instancesRoot(), id));
   const existed = existsSync(root);
   if (existsSync(recordFile(root))) {
-    throw new PalError('root-occupied', `这个目录已经是一份实例：${root}`, {
+    throw new PalError('root-occupied', '这个目录已经是一份实例', {
       hint: '换个目录，或从列表里操作它',
+      details: { root },
     });
   }
 
@@ -129,7 +133,10 @@ export async function createInstance(opts: CreateInstanceOptions): Promise<Insta
   const loaded = loadPack(packDir);
   if (!loaded.manifest) {
     const detail = loaded.issues.filter((i) => i.severity === 'error').map((i) => i.message).join('; ');
-    throw new PalError('invalid-input', `清单有问题：${detail || packDir}`, { details: { packDir } });
+    throw new PalError('invalid-input', `清单有问题${detail ? `：${detail}` : ''}`, {
+      hint: '确认 Pack 目录里有 packhub.yaml，且清单能被解析',
+      details: { packDir },
+    });
   }
   const lock = loadLock(packDir);
   const ctx: PackContext = withLockPins(loaded, lock);
@@ -257,14 +264,20 @@ export interface AdoptOptions {
 export function adoptInstance(opts: AdoptOptions): InstanceRecord {
   const dir = resolve(opts.dir);
   if (!existsSync(dir)) {
-    throw new PalError('not-found', `这个目录不存在：${dir}`);
+    throw new PalError('not-found', '这个目录不存在', {
+      hint: '确认目录还在；接管不会替你创建它',
+      details: { dir },
+    });
   }
   const harness = assertHarness(opts.harness);
   assertNameFree(opts.name.trim());
   // 接管来的目录不动，但记录里的默认策略跟新建实例一样看全局配置
   const isolation = readPalConfig().isolation;
   if (existsSync(recordFile(dir))) {
-    throw new PalError('root-occupied', `这个目录已经是一份实例：${dir}`);
+    throw new PalError('root-occupied', '这个目录已经是一份实例', {
+      hint: '换个目录，或先删掉它的旧记录',
+      details: { dir },
+    });
   }
   const adapter = ADAPTERS[harness];
   const home = adapter.homeDir && existsSync(join(dir, adapter.homeDir)) ? join(dir, adapter.homeDir) : undefined;

@@ -23,6 +23,7 @@ import {
   type InstanceRecord,
 } from './index.ts';
 import { materializePack } from './materialize.ts';
+import { cacheStats, cleanCache, formatBytes, planClean, scanCache } from './cache.ts';
 import { refreshStatuses, restartInstance, startInstance, startInstanceDetailed, stopInstance } from './start.ts';
 import { activeEntries, setActive } from './active.ts';
 import { startPalServer } from './server.ts';
@@ -178,6 +179,95 @@ const list = defineCommand({
     if (rows.length === 0) console.log('没有实例');
     for (const rec of rows) printRecord(rec);
     for (const bad of scan.broken) console.log(`! ${bad.dir}\t${bad.reason}`);
+  },
+});
+
+const cache = defineCommand({
+  meta: {
+    name: 'cache',
+    description: '看取包缓存（ls，默认）或清缓存（clean --all|--ref|--older-than）',
+  },
+  args: {
+    action: {
+      type: 'positional',
+      required: false,
+      default: 'ls',
+      description: 'ls（默认）| clean',
+    },
+    all: { type: 'boolean', default: false, description: 'clean：清掉全部缓存条目' },
+    ref: { type: 'string', description: 'clean：只清这个 Pack 引用（按 meta.ref 或目录 slug 匹配）' },
+    'older-than': {
+      type: 'string',
+      description: 'clean：只清目录 mtime 早于 N 天的条目',
+    },
+    yes: { type: 'boolean', default: false, description: 'clean：跳过确认' },
+    json: { type: 'boolean', default: false },
+  },
+  async run({ args }) {
+    const action = String(args.action ?? 'ls');
+    if (action === 'ls') {
+      const scan = scanCache();
+      const stats = cacheStats(scan.entries);
+      if (args.json) {
+        console.log(
+          JSON.stringify(
+            {
+              root: scan.root,
+              count: stats.count,
+              totalBytes: stats.totalBytes,
+              entries: scan.entries,
+              problems: scan.problems,
+            },
+            null,
+            2,
+          ),
+        );
+        return;
+      }
+      if (scan.entries.length === 0) console.log('缓存是空的');
+      for (const entry of scan.entries) {
+        const ref = entry.ref ?? `${entry.slug}/${entry.variant}`;
+        const version = entry.version ?? '-';
+        const fetched = entry.fetchedAt ? `${entry.fetchedAt.replace('T', ' ').slice(0, 19)}` : '（无 meta）';
+        console.log(`${ref}\t${version}\t${formatBytes(entry.bytes)}\t${fetched}`);
+        console.log(`  ${entry.dir}`);
+        for (const problem of entry.problems) console.log(`  ! ${problem}`);
+      }
+      for (const problem of scan.problems) console.log(`! ${problem.dir}\t${problem.reason}`);
+      console.log(`共 ${stats.count} 条，${formatBytes(stats.totalBytes)}`);
+      return;
+    }
+    if (action !== 'clean') {
+      throw new PalError('invalid-input', `cache 只有 ls 与 clean 两种动作：${action}`, {
+        hint: 'pal cache [ls] | pal cache clean --all | --ref <引用> | --older-than <天数>',
+      });
+    }
+
+    const opts = {
+      ...(args.all ? { all: true } : {}),
+      ...(args.ref !== undefined ? { ref: String(args.ref) } : {}),
+      ...(args['older-than'] !== undefined ? { olderThanDays: Number(args['older-than']) } : {}),
+    };
+    // 先按选择器算出命中项：没给选择器在这里就报 invalid-input，也拿来做确认文案。
+    const picked = planClean(opts);
+    const pickedBytes = picked.reduce((sum, entry) => sum + entry.bytes, 0);
+    // 没命中就不必让非交互调用方再补 --yes。
+    const ok =
+      picked.length === 0
+        ? true
+        : await confirm(`清掉 ${picked.length} 条取包缓存（${formatBytes(pickedBytes)}）？`, Boolean(args.yes));
+    if (!ok) {
+      console.log('已取消');
+      return;
+    }
+    const result = cleanCache(opts);
+    if (args.json) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    for (const dir of result.removed) console.log(`- ${dir}`);
+    for (const error of result.errors) console.log(`! ${error}`);
+    console.log(`已清 ${result.removed.length} 条，保留 ${result.kept} 条`);
   },
 });
 
@@ -712,6 +802,7 @@ export const main = defineCommand({
     config,
     list,
     show,
+    cache,
     remove,
     start,
     stop,

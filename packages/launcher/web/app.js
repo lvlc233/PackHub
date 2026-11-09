@@ -116,6 +116,8 @@ function select(id) {
   if (state.selected === id) return;
   state.selected = id;
   state.health = null;
+  // 换实例后「覆盖本地改动」回到默认不勾
+  $('#d-force').checked = false;
   clearError();
   renderList();
   renderDetail();
@@ -171,8 +173,15 @@ function renderDetail() {
   const hasUpdate = Boolean(latest && latest !== rec.pack.version);
   setHidden($('#d-update'), !hasUpdate);
   if (hasUpdate) setText($('#d-update'), `可更新到 ${latest}`);
+  // 更新按钮和「覆盖本地改动」只在有更新时出现；进行中一起禁用，按钮文案跟着 busy 走
+  setText($('#d-update-btn'), state.busy === 'update' ? '更新中…' : '更新');
   setHidden($('#d-update-btn'), !hasUpdate);
   setDisabled($('#d-update-btn'), Boolean(state.busy));
+  setHidden($('#d-force-row'), !hasUpdate);
+  setDisabled($('#d-force'), Boolean(state.busy));
+  $('#d-force-row').classList.toggle('is-busy', Boolean(state.busy));
+  // 没有可更新的时候勾选没有意义；清掉，免得下次出现更新时还带着上次的勾
+  if (!hasUpdate) $('#d-force').checked = false;
 
   setDisabled($('#d-open'), !rec.url);
   setHidden($('#d-open'), !rec.url);
@@ -234,6 +243,20 @@ function showError(err, action) {
   $('#d-error').textContent = state.error;
 }
 
+/**
+ * 「更新会覆盖本地改动」时服务端回的是给 CLI 的文案（提到 --force）。
+ * 界面上已经有勾选框，按 code + message 认出这一条换成界面里的说法；
+ * 认不出（服务端以后改了文案）就原样显示，不影响别的错误。
+ */
+function updateErrorForUi(err) {
+  const message = String(err?.message ?? '');
+  if (err?.code !== 'invalid-input' || !/确认覆盖请加\s*--force/.test(message)) return err;
+  const detail = message.replace(/；?\s*确认覆盖请加\s*--force.*$/, '');
+  const next = new Error(`${detail}。要覆盖就勾选「覆盖本地改动」再点更新；要保留就先把这些文件备份出去。`);
+  next.code = err.code;
+  return next;
+}
+
 /* ---------- 操作 ---------- */
 
 async function act(name) {
@@ -274,7 +297,11 @@ async function act(name) {
     state.busy = name;
     renderDetail();
     if (name === 'update') {
-      const result = await api(path, { method: 'POST', body: {} });
+      // 勾了「覆盖本地改动」才带 force；默认仍是不覆盖
+      const force = $('#d-force').checked;
+      const result = await api(path, { method: 'POST', body: force ? { force: true } : {} });
+      // 成功才清勾选；失败会走 catch，勾选保持原样，方便改主意后重试
+      $('#d-force').checked = false;
       state.health = null;
       await refresh();
       if (result.changed) {
@@ -289,7 +316,7 @@ async function act(name) {
     await api(path, { method: 'POST' });
     await refresh();
   } catch (err) {
-    showError(err, labels[name]);
+    showError(name === 'update' ? updateErrorForUi(err) : err, labels[name]);
     if (name === 'health') state.health = null;
   } finally {
     state.busy = null;
