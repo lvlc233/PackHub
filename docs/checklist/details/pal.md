@@ -1,6 +1,14 @@
 # PAL 实例启动器
 
-PAL 把 Pack 装进一个独立实例根，并按宿主起停进程。代码在 `packages/launcher`（内核 + CLI + 本地界面），Windows 壳在 `apps/pal-desktop`。
+PAL 把 Pack 装进一个独立实例根，并按宿主起停进程。代码在 `packages/launcher`（内核 + CLI + 本地界面），桌面壳在 `apps/pal-electron`（新）与 `apps/pal-desktop`（旧，待退役）。
+
+## 三层边界
+
+- **PackHub CLI**：管 Pack 的来源、锁与缓存，不碰实例。
+- **PAL launcher（装配外壳）**：管实例根、装 Pack（调 `@packhub/kernel` / `@packhub/runtime` 的 `installPack`）、起停、看护、迁移、备份。
+- **桌面壳**：只负责起 `pal serve` 并把窗口指过去，不读写实例文件；页面的 `/api/` 请求经 preload/forward 转给侧车。
+
+本文不加限定的「外壳」指桌面壳。launcher 直接调 `runtime.installPack` 是装配层职责，不是越界：它依赖的仍是 kernel/runtime，不依赖任何宿主或桌面壳。
 
 ## 实例根长什么样
 

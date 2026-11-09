@@ -1,6 +1,6 @@
 # PAL 审计待办（37 条）
 
-> 日期：2026-11-09 ／ 基线：`cb160a3`，`pnpm check` 全绿 ／ 口径：2026-11-09 的 PAL 全量审计 50 条，已关闭 39 条（A 9、B 15、C 10、D 5），本文只记**原始剩余 11 条**与新增未完成的 E 3 条，共 **14 条**。
+> 日期：2026-11-09 ／ 基线：`cb160a3`，`pnpm check` 全绿 ／ 口径：2026-11-09 的 PAL 全量审计 50 条，已关闭 40 条（A 9、B 15、C 10、D 6），本文只记**原始剩余 10 条**与新增未完成的 E 3 条，共 **13 条**。
 > 需要拍板的四组语义（A3/B12/E3/E5）与结构项顺序见 [PAL-剩余决策](PAL-剩余决策.md)。
 > 用途：跨会话派工，不依赖聊天记录。编号沿用审计原号，新增组往后排，**不重排、不复用**。
 > 相关：功能现状见 [PackHub-功能全量清单](PackHub-功能全量清单.md) 的 PAL 域，机制细节见 [details/pal.md](details/pal.md)。本表只记待办，做完就改状态；现状描述不在这里续写。
@@ -61,7 +61,7 @@
 | 编号 | 事项 | 位置 / 证据 | 状态 | 前置 |
 |---|---|---|---|---|
 | D1 | 记录同时是配置与运行态 | `InstanceRecord` 把 status/pid/url/lastExit 与 pack/planHash 混装 | `[open]` | 与 A1 绑定 |
-| D2 | 外壳边界糊 | launcher 直接 `installPack`，与「外壳只依赖 kernel/runtime」的说明不一致 | `[open]` | 无 |
+| D2 | 外壳边界糊 | `pal.md` 明确三层：PackHub CLI / PAL launcher（装配外壳，可调 runtime.installPack）/ 桌面壳（只起 serve、不碰实例文件）；不设限定的「外壳」指桌面壳 | `[done]` 本次文档 | 无 |
 | D3 | `ADAPTERS` 缺能力字段 | 只有 label/homeDir/homeEnv/executable/versionArgs，没有隔离旋钮、凭据位置、可共享层（`layout.ts`） | `[open]` | 与 A1 绑定 |
 | D4 | 实例 id 是「时间戳 + 随机后缀」 | `newId`（`paths.ts`）改为 14 位时间戳 + 12 位 crypto 十六进制；旧 id 不迁移，两种并存可读 | `[done]` 8a02c18 | 无 |
 | D5 | 错误文案回显绝对路径 | 错误消息改为 `details`/`hint`，message 不再拼 root/home（`create/migrate/remove/update` 等） | `[done]` 65e2183 | 无 |
@@ -95,11 +95,11 @@
 | A | A3、A7、A11、A13 | 4 |
 | B | B12 | 1 |
 | C | C4、C9 | 2 |
-| D | D1–D3、D7 | 4 |
-| 小计 | 原始剩余 | **11** |
+| D | D1、D3、D7 | 3 |
+| 小计 | 原始剩余 | **10** |
 | E | E3–E5 | 3 |
 | N | — | 0 |
-| 合计 |  | **14** |
+| 合计 |  | **13** |
 
 ## 建议开工顺序
 
