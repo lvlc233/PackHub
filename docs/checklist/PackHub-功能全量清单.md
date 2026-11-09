@@ -28,6 +28,7 @@
 | OPS | 工程与运维 | 测试、构建、CI、镜像、文档 |
 | X | 跨切面 | Windows、编码、代理、并发、性能 |
 | PAL | 实例启动器 | 把 Pack 装进独立实例根，按宿主起停、看护、体检；`packages/launcher` + `apps/pal-desktop` |
+| PAL-TODO | PAL 审计待办 | 2026-11-09 审计剩余 37 条（A–D 组 + Electron 迁移），见 [PAL 审计待办](PAL-审计待办.md) |
 | AUD | 全系统审计 | 命令/参数/状态/发布/市场/同步的漏项，见 [系统全量审计](系统全量审计.md) |
 | NA | 不属于本项目的部分 | 防止把“没有”当“漏做” |
 
@@ -275,7 +276,7 @@
 
 ## 14 PAL ｜实例启动器
 
-PAL 是 `packages/launcher` 里的实例内核 + Windows 壳（`apps/pal-desktop`）。它把 Pack 装进独立的实例根，并按宿主起停进程；细节见 [details/pal.md](details/pal.md)。
+PAL 是 `packages/launcher` 里的实例内核 + Windows 壳（`apps/pal-desktop`）。它把 Pack 装进独立的实例根，并按宿主起停进程；细节见 [details/pal.md](details/pal.md)，待办见 [PAL 审计待办](PAL-审计待办.md)。
 
 | 编号 | 功能点 | 能观察到的事实 | 现状 | 证据/缺口 |
 |---|---|---|---|---|
@@ -319,6 +320,8 @@ PAL 域剩下的缺口（不算阻断）：
 - PAL-23：分发版自带 node.exe，但没有运行时版本切换。
 - PAL-24：adopt / clone / migrate 只有 CLI，界面里没有入口。
 
+PAL 域的完整待办（隔离策略、缓存管理、Electron 迁移等）见 [PAL 审计待办](PAL-审计待办.md)。
+
 另有几条非阻断的运维建议，不算功能缺口：
 
 - 市场存储是单机 SQLite；生产部署应把发布校验放进沙箱，或只收 CI 报告。
@@ -340,6 +343,7 @@ PAL 域剩下的缺口（不算阻断）：
 | [details/sync.md](details/sync.md) | 全局 harness 同步的落点、state、安全与缺口 |
 | [details/windows.md](details/windows.md) | 路径、BOM、代理、PowerShell、tar |
 | [details/pal.md](details/pal.md) | 实例根布局、启停与看护、错误码、HTTP 面、dsh MCP 接线、界面刷新策略、CI |
+| [PAL-审计待办.md](PAL-审计待办.md) | PAL 剩余 37 条待办（隔离/凭据/缓存/看护、Electron 迁移、清理项）的编号、证据与顺序 |
 
 ## 退出码
 
