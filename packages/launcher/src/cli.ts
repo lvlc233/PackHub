@@ -7,23 +7,20 @@ import { resolve } from 'node:path';
 import {
   adoptInstance,
   cloneInstance,
-  createInstance,
   exportTemplate,
   listInstances,
   migrateInstance,
   readInstance,
-  readTemplate,
   rebaselineInstance,
   removeInstance,
   renameInstance,
   requireInstance,
   scanInstances,
-  updateInstance,
   writeInstance,
   writeTemplate,
   type InstanceRecord,
 } from './index.ts';
-import { materializePack } from './materialize.ts';
+import { createFromRef, importFromFile, updateFromRef } from './service.ts';
 import { cacheStats, cleanCache, formatBytes, planClean, scanCache } from './cache.ts';
 import { DEFAULT_SCAN_DEPTH, scanDirectory, type ScanEntry } from './scan.ts';
 import { backupInstance, restoreBackup } from './backup.ts';
@@ -123,24 +120,21 @@ const create = defineCommand({
       args.isolation === undefined
         ? undefined
         : parseIsolationSpec(String(args.isolation), readPalConfig().isolation);
-    const packDir = await materializePack(String(args.pack), {
+    const harness = String(args.harness ?? 'dir');
+    // 版本信息只用于记录与下面的启动提示：先把宿主探测出来，再交给 service 一起建
+    const info = discoverAll({ probeVersion: false }).find((h) => h.id === harness);
+    const rec = await createFromRef({
+      packRef: String(args.pack),
       ...(args.index ? { index: String(args.index) } : {}),
       ...(args.version ? { version: String(args.version) } : {}),
-      log,
-    });
-    const harness = String(args.harness ?? 'dir');
-    const info = discoverAll({ probeVersion: false }).find((h) => h.id === harness);
-    const rec = await createInstance({
       name: String(args.name),
       harness: harness as InstanceRecord['harness'],
-      packDir,
-      packRef: String(args.pack),
       ...(root ? { root } : {}),
       ...(args['from-home'] ? { seedFrom: String(args['from-home']) } : {}),
       ...(info?.version ? { harnessVersion: info.version } : {}),
       ...(isolation ? { isolation } : {}),
-      // 单个凭据文件没带过来：写 stderr，建实例不因此失败；--json 时 log 不输出
-      onWarn: log,
+      // 取包进度与单个凭据文件没带过来都写 stderr；建实例不因此失败；--json 时 log 不输出
+      log,
     });
     if (args.json) {
       console.log(JSON.stringify(rec, null, 2));
@@ -865,15 +859,13 @@ const update = defineCommand({
     const log = (line: string): void => {
       if (!args.json) console.error(line);
     };
-    const packDir = await materializePack(ref, {
+    const result = await updateFromRef({
+      idOrName: rec.id,
+      packRef: ref,
       ...(args.index ? { index: String(args.index) } : {}),
       ...(args.version ? { version: String(args.version) } : {}),
-      log,
-    });
-    const result = await updateInstance(rec.id, {
-      packDir,
-      packRef: ref,
       ...(args.force ? { force: true } : {}),
+      log,
     });
     if (args.json) {
       console.log(JSON.stringify(result, null, 2));
@@ -938,24 +930,16 @@ const importCmd = defineCommand({
     json: { type: 'boolean', default: false },
   },
   async run({ args }) {
-    const template = readTemplate(String(args.file));
-    const ref = template.origin?.ref;
-    if (!ref) throw new PalError('invalid-input', '模板里没有 Pack 引用，重建不了', { hint: '用 pal create 重新建' });
     const root = args.root === undefined ? undefined : assertExternalRoot(String(args.root));
     const log = (line: string): void => {
       if (!args.json) console.error(line);
     };
-    const packDir = await materializePack(ref, {
+    const rec = await importFromFile({
+      file: String(args.file),
+      ...(args.name !== undefined ? { name: String(args.name) } : {}),
       ...(args.index ? { index: String(args.index) } : {}),
-      version: template.pack.version,
-      log,
-    });
-    const rec = await createInstance({
-      name: String(args.name ?? template.name),
-      harness: template.harness,
-      packDir,
-      packRef: ref,
       ...(root ? { root } : {}),
+      log,
     });
     console.log(args.json ? JSON.stringify(rec, null, 2) : `✓ ${rec.id}\n  ${rec.root}`);
   },

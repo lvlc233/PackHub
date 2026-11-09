@@ -5,22 +5,19 @@ import { dirname, extname, join, resolve, sep } from 'node:path';
 import {
   adoptInstance,
   cloneInstance,
-  createInstance,
   exportTemplate,
   listInstances,
   migrateInstance,
   readInstance,
-  readTemplate,
   removeInstance,
   renameInstance,
   requireInstance,
   scanInstances,
-  updateInstance,
   writeTemplate,
 } from './index.ts';
 import { restartInstance, startInstance, statusView, stopInstance } from './start.ts';
 import { activeEntries, setActive, readActive } from './active.ts';
-import { materializePack } from './materialize.ts';
+import { createFromRef, importFromFile, updateFromRef } from './service.ts';
 import { readIndex, resolveRegistry } from '@packhub/runtime';
 import { PalError, errorBody } from './errors.ts';
 import { discoverAll } from './harness.ts';
@@ -233,15 +230,12 @@ async function handle(req: IncomingMessage, res: ServerResponse, insecure: boole
     if (!pack || !name) throw new PalError('invalid-input', 'pack 与 name 必填');
     // body.root：实例根必须是绝对路径，且不能落在 PAL 的实例根里（与 CLI --root 同一套校验）
     const root = body.root === undefined ? undefined : assertExternalRoot(body.root);
-    const packDir = await materializePack(pack, {
-      ...(body.index ? { index: String(body.index) } : {}),
-      ...(body.version ? { version: String(body.version) } : {}),
-    });
-    const rec = await createInstance({
+    const rec = await createFromRef({
+      packRef: pack,
       name,
       harness: harness as never,
-      packDir,
-      packRef: pack,
+      ...(body.index ? { index: String(body.index) } : {}),
+      ...(body.version ? { version: String(body.version) } : {}),
       ...(root ? { root } : {}),
       ...(body.fromHome ? { seedFrom: String(body.fromHome) } : {}),
     });
@@ -275,31 +269,20 @@ async function handle(req: IncomingMessage, res: ServerResponse, insecure: boole
     const body = await readJson(req);
     const file = assertAbsolutePath(body.file, '模板文件', 'file');
     // readTemplate 的 not-found 会把绝对路径拼进 message；这边先挡掉，路径只进 details。
+    // 之后 service 会再读一次模板：读到就算，读不到也只会是刚被删掉这类竞态。
     if (!existsSync(file)) {
       throw new PalError('not-found', '模板文件不存在', {
         hint: '确认导出的 .pal.json 还在，路径写的是绝对路径',
         details: { file },
       });
     }
-    const template = readTemplate(file);
-    const ref = template.origin?.ref;
-    if (!ref) {
-      throw new PalError('invalid-input', '模板里没有 Pack 引用，重建不了', {
-        hint: '用 pal create 重新建，或从 Pack 引用建的实例导出模板',
-        details: { file },
-      });
-    }
     const root = body.root === undefined ? undefined : assertExternalRoot(body.root);
-    const packDir = await materializePack(ref, {
+    // 现有语义：空名字兜模板名（CLI 不 trim，两边的 name 默认值保持各自现状）
+    const name = String(body.name ?? '').trim();
+    const rec = await importFromFile({
+      file,
+      ...(name ? { name } : {}),
       ...(body.index ? { index: String(body.index) } : {}),
-      version: template.pack.version,
-    });
-    const name = String(body.name ?? '').trim() || template.name;
-    const rec = await createInstance({
-      name,
-      harness: template.harness,
-      packDir,
-      packRef: ref,
       ...(root ? { root } : {}),
     });
     sendJson(res, 200, rec);
@@ -340,16 +323,14 @@ async function handle(req: IncomingMessage, res: ServerResponse, insecure: boole
       const body = await readJson(req);
       const rec = requireInstance(id);
       const ref = rec.pack.ref ?? rec.pack.name;
-      const packDir = await materializePack(ref, {
-        ...(body.index ? { index: String(body.index) } : {}),
-        ...(body.version ? { version: String(body.version) } : {}),
-      });
       sendJson(
         res,
         200,
-        await updateInstance(id, {
-          packDir,
+        await updateFromRef({
+          idOrName: id,
           packRef: ref,
+          ...(body.index ? { index: String(body.index) } : {}),
+          ...(body.version ? { version: String(body.version) } : {}),
           // 默认不覆盖本地改动；这边接受 body.force（同 CLI 的 --force），当前界面还没有强制入口
           ...(body.force === true || body.force === 'true' ? { force: true } : {}),
         }),
