@@ -6,7 +6,8 @@ import { ADAPTERS, HARNESS_IDS, targetVarsFor } from './layout.ts';
 import { baselineFromState, writeBaseline } from './baseline.ts';
 import { withInstanceLock } from './lock.ts';
 import { API_VERSION, readRecord, recordFile, type InstanceRecord } from './records.ts';
-import { DEFAULT_ISOLATION } from './isolation.ts';
+import { parseIsolation, type Isolation } from './isolation.ts';
+import { readPalConfig } from './config.ts';
 import { dropActive, listInstances, readActiveMap, writeActiveMap } from './catalog.ts';
 import { failInstance } from './quarantine.ts';
 import { writeInstance } from './recordWrite.ts';
@@ -37,6 +38,11 @@ export interface CreateInstanceOptions {
    * 新 home 是空的：不接这一步，实例起来也没有模型可用。
    */
   seedFrom?: string;
+  /**
+   * 显式指定这份实例的隔离策略（优先于配置文件）。
+   * 不写就用 readPalConfig().isolation；写了必须是合法的五层策略。
+   */
+  isolation?: Isolation;
 }
 
 /** 从已有 home 带过来时不搬的东西：会话、缓存、附件、运行时、库文件、profile（带绝对路径）。 */
@@ -97,6 +103,22 @@ export function assertHarness(value: string): TargetId {
   return value as TargetId;
 }
 
+/**
+ * 一份新实例该用哪套隔离策略：显式给的最优先（照样过一遍 parseIsolation），
+ * 没给就用全局配置里的默认。配置坏/策略坏都在建目录之前抛，不留半份实例。
+ */
+function isolationFor(explicit: Isolation | undefined): Isolation {
+  if (explicit === undefined) return readPalConfig().isolation;
+  const parsed = parseIsolation(explicit);
+  if (!parsed) {
+    throw new PalError('invalid-input', '隔离策略不合法：五层必须齐全，每层只能是 instance / shared', {
+      hint: '可选层：assembly / session / credentials / cache / runtime；可选模式：instance / shared',
+      details: { isolation: explicit },
+    });
+  }
+  return parsed;
+}
+
 /* ---------- 创建 ---------- */
 
 /**
@@ -109,6 +131,8 @@ export async function createInstance(opts: CreateInstanceOptions): Promise<Insta
   const harness = assertHarness(opts.harness);
   if (!ADAPTERS[harness]) throw new PalError('unknown-harness', `没有这个宿主：${harness}`);
   assertNameFree(name);
+  // 先定策略：配置读不了就在这里失败，不往下建目录
+  const isolation = isolationFor(opts.isolation);
 
   const id = newId();
   const root = resolve(opts.root ?? join(instancesRoot(), id));
@@ -158,7 +182,7 @@ export async function createInstance(opts: CreateInstanceOptions): Promise<Insta
     ...(opts.harnessVersion ? { harnessVersion: opts.harnessVersion } : {}),
     root,
     ...(home ? { home } : {}),
-    isolation: DEFAULT_ISOLATION,
+    isolation,
     pack: {
       name: ctx.manifest.metadata.name,
       version: ctx.manifest.metadata.version,
@@ -255,6 +279,8 @@ export function adoptInstance(opts: AdoptOptions): InstanceRecord {
   }
   const harness = assertHarness(opts.harness);
   assertNameFree(opts.name.trim());
+  // 接管来的目录不动，但记录里的默认策略跟新建实例一样看全局配置
+  const isolation = readPalConfig().isolation;
   if (existsSync(recordFile(dir))) {
     throw new PalError('root-occupied', `这个目录已经是一份实例：${dir}`);
   }
@@ -279,7 +305,7 @@ export function adoptInstance(opts: AdoptOptions): InstanceRecord {
     harness,
     root: dir,
     ...(home ? { home } : {}),
-    isolation: DEFAULT_ISOLATION,
+    isolation,
     pack,
     planHash,
     createdAt: nowIso(),

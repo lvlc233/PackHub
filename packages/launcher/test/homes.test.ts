@@ -19,6 +19,8 @@ let packDir: string;
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), 'pal-homes-'));
   process.env.PACKHUB_INSTANCES = join(tmp, 'instances');
+  // 建实例会读全局配置（默认隔离策略），指到 tmp 里，别读开发机上的 ~/.packhub/config.json
+  process.env.PACKHUB_HOME = join(tmp, 'home');
   packDir = join(tmp, 'pack');
   mkdirSync(packDir, { recursive: true });
   writeFileSync(join(packDir, 'rules.md'), '# rules\n', 'utf8');
@@ -27,6 +29,7 @@ beforeEach(() => {
 
 afterEach(() => {
   delete process.env.PACKHUB_INSTANCES;
+  delete process.env.PACKHUB_HOME;
   rmSync(tmp, { recursive: true, force: true });
 });
 

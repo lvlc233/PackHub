@@ -31,10 +31,11 @@ import {
 } from '../src/index.ts';
 import { isPalError } from '../src/errors.ts';
 import { DEFAULT_ISOLATION, type Isolation } from '../src/isolation.ts';
+import { writePalConfig } from '../src/config.ts';
 import { isPidAlive } from '../src/process.ts';
 import { isStopping, stoppingMarkFile } from '../src/stopMark.ts';
 import { baselineDrift } from '../src/health.ts';
-import { archiveRoot, failedRoot, quarantineRoot } from '../src/paths.ts';
+import { archiveRoot, failedRoot, palConfigFile, quarantineRoot } from '../src/paths.ts';
 
 const PACK = 'examples/doc-review';
 
@@ -79,12 +80,15 @@ let tmp: string;
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), 'pal-instance-'));
   process.env.PACKHUB_INSTANCES = join(tmp, 'instances');
+  // 新实例的默认策略读 <PACKHUB_HOME>/config.json：也指到临时目录，别读到开发机上的真配置
+  process.env.PACKHUB_HOME = join(tmp, 'home');
 });
 
 afterEach(() => {
   fsRemoveOnLock.lockFile = '';
   fsRemoveOnLock.recordFile = '';
   delete process.env.PACKHUB_INSTANCES;
+  delete process.env.PACKHUB_HOME;
   rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -213,6 +217,60 @@ describe('实例配置', () => {
     writeFileSync(join(source.root, 'instance.json'), JSON.stringify(bare, null, 2), 'utf8');
     const fallback = await cloneInstance('iso-src', { name: 'iso-copy-default' });
     expect(fallback.isolation).toEqual(DEFAULT_ISOLATION);
+  });
+
+  it('新建实例的隔离策略：配置文件定默认，显式 isolation 优先', async () => {
+    // 配置文件是「新实例的默认策略」：改过之后新建的实例跟着变
+    const configured: Isolation = {
+      version: 1,
+      layers: { assembly: 'shared', session: 'instance', credentials: 'instance', cache: 'shared', runtime: 'shared' },
+    };
+    writePalConfig({ version: 1, isolation: configured });
+
+    const fromConfig = await createInstance({ name: 'iso-config', harness: 'dir', packDir: PACK });
+    expect(fromConfig.isolation).toEqual(configured);
+    expect(readInstance(fromConfig.id)?.isolation).toEqual(configured);
+    const disk = JSON.parse(readFileSync(join(fromConfig.root, 'instance.json'), 'utf8')) as { isolation?: unknown };
+    expect(disk.isolation).toEqual(configured);
+
+    // 显式给的策略优先于配置文件
+    const explicit: Isolation = {
+      version: 1,
+      layers: { ...configured.layers, credentials: 'shared', runtime: 'instance' },
+    };
+    const rec = await createInstance({ name: 'iso-explicit', harness: 'dir', packDir: PACK, isolation: explicit });
+    expect(rec.isolation).toEqual(explicit);
+    expect(readInstance(rec.id)?.isolation).toEqual(explicit);
+
+    // 不合法（模式拼错）的显式策略：建目录之前就拒绝，不留下记录
+    const bad = { version: 1, layers: { ...configured.layers, cache: 'Shared' } } as unknown as Isolation;
+    let caught: unknown;
+    try {
+      await createInstance({ name: 'iso-bad', harness: 'dir', packDir: PACK, isolation: bad });
+    } catch (err) {
+      caught = err;
+    }
+    expect(isPalError(caught)).toBe(true);
+    if (isPalError(caught)) expect(caught.code).toBe('invalid-input');
+    expect(listInstances().map((i) => i.name)).not.toContain('iso-bad');
+  });
+
+  it('配置文件坏了：建实例直接报错，不静默用默认策略', async () => {
+    mkdirSync(join(tmp, 'home'), { recursive: true });
+    writeFileSync(palConfigFile(), '{ "version": 1, ', 'utf8');
+
+    let caught: unknown;
+    try {
+      await createInstance({ name: 'iso-broken-config', harness: 'dir', packDir: PACK });
+    } catch (err) {
+      caught = err;
+    }
+    expect(isPalError(caught)).toBe(true);
+    if (isPalError(caught)) {
+      expect(caught.code).toBe('invalid-input');
+      expect(caught.message).toContain(palConfigFile());
+    }
+    expect(listInstances()).toEqual([]);
   });
 
   it('重名、未知宿主、未声明的 target 都有稳定错误码', async () => {

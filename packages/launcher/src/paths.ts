@@ -10,6 +10,11 @@ function homeBase(): string {
   return resolve(process.env.PACKHUB_HOME ?? join(homedir(), '.packhub'));
 }
 
+/** PAL 自己的配置：新实例的默认隔离策略放这里（不是任何实例的配置）。 */
+export function palConfigFile(): string {
+  return join(homeBase(), 'config.json');
+}
+
 /** 实例存放的根；测试与多环境都用它隔离。 */
 export function instancesRoot(): string {
   return resolve(process.env.PACKHUB_INSTANCES ?? join(homeBase(), 'instances'));

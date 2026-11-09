@@ -31,7 +31,9 @@ import { checkAll, checkInstance } from './health.ts';
 import { listLogs, readEvents, readLog, tailLog } from './logs.ts';
 import { readSecrets } from './secrets.ts';
 import { PalError } from './errors.ts';
-import { quarantineRoot, archiveRoot, failedRoot, instancesRoot } from './paths.ts';
+import { CONFIG_VERSION, parseIsolationSpec, readPalConfig, writePalConfig } from './config.ts';
+import { ISOLATION_LAYERS } from './isolation.ts';
+import { quarantineRoot, archiveRoot, failedRoot, instancesRoot, palConfigFile } from './paths.ts';
 
 function printRecord(rec: InstanceRecord): void {
   console.log(`${rec.id}\t${rec.status}\t${rec.harness}\t${rec.pack.name}@${rec.pack.version}`);
@@ -75,12 +77,22 @@ const create = defineCommand({
       description: '沿用已有宿主 home 的模型凭据与指令（例如 ~/.dsh）；Pack 写好的文件不会被覆盖',
     },
     version: { type: 'string', description: 'registry 包的版本，默认 latest' },
+    isolation: {
+      type: 'string',
+      description:
+        '这份实例的隔离策略 layer=mode,...（只覆盖给出的层，其余沿用 pal config 的默认）；不写就用默认',
+    },
     json: { type: 'boolean', default: false },
   },
   async run({ args }) {
     const log = (line: string): void => {
       if (!args.json) console.error(line);
     };
+    // 先把 --isolation 定下来（以当前配置为底座，只改写出来的层）：写错就不用去取包了
+    const isolation =
+      args.isolation === undefined
+        ? undefined
+        : parseIsolationSpec(String(args.isolation), readPalConfig().isolation);
     const packDir = await materializePack(String(args.pack), {
       ...(args.index ? { index: String(args.index) } : {}),
       ...(args.version ? { version: String(args.version) } : {}),
@@ -95,6 +107,7 @@ const create = defineCommand({
       packRef: String(args.pack),
       ...(args['from-home'] ? { seedFrom: String(args['from-home']) } : {}),
       ...(info?.version ? { harnessVersion: info.version } : {}),
+      ...(isolation ? { isolation } : {}),
     });
     if (args.json) {
       console.log(JSON.stringify(rec, null, 2));
@@ -112,6 +125,43 @@ const create = defineCommand({
         }>，或用 pal adopt 接管已有目录。`,
       );
     }
+  },
+});
+
+const config = defineCommand({
+  meta: {
+    name: 'config',
+    description:
+      '新实例的默认隔离策略（<PACKHUB_HOME>/config.json）；只影响之后新建的实例，已有实例不变',
+  },
+  args: {
+    'set-isolation': {
+      type: 'string',
+      description: '改成 layer=mode,...；只覆盖写出来的层，其余沿用当前值。只影响之后新建的实例',
+    },
+    json: { type: 'boolean', default: false },
+  },
+  run({ args }) {
+    const file = palConfigFile();
+    const spec = args['set-isolation'];
+    const current = readPalConfig();
+    const next =
+      spec === undefined
+        ? current
+        : writePalConfig({
+            version: CONFIG_VERSION,
+            isolation: parseIsolationSpec(String(spec), current.isolation),
+          });
+    if (args.json) {
+      console.log(JSON.stringify(next, null, 2));
+      return;
+    }
+    if (spec !== undefined) console.log(`✓ 已写入 ${file}`);
+    console.log(`${file}${existsSync(file) ? '' : '（还没有这个文件：现在用的是内置默认）'}`);
+    for (const layer of ISOLATION_LAYERS) {
+      console.log(`  ${layer.padEnd(12)}${next.isolation.layers[layer]}`);
+    }
+    console.log('· 这是新实例的默认策略：已有实例的隔离策略不变。');
   },
 });
 
@@ -646,6 +696,7 @@ export const main = defineCommand({
   meta: { name: 'pal', version: pkg.version, description: '实例内核：建、起、停、看护、迁移' },
   subCommands: {
     create,
+    config,
     list,
     show,
     remove,
