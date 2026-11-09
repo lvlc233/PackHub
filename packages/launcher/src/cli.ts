@@ -28,6 +28,7 @@ import { cacheStats, cleanCache, formatBytes, planClean, scanCache } from './cac
 import { DEFAULT_SCAN_DEPTH, scanDirectory, type ScanEntry } from './scan.ts';
 import { backupInstance, restoreBackup } from './backup.ts';
 import { refreshStatuses, restartInstance, startInstance, startInstanceDetailed, stopInstance } from './start.ts';
+import { DEFAULT_WATCH_INTERVAL_MS, watchLoop } from './watch.ts';
 import { psReport } from './ps.ts';
 import { activeEntries, setActive } from './active.ts';
 import { startPalServer } from './server.ts';
@@ -504,6 +505,44 @@ const ps = defineCommand({
       `共 ${report.total.running} 条在跑（账本 ${report.total.instances} 条），占 ${report.total.ports} 个端口` +
         `${report.total.stale ? `，${report.total.stale} 条 pid 已死` : ''}` +
         `${report.total.conflicts ? `，${report.total.conflicts} 处端口冲突` : ''}`,
+    );
+  },
+});
+
+const watch = defineCommand({
+  meta: {
+    name: 'watch',
+    description:
+      'headless 看护：崩掉的 on-failure 实例按预算重起，预算用完/never 的标 broken（不要和 pal serve 同时开）',
+  },
+  args: {
+    interval: {
+      type: 'string',
+      default: String(DEFAULT_WATCH_INTERVAL_MS),
+      description: `每轮检查间隔（毫秒），默认 ${DEFAULT_WATCH_INTERVAL_MS}`,
+    },
+  },
+  async run({ args }) {
+    const intervalMs = Number(args.interval);
+    if (!Number.isInteger(intervalMs) || intervalMs <= 0) {
+      throw new PalError('invalid-input', `--interval 要正整数的毫秒数，收到：${String(args.interval)}`, {
+        hint: `默认 ${DEFAULT_WATCH_INTERVAL_MS}；例如 pal watch --interval 5000`,
+      });
+    }
+    console.log('headless 看护已启动；不要和 pal serve 同时开');
+    console.log(`  间隔 ${intervalMs}ms；Ctrl+C 退出`);
+    const total = await watchLoop({
+      intervalMs,
+      onRound: (stats) => {
+        if (stats.restarted > 0 || stats.broken > 0) {
+          console.log(
+            `  检查 ${stats.checked} 条：重起 ${stats.restarted}，标 broken ${stats.broken}，跳过 ${stats.skipped}`,
+          );
+        }
+      },
+    });
+    console.log(
+      `已停止（累计检查 ${total.checked} 条，重起 ${total.restarted}，标 broken ${total.broken}）`,
     );
   },
 });
@@ -1000,6 +1039,7 @@ export const main = defineCommand({
     restart,
     status,
     ps,
+    watch,
     health,
     doctor,
     logs,
