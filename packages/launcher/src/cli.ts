@@ -2,7 +2,8 @@ import { defineCommand } from 'citty';
 import pkg from '../package.json' with { type: 'json' };
 import { createInterface } from 'node:readline/promises';
 import { spawn } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
   adoptInstance,
   cloneInstance,
@@ -24,6 +25,7 @@ import {
 } from './index.ts';
 import { materializePack } from './materialize.ts';
 import { cacheStats, cleanCache, formatBytes, planClean, scanCache } from './cache.ts';
+import { DEFAULT_SCAN_DEPTH, scanDirectory, type ScanEntry } from './scan.ts';
 import { refreshStatuses, restartInstance, startInstance, startInstanceDetailed, stopInstance } from './start.ts';
 import { activeEntries, setActive } from './active.ts';
 import { startPalServer } from './server.ts';
@@ -41,6 +43,22 @@ function printRecord(rec: InstanceRecord): void {
   console.log(`${rec.id}\t${rec.status}\t${rec.harness}\t${rec.pack.name}@${rec.pack.version}`);
   console.log(`  ${rec.root}`);
   if (rec.url) console.log(`  ${rec.url}`);
+}
+
+/** scan 的一行：kind、path，然后是身份（name/version/harness/packs）或问题。 */
+function scanLine(entry: ScanEntry): string {
+  const head = `${entry.kind}\t${entry.dir}`;
+  if (entry.broken) return `${head}\tbroken\t${entry.problem ?? '记录读不了'}`;
+  if (entry.kind === 'environment') {
+    const line = `${head}\t${entry.packs ?? 0} 个 pack`;
+    return entry.problem ? `${line}\t! ${entry.problem}` : line;
+  }
+  const parts = [head];
+  parts.push(entry.name ? (entry.version ? `${entry.name}@${entry.version}` : entry.name) : '-');
+  if (entry.harness) parts.push(`harness=${entry.harness}`);
+  if (entry.pack) parts.push(`pack=${entry.pack.name}@${entry.pack.version || '?'}`);
+  if (entry.problem) parts.push(`! ${entry.problem}`);
+  return parts.join('\t');
 }
 
 function requireTarget(value: unknown): string {
@@ -594,6 +612,49 @@ const serve = defineCommand({
 
 /* ---------- 实例流转 ---------- */
 
+/* ---------- 发现已有环境 ---------- */
+
+const scan = defineCommand({
+  meta: {
+    name: 'scan',
+    description: '只读扫描目录：找出已有实例、Pack 目录与装过 Pack 的环境（不写盘，不接管）',
+  },
+  args: {
+    dir: { type: 'positional', required: true, description: '要扫的目录；相对路径按当前目录解析' },
+    depth: {
+      type: 'string',
+      default: String(DEFAULT_SCAN_DEPTH),
+      description: '往下扫几层：目录本身算第 0 层，默认 2',
+    },
+    json: { type: 'boolean', default: false },
+  },
+  run({ args }) {
+    const depth = Number(args.depth);
+    if (!Number.isInteger(depth) || depth < 0) {
+      throw new PalError('invalid-input', `--depth 要 0 或正整数，收到：${String(args.depth)}`, {
+        hint: '目录本身算第 0 层；默认 2，表示再看两层子目录',
+      });
+    }
+    const dir = resolve(String(args.dir));
+    if (!existsSync(dir)) {
+      throw new PalError('not-found', `目录不存在：${dir}`, { hint: 'scan 只读，不会替你创建目录' });
+    }
+    if (!statSync(dir).isDirectory()) {
+      throw new PalError('invalid-input', `不是目录：${dir}`);
+    }
+    const result = scanDirectory(dir, { depth });
+    if (args.json) {
+      // --json 只输出候选数组；目录读不了这类问题走 problems，不混进候选
+      console.log(JSON.stringify(result.entries, null, 2));
+      return;
+    }
+    if (result.entries.length === 0) console.log('没扫到实例、Pack 或环境');
+    for (const entry of result.entries) console.log(scanLine(entry));
+    for (const problem of result.problems) console.log(`! ${problem.dir}\t${problem.reason}`);
+    console.log(`共 ${result.entries.length} 条候选（只读扫描，没有写盘）`);
+  },
+});
+
 const adopt = defineCommand({
   meta: { name: 'adopt', description: '接管一个已经存在的环境（只写记录，不动目录）' },
   args: {
@@ -837,6 +898,7 @@ export const main = defineCommand({
     use,
     current,
     serve,
+    scan,
     adopt,
     clone,
     rename,
