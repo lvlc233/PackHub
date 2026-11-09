@@ -43,7 +43,7 @@
 | 编号 | 事项 | 位置 / 证据 | 状态 | 前置 |
 |---|---|---|---|---|
 | B12 | 端口反查 pid 可能记错 / 误杀 | `start.ts` 靠端口反查监听者记 pid，杀前不校验归属 | `[decision]` | 见上表，等你定 pid 语义 |
-| B14 | 本地 API 只挡浏览器 | `isTrustedRequest`（`server.ts`）比对 Origin / Host 加 `x-pal-client`；本机其他进程可直连 | `[proposal]` | 已定 token「只防浏览器」；若按 E1/E3 去掉 HTTP 面，此条改成“收敛传输” |
+| B14 | 本地 API 只挡浏览器 | 服务每次启动生成 token：带 Origin 的请求必须带 `x-pal-token`（页面从首页 meta 读），无 Origin 的本机调用不校验；首页 `no-store`，重启换 token | `[done]` 32fb368 | E3 若去掉 HTTP 面，token 一起删 |
 
 ## C 组：脏乱差（5 条）
 
@@ -83,8 +83,8 @@
 |---|---|---|---|---|
 | N1 | 界面强制更新入口 | 界面「更新」发空 body；`update.ts` 遇本地改动且无 force 就抛，界面只能报错。需要勾选或二次确认后再带 force | `[open]` | 无 |
 | N2 | `remove` 不再 `removePack` 的副作用边界 | `remove.ts` 默认直接删根；当前根内没有外部副作用，将来若写宿主级 MCP / 配置注册要补清理 | `[open]` | 无 |
-| N3 | `uninstalled` 报告语义 | 归档兜底时文件仍在归档里，CLI 与 `scripts/pal/smoke.mjs` 仍打印「已卸载 / 已删除」 | `[open]` | 无 |
-| N4 | 校验函数位置 | `assertNameFree` / `assertHarness` 暂放 `create.ts` 并导出给 index / migrate 复用，宜收进 `validators.ts` | `[open]` | C1 遗留结构 |
+| N3 | `uninstalled` 报告语义 | `RemoveResult.uninstalled` 注释写清「删前读到的 Pack key，非逐个卸载凭据」；CLI 分「随根删除 / 随根归档 / 已卸包」三种说法 | `[done]` b8afeed | 无 |
+| N4 | 校验函数位置 | `assertNameFree` / `assertHarness` 已收进 `validators.ts`，create / migrate 直接 import；顺带去掉了 create 里不可达的宿主检查 | `[done]` 297c4a9 | 无 |
 | N5 | 过时注释 / 文案 | `catalog.ts` 头注释、冒烟删除文案已校准（默认删除不卸包、归档时 removed=false） | `[done]` db5325a | 无 |
 
 ## 计数
