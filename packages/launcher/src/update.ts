@@ -10,7 +10,7 @@ import { writeInstance } from './recordWrite.ts';
 import { targetVarsFor } from './layout.ts';
 import { PalError } from './errors.ts';
 import { isPidAlive } from './process.ts';
-import { fsProblem } from './create.ts';
+import { fsProblem, packIdentityFromState } from './create.ts';
 
 /**
  * 更新与重新基准化：从 index.ts 搬出（C1）。
@@ -185,9 +185,16 @@ export async function updateInstance(
     }
     saveState(record.root, after);
 
-    writeBaseline(record.root, {
-      pack: ctx.manifest.metadata.name,
+    // 身份跟 create 一样只认 state：装完恰好一个 Pack 时以它为准，旧记录里的漂移在这里被纠正；
+    // state 读不出来（0/多个/损坏）才退回清单里的名字版本。
+    const pack = packIdentityFromState(record.root, {
+      name: ctx.manifest.metadata.name,
       version: ctx.manifest.metadata.version,
+    });
+
+    writeBaseline(record.root, {
+      pack: pack.name,
+      version: pack.version,
       harness,
       planHash: plan.planHash,
       files: baselineFromState(record.root),
@@ -196,8 +203,7 @@ export async function updateInstance(
     const next: InstanceRecord = {
       ...record,
       pack: {
-        name: ctx.manifest.metadata.name,
-        version: ctx.manifest.metadata.version,
+        ...pack,
         ...(opts.packRef ? { ref: opts.packRef } : record.pack.ref ? { ref: record.pack.ref } : {}),
       },
       status: 'installed',

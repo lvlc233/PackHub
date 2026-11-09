@@ -40,6 +40,8 @@ PAL 把 Pack 装进一个独立实例根，并按宿主起停进程。代码在 
 ## 记录与状态
 `instance.json` 的字段：`id`、`name`、`harness`、`harnessVersion`、`root`、`home`、`pack{name,version,ref}`、`status`、`managed`、`origin`、`isolation`、`pid`、`port`、`ports[]`、`url`（已摘凭据）、`startedAt`、`lastExit{code,signal,at,restarts}`、`lastError`、`restart`。`planHash` 只记在 `baseline.json`：`update` 用它判断计划有没有变，没有 baseline 视为已变；旧记录里残留的 `planHash` 读取时忽略、不再写回。
 
+`pack{name,version}` 不另立事实：`create` / `update` 装完后、`adopt` 写记录前都走 `packIdentityFromState`，按 `.packhub/state.json` 里**恰好一个** Pack 的名字版本写回（旧 state 没写 version 时用清单值或 `0.0.0`）；0 个 / 多个 Pack、state 读不出来时退回清单值（`adopt` 是 `external`@`0.0.0`）。记录漂移会在下一次 `update` 被纠正，`pack.ref` 仍记原始引用。
+
 状态：`installing` → `installed` → `running` / `stopped`；进程死了是 `broken`，安装失败是 `failed`。建实例时先写 `installing` 再装，所以中途崩溃也能在列表里看到它、能删能查。`pal status` 会把 pid 已死的实例真正写成 `broken`（收回 pid/port/url）；GET 列表与体检只在返回值里标，不改记录。
 
 `origin.kind` 说明记录从哪来：`pack`（按引用可从 Pack 重建）、`adopted`（接管的目录）、`copy`（复制自另一份实例，`from` 记源 id）。只有 `pack` 且带 `ref` 的实例导出的模板可复现，`adopted` / `copy` 导出时标 `reproducible: false`，`pal import` 会拒绝。

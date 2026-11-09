@@ -1041,6 +1041,37 @@ resources:
     expect(readBaseline(rec.root)).toEqual(before);
   });
 
+  it('记录里的 Pack 身份跟 state 走：改坏 instance.json 的版本，update 后按 state 写回', async () => {
+    const v1 = knowledgePack(join(tmp, 'drift-v1'), '0.1.0', { 'a.md': '# a1\n' });
+    const v2 = knowledgePack(join(tmp, 'drift-v2'), '0.2.0', { 'a.md': '# a2\n' });
+    const rec = await createInstance({ name: 'drift', harness: 'dir', packDir: v1, packRef: v1 });
+    // 建完就一致：记录里的版本就是 state 里那一个 Pack 的版本
+    expect(rec.pack).toEqual({ name: 'demo/guard', version: '0.1.0', ref: v1 });
+
+    // 手改记录、不动 state：记录说 9.9.9，state 里仍是 demo/guard@0.1.0
+    const file = join(rec.root, 'instance.json');
+    const drifted = JSON.parse(readFileSync(file, 'utf8')) as { pack: { name: string; version: string } };
+    drifted.pack.version = '9.9.9';
+    writeFileSync(file, JSON.stringify(drifted, null, 2) + '\n', 'utf8');
+    expect(readInstance(rec.id)?.pack.version).toBe('9.9.9');
+
+    // 同版本重跑：身份以 state 为准，漂移被纠正，ref 逻辑不变
+    const same = await updateInstance('drift', { packDir: v1 });
+    expect(same.changed).toBe(true);
+    expect(readInstance(rec.id)?.pack).toEqual({ name: 'demo/guard', version: '0.1.0', ref: v1 });
+
+    // 换版也一样：记录里的名字版本与 state 里那一个 Pack 对齐
+    const next = await updateInstance('drift', { packDir: v2 });
+    expect(next.to).toBe('demo/guard@0.2.0');
+    const state = JSON.parse(readFileSync(join(rec.root, '.packhub', 'state.json'), 'utf8')) as {
+      packs: Record<string, { pack?: string; version?: string }>;
+    };
+    const entries = Object.values(state.packs);
+    expect(entries).toHaveLength(1);
+    expect(readInstance(rec.id)?.pack.name).toBe(entries[0]!.pack);
+    expect(readInstance(rec.id)?.pack.version).toBe(entries[0]!.version);
+  });
+
   it('旧记录带 planHash 仍可读；更新后 instance.json 不再写 planHash，baseline 仍保留', async () => {
     const v1 = knowledgePack(join(tmp, 'legacy-v1'), '0.1.0', { 'a.md': '# a1\n' });
     const v2 = knowledgePack(join(tmp, 'legacy-v2'), '0.2.0', { 'a.md': '# a2\n' });

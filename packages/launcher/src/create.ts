@@ -141,6 +141,29 @@ function isolationFor(explicit: Isolation | undefined): Isolation {
   return parsed;
 }
 
+/**
+ * 记录里的 Pack 身份只从 state 派生：state 是安装事实，记录只是它的视图。
+ * 恰好一个 Pack 时用它的 name/version（旧 state 没写 version 就借 fallback 或 0.0.0）；
+ * 0 个 / 多个 Pack、state 读不出来（损坏或还没写）时返回 fallback —— 记录不替 state 编身份。
+ * adopt 用它把「多 Pack 就是 external」的规则收在一处。
+ */
+export function packIdentityFromState(
+  root: string,
+  fallback: { name: string; version: string },
+): { name: string; version: string } {
+  const fb = { name: fallback.name, version: fallback.version || '0.0.0' };
+  let entries: ReturnType<typeof loadState>['packs'][string][];
+  try {
+    entries = Object.values(loadState(root).packs);
+  } catch {
+    // state 损坏：读不了就当没有身份可用，由调用方决定 fallback 是什么
+    return fb;
+  }
+  if (entries.length !== 1) return fb;
+  const only = entries[0]!;
+  return { name: only.pack ?? fb.name, version: only.version ?? fb.version };
+}
+
 /* ---------- 创建 ---------- */
 
 /**
@@ -239,6 +262,15 @@ export async function createInstance(opts: CreateInstanceOptions): Promise<Insta
           { details: { outcomes: failed } },
         );
       }
+      // 身份只认 state：安装完恰好一个 Pack 时它就是这份实例的 Pack；
+      // 读不出来（0/多个/state 损坏）才用清单里的名字版本兜底，ref 仍记原始引用。
+      draft.pack = {
+        ...packIdentityFromState(root, {
+          name: ctx.manifest.metadata.name,
+          version: ctx.manifest.metadata.version,
+        }),
+        ...(opts.packRef ? { ref: opts.packRef } : {}),
+      };
       writeBaseline(root, {
         pack: draft.pack.name,
         version: draft.pack.version,
@@ -319,16 +351,9 @@ export function adoptInstance(opts: AdoptOptions): InstanceRecord {
   }
   const adapter = ADAPTERS[harness];
   const home = adapter.homeDir && existsSync(join(dir, adapter.homeDir)) ? join(dir, adapter.homeDir) : undefined;
-  let pack = { name: 'external', version: '0.0.0' };
-  try {
-    const entries = Object.values(loadState(dir).packs);
-    // 只有恰好一个 Pack 时它的名字才能代表这个实例；多个 Pack 里「第一个」只是对象顺序，
-    // 拿来当身份会让记录撒谎，updateInstance 也会把别的 Pack 当成同一个。此时记 external。
-    const only = entries.length === 1 ? entries[0] : undefined;
-    if (only?.pack) pack = { name: only.pack, version: only.version ?? '0.0.0' };
-  } catch {
-    /* 没有 state 就是空环境 */
-  }
+  // 身份同样从 state 派生；没有 state / state 里不止一个 Pack 时记 external：
+  // 多个 Pack 里「第一个」只是对象顺序，拿来当身份会让记录撒谎，updateInstance 也会把别的 Pack 当成同一个。
+  const pack = packIdentityFromState(dir, { name: 'external', version: '0.0.0' });
   const record: InstanceRecord = {
     apiVersion: API_VERSION,
     id: newId(),
