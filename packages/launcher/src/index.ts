@@ -41,7 +41,8 @@ export { rebaselineInstance, updateInstance } from './update.ts';
 export type { UpdateInstanceResult } from './update.ts';
 
 // 复制 / 改名 / 迁移搬到了 migrate.ts；入口继续按原名导出（rollbackMigrate、migrateLocked 只是内部用，不导出）
-export { cloneInstance, migrateInstance, renameInstance } from './migrate.ts';
+export { cloneInstance, migrateInstance, migrateInstanceDetailed, renameInstance } from './migrate.ts';
+export type { MigrateOptions, MigrateResult } from './migrate.ts';
 
 // 实例模板搬到了 template.ts；入口继续按原名导出
 export { exportTemplate, readTemplate, writeTemplate } from './template.ts';

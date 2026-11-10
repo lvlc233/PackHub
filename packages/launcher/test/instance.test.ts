@@ -18,6 +18,7 @@ import {
   exportTemplate,
   listInstances,
   migrateInstance,
+  migrateInstanceDetailed,
   readBaseline,
   readInstance,
   readRecordResult,
@@ -1003,6 +1004,83 @@ describe('实例配置', () => {
     expect(readInstance(rec.id)?.root).toBe(rec.root);
     expect(JSON.parse(readFileSync(join(rec.root, 'instance.json'), 'utf8')).root).toBe(rec.root);
     expect(existsSync(join(rec.root, '.pal-lock.json'))).toBe(false);
+  });
+
+  it('迁移：跨盘（EXDEV）自动复制到新根，切记录后删旧根', async () => {
+    const rec = await createInstance({ name: 'xdev', harness: 'dir', packDir: PACK });
+    const target = join(tmp, 'xdev-target');
+
+    const result = migrateInstanceDetailed('xdev', target, {
+      rename: () => {
+        throw Object.assign(new Error('EXDEV: cross-device link not permitted'), { code: 'EXDEV' });
+      },
+    });
+
+    expect(result.movedBy).toBe('copy');
+    expect(result.record.root).toBe(target);
+    expect(existsSync(rec.root)).toBe(false);
+    expect(existsSync(target)).toBe(true);
+    expect(readInstance(rec.id)?.root).toBe(target);
+    // 记录里的 home 跟着新根走（dir 宿主可能没有独立 home），锁不留在新根
+    if (result.record.home) expect(result.record.home.startsWith(target)).toBe(true);
+    expect(existsSync(join(target, '.pal-lock.json'))).toBe(false);
+    // 不留下临时目录
+    expect(readdirSync(tmp).filter((name) => name.includes('.pal-partial-'))).toEqual([]);
+  });
+
+  it('迁移：forceCopy 同盘也按复制路径走，结果与跨盘一致', async () => {
+    const rec = await createInstance({ name: 'copy-same', harness: 'dir', packDir: PACK });
+    const target = join(tmp, 'copy-same-target');
+
+    const result = migrateInstanceDetailed('copy-same', target, { forceCopy: true });
+
+    expect(result.movedBy).toBe('copy');
+    expect(result.record.root).toBe(target);
+    expect(existsSync(rec.root)).toBe(false);
+    expect(existsSync(join(target, 'instance.json'))).toBe(true);
+    expect(readdirSync(tmp).filter((name) => name.includes('.pal-partial-'))).toEqual([]);
+  });
+
+  it('迁移：复制失败时旧实例不动，也不留临时目录', async () => {
+    const rec = await createInstance({ name: 'copy-fail', harness: 'dir', packDir: PACK });
+    const target = join(tmp, 'copy-fail-target');
+    fsCopyFail.src = rec.root;
+
+    let caught: unknown;
+    try {
+      migrateInstanceDetailed('copy-fail', target, { forceCopy: true });
+    } catch (err) {
+      caught = err;
+    }
+    expect(isPalError(caught)).toBe(true);
+    if (isPalError(caught)) expect(caught.code).toBe('busy');
+    expect(existsSync(rec.root)).toBe(true);
+    expect(existsSync(target)).toBe(false);
+    expect(readInstance(rec.id)?.root).toBe(rec.root);
+    expect(readdirSync(tmp).filter((name) => name.includes('.pal-partial-'))).toEqual([]);
+  });
+
+  it('迁移：旧根删不掉时整次撤回，旧实例仍是活的', async () => {
+    const rec = await createInstance({ name: 'leftover', harness: 'dir', packDir: PACK });
+    const target = join(tmp, 'leftover-target');
+    fsRmFail.file = rec.root;
+
+    let caught: unknown;
+    try {
+      migrateInstanceDetailed('leftover', target, { forceCopy: true });
+    } catch (err) {
+      caught = err;
+    }
+
+    expect(isPalError(caught)).toBe(true);
+    if (isPalError(caught)) {
+      expect(caught.code).toBe('busy');
+      expect(caught.message).toContain('撤回');
+    }
+    // 新根撤掉了，旧根与旧记录都还在，列表仍指旧路径
+    expect(existsSync(target)).toBe(false);
+    expect(existsSync(rec.root)).toBe(true);
+    expect(readInstance(rec.id)?.root).toBe(rec.root);
   });
 
   it('更新到新版本：换掉旧文件、清掉上一版独有的文件、刷新基线与记录', async () => {

@@ -10,6 +10,18 @@ PAL 把 Pack 装进一个独立实例根，并按宿主起停进程。代码在 
 
 本文不加限定的「外壳」指桌面壳。launcher 直接调 `runtime.installPack` 是装配层职责，不是越界：它依赖的仍是 kernel/runtime，不依赖任何宿主或桌面壳。
 
+## 数据目录
+
+PAL 的数据（实例、取包缓存、备份、导出模板、全局配置）都放在一个目录下，按下面的顺序决定，先命中先赢：
+
+1. `PACKHUB_HOME`：显式覆盖，测试与多环境都用它；
+2. `pal config --home <绝对路径>` 写下的选择（指针在 `%LOCALAPPDATA%\PackHub\location.json`，与数据目录本身分开存）；
+3. 旧版默认 `~/.packhub`：存在就沿用，升级不会让已有实例突然消失；
+4. 便携默认：打包后的 `pal.cjs` 同级 `data/`，目录可写时才用；
+5. 系统默认：Windows `%LOCALAPPDATA%\PackHub`，其它平台 `~/.packhub`。
+
+`pal config` 会显示当前数据目录与来源。`--home` 只改“以后往哪写”，不搬已有数据；当前目录里还有数据（实例、缓存、备份或配置）时默认拒绝（确认不再需要可加 `--force`），搬数据用 `pal backup` / `pal restore` 或手动搬整个目录。`PACKHUB_INSTANCES` 仍可单独指定实例根，压过 `<数据目录>/instances`。
+
 ## 实例根长什么样
 
 ```text
@@ -28,7 +40,7 @@ PAL 把 Pack 装进一个独立实例根，并按宿主起停进程。代码在 
   .pal-stopping        正在停止的标记（写 pid + 时间，60s TTL，停止结束即清）
 ```
 
-`<instancesRoot>` 默认 `~/.packhub/instances`，可用 `PACKHUB_INSTANCES` 覆盖；取包缓存在 `<PACKHUB_HOME>/cache/packs/<来源>/<版本>`。只有「registry 来源 + 明确版本」会命中缓存：目录里已有同版本、清单版本也对得上就直接复用，不 reset 不重取；`latest`、`*`、`^1.2` 这类会变的版本，以及 `.phub` / `git+`（上游可能换内容）仍每次重取。
+`<instancesRoot>` 默认是 `<数据目录>/instances`，可用 `PACKHUB_INSTANCES` 覆盖；取包缓存在 `<数据目录>/cache/packs/<来源>/<版本>`。只有「registry 来源 + 明确版本」会命中缓存：目录里已有同版本、清单版本也对得上就直接复用，不 reset 不重取；`latest`、`*`、`^1.2` 这类会变的版本，以及 `.phub` / `git+`（上游可能换内容）仍每次重取。
 
 新建实例的 home 是空的：宿主起来也没有模型可用。两条路把已有环境接过来 —— `pal create --from-home ~/.dsh`（只补空缺地复制凭据与用户指令，Pack 写好的文件不被覆盖；`sessions`、`cache`、`attachments`、`dsh-runtimes`、`storages`、`profiles`、`logs` 不搬），或 `pal adopt`（直接接管整个已有目录，一个字节不动）。
 
@@ -56,7 +68,7 @@ PAL 把 Pack 装进一个独立实例根，并按宿主起停进程。代码在 
 - **建实例失败**：只清理自己造的根。复用已有目录时不删目录，只摘 `instance.json`；自己造的根移进 `instances/.failed/` 并写 `reason.json`。
 - **删除**：先停进程并等它真的退出，再删根（默认既不先卸包，也不搬目录；包记录只用来填结果里的 `uninstalled`）。`--keep-data` 才先按 state 卸包、再把根挪进 `instances/.archive/`。删目录会重试，仍被占用就改名进归档；删根失败时记录与 state 都原样留着，可以直接重试。默认删除不逐文件调 `removePack`：当前安装落点都在实例根内，删根即清干净；以后若写入宿主级副作用（全局 MCP 注册、宿主配置键），必须在这里补反向清理，不能只靠删根。
 - **停止标记**：`stopInstance` 与 `removeInstance` 都在 kill 之前写 `<root>/.pal-stopping`（pid + 时间，60s TTL），结束时清掉。`pal serve` 的 onExit 有三道闸：标记与 pid 对得上、记录里的 pid 已经换人、记录已是 `stopped` —— 任一成立都不按崩溃处理，也不触发 `on-failure` 重起。
-- **迁移**：rename 与写记录在同一把实例锁里做完，写完必须能从新根读回记录；失败就把目录挪回原路径、记录改回旧 `root`，回滚也失败才报 `internal`。
+- **迁移**：同盘用 rename（原子）；跨盘时 rename 报 `EXDEV`，PAL 先复制到目标盘的临时目录，再在同盘内 rename 成正式目录，写记录成功后才删旧根。目录移动与写记录在同一把实例锁里；写记录失败就回滚（rename 挪回，copy 撤掉新根）。旧根删不掉时整次撤回，不留下两个根。
 - **坏记录**：`instance.json` 或 `runtime.json` 解析失败不再静默跳过 —— `pal list` / `pal status` 会把它移进 `instances/.quarantine/` 并写原因（接管实例只收走 `.links` 指针，目录不动），`pal recover` 能看。读接口（GET `/api/instances`、体检）只把问题列进 `broken`，不写记录、也不隔离。
 - **原子写**：两份记录各自「临时文件 + rename」；先写 `runtime.json` 再写 `instance.json`，崩在中间时 runtime 新、config 旧，读取仍以 runtime 为准，不会丢运行态。
 - **实例锁**：`<root>/.pal-lock.json` 记 pid/操作；持有者已经不在就当陈旧锁清掉。
@@ -71,7 +83,7 @@ PAL 把 Pack 装进一个独立实例根，并按宿主起停进程。代码在 
 5. dsh 实例：把 Pack 的 mcp 资源写成 `home/dsh/pal-mcp.patch.yml`，用 `--patch` 传给宿主（见下）。
 6. spawn 不走 shell 拼串：日志用 `stdio` 的 fd 直接写，`cwd` 是实例根，home 走宿主自己的环境变量。环境也不整份继承：`hostEnv` 只留 PATH/PATHEXT、SystemRoot 等系统项、TEMP、home 与语言变量，代理按原名带上；名字命中 `API_KEY`/`TOKEN`/`SECRET`/`PASSWORD`/`CREDENTIAL` 的、`PACKHUB_*`、`PAL_*` 以及各模型厂商前缀的一律剔除。要额外给，用 `opts.env` 显式补 —— 它最后应用，能覆盖先前的值（包括被剔除的项）。
 7. 从日志里等地址；等不到就收掉进程，并把日志尾部贴进错误里。
-8. pid 记**真正在监听**的那个（Windows 上 `.cmd` 垫片的 spawn pid 是 cmd 的，靠端口反查）。
+8. 进程证据分两栏：`spawnPid` 是自己 spawn 的（唯一 kill 目标），`listenPid` 是端口反查到的监听者（只作证据）；记录里的 `pid` 是兼容字段，等于 `spawnPid ?? listenPid`。Windows 上 spawn 的是 `.cmd` 垫片，监听者往往是它的子进程。
 9. `pal serve` 期间会记退出码/信号到 `lastExit`；`restart: on-failure` 的实例按 1s/2s/4s… 退避重起，超过 `maxRestarts` 停止。
 
 ## dsh 的 MCP 接线
@@ -107,7 +119,7 @@ Pack 里的 `type: mcp` 资源安装时写进实例的 `.packhub/config.json`（
 
 ## HTTP 面
 
-只绑回环。写请求要求 `host` 与 `Origin` 一致且带 `x-pal-client: pal-ui`（跨源表单发不出来）。
+只绑回环。写请求要求 `host` 与 `Origin` 一致且带 `x-pal-client: pal-ui`；带 `Origin` 的 `/api/*` 请求还要带首页注入的 `x-pal-token`（浏览器读不到别的页面；无 Origin 的本机调用不校验）。
 
 | 方法 | 路径 | 作用 |
 |---|---|---|
@@ -131,9 +143,9 @@ Pack 里的 `type: mcp` 资源安装时写进实例的 `.packhub/config.json`（
 
 ## 命令
 
-`pal create / list / show / remove / start / stop / restart / status / health / doctor / logs / use / current / serve / adopt / clone / rename / migrate / update / rebaseline / export / import / recover`。
+`pal create / config / list / show / cache / remove / start / stop / restart / status / ps / watch / health / doctor / logs / use / current / serve / scan / adopt / clone / rename / migrate / update / rebaseline / export / import / backup / restore / recover`。
 
-`start` 会立刻退出（宿主 detach）；要看着护就用 `pal serve`。「实例流转」目前只有 CLI。
+`start` 会立刻退出（宿主 detach）；要看着护就用 `pal serve` 或 `pal watch`（二选一）。实例流转（接管 / 导入 / 克隆 / 改名 / 迁移 / 导出）在 CLI 与详情页「更多」里都有入口。
 
 `adopt` 只有实例 state 里恰好 1 个 Pack 时才记下它的名字/版本；0 个或多个一律记 `external`，免得记录谎称身份。`planHash` 不进记录，只在 `baseline.json` 里维护。`clone` 复制出来的记录是 `managed: true`、`origin: {kind:'copy', from}`，端口与运行信息清空 —— 它是拷贝，不从 Pack 重建，导出的模板不可复现。
 
@@ -149,7 +161,7 @@ Pack 里的 `type: mcp` 资源安装时写进实例的 `.packhub/config.json`（
 ## 缺口
 
 - 系统级守护只有 `pal watch`（headless 进程），没有 Windows 服务/开机自启；`pal watch` 与 `pal serve` 二选一。
-- 运行时只记录、展示，不切换：`baseline.json` 记下建/更新实例时的 node 版本，`pal doctor` 报当前运行时，`pal health` 的 `runtime` 检查在版本变过时只提醒；不支持切换（0.x 只承诺 Windows，见 E5）；跨盘迁移要手动搬。
+- 运行时只记录、展示，不切换：`baseline.json` 记下建/更新实例时的 node 版本，`pal doctor` 报当前运行时，`pal health` 的 `runtime` 检查在版本变过时只提醒；不支持切换（0.x 只承诺 Windows，见 E5）。跨盘迁移会自动复制，但复制期间会占双份空间。
 - 侧车传输固定 HTTP + token（E3 决定保留），stdio / 内部 RPC 未做。
 - 0.x 只承诺 Windows（E5）；POSIX 的进程组/信号/路径假设未审。
 - 计数与耗时这类性能数字只在本机测过，没有进 CI 基线。

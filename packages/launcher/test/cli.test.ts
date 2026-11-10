@@ -60,17 +60,18 @@ describe('pal doctor 报告运行时（A11）', () => {
     );
   });
 
-  it('--json 顶层带 runtime 段，宿主清单在 hosts 下', () => {
+  it('--json 顶层带 runtime 段（含数据目录），宿主清单在 hosts 下', () => {
     const payload = JSON.parse(capture(true)) as {
-      runtime?: { node?: string; platform?: string; arch?: string; pal?: string };
+      runtime?: { node?: string; platform?: string; arch?: string; pal?: string; home?: string };
       hosts?: unknown[];
     };
-    expect(payload.runtime).toEqual({
+    expect(payload.runtime).toMatchObject({
       node: process.version,
       platform: process.platform,
       arch: process.arch,
       pal: packageJson.version,
     });
+    expect(payload.runtime?.home).toEqual(expect.any(String));
     expect(Array.isArray(payload.hosts)).toBe(true);
   });
 });

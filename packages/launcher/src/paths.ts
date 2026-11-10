@@ -1,13 +1,126 @@
 import { randomBytes } from 'node:crypto';
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, parse, resolve } from 'node:path';
+import { PalError } from './errors.ts';
 
 /**
- * PAL 的所有落点集中在这里：实例根、取包缓存、隔离区、归档区。
+ * PAL 的所有落点集中在这里：数据目录、实例根、取包缓存、隔离区、归档区。
  * 其他模块不再各自拼路径，测试也只需要覆盖一次 PACKHUB_HOME / PACKHUB_INSTANCES。
+ *
+ * 数据目录（PAL home）按下面的顺序决定，先命中先赢：
+ *   1. `PACKHUB_HOME`：显式覆盖，测试与多环境都用它；
+ *   2. `pal config --home` 写过的手动选择（location.json）；
+ *   3. 旧版默认 `~/.packhub`（存在就沿用，别让升级把已有实例弄丢）；
+ *   4. 便携默认：打包后的 `pal.cjs` 同级 `data/`，目录可写时才用；
+ *   5. 系统默认：Windows `%LOCALAPPDATA%\PackHub`，其它平台 `~/.packhub`。
  */
+
+export type PalHomeSource = 'env' | 'pointer' | 'legacy' | 'portable' | 'default';
+
+export const HOME_SOURCE_LABEL: Record<PalHomeSource, string> = {
+  env: '环境变量 PACKHUB_HOME',
+  pointer: '自定义（location.json）',
+  legacy: '旧版默认（~/.packhub）',
+  portable: '便携（程序目录旁）',
+  default: '系统默认',
+};
+
+export interface HomeChoiceInput {
+  env?: string;
+  pointerHome?: string;
+  legacy: string;
+  legacyExists: boolean;
+  portable?: string;
+  portableWritable?: boolean;
+  fallback: string;
+}
+
+/**
+ * 纯函数版的数据目录选择：不碰文件系统，测试直接给输入。
+ * 指针只接受绝对路径；指到相对路径/空串就当没设，继续走后面的规则。
+ */
+export function choosePalHome(input: HomeChoiceInput): { home: string; source: PalHomeSource } {
+  const env = input.env?.trim();
+  if (env) return { home: resolve(env), source: 'env' };
+  const pointer = input.pointerHome?.trim();
+  if (pointer && isAbsolute(pointer)) return { home: resolve(pointer), source: 'pointer' };
+  if (input.legacyExists) return { home: resolve(input.legacy), source: 'legacy' };
+  if (input.portable && input.portableWritable) return { home: resolve(input.portable), source: 'portable' };
+  return { home: resolve(input.fallback), source: 'default' };
+}
+
+function localAppData(): string {
+  const value = process.env.LOCALAPPDATA?.trim();
+  return value ? resolve(value) : join(homedir(), 'AppData', 'Local');
+}
+
+function legacyHome(): string {
+  return join(homedir(), '.packhub');
+}
+
+function fallbackHome(): string {
+  return process.platform === 'win32' ? join(localAppData(), 'PackHub') : legacyHome();
+}
+
+/**
+ * 手动选择存在哪。放在一个与数据目录无关的固定位置：
+ * 数据目录本身可能被改到别的盘，指针必须还能被下一次启动找到。
+ * `PACKHUB_LOCATION_FILE` 只给测试/多环境用。
+ */
+export function locationFile(): string {
+  const override = process.env.PACKHUB_LOCATION_FILE?.trim();
+  return override ? resolve(override) : join(localAppData(), 'PackHub', 'location.json');
+}
+
+function readPointerHome(): string | undefined {
+  try {
+    const data = JSON.parse(readFileSync(locationFile(), 'utf8')) as { home?: unknown };
+    return typeof data.home === 'string' ? data.home : undefined;
+  } catch {
+    // 读不了/坏 JSON/没有文件：当作没设过。真正的写失败会在 pal config 里报。
+    return undefined;
+  }
+}
+
+/** 打包形态（pal.cjs）才谈得上“程序目录旁”；源码跑 bin.ts 时没有这个概念。 */
+function bundledHome(): string | undefined {
+  const entry = process.argv[1];
+  if (!entry) return undefined;
+  const full = resolve(entry);
+  return /[\\/]pal\.cjs$/i.test(full) ? join(dirname(full), 'data') : undefined;
+}
+
+function canWrite(dir: string): boolean {
+  try {
+    accessSync(dir, constants.W_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export interface PalHomeInfo {
+  home: string;
+  source: PalHomeSource;
+}
+
+/** 当前进程实际使用的数据目录与它的来源。 */
+export function palHomeInfo(): PalHomeInfo {
+  const portable = bundledHome();
+  return choosePalHome({
+    env: process.env.PACKHUB_HOME,
+    pointerHome: readPointerHome(),
+    legacy: legacyHome(),
+    legacyExists: existsSync(legacyHome()),
+    ...(portable ? { portable } : {}),
+    portableWritable: portable !== undefined && canWrite(dirname(portable)),
+    fallback: fallbackHome(),
+  });
+}
+
 function homeBase(): string {
-  return resolve(process.env.PACKHUB_HOME ?? join(homedir(), '.packhub'));
+  return palHomeInfo().home;
 }
 
 /** PAL 自己的配置：新实例的默认隔离策略放这里（不是任何实例的配置）。 */
@@ -55,6 +168,63 @@ export function failedRoot(): string {
 /** 删除实例时选择“保留数据”的去处。 */
 export function archiveRoot(): string {
   return join(instancesRoot(), '.archive');
+}
+
+/** 数据目录里有没有东西（实例、缓存、备份、导出、全局配置都算）。给“换目录”前的确认用。 */
+export function homeHasData(home: string = homeBase()): boolean {
+  if (existsSync(join(home, 'config.json'))) return true;
+  for (const dir of ['instances', 'backups', 'exports', 'cache']) {
+    try {
+      if (readdirSync(join(home, dir)).some((name) => !name.startsWith('.'))) return true;
+    } catch {
+      /* 目录不存在或读不了：当作没有 */
+    }
+  }
+  return false;
+}
+
+/**
+ * 写手动选择（pal config --home）：把目标目录建出来，再原子写指针。
+ * 只写“选哪”，不搬数据；已有数据怎么搬由调用方提示。
+ */
+export function writeHomePointer(home: string): string {
+  const text = String(home ?? '').trim();
+  if (!text) {
+    throw new PalError('invalid-input', '数据目录不能为空', { hint: '给一个绝对路径，例如 D:\\PackHubData' });
+  }
+  if (!isAbsolute(text)) {
+    throw new PalError('invalid-input', '数据目录必须是绝对路径', {
+      hint: 'PAL 不解析相对路径；例如 D:\\PackHubData',
+      details: { home: text },
+    });
+  }
+  const target = resolve(text);
+  if (target === parse(target).root) {
+    throw new PalError('invalid-input', '数据目录不能是盘符根或文件系统根', {
+      hint: '给一个具体目录，PAL 会按需创建',
+      details: { home: target },
+    });
+  }
+  const file = locationFile();
+  try {
+    mkdirSync(target, { recursive: true });
+    mkdirSync(dirname(file), { recursive: true });
+    const tmp = `${file}.tmp-${process.pid}`;
+    writeFileSync(tmp, JSON.stringify({ home: target }, null, 2) + '\n', 'utf8');
+    renameSync(tmp, file);
+  } catch (err) {
+    try {
+      rmSync(`${file}.tmp-${process.pid}`, { force: true });
+    } catch {
+      /* 临时文件清不掉不影响结论 */
+    }
+    throw new PalError('invalid-input', `数据目录不可用：${(err as Error).message}`, {
+      hint: '换一个可写、非盘符根的目录',
+      details: { home: target, file },
+      cause: err,
+    });
+  }
+  return target;
 }
 
 export function stamp(date = new Date()): string {

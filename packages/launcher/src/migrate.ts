@@ -138,16 +138,96 @@ function rollbackMigrate(
   }
 }
 
-/** 在实例锁里执行迁移：rename 与写记录是一个整体，写记录失败就把目录挪回去。 */
-function migrateLocked(record: InstanceRecord, target: string, owned: boolean): InstanceRecord {
+export interface MigrateOptions {
+  /** 测试用：替换 rename，模拟跨盘（抛 EXDEV）。生产路径不传。 */
+  rename?: (from: string, to: string) => void;
+  /** 测试用：跳过 rename，直接走复制路径。 */
+  forceCopy?: boolean;
+}
+
+export interface MigrateResult {
+  record: InstanceRecord;
+  /** rename：同盘原子改名；copy：跨盘复制后落位。 */
+  movedBy: 'rename' | 'copy';
+}
+
+function isCrossDevice(err: unknown): boolean {
+  return (err as NodeJS.ErrnoException | undefined)?.code === 'EXDEV';
+}
+
+/**
+ * 把实例根从 from 挪到 to。同盘用 rename（原子、可回滚）；跨盘 rename 会报 EXDEV，
+ * 这时先复制到目标盘的临时目录，再在同盘内 rename 成正式目录，最后删旧根。
+ *
+ * 复制不是原子的：中途失败只删临时目录，旧根不动；复制完落位失败也只删临时目录。
+ * 真正的“切换”发生在写记录那一步——记录指向新根成功后，旧根才删。
+ */
+function moveRoot(from: string, to: string, opts: MigrateOptions): 'rename' | 'copy' {
+  if (!opts.forceCopy) {
+    try {
+      (opts.rename ?? renameSync)(from, to);
+      return 'rename';
+    } catch (err) {
+      if (!isCrossDevice(err)) {
+        throw new PalError('busy', `挪不动这个实例根：${(err as Error).message}`, {
+          hint: '目标目录可能被占用、权限不足，或父目录不可写；跨盘会自动复制',
+          details: { root: from, target: to },
+          cause: err,
+        });
+      }
+    }
+  }
+  // 临时目录必须落在目标盘：复制完的 rename 是同盘操作，才能原子落位
+  const staging = `${to}.pal-partial-${process.pid}-${Date.now().toString(36)}`;
   try {
-    renameSync(record.root, target);
+    rmSync(staging, { recursive: true, force: true });
+  } catch {
+    /* 残留临时目录删不掉时，下一次复制还会用新的名字 */
+  }
+  try {
+    cpSync(from, staging, {
+      recursive: true,
+      force: true,
+      errorOnExist: false,
+      preserveTimestamps: true,
+    });
   } catch (err) {
-    throw new PalError('busy', `挪不动这个实例根：${(err as Error).message}`, {
-      hint: '跨盘时先手动复制再删；或换一个同盘目录',
+    try {
+      rmSync(staging, { recursive: true, force: true });
+    } catch {
+      /* 清不掉临时目录不影响“旧实例没动”这个结论 */
+    }
+    throw new PalError('busy', `跨盘复制失败：${(err as Error).message}`, {
+      hint: '旧实例没有动；检查目标盘剩余空间、权限，以及是否有文件被占用',
+      details: { root: from, target: to },
       cause: err,
     });
   }
+  try {
+    renameSync(staging, to);
+  } catch (err) {
+    try {
+      rmSync(staging, { recursive: true, force: true });
+    } catch {
+      /* 同上 */
+    }
+    throw new PalError('busy', `复制完成但落位失败：${(err as Error).message}`, {
+      hint: '目标目录可能被别的进程占用；旧实例没有动',
+      details: { root: from, target: to },
+      cause: err,
+    });
+  }
+  return 'copy';
+}
+
+/** 在实例锁里执行迁移：移动目录与写记录是一个整体；写记录失败就回滚目录。 */
+function migrateLocked(
+  record: InstanceRecord,
+  target: string,
+  owned: boolean,
+  opts: MigrateOptions,
+): MigrateResult {
+  const mode = moveRoot(record.root, target, opts);
 
   try {
     const next: InstanceRecord = {
@@ -169,8 +249,46 @@ function migrateLocked(record: InstanceRecord, target: string, owned: boolean): 
     if (owned && atTarget?.pid === process.pid && atTarget.op === 'migrate') {
       releaseInstanceLock(target);
     }
-    return read.record;
+    // copy 模式：记录已经指向新根，旧根这时才删；删不掉就整次撤回，别留下两个根
+    if (mode === 'copy') {
+      try {
+        rmSync(record.root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      } catch (err) {
+        try {
+          rmSync(target, { recursive: true, force: true });
+        } catch {
+          /* 撤不掉新根时把现场写进 details */
+        }
+        // 旧根里的记录本来就还在；外部实例的 .links 可能已经被写向新根，写回旧记录把指针改回来
+        try {
+          writeInstance(record);
+        } catch {
+          /* 旧记录没坏；写回失败不影响“至少别两头都算数” */
+        }
+        throw new PalError('busy', '复制完成但旧根删不掉，迁移已撤回', {
+          hint: '停掉可能正占用旧根的程序（宿主、编辑器、杀毒扫描）后重试',
+          details: { root: record.root, target, reason: (err as Error).message },
+          cause: err,
+        });
+      }
+    }
+    return { record: read.record, movedBy: mode };
   } catch (err) {
+    if (mode === 'copy') {
+      // 记录没切过去（或切了但读不回来）：撤掉新根，旧根与旧记录原样留着
+      try {
+        rmSync(target, { recursive: true, force: true });
+      } catch {
+        /* 撤不掉新根时下面把现场写进 details */
+      }
+      throw err instanceof PalError
+        ? err
+        : new PalError('internal', '迁移写记录失败，已撤回新根', {
+            hint: '旧实例还在原处，可以重试',
+            details: { root: record.root, target, reason: (err as Error).message },
+            cause: err,
+          });
+    }
     const rollback = rollbackMigrate(record, target);
     if (!rollback.ok) {
       if (owned) releaseInstanceLock(target);
@@ -199,7 +317,11 @@ function migrateLocked(record: InstanceRecord, target: string, owned: boolean): 
 }
 
 /** 把实例根整体挪到别处（换盘、整理目录），记录里的路径一起改。 */
-export function migrateInstance(nameOrId: string, to: string): InstanceRecord {
+export function migrateInstanceDetailed(
+  nameOrId: string,
+  to: string,
+  opts: MigrateOptions = {},
+): MigrateResult {
   const record = requireInstance(nameOrId);
   if (record.pid && isPidAlive(record.pid)) {
     throw new PalError('already-running', `实例还在运行：pid ${record.pid}`, { hint: '先停掉再迁移' });
@@ -212,5 +334,12 @@ export function migrateInstance(nameOrId: string, to: string): InstanceRecord {
     });
   }
   mkdirSync(dirname(target), { recursive: true });
-  return withInstanceLockSync(record.root, 'migrate', (owned) => migrateLocked(record, target, owned));
+  return withInstanceLockSync(record.root, 'migrate', (owned) =>
+    migrateLocked(record, target, owned, opts),
+  );
+}
+
+/** 兼容旧调用：只要记录。跨盘复制与旧根残留的细节用 migrateInstanceDetailed。 */
+export function migrateInstance(nameOrId: string, to: string): InstanceRecord {
+  return migrateInstanceDetailed(nameOrId, to).record;
 }

@@ -17,16 +17,23 @@ pnpm pal stop demo
 pnpm pal remove demo --keep-data                  # 先卸包，再把剩下的根挪进归档区
 ```
 
-`update` 默认不覆盖：Pack 写过的文件被本地改过时整次拒绝、一个文件都不写，确认覆盖要加 `--force`（API 是 `body.force`）；当前界面还没有强制入口。普通 `remove` 只删实例根，不单独卸包（删不动就整根归档）。
+`update` 默认不覆盖：Pack 写过的文件被本地改过时整次拒绝、一个文件都不写，确认覆盖要加 `--force`（API 是 `body.force`），界面里勾「覆盖本地改动」才带。普通 `remove` 只删实例根，不单独卸包（删不动就整根归档）。
 
 `pnpm pal serve` 起本地界面：实例列表、创建（可选包与版本）、启停、体检、日志、删除（可保留数据）。
+
+数据默认放在哪：先看 `PACKHUB_HOME`，再看 `pal config --home` 记下的选择，再看旧版 `~/.packhub`；打包后的 `pal.cjs` 在没有旧数据时默认用程序目录旁的 `data/`。`pal config` 会显示当前目录与来源，`pal config --home D:\PackHubData` 改选择（不搬已有数据）。
 
 ## 代码在哪
 
 | 文件 | 职责 |
 |---|---|
-| `src/index.ts` | 实例记录、创建/删除/接管/复制/改名/迁移/模板、基线、实例锁 |
-| `src/start.ts` | 起停、就绪探测、退出码与守护、状态刷新 |
+| `src/index.ts` | 门面：按原名 re-export；实现已拆到下面各模块 |
+| `src/create.ts` / `src/remove.ts` / `src/update.ts` | 建实例（含接管）、删除、换 Pack 版本 |
+| `src/migrate.ts` / `src/template.ts` | 复制/改名/迁移（同盘 rename、跨盘复制）、模板导入导出 |
+| `src/records.ts` / `src/recordWrite.ts` | 记录类型与解析（config/runtime 两份）、原子写与 `.links` |
+| `src/catalog.ts` / `src/quarantine.ts` | 列表/查找/当前实例、坏记录隔离 |
+| `src/cache.ts` / `src/scan.ts` / `src/ps.ts` / `src/backup.ts` | 取包缓存、目录扫描、并发账本、备份恢复 |
+| `src/start.ts` / `src/watch.ts` | 起停、就绪探测、退出码与看护、headless watch |
 | `src/harness.ts` | 宿主发现与版本探测（含 Windows `.cmd` 垫片） |
 | `src/layout.ts` | 每个宿主的 home 段、环境变量、启动参数模板 |
 | `src/mcp.ts` | 把 Pack 的 mcp 资源写成 dsh 的 `--patch` 层 |
@@ -34,7 +41,8 @@ pnpm pal remove demo --keep-data                  # 先卸包，再把剩下的�
 | `src/logs.ts` / `src/secrets.ts` | 日志归档、脱敏、凭据落盘 |
 | `src/port.ts` / `src/process.ts` | 端口分配与占用者、进程存活与回收 |
 | `src/server.ts` / `src/cli.ts` | HTTP 面（来源校验）与命令行 |
-| `src/paths.ts` | 实例根、缓存、隔离区、归档区、失败现场 |
+| `src/paths.ts` | 数据目录、实例根、缓存、隔离区、归档区、失败现场 |
+| `src/config.ts` / `src/isolation.ts` | 全局配置（数据目录/默认隔离）、隔离五层模型 |
 | `web/` | 本地界面 |
 
 落点、状态机、错误码、HTTP 面、接线细节见 [docs/checklist/details/pal.md](../../docs/checklist/details/pal.md)。

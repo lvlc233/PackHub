@@ -9,7 +9,7 @@ import {
   cloneInstance,
   exportTemplate,
   listInstances,
-  migrateInstance,
+  migrateInstanceDetailed,
   readInstance,
   rebaselineInstance,
   removeInstance,
@@ -36,8 +36,19 @@ import { readSecrets } from './secrets.ts';
 import { PalError } from './errors.ts';
 import { CONFIG_VERSION, parseIsolationSpec, readPalConfig, writePalConfig } from './config.ts';
 import { ISOLATION_LAYERS } from './isolation.ts';
-import { quarantineRoot, archiveRoot, failedRoot, instancesRoot, palConfigFile } from './paths.ts';
-import { assertExternalRoot } from './validators.ts';
+import {
+  HOME_SOURCE_LABEL,
+  archiveRoot,
+  failedRoot,
+  homeHasData,
+  instancesRoot,
+  locationFile,
+  palConfigFile,
+  palHomeInfo,
+  quarantineRoot,
+  writeHomePointer,
+} from './paths.ts';
+import { assertAbsolutePath, assertExternalRoot } from './validators.ts';
 
 function printRecord(rec: InstanceRecord): void {
   console.log(`${rec.id}\t${rec.status}\t${rec.harness}\t${rec.pack.name}@${rec.pack.version}`);
@@ -159,16 +170,51 @@ const config = defineCommand({
   meta: {
     name: 'config',
     description:
-      '新实例的默认隔离策略（<PACKHUB_HOME>/config.json）；只影响之后新建的实例，已有实例不变',
+      'PAL 数据目录与新建实例的默认隔离策略（<数据目录>/config.json）；隔离策略只影响之后新建的实例',
   },
   args: {
     'set-isolation': {
       type: 'string',
       description: '改成 layer=mode,...；只覆盖写出来的层，其余沿用当前值。只影响之后新建的实例',
     },
+    home: {
+      type: 'string',
+      description:
+        '把数据目录改到某个绝对路径（写 location.json）。不搬已有数据；下次启动沿用这次选择',
+    },
+    force: {
+      type: 'boolean',
+      default: false,
+      description: '当前数据目录里还有数据（实例/缓存/备份/配置）时也允许改数据目录（旧数据仍在原处）',
+    },
     json: { type: 'boolean', default: false },
   },
   run({ args }) {
+    const homeArg = args.home === undefined ? undefined : assertAbsolutePath(args.home, '数据目录', 'home');
+    if (homeArg !== undefined) {
+      const before = palHomeInfo();
+      if (homeArg === before.home) {
+        console.log(`数据目录没变：${homeArg}`);
+      } else if (homeHasData() && !args.force) {
+        throw new PalError('invalid-input', '当前数据目录里还有数据（实例、缓存、备份或配置），先处理掉再改数据目录', {
+          hint:
+            '用 pal backup / pal restore 或手动搬整个数据目录；确认旧目录不再使用可加 --force。' +
+            '改只影响之后写入的位置，不会替你搬数据',
+          details: { current: before.home, next: homeArg },
+        });
+      } else {
+        const target = writeHomePointer(homeArg);
+        console.log(`✓ 数据目录已切到 ${target}`);
+        console.log('· 旧目录里的实例、缓存与备份仍在原处，不会自动搬；新数据从这里开始。');
+        const after = palHomeInfo();
+        if (after.home !== target) {
+          console.log(
+            `! 当前进程仍被 ${HOME_SOURCE_LABEL[after.source]} 指向 ${after.home}，优先级高于这次选择；` +
+              '要让选择生效，先取消那个覆盖。',
+          );
+        }
+      }
+    }
     const file = palConfigFile();
     const spec = args['set-isolation'];
     const current = readPalConfig();
@@ -179,12 +225,29 @@ const config = defineCommand({
             version: CONFIG_VERSION,
             isolation: parseIsolationSpec(String(spec), current.isolation),
           });
+    const info = palHomeInfo();
     if (args.json) {
-      console.log(JSON.stringify(next, null, 2));
+      console.log(
+        JSON.stringify(
+          {
+            version: next.version,
+            isolation: next.isolation,
+            home: info.home,
+            homeSource: info.source,
+            instancesRoot: instancesRoot(),
+            configFile: file,
+            locationFile: locationFile(),
+          },
+          null,
+          2,
+        ),
+      );
       return;
     }
+    console.log(`数据目录  ${info.home}（${HOME_SOURCE_LABEL[info.source]}）`);
+    console.log(`实例根    ${instancesRoot()}`);
+    console.log(`配置文件  ${file}${existsSync(file) ? '' : '（还没有这个文件：现在用的是内置默认）'}`);
     if (spec !== undefined) console.log(`✓ 已写入 ${file}`);
-    console.log(`${file}${existsSync(file) ? '' : '（还没有这个文件：现在用的是内置默认）'}`);
     for (const layer of ISOLATION_LAYERS) {
       console.log(`  ${layer.padEnd(12)}${next.isolation.layers[layer]}`);
     }
@@ -591,12 +654,14 @@ const doctor = defineCommand({
       platform: process.platform,
       arch: process.arch,
       pal: pkg.version,
+      home: palHomeInfo().home,
     };
     if (args.json) {
       console.log(JSON.stringify({ runtime, hosts: infos }, null, 2));
       return;
     }
     console.log(`运行时：node ${runtime.node} (${runtime.platform}-${runtime.arch})，pal ${runtime.pal}`);
+    console.log(`数据目录：${runtime.home}`);
     for (const info of infos) {
       const state = !info.available ? '未安装' : info.startable ? '可启动' : '只装配 home';
       console.log(`${info.id}\t${state}\t${info.version ?? info.probeError ?? '-'}`);
@@ -846,12 +911,15 @@ const migrate = defineCommand({
     json: { type: 'boolean', default: false },
   },
   run({ args }) {
-    const rec = migrateInstance(requireTarget(args.target), String(args.to));
+    const moved = migrateInstanceDetailed(requireTarget(args.target), String(args.to));
     if (args.json) {
-      console.log(JSON.stringify(rec, null, 2));
+      console.log(JSON.stringify(moved.record, null, 2));
       return;
     }
-    console.log(`✓ ${rec.id} → ${rec.root}`);
+    console.log(`✓ ${moved.record.id} → ${moved.record.root}`);
+    if (moved.movedBy === 'copy') {
+      console.log('· 跨盘迁移：已复制到目标盘并切换记录，旧根已删除');
+    }
   },
 });
 
