@@ -41,7 +41,7 @@ PAL 把 Pack 装进一个独立实例根，并按宿主起停进程。代码在 
 改 `<PACKHUB_HOME>/config.json` 的默认只影响之后新建的实例：已有实例保持创建时那份快照，改默认不动它，也没有原地迁移工具。要换策略就 `pal create --isolation` 新建；`pal clone` 沿用源实例的策略，换不了策略。这是有意取舍，不是功能缺口：按新策略重排一个装好、可能正在跑的 home，要么挪丢文件，要么在不可知的时刻半途失败，而换一次策略的代价本来就只是新建一次实例；`pal migrate` 仍只负责挪根，不碰 home 布局。写默认值时也会先校验：`credentials=shared` 这类未实现的值直接 `invalid-input`，不落盘、不改原文件，`pal config` 设置那一刻就拦住，不必等到 `pal create`。
 
 ## 记录与状态
-持久化分两份：`instance.json` 只存配置：`id`、`name`、`harness`、`harnessVersion`、`root`、`home`、`pack{name,version,ref}`、`managed`、`origin`、`isolation`、`restart`、`maxRestarts`、`createdAt`、`updatedAt`；`runtime.json` 只存运行态：`status`、`pid`、`spawnPid`、`listenPid`、`port`、`ports[]`、`url`（已摘凭据）、`startedAt`、`lastExit{code,signal,at,restarts}`、`lastError`。`InstanceRecord` 是两者之和；`records.ts` 的 `partitionRecord` / `mergeRecord` 负责拆分与合回，`parseConfig` / `parseRuntime` 分别解析两份。旧记录（运行态还在 `instance.json`、没有 `runtime.json`）读取时按 legacy 合并，下一次写盘自动迁移成两份；`runtime.json` 损坏按坏记录处理，不静默丢运行态。`planHash` 只记在 `baseline.json`：`update` 用它判断计划有没有变，没有 baseline 视为已变；旧记录里残留的 `planHash` 读取时忽略、不再写回。
+持久化分两份：`instance.json` 只存配置：`id`、`name`、`harness`、`harnessVersion`、`root`、`home`、`pack{name,version,ref}`、`managed`、`origin`、`isolation`、`restart`、`maxRestarts`、`createdAt`、`updatedAt`；`runtime.json` 只存运行态：`status`、`pid`、`spawnPid`、`listenPid`、`port`、`ports[]`、`url`（已摘凭据）、`startedAt`、`lastExit{code,signal,at,restarts}`、`lastError`。`InstanceRecord` 是两者之和；`records.ts` 的 `partitionRecord` / `mergeRecord` 负责拆分与合回，`parseConfig` / `parseRuntime` 分别解析两份。旧记录（运行态还在 `instance.json`、没有 `runtime.json`）读取时按 legacy 合并，下一次写盘自动迁移成两份；`runtime.json` 损坏按坏记录处理，不静默丢运行态。D1（持久化拆分）已完成。`planHash` 只记在 `baseline.json`：`update` 用它判断计划有没有变，没有 baseline 视为已变；旧记录里残留的 `planHash` 读取时忽略、不再写回。
 
 `pack{name,version}` 不另立事实：`create` / `update` 装完后、`adopt` 写记录前都走 `packIdentityFromState`，按 `.packhub/state.json` 里**恰好一个** Pack 的名字版本写回（旧 state 没写 version 时用清单值或 `0.0.0`）；0 个 / 多个 Pack、state 读不出来时退回清单值（`adopt` 是 `external`@`0.0.0`）。记录漂移会在下一次 `update` 被纠正，`pack.ref` 仍记原始引用。
 
@@ -113,7 +113,7 @@ Pack 里的 `type: mcp` 资源安装时写进实例的 `.packhub/config.json`（
 |---|---|---|
 | GET | `/api/meta` | 版本与界面目录 |
 | GET | `/api/harnesses` | 宿主发现：可用性、版本、能不能起（`?probe=0` 跳过版本探测） |
-| GET | `/api/instances` | `{instances, broken, active}`；纯视图，不写 `instance.json`、不隔离坏记录 |
+| GET | `/api/instances` | `{instances, broken, active}`；纯视图，不写记录文件、不隔离坏记录 |
 | POST | `/api/instances` | 建实例（`pack`/`name`/`harness`/`version`/`index`） |
 | GET | `/api/instances/:id` | 单份记录 |
 | POST | `/api/instances/:id/start` / `stop` / `restart` / `active` | 启停、重起、设为当前 |
@@ -152,7 +152,6 @@ Pack 里的 `type: mcp` 资源安装时写进实例的 `.packhub/config.json`（
 - 运行时只记录、展示，不切换：`baseline.json` 记下建/更新实例时的 node 版本，`pal doctor` 报当前运行时，`pal health` 的 `runtime` 检查在版本变过时只提醒；不支持切换（0.x 只承诺 Windows，见 E5）；跨盘迁移要手动搬。
 - 侧车传输固定 HTTP + token（E3 决定保留），stdio / 内部 RPC 未做。
 - 0.x 只承诺 Windows（E5）；POSIX 的进程组/信号/路径假设未审。
-- D1 已完成：`instance.json`（配置）+ `runtime.json`（运行态）分两份原子写，旧记录读取兼容、写回自动迁移；接管目录的 `remove` 与建实例失败清理仍只摘 `instance.json`，会留下 `runtime.json`（不影响读取，待补删）。
 - 计数与耗时这类性能数字只在本机测过，没有进 CI 基线。
 
 这些缺口与后续工作的编号、证据和顺序见 [PAL 审计待办](../PAL-审计待办.md)。

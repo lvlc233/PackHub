@@ -11,7 +11,7 @@ import { portOwner } from './port.ts';
 import { isPidAlive, killTree, waitForExit } from './process.ts';
 import { moveAside } from './quarantine.ts';
 import { removeLink } from './recordWrite.ts';
-import { recordFile, type InstanceRecord } from './records.ts';
+import { recordFile, runtimeFile, type InstanceRecord } from './records.ts';
 import { killTargetFor } from './start.ts';
 import { clearStopping, markStopping } from './stopMark.ts';
 import { appendEvent } from './logs.ts';
@@ -149,6 +149,8 @@ export async function removeInstance(
     // 只摘记录，目录原样保留。
     if (!record.managed) {
       rmSync(recordFile(record.root), { force: true });
+      // D1 拆文件后运行态在 runtime.json；接管目录只摘 PAL 的记录与基线，运行态也一起摘掉
+      rmSync(runtimeFile(record.root), { force: true });
       rmSync(join(record.root, BASELINE), { force: true });
       removeLink(record.id);
       dropActive(record.id);
