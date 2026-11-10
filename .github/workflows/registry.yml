@@ -34,6 +34,9 @@ jobs:
       - name: 内核测试
         run: pnpm check
 
+      - name: 文档体检（分类 · 保质期 · 链接 · 占位标记）
+        run: pnpm docs:audit
+
       - name: 计划与安装性能（200 资源）
         run: |
           pnpm bench:check

@@ -23,7 +23,7 @@ export interface ResolvedReference {
 }
 
 export interface ResolveOptions {
-  /** 不联网：只处理本地引用与已有 pin，其余保留原样并给 warning */
+  /** 不联网：只处理本地引用，其余保留原样并给 warning */
   offline?: boolean;
   /** 测试注入：npm 元数据 */
   npmMeta?: (name: string, version: string) => Promise<{ version: string; integrity?: string }>;

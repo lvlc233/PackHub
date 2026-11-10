@@ -32,6 +32,7 @@
     "verify:examples": "node --experimental-strip-types scripts/verify-examples.mjs",
     "verify:examples:offline": "node --experimental-strip-types scripts/verify-examples.mjs --skip-network",
     "check": "pnpm typecheck && pnpm test",
+    "docs:audit": "node scripts/docs-audit.mjs",
     "bench": "node --experimental-strip-types scripts/bench.ts",
     "bench:check": "node --experimental-strip-types scripts/bench.ts 200 --check",
     "bench:install": "node --experimental-strip-types scripts/bench.ts 200 --install",

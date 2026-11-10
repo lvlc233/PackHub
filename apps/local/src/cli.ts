@@ -284,7 +284,7 @@ const lock = defineCommand({
   args: {
     dir: { type: 'positional', required: false, default: '.' },
     target: { type: 'string', default: 'dir', description: `主 target（${TARGET_IDS.join(' | ')}）；其余声明过的 target 也会锁` },
-    offline: { type: 'boolean', default: false, description: '不联网：只锁本地与已 pin 的引用' },
+    offline: { type: 'boolean', default: false, description: '不联网：只解析本地引用，其余原样写进锁并给 warning' },
     json: { type: 'boolean', default: false, description: '输出锁与 planHash（脚本用）' },
   },
   async run({ args }) {
@@ -2058,7 +2058,7 @@ const discover = defineCommand({
 });
 
 const hub = defineCommand({
-  meta: { name: 'hub', description: '启动只读发布端（索引、包页、计划预览；没有执行接口）' },
+  meta: { name: 'hub', description: '启动只读发布端（索引、包数据、计划预览；没有执行接口）' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
     port: { type: 'string', default: '8788' },
