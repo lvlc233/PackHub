@@ -1,37 +1,46 @@
-# PackHub 契约（格式 v0）[待更新]
-
-下面这些带版本号的 JSON 是内核与所有外壳之间唯一的交换格式。它们的代际由版本总表统一管理。
-
+---
+kind: contract
+summary: v0 数据形状与格式层不变量
+verified: 2026-11-11
+decay: 365
+review: 格式升版、字段增删、apiVersion 变化时
 ---
 
-## 0. 版本总表：全都叫 v0
+# PackHub 契约（格式 v0）
 
-格式版本与产品版本是两件事。产品还在 0.0.x，格式先统一到一个代际：
+内核与所有外壳之间交换的带版本 JSON。这一份只回答两件事：**文件里长什么样、哪些不变量必须守住**。流程与判定在代码里：`packages/runtime/src/install.ts`、`verify.ts`，`packages/registry/src/publish.ts`、`build.ts`。
+
+## 0 版本总表
+
+格式版本与产品版本是两件事。产品在 0.0.x，格式先统一在一个代际：
 
 | 契约 | 版本号 | 位置 |
 |---|---|---|
 | manifest | `packhub.dev/v0` | `packhub.yaml` |
-| plan | `packhub.dev/plan/v0` | 运行时 |
+| plan | `packhub.dev/plan/v0` | 运行时（`--json` 输出） |
 | lock | `packhub.dev/lock/v0` | `packhub.lock.json` |
 | state | `packhub.dev/state/v0` | `.packhub/state.json` |
 | index | `packhub.dev/index/v0` | `registry/index.json` |
 | verify 报告 | `packhub.dev/verify/v0` | `verify.json` |
 | 资源目录 | `packhub.dev/resources/v0` | `registry/resources.json` |
+| 签名旁挂 | `packhub.dev/signatures/v0` | `packhub.signatures.json` |
 | 版本记录 | `packhub.dev/version/v0` | `.packhub/versions/<pack>/<ver>/record.json` |
 | 激活指针 | `packhub.dev/active/v0` | `.packhub/active.json` |
-| 市场库 | `packhub.dev/market/v0` | 市场根的 `.market/market.db`（SQLite；旧 `.market/db.json` 首次打开导入并改名） |
+| 市场库 | `packhub.dev/market/v0` | 市场根的 `.market/market.db`（SQLite） |
 
-**v0 期间没有兼容承诺**：字段可以增、可以改语义、可以删。读方遇到不认识的主版本（`v1`、`v2`）必须拒绝，不得猜测；遇到不认识的字段同样报错，不做静默忽略。（当前状态：manifest 由 schema 强制；`state` / `lock` 的读取还没有主版本校验，属于实现缺口。）
+上面这些是 **Pack 格式**。PAL 的本地记录另有自己的版本并且独立演进（`packhub.dev/instance/v1`、`packhub.dev/pal/v0`、`packhub.dev/pal/core/v1`、`packhub.dev/baseline/v0`、`packhub.dev/credentials/v0`、`packhub.dev/trust/v0`），它们只在启动器与本机之间流动，不随 Pack 分发，见 `packages/launcher/src/records.ts`。
 
-**升 v1 的判据**（三条都满足才升，届时提供 `packhub migrate`，内核同时读 v0/v1 一段时间）：
+**v0 期间没有兼容承诺**：字段可以增、可以改语义、可以删。读方遇到不认识的主版本（`v1`、`v2`）必须拒绝，不得猜测；遇到不认识的字段同样报错，不做静默忽略。
+
+当前强制程度不一样：manifest 由 `schema/packhub.v0.schema.json` 强制；`state` 与 `lock` 的读取还没有主版本校验——这是已知缺口，记在 [features](features.md) 的 X 域。
+
+**升 v1 的判据**（三条都满足才升，届时提供 `packhub migrate`，内核同时读 v0 / v1 一段时间）：
 
 1. 资源类型集合固定，不再增删；
 2. `slots` / `bindings` 的语义固定；
 3. `lock` 里每个引用都有 integrity，不再出现 `null`。
 
----
-
-## 1. Plan（`packhub.dev/plan/v0`）
+## 1 Plan（`packhub.dev/plan/v0`）
 
 内核算出的动作清单。**唯一的副作用描述**，`install` 只是执行它。
 
@@ -51,20 +60,23 @@
 
 不变量：
 
-1. `planHash` = 规范化 JSON（键排序、去 undefined）的 sha256；**同输入必须同哈希**，跨机器、跨时间。
-2. 动作 id 稳定：`<op>#<n>`，n 按生成顺序；同一 manifest 两次生成必须一致。
+1. `planHash` = 规范化 JSON（键排序、去 undefined）的 sha256；同输入必须同哈希，跨机器、跨时间。
+2. 动作 id 稳定：`<op>#<n>`，`n` 按生成顺序；同一 manifest 两次生成必须一致。
 3. `actions[].dependsOn` 指向的 id 必须存在于同一 plan。
 4. 动作目标路径相对安装根（state 所在目录）；来源路径相对 Pack 目录；执行层必须拒绝 `..` 逃逸。
 
-动作原语（已实装）：`fetch` · `unpack` · `write` · `link.skill` · `link.bin` · `register.mcp` · `merge.config` · `exec` · `instruction` · `state.dir`。`link.bin` 从解包目录读 `package.json` 的 `bin`，在目标 binDir 生成 wrapper，不执行包里的代码；`register.mcp` 在 `.toml` 目标上写带标记的 `[mcp_servers.<id>]` 托管块，卸载只摘自己那段。`state.dir` 只建目录；清单里的 `state` 块决定路径与 `retain`（`keep` / `remove`），目录不参与 `written`、不随快照回滚删除。
+动作原语：`fetch` · `unpack` · `write` · `link.skill` · `link.bin` · `register.mcp` · `merge.config` · `exec` · `instruction` · `state.dir`。
 
-`exec` 带 `command/args/cwd/env/timeout` 与 `approval: required`：计划里永远标待批准，执行层必须显式 `--allow-exec` 才跑；退出码非零算失败，失败会触发整次安装回滚。`run` / `publish` 默认不批准 exec，此时动作为 `needs-approval`，报告不会通过。注意：回滚只恢复文件，命令在仓库外的副作用无法自动撤销（清单里的 `undo` 目前只作记录，不自动执行）。
+- `link.bin` 从解包目录读 `package.json` 的 `bin`，在目标 binDir 生成 wrapper，不执行包里的代码。
+- `register.mcp` 在 `.toml` 目标上写带标记的 `[mcp_servers.<id>]` 托管块，卸载只摘自己那段。
+- `state.dir` 只建目录；清单里的 `state` 块决定路径与 `retain`，目录不参与 `written`、不随快照回滚删除。
+- `exec` 带 `command/args/cwd/env/timeout` 与 `approval: required`：计划里永远标待批准，执行层必须显式 `--allow-exec` 才跑。退出码非零算失败，触发整次安装回滚。`undo` 目前只作记录，不自动执行。
 
-`excluded` 记录没进计划的候选，`reason` 有四种：`unbound-slot`（槽位没绑定）、`target-mismatch`（资源级 target 不匹配）、`optional-unmet`（可选资源缺依赖，级联跳过）、`host-managed`（同步时由宿主管理、不进安装计划）。它们不进动作列表，但必须在计划里可见，否则「为什么没装」无从查起。能力名统一写成 `命名空间:名字`（`audio:speak`、`memory:read`、`tool:repo_search`），槽位契约与 `provides`/`needs` 共用这套写法。
+`excluded` 记录没进计划的候选，`reason` 四种：`unbound-slot`（槽位没绑定）、`target-mismatch`（资源级 target 不匹配）、`optional-unmet`（可选资源缺依赖，级联跳过）、`host-managed`（同步时由宿主管理、不进安装计划）。它们不进动作列表，但必须在计划里可见，否则「为什么没装」无从查起。
 
----
+能力名统一写成 `命名空间:名字`（`audio:speak`、`tool:repo_search`），槽位契约与 `provides` / `needs` 共用这套写法。
 
-## 2. Lock（`packhub.dev/lock/v0`）
+## 2 Lock（`packhub.dev/lock/v0`）
 
 把一个 Pack 的引用钉死，供复现与审查。
 
@@ -77,14 +89,8 @@
   ],
   "planHash": "sha256-…",
   "generatedBy": "packhub/0.0.1",
-  "plan": {                      // 主计划快照（--target 指定的那个，默认 dir）
-    "target": "dir",
-    "planHash": "sha256-…",
-    "actions": [],
-    "verify": [],
-    "excluded": []
-  },
-  "plans": {                     // 每个已声明 target 一份；旧锁可能没有
+  "plan": { "target": "dir", "planHash": "sha256-…", "actions": [], "verify": [], "excluded": [] },
+  "plans": {
     "dir": { "target": "dir", "planHash": "sha256-…", "actions": [], "verify": [], "excluded": [] },
     "dsh": { "target": "dsh", "planHash": "sha256-…", "actions": [], "verify": [], "excluded": [] }
   }
@@ -94,19 +100,18 @@
 不变量：
 
 1. `planHash` 必须与当前 manifest 生成的 plan 一致；不一致 = 锁过期，`registry:check` 拒绝。
-2. `resolved[].source` 是**解析后**的引用：github 分支/tag 换成 40 位 commit，npm 范围/tag 换成具体版本，pypi 换成具体版本。
+2. `resolved[].source` 是**解析后**的引用：github 分支 / tag 换成 40 位 commit，npm 范围 / tag 换成具体版本，pypi 换成具体版本。
 3. `integrity` 来自清单、npm 的 `dist.integrity`、https 下载后的 sha256 或 PyPI 的 sha256；解析不出来就是 `null`，读方不得把 `null` 当「已验证」。
-4. `plan` 是主计划快照，`plans` 是每个已声明 target 的快照；快照不参与 `planHash` 计算。`lock` 会为 `metadata.targets` 里的每个 target 各算一份，`plan` 取 `--target`（默认 `dir`，未声明时取第一个）。没有快照就无法做差异对比（`packhub diff` 会提示重跑 `lock`）。
+4. `plan` 是主计划快照，`plans` 是每个已声明 target 的快照；快照不参与 `planHash` 计算。`lock` 为 `metadata.targets` 里的每个 target 各算一份，`plan` 取 `--target`（默认 `dir`，未声明时取第一个）。没有快照就无法做差异对比（`packhub diff` 会提示重跑 `lock`）。
 5. 安装时按 `resolved[]` 替换清单里的引用（`withLockPins`），保证「锁里写什么就装什么」；`add` 先按本次 target 找 `plans[target]` 重算并比对，只有旧锁（没有 `plans`）才退化为只核对主计划并给 warning。
 
----
+## 3 State（`.packhub/state.json`）
 
-## 3. State（`.packhub/state.json`）
-
-安装结果，落在被安装的目录里，是卸载与「装了什么」的唯一真相。
+安装结果，落在被安装的目录里，是「装了什么」的唯一真相。
 
 ```jsonc
 {
+  "apiVersion": "packhub.dev/state/v0",
   "generations": [
     {
       "id": "20261103-210954",
@@ -132,26 +137,15 @@
 
 不变量：
 
-1. **只有每一步都是 `done` / `noop` 才算装好**；有任何 `skipped` / `failed`，这个包是半装的，`/api/packs` 不得标已装。
+1. 每个包一条记录，键是 `name@version`；升级时旧版本记录并入新 key，不留旧 key。
 2. `written` 是这个包**拥有**的文件集合（跨多次安装取并集），卸载据此删除。
-3. `planHash` 与当前 plan 不一致时，状态显示「计划已变化」，提示 `update`。
-4. **并发**：同一目录同时只允许一个安装，靠 `.packhub/installing.lock`（`O_EXCL` 原子创建，内容为 pid）。锁里的 pid 已经不存在时安装会自动收回并重试；活着的 pid 仍然拒绝，报错给出持有者。
-5. **卸载**按 `written` 逆序（先深后浅）删除；`.packhub/config.json` 是多包共享的，还有别的包时保留，只有最后一个包被移除时才删。删完 state 里没有包了就删掉 state 文件。
-6. `plan` 是该次安装的计划快照，`update` 靠它算差异；不参与任何哈希。
-7. **项目级所有权**：同一个路径不允许被两个包各写一份（配置文件与根目录的 `.md` 指令文件例外——它们是合并/托管块）。冲突时安装直接拒绝并列出占用者；确认要覆盖用 `--overwrite`。同一个包的不同版本不算冲突（升级覆盖自己）。
+3. `plan` 是该次安装的计划快照，`update` 与 `verify` 靠它工作；不参与任何哈希。
+4. `stateDirs` 记录清单 `state` 块声明的目录；这些目录不进 `written`、不进版本镜像、不被快照回滚删除。
+5. `generations` 每次安装追加一条，更早的会被裁掉（保留策略在 `install.ts`）；`existed` / `created` 是回退的依据。
 
-8. **generation 与回退**：每次安装前把会被改写的文件快照到 `.packhub/snapshots/<gen>/`（含当时的 `state.json`），并记 `existed` / `created`。`packhub rollback` 把 `existed` 放回去、删掉 `created`、state 回到当时。只保留最近 5 个 generation，更早的快照会被清掉（回退会报「快照已不在」）。generation id 带毫秒与随机后缀，同一秒的两次安装不会撞车。
-9. **失败原子化**：任一动作失败 → 按本次快照恢复被改写的文件、删除本次新建的文件、不写 state、不留 generation；CLI 明确提示「已回滚」。
-10. **安装根就是 state 所在目录**：`plan.verify` 里的相对路径一律相对这个目录；`packhub verify <项目>` 直接读 state 里的 `plan` 复核，不要求项目里有 `packhub.yaml`。
-11. **升级不留旧 key**：同一包名的新版本安装时，旧版本记录并入 `written` 后删除；`update` 再把「旧计划有、新计划没有」的产物从磁盘清掉。
-12. **版本目录**：每次安装把产物镜像进 `.packhub/versions/<pack-slug>/<ver>/files/`，并写 `record.json`（内联 merge 片段的计划、动作结果、owned 路径）；`.packhub/active.json` 记当前版本。`activate` 按 record 拆旧版本、铺新版本、重放配置/指令，整次切换在安装锁里且失败按快照回滚。
-13. **持久状态目录**：清单 `state` 块声明，安装时建目录并记进 `stateDirs`；目录不进 `written`、不进版本镜像、不被快照回滚删除。升级保留数据；卸载默认保留（结果里记 `kept`），只有 `retain: remove` 才删。`doctor` 缺目录时报 `stateMissing`。
+装好与否的判定、并发、回退、所有权与卸载顺序是行为，写在 `packages/runtime/src/install.ts`（`applyPlan` / `acquireLock` / `removePack` / `rollbackPack`）。
 
-**合并配置是可逆的**：`merge.config` 执行时记下每个叶子键在合并前是否存在、值是什么（`action.undo`）；卸载时按它撤销——原来的值放回去、新增的键删掉、空了就删文件（不留空壳）。备份仍在 `.packhub/backups/`，但正常路径不再需要人工取回。
-
----
-
-## 4. Index（`packhub.dev/index/v0`）
+## 4 Index（`packhub.dev/index/v0`）
 
 registry 的索引，`search` / `add` / `update` 只读它。
 
@@ -177,7 +171,7 @@ registry 的索引，`search` / `add` / `update` 只读它。
 }
 ```
 
-`trust` 判定（只有两档）：
+`trust` 只有两档：
 
 - `verified`：这个包的**每个**版本都有 `verify.json`、`ok: true` 且 `planHash` 与锁一致（整包都 verified 才标 verified）。
 - `community`：其余；有报告但对不上会给 warning，按 community 处理。
@@ -185,10 +179,10 @@ registry 的索引，`search` / `add` / `update` 只读它。
 不变量：
 
 1. 一个 `<name>@<version>` 一经发布，目录内容只增不改；要改就发新版本。
-2. `install` 字段由生成器统一拼，不允许作者自定义。它假设使用者已经配好默认 registry（`PACKHUB_INDEX` 或 `~/.packhub/config.json`），否则需要自己加 `--index`。
-3. `index.json` 由 `scripts/registry/build-index.mjs` 生成，不手写。
+2. `install` 字段由生成器统一拼，不允许作者自定义。它假设使用者已配好默认 registry（`PACKHUB_INDEX` 或本机配置），否则需要自己加 `--index`。
+3. `index.json` 是生成物：由 `pnpm registry:index` 重建，手改的改动会在下次重建时消失。
 
----
+索引门禁怎么算、`verified` 凭什么给，见 `packages/registry/src/build.ts`。
 
 ## 4.5 Verify 报告（`packhub.dev/verify/v0`）
 
@@ -206,63 +200,10 @@ registry 的索引，`search` / `add` / `update` 只读它。
 ```
 
 - `ok`：每一步都是 `done` / `noop`，且每项检查都是 `pass`。`skipped`、`needs-approval`、`failed` 都算未完成；发布门禁只接受 `ok: true`。
-- 检查实现：`file-exists`、`config-key`、`command`、`mcp-ready`（stdio 与 http 都做 initialize 握手；http 认 JSON 与 SSE）、`knowledge-integrity`（在 `.packhub/` 产物里按 sha256 找文件）、`scenario`（跑最小任务或问 harness 一次）。
 - 报告与 `planHash` 绑定；计划变了旧报告不作数（索引会降为 `community`）。
+- 检查类型与判定细节见 `packages/runtime/src/verify.ts` 与 `packages/runner/src/run.ts`。
 
-## 5. registry 目录约定
-
-```
-registry/packs/<scope>/<name>/
-├── 0.0.1/
-│   ├── packhub.yaml
-│   ├── packhub.lock.json
-│   ├── packhub.signatures.json  # 可选
-│   ├── verify.json              # 可选；有且 ok 才是 verified
-│   ├── PACK.md / CHANGELOG.md   # 可选
-│   └── <vendored 条目>          # resources/ fragments/ overrides/ skills/ glue/ external/ ……
-└── 0.0.2/ …
-```
-
-规则：
-
-1. **版本目录不可变**。CI 检查：已存在的版本目录，其 `packhub.yaml` 与 `verify.json` 的哈希不得变化（只在 git 仓库里生效，非 git 目录会跳过）。`publish --force` 是唯一的显式例外。
-2. 本地制品必须 vendored 进版本目录，否则别人装不了。
-3. `verify.json` 由 `pnpm registry:verify <dir>` 在干净环境生成；作者本地或 CI 都可。
-
----
-
-## 6. 市场写端 API（`@packhub/market`）
-
-Hub 保持只读；写操作在独立服务里，包格式不变。
-
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| `POST` | `/api/accounts` | `{name}` → 账号与一次性 token（token 只返回这一次） |
-| `GET` | `/api/me` | `Authorization: Bearer <token>` → `{id,name,scope}` |
-| `GET` | `/api/search?q=` | 索引里的包 + 下载量、7 日趋势、均分/评论 |
-| `GET` | `/api/packs?name=&version=` | 清单原文、锁、报告、审核状态、下载量、趋势、评分、PACK.md / CHANGELOG |
-| `GET` | `/download?name=&version=` | `.phub` 归档；下架后 410 |
-| `POST` | `/api/publish` | 请求体是 `.phub`；服务端解包、跑干净安装与只读校验，账号只能发自己 scope；审核模式返回 202 pending |
-| `POST` | `/api/ratings` | `{name,version,score,comment?}` → 一账号一票，返回均分与评论 |
-| `GET` | `/api/admin/queue` | `x-market-admin` → 待审列表 |
-| `GET` | `/api/admin/stats` | `x-market-admin` → 账号/包/版本/待审计数、下载排行、最近审核 |
-| `GET` | `/admin` | 市场自带管理页（审核队列、统计、token 轮换），页面公开、数据接口要 token |
-| `POST` | `/api/admin/review` | `{name,version,action,note?}` → 批准（staging 移入 registry）或拒绝 |
-| `POST` | `/api/yank` | `{name,version,reason}` → 版本与归档移入 `.market/quarantine/`，索引重建 |
-
-约束：市场拒绝 `install.exec` 与会在服务端执行命令的检查（`command` / `scenario` / `mcp-ready`）；上传校验接受 `public` / `unlisted`，但发布门禁只放行 `public`——`unlisted` 目前发不进市场；账号即 scope（`scope/name`）；已发布版本字节不可变，下架不改归档内容。`--require-review` 时上传进 `.market/staging/`，管理员批准后才进索引与下载路径。
-
----
-
-## 7. 兼容策略
-
-- `plan` / `lock` / `state` / `index` 各自独立升版本；读方遇到不认识的 `apiVersion` 主版本必须拒绝，不得猜测。
-- 新增可选字段不算破坏性变更；删除字段、改变语义、收紧校验算。
-- v0.0.2 起，registry 里的包**必须**有 lock 与（若要 verified）verify 报告。
-
----
-
-## 8. 签名旁挂文件（`packhub.signatures.json`）
+## 5 签名旁挂（`packhub.dev/signatures/v0`）
 
 ```jsonc
 {
@@ -271,20 +212,32 @@ Hub 保持只读；写操作在独立服务里，包格式不变。
 }
 ```
 
-- 签的是 `{pack@version, planHash}`：清单里任何影响安装的改动都会让签名失效；改注释不影响。
-- 放独立文件而不是写进 `packhub.yaml`：版本目录的清单哈希不能因为"补一个签名"而变化。
+- 签的是 `{pack@version, planHash}`：清单里任何影响安装的改动都会让签名失效，改注释不影响。
+- 放独立文件而不是写进 `packhub.yaml`：版本目录的清单哈希不能因为「补一个签名」而变化。
 - `.phub` 归档会带上这个文件；`verify.json` 里记录每个签名的校验结果。
+- **verified 不证明是谁发的**，签名才回答来源。
 
-## 9. 归档与 registry 布局
+## 6 归档（`.phub`）
 
-`.phub` = tar.gz，解包后就是 Pack 根目录（`packhub.yaml` + 可选制品）。
+`.phub` 是 tar.gz，解包后就是 Pack 根目录。
 
-```
-<registry>/
-├── index.json                              # 生成物，不手写
-└── packs/<scope>/<name>/<version>.phub     # 归档路径是约定，不写进索引
-```
+- `vendored`（默认，自包含）：清单 + 锁 + 有签名时的签名文件 + 全部顶层条目，跳过 `.packhub`、`node_modules`、`.git`、`dist`、旧归档。
+- `reference`：只有清单 + 锁（+ 签名文件），安装时联网取制品。清单里有 `./` 来源时直接拒绝——那些字节不在归档里，装到 `write` 那步必然失败。
+- 解包 `filter` 拒绝 `..`、绝对路径（含 Windows 盘符）、符号链接与硬链接条目。
 
-- 打包（封装）只做 Pack 目录 → `.phub`：输入是清单、锁与随包内容，不生成安装计划，也不改资源或接线。默认 `vendored`（自包含，离线可装）；`reference` 需显式指定，只打 `packhub.yaml` + `packhub.lock.json`（有签名时再加 `packhub.signatures.json`），安装时联网取制品。
-- `vendored` 模式把全部顶层条目一起打进去（跳过 `.packhub`、`node_modules`、`.git`、`dist`、旧归档）。清单里有 `./` 来源时，`reference` 直接拒绝：那些字节不在归档里，装到 `write` 那步必然失败。
-- `packhub add <name> --index <路径|URL>`：读索引 → 取 `<base>/packs/<name>/<latest>.phub` → 解包到 `.packhub/packs/<name>/` → 生成计划 → 装进项目。索引与归档的相对位置固定，避免两处真相。
+## 7 兼容策略
+
+- `plan` / `lock` / `state` / `index` 各自独立升版本；读方遇到不认识的 `apiVersion` 主版本必须拒绝，不得猜测。
+- 新增可选字段不算破坏性变更；删除字段、改变语义、收紧校验算。
+- v0.0.2 起，registry 里的包**必须**有 lock；要 `verified` 还必须有对得上的 verify 报告。
+
+## 8 不在这份文档里
+
+| 内容 | 在哪 |
+|---|---|
+| registry 目录树、发布步骤、索引门禁 | `packages/registry/src/` |
+| 市场写端端点（已冻结） | `packages/market/src/server.ts` |
+| Hub 只读端点 | `packages/hub/src/server.ts` |
+| 安装顺序、快照、回滚、升级、卸载、所有权 | `packages/runtime/src/install.ts` |
+| 检查类型、runner、探针 | `packages/runtime/src/verify.ts`、`harness-probe.ts`、`packages/runner/src/run.ts` |
+| 实例记录、实例根、启停与看护 | `packages/launcher/src/` |
