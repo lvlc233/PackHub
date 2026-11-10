@@ -49,7 +49,7 @@ PAL 把 Pack 装进一个独立实例根，并按宿主起停进程。代码在 
 
 `origin.kind` 说明记录从哪来：`pack`（按引用可从 Pack 重建）、`adopted`（接管的目录）、`copy`（复制自另一份实例，`from` 记源 id）。只有 `pack` 且带 `ref` 的实例导出的模板可复现，`adopted` / `copy` 导出时标 `reproducible: false`，`pal import` 会拒绝。
 
-`managed: false` 表示这是 `pal adopt` 接管的目录：删除时先停掉在跑的进程，然后只摘记录 —— 不调 `removePack`、不搬目录（`--keep-data` 也不搬），只删 `instance.json` 与 `baseline.json`、摘 `.links` 指针、清 active；CLI 的确认与结果文案按 `managed` 分支。
+`managed: false` 表示这是 `pal adopt` 接管的目录：删除时先停掉在跑的进程，然后只摘记录 —— 不调 `removePack`、不搬目录（`--keep-data` 也不搬），只删 `instance.json`、`runtime.json` 与 `baseline.json`、摘 `.links` 指针、清 active；CLI 的确认与结果文案按 `managed` 分支。
 
 ## 危险动作怎么保护
 
