@@ -21,19 +21,8 @@ import {
   isPortListening,
   portOwner,
 } from './port.ts';
-import { clearSecrets, readSecrets, splitUrl, withSecrets, writeSecrets } from './secrets.ts';
-import { isPidAlive, killTree, requestQuit, waitForExit } from './process.ts';
-import {
-  desktopAppOf,
-  entriesOf,
-  entryOf,
-  entryStates,
-  requireEntry,
-  terminalPlan,
-  type EntryKind,
-  type EntrySpec,
-  type EntrySurface,
-} from './entries.ts';
+import { clearSecrets, splitUrl, writeSecrets } from './secrets.ts';
+import { isPidAlive, killTree, waitForExit } from './process.ts';
 import { writeDshMcpPatch } from './mcp.ts';
 import { clearStopping, isStopping, markStopping } from './stopMark.ts';
 
@@ -230,17 +219,11 @@ export function hostEnv(
 
 export interface StartOptions {
   timeoutMs?: number;
-  /** 指定端口；不写就用上次的端口（还空着）或让系统挑。只有 web 入口吃端口 */
+  /** 指定端口；不写就用上次的端口（还空着）或让系统挑 */
   port?: number;
-  /** 用哪个入口起；不写就用记录里上次的，再没有就用宿主声明的第一个 */
-  entry?: EntryKind;
-  /** headless 入口要跑的那条任务 */
-  task?: string;
   spawn?: SpawnFn;
   isAlive?: (pid: number) => boolean;
   kill?: (pid: number) => void;
-  /** 优雅退出用：默认 taskkill 不带 /F（POSIX 发 SIGTERM） */
-  requestQuit?: (pid: number) => void;
   /** 起完后挂守护：进程崩了就按退避重起（只有长生命周期进程该用） */
   supervise?: boolean;
   /** 查监听进程 pid 的方式；测试里可以给假实现 */
@@ -257,12 +240,8 @@ export interface StartOptions {
 export interface StartResult {
   record: InstanceRecord;
   logFile: string;
-  /** 启动输出里等到的原始地址（含凭据），只给调用方看，不落记录；非 web 入口是空串 */
+  /** 启动输出里等到的原始地址（含凭据），只给调用方看，不落记录 */
   url: string;
-  /** 这次用的入口 */
-  entry: EntryKind;
-  /** 打开成什么面：调用方据此决定要不要开浏览器/终端 */
-  surface: EntrySurface;
 }
 
 const STOP_TIMEOUT_MS = 10_000;
@@ -284,117 +263,23 @@ export async function startInstance(
   return result.record;
 }
 
-/** 起一个入口要落的一次 spawn：命令、参数、窗口可不可见。 */
-interface LaunchPlan {
-  file: string;
-  args: string[];
-  verbatim: boolean;
-  /** 终端窗口必须看得见；GUI 与常驻服务都藏起来 */
-  visible: boolean;
-  /** 终端入口记进运行态的终端名（wt / cmd / linux） */
-  terminal?: string;
-}
-
-function launchPlanFor(spec: EntrySpec, ctx: ReturnType<typeof startContextOf>, commandPath: string, title: string): LaunchPlan {
-  const args = spec.args ? spec.args(ctx) : [];
-  if (spec.launch === 'terminal') {
-    const term = terminalPlan(commandPath, args, title);
-    return { file: term.file, args: term.args, verbatim: false, visible: term.visible, terminal: term.kind };
-  }
-  const plan = spawnPlanFor(commandPath, args);
-  return { ...plan, visible: false };
-}
-
-/** 启动参数共享的上下文：端口只在 web 入口上有意义，别的入口给 0。 */
-function startContextOf(rec: InstanceRecord, port: number, patchFile: string | undefined, task: string | undefined) {
-  return {
-    port,
-    root: rec.root,
-    ...(rec.home ? { home: rec.home } : {}),
-    ...(patchFile ? { patchFile } : {}),
-    ...(task ? { task } : {}),
-  };
-}
-
-/** 就绪判据里的等待都走这一个超时口径，错误里能说出等的是哪一样。 */
-interface ReadyResult {
-  ok: boolean;
-  url?: string;
-  port?: number;
-  exited?: ExitInfo;
-}
-
-async function waitForPort(
-  port: number,
-  timeoutMs: number,
-  pollMs: number,
-  exited: ExitTracker,
-): Promise<ReadyResult> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const dead = exited.peek();
-    if (dead) return { ok: false, exited: dead };
-    if (await isPortListening(port)) return { ok: true, port };
-    if (Date.now() >= deadline) return { ok: false };
-    await new Promise((resolve) => setTimeout(resolve, pollMs));
-  }
-}
-
-function waitForSettle(exited: ExitTracker, settleMs: number): Promise<ReadyResult> {
-  return exited.wait(settleMs).then((dead) => (dead ? { ok: false, exited: dead } : { ok: true }));
-}
-
-/**
- * 起一个实例：按宿主的入口拉起进程，cwd=实例根，home 用实例自己的那一段。
- * 入口决定怎么算就绪（web 等地址、app 等进程稳住、tui 等终端起来、headless 等退出码）；
- * 启动输出直接写实例的 logs/start.log（轮转 + 打码），等不到就收掉进程并贴日志尾部。
- */
 export async function startInstanceDetailed(
   idOrName: string,
   opts: StartOptions = {},
 ): Promise<StartResult> {
   const rec = requireInstance(idOrName);
-  if (entriesOf(rec.harness).length === 0) {
-    const adapter = ADAPTERS[rec.harness];
-    throw new PalError('not-startable', `${adapter.label} 没有可启动的入口`, {
+  const adapter = ADAPTERS[rec.harness];
+  if (!adapter.start) {
+    throw new PalError('not-startable', `${adapter.label} 没有可启动的常驻服务`, {
       hint: adapter.noStartReason ?? '这个宿主只支持装配 home，PAL 不托管它的进程',
       details: { harness: rec.harness },
     });
   }
-  const spec = requireEntry(rec.harness, opts.entry, rec.entry);
-  const commandPathFor = discoverHarness(rec.harness).commandPath;
-
-  // 入口能不能起：命令在不在、有没有已知限制（dsh 的 tui profile、桌面应用路径）
-  const state = entryStates(rec.harness, {
-    ...(commandPathFor ? { commandPath: commandPathFor } : {}),
-    ...(rec.home ? { home: rec.home } : {}),
-    root: rec.root,
-  }).find((entry) => entry.kind === spec.kind);
-  if (!state || !state.startable) {
-    throw new PalError('not-startable', `${ADAPTERS[rec.harness].label} 的「${spec.label}」入口现在起不来`, {
-      hint: state?.reason ?? '换一个入口，或先把它装上',
-      details: { harness: rec.harness, entry: spec.kind },
-    });
-  }
-  // 入口不接受实例 home 时只能跑全局环境：那就不算实例入口，不替用户把隔离悄悄绕过去
-  if (!spec.binds.home && rec.home) {
-    throw new PalError('not-startable', `「${spec.label}」入口不接受自定义 home，只能跑全局环境`, {
-      hint: '这个入口不能算实例入口；用能绑 home 的入口，或先把它改成全局使用',
-      details: { harness: rec.harness, entry: spec.kind, home: rec.home },
-    });
-  }
-  if (spec.needsTask && !opts.task?.trim()) {
-    throw new PalError('invalid-input', `「${spec.label}」入口要一条任务才能起`, {
-      hint: '加 --task "..."（界面里填任务）',
-      details: { harness: rec.harness, entry: spec.kind },
-    });
-  }
-
   const alive = aliveOf(opts);
   if (rec.pid && alive(rec.pid)) {
     throw new PalError('already-running', `实例已在运行：pid ${rec.pid}`, {
       hint: rec.url ? `已经在这个地址上：${rec.url}` : '要重起就先 pal stop',
-      details: { pid: rec.pid, port: rec.port, entry: rec.entry },
+      details: { pid: rec.pid, port: rec.port },
     });
   }
 
@@ -407,58 +292,41 @@ export async function startInstanceDetailed(
     delete healed.listenPid;
     delete healed.port;
     delete healed.url;
-    delete healed.endpoint;
     writeInstance(healed);
   }
 
   const info = requireHarnessBinary(rec.harness);
-  const hostPath = info.commandPath ?? whichSync(ADAPTERS[rec.harness].executable ?? rec.harness);
-  if (!hostPath) {
-    throw new PalError('harness-missing', `找不到 ${ADAPTERS[rec.harness].executable ?? rec.harness} 命令`, {
+  const commandPath = info.commandPath ?? whichSync(adapter.executable ?? rec.harness);
+  if (!commandPath) {
+    throw new PalError('harness-missing', `找不到 ${adapter.executable ?? rec.harness} 命令`, {
       hint: `装它，或用 PAL_${rec.harness.toUpperCase().replace(/-/g, '_')}_BIN 指定路径`,
     });
   }
-  // 桌面应用不是宿主命令：单独的可执行文件，找不到就是入口不可用
-  const commandPath = spec.launch === 'desktop' ? desktopAppOf(hostPath) : hostPath;
-  if (!commandPath) {
-    throw new PalError('harness-missing', `找不到 ${ADAPTERS[rec.harness].label} 的桌面应用`, {
-      hint: '用 PAL_DSH_APP 指定可执行文件路径',
-      details: { harness: rec.harness, entry: spec.kind },
-    });
-  }
 
-  // 端口只有 web 入口要：别的入口自己带服务，或者根本不需要地址
-  let port = opts.port ?? rec.port ?? 0;
-  if (spec.binds.port) {
-    if (opts.port !== undefined) {
-      const free = await isPortFree(opts.port);
-      if (!free) {
-        const owner = portOwner(opts.port);
-        throw new PalError('port-in-use', describePortConflict(opts.port, owner), {
-          hint: '换一个端口，或先结束占用者',
-          details: { port: opts.port, owner },
-        });
-      }
-      port = opts.port;
-    } else if (rec.port && (await isPortFree(rec.port))) {
-      port = rec.port;
-    } else {
-      port = await findFreePort();
+  // 端口：显式指定时被占要报占用者；否则沿用上次端口，再不行让系统挑
+  let port: number;
+  if (opts.port !== undefined) {
+    const free = await isPortFree(opts.port);
+    if (!free) {
+      const owner = portOwner(opts.port);
+      throw new PalError('port-in-use', describePortConflict(opts.port, owner), {
+        hint: '换一个端口，或先结束占用者',
+        details: { port: opts.port, owner },
+      });
     }
-  } else if (opts.port !== undefined) {
-    throw new PalError('invalid-input', `「${spec.label}」入口没有端口可以指定`, {
-      hint: '只有 web 入口吃 --port',
-      details: { entry: spec.kind },
-    });
+    port = opts.port;
+  } else if (rec.port && (await isPortFree(rec.port))) {
+    port = rec.port;
+  } else {
+    port = await findFreePort();
   }
 
   if (rec.home) mkdirSync(rec.home, { recursive: true });
   mkdirSync(join(rec.root, 'logs'), { recursive: true });
 
-  // dsh 的 MCP 接线：Pack 里的 mcp 资源写成 --patch 层，随启动生效。
-  // 桌面应用没有命令行参数可带，跳过。
+  // dsh 的 MCP 接线：Pack 里的 mcp 资源写成 --patch 层，随启动生效
   let patchFile: string | undefined;
-  if (rec.harness === 'dsh' && rec.home && spec.launch !== 'desktop') {
+  if (rec.harness === 'dsh' && rec.home) {
     try {
       const patch = writeDshMcpPatch(rec.root, rec.home);
       if (patch.servers > 0) patchFile = patch.file;
@@ -467,84 +335,56 @@ export async function startInstanceDetailed(
     }
   }
 
-  const ctx = startContextOf(rec, port, patchFile, opts.task);
-  const launch = launchPlanFor(spec, ctx, commandPath, `PAL · ${rec.name}`);
+  const args = adapter.start.args({
+    port,
+    root: rec.root,
+    ...(rec.home ? { home: rec.home } : {}),
+    ...(patchFile ? { patchFile } : {}),
+  });
   // 只给宿主它跑起来需要的：整份 process.env 会把 PAL 的 key/代理/PACKHUB_* 带进去，
   // 实例的隔离就靠实例自己的 home（homeEnv）与凭据播种，环境穿透等于绕开它
-  const env = hostEnv(process.env, ADAPTERS[rec.harness], rec.home, opts.env);
+  const env = hostEnv(process.env, adapter, rec.home, opts.env);
 
   const log = openLog(rec.root);
+  const plan = spawnPlanFor(commandPath, args);
   const spawnFn = opts.spawn ?? (nodeSpawn as unknown as SpawnFn);
-  appendEvent(rec.root, {
-    event: 'start',
-    harness: rec.harness,
-    entry: spec.kind,
-    port: spec.binds.port ? port : undefined,
-    command: commandPath,
-    args: launch.args,
-  });
+  appendEvent(rec.root, { event: 'start', harness: rec.harness, port, command: commandPath, args });
 
   let child: ReturnType<SpawnFn>;
   try {
-    child = spawnFn(launch.file, launch.args, {
+    child = spawnFn(plan.file, plan.args, {
       cwd: rec.root,
       env,
       stdio: ['ignore', log.fd, log.fd],
       detached: true,
-      windowsHide: !launch.visible,
-      ...(launch.verbatim ? { windowsVerbatimArguments: true } : {}),
+      windowsHide: true,
+      ...(plan.verbatim ? { windowsVerbatimArguments: true } : {}),
     });
   } catch (err) {
     closeLog(log.fd);
-    throw new PalError('start-failed', `起不了 ${launch.file}：${(err as Error).message}`, {
+    throw new PalError('start-failed', `起不了 ${commandPath}：${(err as Error).message}`, {
       hint: `检查这个路径是否可执行；日志：${log.file}`,
       cause: err,
     });
   }
 
   // 运行态里的进程证据：spawnPid 是唯一可杀目标，listenPid 只作证据（B12）。
-  // Windows 上 spawn 的可能是 cmd 垫片或终端，真正监听/画界面的是它的子进程。
+  // Windows 上 spawn 的是 cmd 垫片，真正监听的是它的子进程，所以两者本来就常常不同。
   const spawnPid = child.pid;
   const exited = trackExit(child);
   // 起完就该放手：CLI 不因为宿主还活着而挂着；看护交给 pal serve
   child.unref?.();
 
-  const timeoutMs = opts.timeoutMs ?? readyTimeoutOf(spec);
-  const pollMs = opts.pollMs ?? 100;
-  let ready: ReadyResult;
-  if (spec.ready.kind === 'url') {
-    ready = await waitForReady(log.file, rec.harness, timeoutMs, exited, pollMs);
-  } else if (spec.ready.kind === 'port') {
-    const target = spec.ready.port(ctx) ?? port;
-    ready = target > 0 ? await waitForPort(target, timeoutMs, pollMs, exited) : { ok: false };
-    if (ready.ok && target > 0) ready.port = target;
-  } else if (spec.ready.kind === 'pid') {
-    // pid 只表示「起来了并稳住了」：窗口/终端由宿主自己开，PAL 没有更硬的判据
-    ready = await waitForSettle(exited, Math.min(spec.ready.settleMs ?? 1_500, timeoutMs));
-  } else {
-    // headless：等它自己退出；超时说明这条任务被卡住，收掉进程
-    const dead = await exited.wait(timeoutMs);
-    ready = dead ? { ok: true, exited: dead } : { ok: false };
-  }
+  const timeoutMs = opts.timeoutMs ?? adapter.start.readyTimeoutMs ?? 20_000;
+  const ready = await waitForReady(log.file, rec, timeoutMs, exited, opts.pollMs ?? 100);
   closeLog(log.fd);
 
   if (!ready.ok) {
     if (spawnPid) (opts.kill ?? killTree)(spawnPid);
-    // 单实例桌面应用：已经有一份在跑时，新起的那份把请求交过去就以 0 退出了。
-    // 这时窗口是别人的、进程也拿不到，不能记成 running，也不算崩溃（不改记录）。
-    if (spec.surface === 'window' && ready.exited?.code === 0) {
-      appendEvent(rec.root, { event: 'app-handoff', entry: spec.kind, pid: spawnPid });
-      throw new PalError('already-running', `${ADAPTERS[rec.harness].label} 的桌面应用已经在运行`, {
-        hint: '这次起的进程把请求交给已开着的窗口就退出了，PAL 拿不到它；关掉已有窗口再起，或改用 web / tui 入口',
-        details: { harness: rec.harness, entry: spec.kind, exitCode: 0 },
-      });
-    }
     const tail = tailLog(rec.root, 20);
     const why = ready.exited
       ? `宿主退出（code ${ready.exited.code ?? '-'}，signal ${ready.exited.signal ?? '-'}）`
-      : spec.ready.kind === 'exit'
-        ? `任务没在 ${Math.round(timeoutMs / 1000)}s 内结束`
-        : `等${readyLabel(spec)}超时（${Math.round(timeoutMs / 1000)}s）`;
+      : `等地址超时（${Math.round(timeoutMs / 1000)}s）`;
     writeInstance({
       ...readInstance(rec.id)!,
       status: 'broken',
@@ -553,96 +393,44 @@ export async function startInstanceDetailed(
     });
     throw new PalError('start-failed', `${rec.name} 起不来：${why}`, {
       hint: tail ? `日志尾部：\n${tail}` : `日志：${log.file}`,
-      details: { logFile: log.file, exitCode: ready.exited?.code ?? null, entry: spec.kind },
+      details: { logFile: log.file, exitCode: ready.exited?.code ?? null },
     });
   }
+
+  // pid 要记真正在监听的进程（Windows 上 .cmd 垫片会让 spawn 的 pid 是 cmd 的）
+  const listenPort = ready.port ?? port;
+  // 端口反查到的监听者只是证据：记录它，但 kill 目标永远是 spawnPid（B12）
+  const listenPid = opts.ownerOf ? opts.ownerOf(listenPort) : portOwner(listenPort)?.pid;
+  const pid = spawnPid ?? listenPid;
+  const split = splitUrl(ready.url);
+  writeSecrets(rec.root, split.secrets);
 
   const current = readInstance(rec.id)!;
   const next: InstanceRecord = {
     ...current,
-    entry: spec.kind,
     status: 'running',
+    ...(pid ? { pid } : {}),
+    ...(spawnPid ? { spawnPid } : {}),
+    ...(listenPid ? { listenPid } : {}),
+    port: ready.port ?? port,
+    ports: [...new Set([...(current.ports ?? []), ready.port ?? port])].slice(-5),
+    url: split.url,
     startedAt: nowIso(),
     harnessVersion: info.version ?? current.harnessVersion,
   };
   delete next.lastError;
-  delete next.exitCode;
-  // 上一轮可能是别的入口：端口/地址/端点先清掉，按这次的入口重新记，
-  // 不然 web 起过之后再起 app，记录里还挂着上一次的地址
-  delete next.port;
-  delete next.url;
-  delete next.listenPid;
-  delete next.endpoint;
-
-  let url = '';
-  if (spec.kind === 'headless') {
-    // 一次性入口没有「在跑」：退出码就是它的运行态
-    delete next.pid;
-    delete next.spawnPid;
-    const code = ready.exited?.code ?? null;
-    next.status = code === 0 ? 'stopped' : 'failed';
-    next.exitCode = code ?? -1;
-    next.lastExit = {
-      code,
-      signal: ready.exited?.signal ?? null,
-      at: nowIso(),
-      restarts: current.lastExit?.restarts ?? 0,
-    };
-    if (code !== 0) {
-      next.lastError = { code: 'start-failed', message: `headless 退出码 ${code ?? '-'}`, at: nowIso() };
-    }
-  } else {
-    if (spawnPid) {
-      next.pid = spawnPid;
-      next.spawnPid = spawnPid;
-    }
-    if (spec.kind === 'web') {
-      const listenPort = ready.port ?? port;
-      // 端口反查到的监听者只是证据：记录它，但 kill 目标永远是 spawnPid（B12）
-      const listenPid = opts.ownerOf ? opts.ownerOf(listenPort) : portOwner(listenPort)?.pid;
-      if (listenPid) next.listenPid = listenPid;
-      next.port = listenPort;
-      next.ports = [...new Set([...(current.ports ?? []), listenPort])].slice(-5);
-      const split = splitUrl(ready.url ?? '');
-      writeSecrets(rec.root, split.secrets);
-      next.url = split.url;
-      url = ready.url ?? '';
-    } else if (spec.kind === 'tui') {
-      next.endpoint = { kind: 'tty', value: launch.terminal ?? 'terminal' };
-    } else if (ready.port) {
-      // app 有可探的内部端口时记下来；没有就只记进程，体检时说明「只能确认进程在」
-      next.endpoint = { kind: 'port', value: String(ready.port) };
-    }
-  }
   writeInstance(next);
   appendEvent(rec.root, {
     event: 'ready',
-    entry: spec.kind,
-    pid: next.pid,
-    spawnPid: next.spawnPid,
-    listenPid: next.listenPid,
+    pid,
+    spawnPid,
+    listenPid,
     port: next.port,
-    url: next.url,
-    exitCode: next.exitCode,
+    url: split.url,
   });
 
-  if (opts.supervise && spec.kind !== 'headless') attachSupervisor(next, exited);
-  return { record: readInstance(rec.id)!, logFile: log.file, url, entry: spec.kind, surface: spec.surface };
-}
-
-function readyTimeoutOf(spec: EntrySpec): number {
-  if ('timeoutMs' in spec.ready && spec.ready.timeoutMs !== undefined) return spec.ready.timeoutMs;
-  return 20_000;
-}
-
-function readyLabel(spec: EntrySpec): string {
-  const labels: Record<EntrySpec['ready']['kind'], string> = {
-    url: '地址',
-    port: '端口',
-    pid: '进程',
-    exit: '退出码',
-  };
-  return labels[spec.ready.kind];
+  if (opts.supervise) attachSupervisor(next, exited);
+  return { record: readInstance(rec.id)!, logFile: log.file, url: ready.url };
 }
 
 export interface ExitInfo {
@@ -728,17 +516,17 @@ function readTail(file: string, maxBytes: number): string {
 
 async function waitForReady(
   logFile: string,
-  harness: InstanceRecord['harness'],
+  rec: InstanceRecord,
   timeoutMs: number,
   exited: ExitTracker,
   pollMs: number,
-): Promise<ReadyResult> {
+): Promise<{ ok: true; url: string; port?: number } | { ok: false; exited?: ExitInfo }> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const dead = exited.peek();
     if (dead) return { ok: false, exited: dead };
     try {
-      const hit = parseStartUrl(readTail(logFile, READY_TAIL_BYTES), harness);
+      const hit = parseStartUrl(readTail(logFile, READY_TAIL_BYTES), rec.harness);
       if (hit) return { ok: true, url: hit.url, ...(hit.port ? { port: hit.port } : {}) };
     } catch {
       /* 日志还没出现 */
@@ -915,8 +703,6 @@ export function killTargetFor(record: InstanceRecord, probe: KillProbe): KillDec
 export interface StopOptions {
   kill?: (pid: number) => void;
   isAlive?: (pid: number) => boolean;
-  /** 优雅退出：默认 taskkill 不带 /F（POSIX SIGTERM） */
-  requestQuit?: (pid: number) => void;
   /** 查端口主人；默认走 portOwner（netstat/lsof） */
   ownerOf?: (port: number) => number | undefined;
   /** 跳过可疑拒杀：仍不会杀 listenPid，只影响「记录里的 pid 能不能当目标」 */
@@ -924,26 +710,13 @@ export interface StopOptions {
   timeoutMs?: number;
 }
 
-/** 收回运行态里的进程证据：pid/spawnPid/listenPid/port/url/endpoint 一起清。 */
-function withoutProcessState<
-  T extends Pick<InstanceRecord, 'pid' | 'spawnPid' | 'listenPid' | 'port' | 'url' | 'endpoint'>,
->(
+/** 收回运行态里的进程证据：pid/spawnPid/listenPid/port/url 一起清。 */
+function withoutProcessState<T extends Pick<InstanceRecord, 'pid' | 'spawnPid' | 'listenPid' | 'port' | 'url'>>(
   record: T,
-): Omit<T, 'pid' | 'spawnPid' | 'listenPid' | 'port' | 'url' | 'endpoint'> {
-  const {
-    pid: _pid,
-    spawnPid: _spawnPid,
-    listenPid: _listenPid,
-    port: _port,
-    url: _url,
-    endpoint: _endpoint,
-    ...rest
-  } = record;
+): Omit<T, 'pid' | 'spawnPid' | 'listenPid' | 'port' | 'url'> {
+  const { pid: _pid, spawnPid: _spawnPid, listenPid: _listenPid, port: _port, url: _url, ...rest } = record;
   return rest;
 }
-
-/** app 入口先请它自己退出，最多等这么久，然后再回收进程树。 */
-const GRACEFUL_TIMEOUT_MS = 5_000;
 
 export async function stopInstance(idOrName: string, opts: StopOptions = {}): Promise<InstanceRecord> {
   const rec = requireInstance(idOrName);
@@ -965,26 +738,11 @@ export async function stopInstance(idOrName: string, opts: StopOptions = {}): Pr
   // --force 只让「记录里的 pid」变成可杀目标；listenPid 永远不进这里
   const target = decision.refusal ? decision.forceTarget : decision.target;
   const stoppingPid = target ?? rec.pid;
-  const entry = rec.entry ? entryOf(rec.harness, rec.entry) : undefined;
   // 标记必须先于 kill 落盘：看护可能活在另一个进程（pal serve）里，它一看到退出就会走 onExit
   markStopping(rec.root, stoppingPid);
   try {
     if (target !== undefined && alive(target)) {
-      // app 入口：先请求它自己退（GUI 要能收尾），不退再回收进程树。
-      // 终端入口的「关面」就是回收终端窗口那棵树，和 web 走同一条路。
-      if (entry?.stop === 'graceful') {
-        (opts.requestQuit ?? requestQuit)(target);
-        const quit = await waitForExit(target, {
-          isAlive: alive,
-          timeoutMs: Math.min(opts.timeoutMs ?? GRACEFUL_TIMEOUT_MS, GRACEFUL_TIMEOUT_MS),
-        });
-        if (!quit) {
-          appendEvent(rec.root, { event: 'quit-timeout', entry: entry.kind, pid: target });
-          (opts.kill ?? killTree)(target);
-        }
-      } else {
-        (opts.kill ?? killTree)(target);
-      }
+      (opts.kill ?? killTree)(target);
       const gone = await waitForExit(target, {
         isAlive: alive,
         timeoutMs: opts.timeoutMs ?? STOP_TIMEOUT_MS,
@@ -998,79 +756,12 @@ export async function stopInstance(idOrName: string, opts: StopOptions = {}): Pr
     const next: InstanceRecord = { ...withoutProcessState(rec), status: 'stopped' };
     writeInstance(next);
     clearSecrets(rec.root);
-    appendEvent(rec.root, { event: 'stop', pid: stoppingPid, entry: rec.entry });
+    appendEvent(rec.root, { event: 'stop', pid: stoppingPid });
     return readInstance(rec.id)!;
   } finally {
     // 成功失败都清：失败时留着标记，后面真实的崩溃会被一直压掉
     clearStopping(rec.root);
   }
-}
-
-/** 打开一个实例的访问面：web 给地址，app/tui 重新落一次启动命令（应用自己聚焦/开窗）。 */
-export interface OpenResult {
-  entry: EntryKind;
-  surface: EntrySurface;
-  /** web 的地址（已带回凭据）；别的入口没有 */
-  url?: string;
-}
-
-export interface OpenOptions {
-  entry?: EntryKind;
-  spawn?: SpawnFn;
-  env?: Record<string, string>;
-  isAlive?: (pid: number) => boolean;
-}
-
-export async function openInstance(idOrName: string, opts: OpenOptions = {}): Promise<OpenResult> {
-  const rec = requireInstance(idOrName);
-  if (entriesOf(rec.harness).length === 0) {
-    throw new PalError('not-openable', `${ADAPTERS[rec.harness].label} 没有可打开的访问面`, {
-      hint: ADAPTERS[rec.harness].noStartReason,
-      details: { harness: rec.harness },
-    });
-  }
-  const spec = requireEntry(rec.harness, opts.entry, rec.entry);
-  if (spec.surface === 'none') {
-    throw new PalError('not-openable', `「${spec.label}」入口没有可以打开的面`, {
-      hint: 'headless 只返回退出码，没有界面',
-      details: { harness: rec.harness, entry: spec.kind },
-    });
-  }
-  if (spec.surface === 'browser') {
-    if (!rec.url) {
-      throw new PalError('not-running', `实例没有地址：${rec.name}`, { hint: '先启动它' });
-    }
-    return { entry: spec.kind, surface: 'browser', url: withSecrets(rec.url, readSecrets(rec.root)) };
-  }
-  if (!rec.pid || !(opts.isAlive ?? isPidAlive)(rec.pid)) {
-    throw new PalError('not-running', `实例没有在运行：${rec.name}`, { hint: '先启动它' });
-  }
-
-  // app/tui：再落一次启动命令。单实例的应用会聚焦已有窗口，终端会新开一个。
-  const info = requireHarnessBinary(rec.harness);
-  const hostPath = info.commandPath ?? whichSync(ADAPTERS[rec.harness].executable ?? rec.harness);
-  const commandPath = spec.launch === 'desktop' ? desktopAppOf(hostPath) : hostPath;
-  if (!commandPath) {
-    throw new PalError('harness-missing', `找不到 ${spec.label} 的可执行文件`, {
-      hint: '用 PAL_DSH_APP 指定路径',
-      details: { harness: rec.harness, entry: spec.kind },
-    });
-  }
-  const ctx = startContextOf(rec, rec.port ?? 0, undefined, undefined);
-  const launch = launchPlanFor(spec, ctx, commandPath, `PAL · ${rec.name}`);
-  const env = hostEnv(process.env, ADAPTERS[rec.harness], rec.home, opts.env);
-  const spawnFn = opts.spawn ?? (nodeSpawn as unknown as SpawnFn);
-  const child = spawnFn(launch.file, launch.args, {
-    cwd: rec.root,
-    env,
-    stdio: 'ignore',
-    detached: true,
-    windowsHide: !launch.visible,
-    ...(launch.verbatim ? { windowsVerbatimArguments: true } : {}),
-  });
-  child.unref?.();
-  appendEvent(rec.root, { event: 'open', entry: spec.kind, command: commandPath });
-  return { entry: spec.kind, surface: spec.surface };
 }
 
 export async function restartInstance(idOrName: string, opts: StartOptions = {}): Promise<InstanceRecord> {
@@ -1139,12 +830,11 @@ export function refreshStatuses(isAlive: (pid: number) => boolean = isPidAlive):
   });
 }
 
-/** 实例是不是真的还能访问：进程活着，并且（web / 带端口的 app）端点有人听。 */
+/** 实例是不是真的还能访问：进程活着 + 端口有人听。 */
 export async function isReachable(rec: InstanceRecord): Promise<boolean> {
   if (!rec.pid || !isPidAlive(rec.pid)) return false;
-  const port = rec.entry === 'web' ? rec.port : rec.endpoint?.kind === 'port' ? Number(rec.endpoint.value) : undefined;
-  if (!port) return true;
-  return isPortListening(port);
+  if (!rec.port) return true;
+  return isPortListening(rec.port);
 }
 
 export function logTailFor(rec: InstanceRecord, lines = 20): string {

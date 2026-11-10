@@ -269,22 +269,6 @@ button:disabled { opacity: 0.55; cursor: default; }
 .actions-row .danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 35%, var(--line)); }
 .actions-row .danger:hover { border-color: var(--danger); }
 
-/* 入口选择器：和按钮同高、同一行；headless 的任务框跟在它后面 */
-.entry-pick {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12.5px;
-  color: var(--muted);
-}
-.entry-pick select { padding: 6px 8px; border-radius: 8px; max-width: 180px; }
-.entry-task {
-  padding: 6px 8px;
-  border-radius: 8px;
-  min-width: 240px;
-  max-width: 360px;
-}
-
 .hint { color: var(--muted); font-size: 12.5px; margin: 14px 0 0; }
 
 dialog {

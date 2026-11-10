@@ -30,28 +30,8 @@ export function killTree(pid: number): void {
   }
 }
 
-/**
- * 请一个进程自己退出：Windows 用 taskkill 不带 /F（对 GUI 程序是发关闭消息），
- * POSIX 发 SIGTERM。收不掉由调用方再回收进程树——这里只负责「先礼」。
- */
-export function requestQuit(pid: number): void {
-  if (!Number.isFinite(pid) || pid <= 0) return;
-  if (process.platform === 'win32') {
-    spawnSync('taskkill', ['/PID', String(pid)], { windowsHide: true, timeout: 10_000 });
-    return;
-  }
-  try {
-    process.kill(-pid, 'SIGTERM');
-  } catch {
-    try {
-      process.kill(pid, 'SIGTERM');
-    } catch {
-      /* 已经退出 */
-    }
-  }
-}
-
-export interface WaitExitOptions {  timeoutMs?: number;
+export interface WaitExitOptions {
+  timeoutMs?: number;
   intervalMs?: number;
   isAlive?: (pid: number) => boolean;
 }

@@ -12,7 +12,6 @@ import {
 import { isPidAlive } from './process.ts';
 import { isPortListening, portOwner } from './port.ts';
 import { readMcpServers, DSH_PATCH_FILE } from './mcp.ts';
-import { entryOf } from './entries.ts';
 
 export type CheckStatus = 'ok' | 'warn' | 'fail';
 
@@ -33,8 +32,6 @@ export interface InstanceHealth {
   id: string;
   name: string;
   status: InstanceRecord['status'];
-  /** 这次运行用的入口；没跑过就没有 */
-  entry?: InstanceRecord['entry'];
   ok: boolean;
   checks: HealthCheck[];
   drift?: BaselineDrift;
@@ -143,29 +140,6 @@ export async function checkInstance(
     });
   }
 
-  // 入口体检：web 看地址，app 看内部端点（没有就只承认进程在），tui 看终端，headless 看退出码
-  if (record.entry) {
-    const spec = entryOf(record.harness, record.entry);
-    const label = spec?.label ?? record.entry;
-    let status: CheckStatus = 'ok';
-    let detail: string;
-    if (record.entry === 'headless') {
-      const code = record.exitCode;
-      status = code === undefined ? 'warn' : code === 0 ? 'ok' : 'fail';
-      detail = code === undefined ? '还没有跑过一次性入口' : `退出码 ${code}`;
-    } else if (record.entry === 'web') {
-      status = record.url ? 'ok' : 'warn';
-      detail = record.url ? `地址 ${record.url}` : '还没拿到地址';
-    } else if (record.entry === 'tui') {
-      detail = `终端 ${record.endpoint?.value ?? '窗口'}`;
-    } else {
-      detail = record.endpoint
-        ? `${record.endpoint.kind} ${record.endpoint.value}`
-        : '只能确认进程在；窗口由宿主自己开';
-    }
-    checks.push({ name: 'entry', status, detail: `${label} · ${detail}` });
-  }
-
   // B12：listenPid 只是证据。端口主人换了就提醒（不阻断），说明记录里的监听者已经不是它
   if (record.listenPid !== undefined && record.port !== undefined) {
     const owner = portOwner(record.port)?.pid;
@@ -229,7 +203,6 @@ export async function checkInstance(
     id: record.id,
     name: record.name,
     status: record.status,
-    ...(record.entry ? { entry: record.entry } : {}),
     ok,
     checks,
     ...(drift ? { drift } : {}),

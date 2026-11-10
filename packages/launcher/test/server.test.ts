@@ -463,10 +463,8 @@ describe('PAL 本地界面 API', () => {
     const ids = harnesses.map((item: { id: string }) => item.id);
     expect(ids).toEqual(['dir', 'dsh', 'claude-code', 'codex']);
     const claude = harnesses.find((item: { id: string }) => item.id === 'claude-code');
-    expect(claude.startable).toBe(true);
-    const dir = harnesses.find((item: { id: string }) => item.id === 'dir');
-    expect(dir.startable).toBe(false);
-    expect(dir.reason).toContain('项目目录');
+    expect(claude.startable).toBe(false);
+    expect(claude.reason).toContain('Claude Code');
   });
 
   it('包列表带版本；没有索引时也能列本地 Pack', async () => {
@@ -483,27 +481,6 @@ describe('PAL 本地界面 API', () => {
     const result = await json(`/api/instances/${rec.id}/update`, { method: 'POST', body: '{}' });
     expect(result.changed).toBe(false);
     expect(result.to).toBe('lvlc233/doc-review@0.1.0');
-  });
-
-  it('入口表：每个入口带访问面、就绪判据与能不能起；当前那个被标出来', async () => {
-    process.env.PAL_DSH_BIN = process.execPath;
-    resetHarnessCache();
-    const rec = await json('/api/instances', {
-      method: 'POST',
-      body: JSON.stringify({ pack: 'examples/doc-review', name: 'entries', harness: 'dsh' }),
-    });
-    const entries = await json(`/api/instances/${rec.id}/entries`);
-    expect(entries.map((entry: { kind: string }) => entry.kind)).toEqual(['web', 'app', 'tui', 'headless']);
-    const web = entries.find((entry: { kind: string }) => entry.kind === 'web');
-    expect(web.surface).toBe('browser');
-    expect(web.ready).toBe('url');
-    expect(web.binds.port).toBe(true);
-    expect(web.current).toBe(false);
-    const tui = entries.find((entry: { kind: string }) => entry.kind === 'tui');
-    expect(tui.startable).toBe(false);
-    expect(tui.reason).toContain('tui profile');
-    delete process.env.PAL_DSH_BIN;
-    resetHarnessCache();
   });
 
   it('打开实例：服务端把凭据拼回去，接口本身不吐 token', async () => {    const rec = await json('/api/instances', {

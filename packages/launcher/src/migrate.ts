@@ -71,14 +71,8 @@ export async function cloneInstance(
     maxRestarts: source.maxRestarts ?? 3,
   };
   delete record.pid;
-  delete record.spawnPid;
-  delete record.listenPid;
   delete record.port;
   delete record.url;
-  // 入口也回到未启动状态：复制体没跑过，不知道下次用哪个入口
-  delete record.entry;
-  delete record.endpoint;
-  delete record.exitCode;
   delete record.startedAt;
   delete record.lastExit;
   delete record.lastError;

@@ -95,6 +95,8 @@ export const ADAPTERS: Record<TargetId, HarnessAdapter> = {
     executable: 'claude',
     versionArgs: ['--version'],
     credentialFiles: ['auth.json', '.credentials.json'],
+    noStartReason:
+      'Claude Code 是终端交互程序，没有可托管的常驻服务；PAL 只负责给它装配 home（技能、MCP、指令）。',
   },
   codex: {
     label: 'Codex',
@@ -103,6 +105,7 @@ export const ADAPTERS: Record<TargetId, HarnessAdapter> = {
     executable: 'codex',
     versionArgs: ['--version'],
     credentialFiles: ['auth.json'],
+    noStartReason: 'Codex 是终端交互程序，没有可托管的常驻服务；PAL 只负责给它装配 home。',
   },
 };
 

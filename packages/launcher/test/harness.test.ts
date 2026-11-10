@@ -21,13 +21,12 @@ describe('宿主发现', () => {
     expect(skipped.version).toBe(probed.version);
   });
 
-  it('入口决定能不能起：终端宿主有 tui，项目目录只装配', () => {
+  it('不能启动的宿主给能力说明，不是只说不支持', () => {
     const claude = discoverHarness('claude-code', { probeVersion: false });
-    expect(claude.startable).toBe(true);
+    expect(claude.startable).toBe(false);
+    expect(claude.reason).toContain('Claude Code');
     const dir = discoverHarness('dir', { probeVersion: false });
     expect(dir.kind).toBe('project');
-    expect(dir.startable).toBe(false);
-    expect(dir.reason).toContain('项目目录');
   });
 
   it('四个宿主的顺序稳定，未知宿主给可选值', () => {

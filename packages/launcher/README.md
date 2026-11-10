@@ -7,34 +7,15 @@
 ## 上手
 
 ```bash
-pnpm pal doctor                                   # 宿主装没装、什么版本、有哪些入口、能不能起
+pnpm pal doctor                                   # 宿主装没装、什么版本、能不能起
 pnpm pal create examples/doc-review --name demo --harness dsh --from-home ~/.dsh
-pnpm pal start demo                               # 起默认入口（dsh 是 web），端口自动分配
-pnpm pal start demo --entry app                   # 换成桌面应用窗口
-pnpm pal start demo --entry tui                   # 终端窗口里跑 tui profile
-pnpm pal start demo --entry headless --task "跑测试"  # 一次性：跑完记退出码
-pnpm pal open demo                                # 按记录里的入口打开访问面
-pnpm pal health demo                              # 进程、入口、端口、home、基线、MCP 接线
+pnpm pal start demo                               # 起 dsh web，端口自动分配
+pnpm pal health demo                              # 进程、端口、home、基线、MCP 接线
 pnpm pal update demo --version 0.2.0               # 换 Pack 版本（清掉上一版独有的文件；本地改过要 --force）
 pnpm pal rebaseline demo                           # 本地改动被接受，体检不再报漂移
 pnpm pal stop demo
 pnpm pal remove demo --keep-data                  # 先卸包，再把剩下的根挪进归档区
 ```
-
-## 入口（entry）
-
-一个实例可以被跑成几种形态，用户选哪一个，PAL 就按那一个的契约起：起什么、凭什么算就绪、打开成什么面、怎么停、能不能绑到实例上（`home` / `env` / `port`）。表在 `src/entries.ts`，运行态只记「这次用的是哪个入口」。
-
-| 入口 | 起什么 | 就绪看什么 | 打开成什么 | 终止 |
-|---|---|---|---|---|
-| `web` | 宿主服务进程 | 日志里的地址 | 浏览器 | 收进程树 |
-| `app` | 宿主桌面应用（自己起内部服务） | 进程稳住 | 应用窗口 | 先请它退出，5s 不退再收树 |
-| `tui` | 终端里的宿主（新开终端窗口） | 进程稳住 | 终端窗口 | 关终端那棵树 |
-| `headless` | 一次性进程 | 退出码 | 无 | 它自己退 |
-
-宿主 × 入口：dsh 四个都有（`tui` 要实例 home 里装过 tui profile），codex 有 `app` / `tui` / `headless`，claude-code 只有 `tui` / `headless`，`dir` 一个都没有（只装配 home）。
-
-已定的取舍：TUI 走外部终端（PAL 不带 node-pty，ConPTY 留以后）；app 只到进程级就绪；app 按实例 home 起（`DSH_HOME` / `CODEX_HOME`，宿主是否把会话也落进去没有逐项验证）；入口不接受实例 home 时直接拒绝，不偷偷跑全局。细节见 [docs/checklist/details/pal.md](../../docs/checklist/details/pal.md)。
 
 `update` 默认不覆盖：Pack 写过的文件被本地改过时整次拒绝、一个文件都不写，确认覆盖要加 `--force`（API 是 `body.force`），界面里勾「覆盖本地改动」才带。普通 `remove` 只删实例根，不单独卸包（删不动就整根归档）。
 
@@ -52,8 +33,7 @@ pnpm pal remove demo --keep-data                  # 先卸包，再把剩下的�
 | `src/records.ts` / `src/recordWrite.ts` | 记录类型与解析（config/runtime 两份）、原子写与 `.links` |
 | `src/catalog.ts` / `src/quarantine.ts` | 列表/查找/当前实例、坏记录隔离 |
 | `src/cache.ts` / `src/scan.ts` / `src/ps.ts` / `src/backup.ts` | 取包缓存、目录扫描、并发账本、备份恢复 |
-| `src/start.ts` / `src/watch.ts` | 起停、按入口的就绪探测、退出码与看护、打开访问面、headless watch |
-| `src/entries.ts` | 宿主 × 入口表：启动参数、就绪判据、访问面、终止方式、能不能绑实例；终端窗口怎么开 |
+| `src/start.ts` / `src/watch.ts` | 起停、就绪探测、退出码与看护、headless watch |
 | `src/harness.ts` | 宿主发现与版本探测（含 Windows `.cmd` 垫片） |
 | `src/layout.ts` | 每个宿主的 home 段、环境变量、启动参数模板 |
 | `src/mcp.ts` | 把 Pack 的 mcp 资源写成 dsh 的 `--patch` 层 |
@@ -77,7 +57,7 @@ pnpm pal remove demo --keep-data                  # 先卸包，再把剩下的�
 ## 测试与冒烟
 
 ```bash
-pnpm check          # 类型检查 + 全量测试
+pnpm check          # 类型检查 + 全量测试（launcher 有 41 项）
 pnpm pal:smoke      # 起服务 → 建实例 → 体检 → 删
 pnpm pal:bundle     # 只打 launcher 单文件（esbuild）
 ```

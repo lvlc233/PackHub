@@ -15,13 +15,12 @@ import {
   scanInstances,
   writeTemplate,
 } from './index.ts';
-import { openInstance, restartInstance, startInstance, statusView, stopInstance } from './start.ts';
-import { entryStates } from './entries.ts';
+import { restartInstance, startInstance, statusView, stopInstance } from './start.ts';
 import { activeEntries, setActive, readActive } from './active.ts';
 import { createFromRef, importFromFile, updateFromRef } from './service.ts';
 import { readIndex, resolveRegistry } from '@packhub/runtime';
 import { PalError, errorBody } from './errors.ts';
-import { discoverAll, discoverHarness } from './harness.ts';
+import { discoverAll } from './harness.ts';
 import { assertAbsolutePath, assertExternalRoot } from './validators.ts';
 import { exportsRoot } from './paths.ts';
 import { readEvents, readLog } from './logs.ts';
@@ -290,7 +289,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, insecure: boole
     return;
   }
 
-  const match = /^\/api\/instances\/([^/]+)(?:\/(start|stop|restart|update|active|logs|health|open|entries|clone|migrate|export))?$/.exec(
+  const match = /^\/api\/instances\/([^/]+)(?:\/(start|stop|restart|update|active|logs|health|open|clone|migrate|export))?$/.exec(
     path,
   );
   if (match) {
@@ -313,52 +312,11 @@ async function handle(req: IncomingMessage, res: ServerResponse, insecure: boole
       return;
     }
     if (action === 'start' && req.method === 'POST') {
-      // body 可空：不写 entry 就用记录里上次那个，再没有就用宿主声明的第一个
-      const body = await readJson(req);
-      const entry = typeof body.entry === 'string' ? body.entry : undefined;
-      const task = typeof body.task === 'string' ? body.task : undefined;
-      sendJson(
-        res,
-        200,
-        await startInstance(id, {
-          supervise: true,
-          ...(entry ? { entry: entry as never } : {}),
-          ...(task ? { task } : {}),
-        }),
-      );
+      sendJson(res, 200, await startInstance(id, { supervise: true }));
       return;
     }
     if (action === 'restart' && req.method === 'POST') {
-      const body = await readJson(req);
-      const entry = typeof body.entry === 'string' ? body.entry : undefined;
-      sendJson(res, 200, await restartInstance(id, { supervise: true, ...(entry ? { entry: entry as never } : {}) }));
-      return;
-    }
-    if (action === 'entries' && req.method === 'GET') {
-      const rec = requireInstance(id);
-      const info = discoverHarness(rec.harness, { probeVersion: false });
-      sendJson(
-        res,
-        200,
-        entryStates(rec.harness, {
-          ...(info.commandPath ? { commandPath: info.commandPath } : {}),
-          ...(rec.home ? { home: rec.home } : {}),
-          root: rec.root,
-        }).map((entry) => ({
-          kind: entry.kind,
-          label: entry.label,
-          summary: entry.summary,
-          surface: entry.surface,
-          stop: entry.stop,
-          ready: entry.ready.kind,
-          binds: entry.binds,
-          needsTask: Boolean(entry.needsTask),
-          available: entry.available,
-          startable: entry.startable,
-          current: rec.entry === entry.kind,
-          ...(entry.reason ? { reason: entry.reason } : {}),
-        })),
-      );
+      sendJson(res, 200, await restartInstance(id, { supervise: true }));
       return;
     }
     if (action === 'update' && req.method === 'POST') {
@@ -427,11 +385,6 @@ async function handle(req: IncomingMessage, res: ServerResponse, insecure: boole
       sendJson(res, 200, { ...log, text: redactText(log.text), events: readEvents(rec.root, 30) });
       return;
     }
-    if (action === 'open' && req.method === 'POST') {
-      // app / tui 没有浏览器地址：服务端再落一次启动命令（应用聚焦、终端新开）
-      sendJson(res, 200, await openInstance(id));
-      return;
-    }
     if (action === 'open' && (req.method === 'GET' || req.method === 'HEAD')) {
       // 浏览器直接导航：把凭据拼在服务端，页面与 API 都看不到 token
       const site = req.headers['sec-fetch-site'];
@@ -440,12 +393,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, insecure: boole
       }
       const rec = requireInstance(id);
       if (!rec.url) {
-        if (!rec.pid) {
-          throw new PalError('not-running', `实例没有在运行：${rec.name}`, { hint: '先启动它' });
-        }
-        throw new PalError('not-openable', `这个实例没有浏览器地址：${rec.name}`, {
-          hint: rec.entry && rec.entry !== 'web' ? `当前入口是 ${rec.entry}，用界面上的「打开」按钮` : '先启动它',
-        });
+        throw new PalError('not-running', `实例没有地址：${rec.name}`, { hint: '先启动它' });
       }
       const target = withSecrets(rec.url, readSecrets(rec.root));
       res.writeHead(302, { location: target, 'cache-control': 'no-store' });
