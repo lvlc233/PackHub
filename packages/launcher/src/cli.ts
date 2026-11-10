@@ -185,7 +185,7 @@ const config = defineCommand({
   meta: {
     name: 'config',
     description:
-      'PAL 数据目录与新建实例的默认隔离策略（<数据目录>/config.json）；隔离策略只影响之后新建的实例',
+      'PAL 数据目录与新建实例的默认隔离策略（<数据目录>/pal.json）；隔离策略只影响之后新建的实例',
   },
   args: {
     'set-isolation': {
@@ -1134,7 +1134,7 @@ const backup = defineCommand({
     target: { type: 'positional', required: true, description: '实例 id 或名字' },
     out: {
       type: 'string',
-      description: '备份目录；默认 <PACKHUB_HOME>/backups/<名字>-<时间戳>（目标必须不存在）',
+      description: '备份目录；默认 <数据目录>/backups/<名字>-<时间戳>（目标必须不存在）',
     },
     'include-secrets': {
       type: 'boolean',

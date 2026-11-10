@@ -113,7 +113,7 @@ describe('数据目录的真实解析与手动选择', () => {
     expect(() => writeHomePointer(root)).toThrow('盘符根');
   });
 
-  it('homeHasData：只有点目录不算有数据，配置/实例/缓存/备份都算', () => {
+  it('homeHasData：只有点目录不算有数据，PAL 配置/实例/缓存/备份都算', () => {
     const home = join(tmp, 'has-data');
     expect(homeHasData(home)).toBe(false);
     mkdirSync(join(home, 'instances', '.links'), { recursive: true });
@@ -123,7 +123,13 @@ describe('数据目录的真实解析与手动选择', () => {
 
     const onlyConfig = join(tmp, 'only-config');
     mkdirSync(onlyConfig, { recursive: true });
-    writeFileSync(join(onlyConfig, 'config.json'), '{}', 'utf8');
+    writeFileSync(join(onlyConfig, 'pal.json'), '{}', 'utf8');
     expect(homeHasData(onlyConfig)).toBe(true);
+
+    // config.json 是 PackHub CLI 的 registry 配置，不算 PAL 的数据
+    const packhubConfigOnly = join(tmp, 'packhub-config-only');
+    mkdirSync(packhubConfigOnly, { recursive: true });
+    writeFileSync(join(packhubConfigOnly, 'config.json'), '{}', 'utf8');
+    expect(homeHasData(packhubConfigOnly)).toBe(false);
   });
 });

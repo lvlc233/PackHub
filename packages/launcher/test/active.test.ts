@@ -10,7 +10,7 @@ let tmp: string;
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), 'pal-active-'));
   process.env.PACKHUB_INSTANCES = join(tmp, 'instances');
-  // 建实例会读全局配置（默认隔离策略），指到 tmp 里，别读开发机上的 ~/.packhub/config.json
+  // 建实例会读全局配置（默认隔离策略），指到 tmp 里，别读开发机上的真实 pal.json
   process.env.PACKHUB_HOME = join(tmp, 'home');
 });
 

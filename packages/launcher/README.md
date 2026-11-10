@@ -35,7 +35,7 @@ pnpm pal core uninstall
 
 core 崩溃或被结束后由计划任务带回来；起来的第一轮看护就是接管：活着的 running 实例继续跑，pid 已死的按重启预算处理，不会出现双实例。
 
-数据默认放在哪：先看 `PACKHUB_HOME`，再看 `pal config --home` 记下的选择；打包后的 `pal.cjs` 默认用程序目录旁的 `data/`，否则用系统默认（Windows `%LOCALAPPDATA%\PackHub`）。`pal config` 会显示当前目录与来源，`pal config --home D:\PackHubData` 改选择（不搬已有数据）。
+数据默认放在哪：先看 `PACKHUB_HOME`，再看 `pal config --home` 记下的选择；打包后的 `pal.cjs` 默认用程序目录旁的 `data/`，否则用系统默认（Windows `%LOCALAPPDATA%\PackHub`）。`pal config` 会显示当前目录与来源，`pal config --home D:\PackHubData` 改选择（不搬已有数据）。PAL 自己的配置在 `<数据目录>/pal.json`；`config.json` 归 PackHub CLI 的 registry 配置，两者不共用。
 
 ## 代码在哪
 

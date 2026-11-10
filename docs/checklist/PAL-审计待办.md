@@ -9,8 +9,8 @@
 
 | 编号 | 事项 | 位置 / 证据 | 状态 | 前置 |
 |---|---|---|---|---|
-| A1 | 隔离策略模型（层、模式、字段） | `isolation.ts`：五层 + instance/shared + `DEFAULT_ISOLATION` + `parseIsolation`；新建/接管写默认值，配置缺策略与坏策略回落默认，clone 沿用源策略 | `[done]` 59ed357 | A2/A3 用这套词汇 |
-| A2 | 默认策略与每实例覆盖 | `<数据目录>/config.json` 存新实例默认（`pal config` 可看/改）；`pal create --isolation` 显式覆盖；坏配置报错不回落，已有实例不追溯 | `[done]` 15d4086 | A3/A7/A13 用这套语义 |
+| A1 | 隔离策略模型（层、模式、字段） | `isolation.ts`：五层 + instance/shared + `DEFAULT_ISOLATION` + `parseIsolation`；新建/接管写默认值，实例记录里的策略缺失或坏了回落默认，clone 沿用源策略 | `[done]` 59ed357 | A2/A3 用这套词汇 |
+| A2 | 默认策略与每实例覆盖 | `<数据目录>/pal.json` 存新实例默认（`pal config` 可看/改）；`pal create --isolation` 显式覆盖；坏配置报错不回落，已有实例不追溯 | `[done]` 15d4086 | A3/A7/A13 用这套语义 |
 | A3 | 凭据没有 copy/shared-ro 策略，禁 link，归档剥离 | 定为 copy：`seedHome` 复制；`credentials=shared` 在建实例前 `invalid-input` 拒绝；`keepData` 归档先删 `secrets.json`；备份默认剥离 | `[done]` 0d4f6d6 | A1；copy 已定 |
 | A4 | 取包缓存管理面（`pal cache ls/clean`、meta、GC） | `cache.ts` + `pal cache`：ls/clean（`--all`/`--ref`/`--older-than`）、缓存 meta、命中补写 | `[done]` 65e2183 | A1 的缓存层 |
 | A5 | 实例根可选 | `create` / `clone` / `import` 的 CLI `--root`、API `body.root` 已支持；只收绝对路径，拒绝盘符根/文件系统根与 PAL 实例根内（`assertExternalRoot`） | `[done]` 8a722fa | 无 |

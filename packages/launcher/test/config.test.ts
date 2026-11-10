@@ -8,8 +8,8 @@ import { palConfigFile } from '../src/paths.ts';
 import { isPalError, type PalError } from '../src/errors.ts';
 
 /**
- * 全局配置只落在 PACKHUB_HOME 下：每个用例一个临时 home，
- * 绝不碰开发机上真实的 ~/.packhub/config.json。
+ * 全局配置只落在 PAL 数据目录的 pal.json：每个用例一个临时 home，
+ * 绝不碰开发机上真实的配置。
  */
 let tmp: string;
 let home: string;
@@ -51,8 +51,23 @@ function expectPalError(fn: () => unknown): PalError {
 }
 
 describe('配置文件位置', () => {
-  it('落在 <PACKHUB_HOME>/config.json', () => {
-    expect(palConfigFile()).toBe(join(home, 'config.json'));
+  it('落在 <数据目录>/pal.json，不叫 config.json', () => {
+    expect(palConfigFile()).toBe(join(home, 'pal.json'));
+  });
+
+  it('同目录的 config.json 是 PackHub 的 registry 配置：不读、不覆盖', () => {
+    mkdirSync(home, { recursive: true });
+    const packhubConfig = join(home, 'config.json');
+    const raw = JSON.stringify({ registries: [{ name: 'local', url: 'https://example.invalid/index.json' }] });
+    writeFileSync(packhubConfig, raw, 'utf8');
+
+    // 读：不看 config.json，直接给 PAL 的默认策略
+    expect(readPalConfig()).toEqual({ version: CONFIG_VERSION, isolation: DEFAULT_ISOLATION });
+
+    // 写：只落 pal.json，config.json 一个字节都不动
+    writePalConfig({ version: CONFIG_VERSION, isolation: OPPOSITE });
+    expect(existsSync(join(home, 'pal.json'))).toBe(true);
+    expect(readFileSync(packhubConfig, 'utf8')).toBe(raw);
   });
 });
 

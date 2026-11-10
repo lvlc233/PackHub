@@ -103,7 +103,7 @@ let tmp: string;
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), 'pal-instance-'));
   process.env.PACKHUB_INSTANCES = join(tmp, 'instances');
-  // 新实例的默认策略读 <PACKHUB_HOME>/config.json：也指到临时目录，别读到开发机上的真配置
+  // 新实例的默认策略读 <数据目录>/pal.json：也指到临时目录，别读到开发机上的真配置
   process.env.PACKHUB_HOME = join(tmp, 'home');
 });
 

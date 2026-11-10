@@ -375,7 +375,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, insecure: boole
     if (action === 'export' && req.method === 'POST') {
       const body = await readJson(req);
       const template = exportTemplate(id);
-      // 默认落在 <PACKHUB_HOME>/exports/<name>.pal.json；不能放 instancesRoot，扫描会当坏记录隔离
+      // 默认落在 <数据目录>/exports/<name>.pal.json；不能放 instancesRoot，扫描会当坏记录隔离
       const out =
         body.out === undefined
           ? join(exportsRoot(), `${exportFileStem(template.name)}.pal.json`)

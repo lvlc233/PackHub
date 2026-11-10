@@ -58,7 +58,7 @@ export interface BackupMeta {
 }
 
 export interface BackupOptions {
-  /** 备份目录；默认 <PACKHUB_HOME>/backups/<名字>-<时间戳> */
+  /** 备份目录；默认 <数据目录>/backups/<名字>-<时间戳> */
   out?: string;
   /** 把凭据也带上（根里的 secrets.json 与宿主凭据文件）；默认不带 */
   includeSecrets?: boolean;

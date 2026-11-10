@@ -126,9 +126,14 @@ export function palHome(): string {
   return homeBase();
 }
 
-/** PAL 自己的配置：新实例的默认隔离策略放这里（不是任何实例的配置）。 */
+/**
+ * PAL 自己的配置：新实例的默认隔离策略放这里（不是任何实例的配置）。
+ * 文件名故意不叫 `config.json`：PackHub CLI 的 registry 配置（`registries` /
+ * `defaultRegistry`）用的是 `$PACKHUB_HOME/config.json`，两者在 `PACKHUB_HOME`
+ * 指向同一目录时会撞车；PAL 不能覆盖它，也不该按自己的 schema 去读它。
+ */
 export function palConfigFile(): string {
-  return join(homeBase(), 'config.json');
+  return join(homeBase(), 'pal.json');
 }
 
 /** 实例存放的根；测试与多环境都用它隔离。 */
@@ -150,7 +155,7 @@ export function exportsRoot(): string {
 }
 
 /**
- * 整实例快照的默认落点：<PACKHUB_HOME>/backups/<名字>-<时间戳>/。
+ * 整实例快照的默认落点：<数据目录>/backups/<名字>-<时间戳>/。
  * 和 exportsRoot 一样不能放进 instancesRoot：备份目录里也有 instance.json，
  * 放进去会被列表当成第二份实例。
  */
@@ -173,9 +178,10 @@ export function archiveRoot(): string {
   return join(instancesRoot(), '.archive');
 }
 
-/** 数据目录里有没有东西（实例、缓存、备份、导出、全局配置都算）。给“换目录”前的确认用。 */
+/** 数据目录里有没有东西（实例、缓存、备份、导出、PAL 全局配置都算）。给“换目录”前的确认用。 */
 export function homeHasData(home: string = homeBase()): boolean {
-  if (existsSync(join(home, 'config.json'))) return true;
+  // 只看 PAL 自己的 pal.json；config.json 可能是 PackHub CLI 的配置，不算 PAL 的数据。
+  if (existsSync(join(home, 'pal.json'))) return true;
   for (const dir of ['instances', 'backups', 'exports', 'cache']) {
     try {
       if (readdirSync(join(home, dir)).some((name) => !name.startsWith('.'))) return true;
