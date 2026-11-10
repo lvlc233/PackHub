@@ -3,7 +3,7 @@ import pkg from '../package.json' with { type: 'json' };
 import { createInterface } from 'node:readline/promises';
 import { spawn } from 'node:child_process';
 import { existsSync, readdirSync, statSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { isAbsolute, resolve } from 'node:path';
 import {
   adoptInstance,
   cloneInstance,
@@ -24,8 +24,10 @@ import { createFromRef, importFromFile, updateFromRef } from './service.ts';
 import { cacheStats, cleanCache, formatBytes, planClean, scanCache } from './cache.ts';
 import { DEFAULT_SCAN_DEPTH, scanDirectory, type ScanEntry } from './scan.ts';
 import { backupInstance, restoreBackup } from './backup.ts';
-import { refreshStatuses, restartInstance, startInstance, startInstanceDetailed, stopInstance } from './start.ts';
-import { DEFAULT_WATCH_INTERVAL_MS, watchLoop } from './watch.ts';
+import { refreshStatuses, logFileOf } from './start.ts';
+import { coreCall, ensureCore, probeCore, stopCore } from './coreClient.ts';
+import { DEFAULT_CORE_INTERVAL_MS, startCore } from './core.ts';
+import { coreTaskInstalled, installCoreTask, uninstallCoreTask } from './coreTask.ts';
 import { psReport } from './ps.ts';
 import { activeEntries, setActive } from './active.ts';
 import { startPalServer } from './server.ts';
@@ -33,7 +35,7 @@ import { discoverAll } from './harness.ts';
 import { checkAll, checkInstance } from './health.ts';
 import { listLogs, readEvents, readLog, tailLog } from './logs.ts';
 import { readSecrets } from './secrets.ts';
-import { PalError } from './errors.ts';
+import { PalError, isPalError } from './errors.ts';
 import { CONFIG_VERSION, parseIsolationSpec, readPalConfig, writePalConfig } from './config.ts';
 import { ISOLATION_LAYERS } from './isolation.ts';
 import {
@@ -76,6 +78,19 @@ function requireTarget(value: unknown): string {
   const text = String(value ?? '').trim();
   if (!text) throw new PalError('invalid-input', '要指定实例 id 或名字');
   return text;
+}
+
+/**
+ * core 的 --home：计划任务不继承用户的环境变量，数据目录只能靠参数钉住。
+ * 其它命令不需要它——它们跟着当前 shell 的 PACKHUB_HOME / location.json 走。
+ */
+function applyHomeArg(value: unknown): void {
+  const text = String(value ?? '').trim();
+  if (!text) return;
+  if (!isAbsolute(text)) {
+    throw new PalError('invalid-input', '--home 要绝对路径', { hint: '例如 D:\\PackHubData' });
+  }
+  process.env.PACKHUB_HOME = resolve(text);
 }
 
 async function confirm(question: string, yes: boolean): Promise<boolean> {
@@ -428,11 +443,11 @@ const remove = defineCommand({
 });
 
 const start = defineCommand({
-  meta: { name: 'start', description: '起一个实例（现在能起 dsh web，端口自动分配）' },
+  meta: { name: 'start', description: '起一个实例（交给 core：崩了由它按 --restart 看护）' },
   args: {
     target: { type: 'positional', required: false, description: '实例 id 或名字；不写就用当前实例' },
     port: { type: 'string', description: '指定端口；被占时报告占用者' },
-    restart: { type: 'string', description: 'on-failure：崩了就让 PAL 重起（serve 时看护）' },
+    restart: { type: 'string', description: 'on-failure：崩了由 core 重起；never：不重起' },
     'no-open': { type: 'boolean', default: false, description: '起来后不用浏览器打开' },
     json: { type: 'boolean', default: false },
   },
@@ -460,17 +475,17 @@ const start = defineCommand({
       rec.restart = mode;
       writeInstance(rec);
     }
-    const detail = await startInstanceDetailed(rec.id, {
+    const record = await coreCall<InstanceRecord>('start', {
+      id: rec.id,
       ...(args.port ? { port: Number(args.port) } : {}),
     });
-    const record = detail.record;
     if (args.json) {
       console.log(JSON.stringify(record, null, 2));
       return;
     }
     console.log(`✓ ${record.id}  running  pid ${record.pid ?? '-'}`);
     console.log(`  ${record.url ?? ''}`);
-    console.log(`  日志：${detail.logFile}`);
+    console.log(`  日志：${logFileOf(record)}`);
   },
 });
 
@@ -486,7 +501,8 @@ const stop = defineCommand({
     json: { type: 'boolean', default: false },
   },
   async run({ args }) {
-    const rec = await stopInstance(requireTarget(args.target), {
+    const rec = await coreCall<InstanceRecord>('stop', {
+      id: requireTarget(args.target),
       ...(args.force ? { force: true } : {}),
     });
     if (args.json) {
@@ -504,7 +520,7 @@ const restart = defineCommand({
     json: { type: 'boolean', default: false },
   },
   async run({ args }) {
-    const rec = await restartInstance(requireTarget(args.target));
+    const rec = await coreCall<InstanceRecord>('restart', { id: requireTarget(args.target) });
     if (args.json) {
       console.log(JSON.stringify(rec, null, 2));
       return;
@@ -575,41 +591,122 @@ const ps = defineCommand({
   },
 });
 
-const watch = defineCommand({
+const core = defineCommand({
   meta: {
-    name: 'watch',
-    description:
-      'headless 看护：崩掉的 on-failure 实例按预算重起，预算用完/never 的标 broken（不要和 pal serve 同时开）',
+    name: 'core',
+    description: '常驻核心：实例的启停与看护都在它这里；CLI、界面、桌面壳只是它的客户端',
   },
-  args: {
-    interval: {
-      type: 'string',
-      default: String(DEFAULT_WATCH_INTERVAL_MS),
-      description: `每轮检查间隔（毫秒），默认 ${DEFAULT_WATCH_INTERVAL_MS}`,
-    },
-  },
-  async run({ args }) {
-    const intervalMs = Number(args.interval);
-    if (!Number.isInteger(intervalMs) || intervalMs <= 0) {
-      throw new PalError('invalid-input', `--interval 要正整数的毫秒数，收到：${String(args.interval)}`, {
-        hint: `默认 ${DEFAULT_WATCH_INTERVAL_MS}；例如 pal watch --interval 5000`,
-      });
-    }
-    console.log('headless 看护已启动；不要和 pal serve 同时开');
-    console.log(`  间隔 ${intervalMs}ms；Ctrl+C 退出`);
-    const total = await watchLoop({
-      intervalMs,
-      onRound: (stats) => {
-        if (stats.restarted > 0 || stats.broken > 0) {
-          console.log(
-            `  检查 ${stats.checked} 条：重起 ${stats.restarted}，标 broken ${stats.broken}，跳过 ${stats.skipped}`,
-          );
-        }
+  subCommands: {
+    run: defineCommand({
+      meta: { name: 'run', description: '前台跑 core（客户端发现没有 core 会自己拉起，一般不手动跑）' },
+      args: {
+        port: { type: 'string', default: '0', description: 'core 的接口端口；0 表示让系统挑' },
+        interval: {
+          type: 'string',
+          default: String(DEFAULT_CORE_INTERVAL_MS),
+          description: `看护间隔（毫秒），默认 ${DEFAULT_CORE_INTERVAL_MS}`,
+        },
+        home: { type: 'string', description: '数据目录（计划任务用；不写就按环境变量/location.json）' },
+        json: { type: 'boolean', default: false },
       },
-    });
-    console.log(
-      `已停止（累计检查 ${total.checked} 条，重起 ${total.restarted}，标 broken ${total.broken}）`,
-    );
+      async run({ args }) {
+        applyHomeArg(args.home);
+        const intervalMs = Number(args.interval);
+        if (!Number.isInteger(intervalMs) || intervalMs <= 0) {
+          throw new PalError('invalid-input', `--interval 要正整数的毫秒数，收到：${String(args.interval)}`, {
+            hint: `默认 ${DEFAULT_CORE_INTERVAL_MS}；例如 pal core run --interval 5000`,
+          });
+        }
+        const started = await startCore({ port: Number(args.port ?? 0), intervalMs }).catch((err: unknown) => {
+          // 已经有 core 在跑是正常结局（计划任务与手动启动撞车）：别报错，否则会被反复重起
+          if (isPalError(err) && err.code === 'busy') return undefined;
+          throw err;
+        });
+        if (!started) {
+          console.log(args.json ? JSON.stringify({ running: true }) : 'PAL core 已经在运行');
+          return;
+        }
+        console.log(
+          args.json
+            ? JSON.stringify({ url: started.url, pid: process.pid })
+            : `PAL core：${started.url}（pid ${process.pid}）`,
+        );
+        const shutdown = (): void => {
+          void started.close().finally(() => process.exit(0));
+        };
+        process.once('SIGINT', shutdown);
+        process.once('SIGTERM', shutdown);
+      },
+    }),
+    start: defineCommand({
+      meta: { name: 'start', description: '拉起 core（已经在跑就什么都不做）' },
+      args: {
+        home: { type: 'string', description: '数据目录（计划任务用；不写就按环境变量/location.json）' },
+        json: { type: 'boolean', default: false },
+      },
+      async run({ args }) {
+        applyHomeArg(args.home);
+        const info = await ensureCore();
+        console.log(
+          args.json
+            ? JSON.stringify({ pid: info.pid, url: info.url })
+            : `PAL core：${info.url}（pid ${info.pid}）`,
+        );
+      },
+    }),
+    status: defineCommand({
+      meta: { name: 'status', description: 'core 在不在：pid、接口地址、启动时间' },
+      args: { json: { type: 'boolean', default: false } },
+      async run({ args }) {
+        const info = await probeCore();
+        const task = process.platform === 'win32' ? coreTaskInstalled() : false;
+        if (args.json) {
+          console.log(
+            JSON.stringify(
+              info
+                ? { running: true, pid: info.pid, url: info.url, startedAt: info.startedAt, version: info.version, task }
+                : { running: false, task },
+              null,
+              2,
+            ),
+          );
+          return;
+        }
+        if (!info) {
+          console.log('PAL core 没在运行；下一条 pal start / pal stop 会按需拉起它');
+        } else {
+          console.log(`PAL core  pid ${info.pid}  ${info.url}`);
+          console.log(`  起于 ${info.startedAt}  v${info.version}`);
+        }
+        if (process.platform === 'win32') console.log(`  登录任务：${task ? '已注册' : '未注册（pal core install）'}`);
+      },
+    }),
+    stop: defineCommand({
+      meta: {
+        name: 'stop',
+        description: '停掉 core（实例继续跑，下一次命令会拉起新 core 接管；不动实例进程）',
+      },
+      async run() {
+        await stopCore();
+        console.log('✓ 已停掉 PAL core');
+      },
+    }),
+    install: defineCommand({
+      meta: { name: 'install', description: '注册登录任务：登录时拉起 core，异常退出由系统任务重起' },
+      async run() {
+        const task = installCoreTask();
+        const info = await ensureCore();
+        console.log(`✓ 已注册计划任务：${task.name}`);
+        console.log(`  PAL core：${info.url}（pid ${info.pid}）`);
+      },
+    }),
+    uninstall: defineCommand({
+      meta: { name: 'uninstall', description: '删掉登录任务（core 本身还在跑，要停用 pal core stop）' },
+      async run() {
+        const result = uninstallCoreTask();
+        console.log(result.removed ? '✓ 已删除计划任务' : '· 计划任务本来就不存在');
+      },
+    }),
   },
 });
 
@@ -773,7 +870,7 @@ function watchStdinClose(close: () => Promise<void>): void {
 }
 
 const serve = defineCommand({
-  meta: { name: 'serve', description: '起本地界面：实例列表、创建、启停、健康检查、日志' },
+  meta: { name: 'serve', description: '起本地界面：实例列表、创建、启停（转给 core）、健康检查、日志' },
   args: {
     port: { type: 'string', default: '0', description: '端口；0 表示让系统挑' },
     host: { type: 'string', default: '127.0.0.1' },
@@ -1147,7 +1244,7 @@ export const main = defineCommand({
     restart,
     status,
     ps,
-    watch,
+    core,
     health,
     doctor,
     logs,

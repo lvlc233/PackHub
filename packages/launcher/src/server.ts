@@ -15,7 +15,8 @@ import {
   scanInstances,
   writeTemplate,
 } from './index.ts';
-import { restartInstance, startInstance, statusView, stopInstance } from './start.ts';
+import { statusView } from './start.ts';
+import { coreCall, probeCore } from './coreClient.ts';
 import { activeEntries, setActive, readActive } from './active.ts';
 import { createFromRef, importFromFile, updateFromRef } from './service.ts';
 import { readIndex, resolveRegistry } from '@packhub/runtime';
@@ -190,6 +191,19 @@ async function handle(req: IncomingMessage, res: ServerResponse, insecure: boole
     return;
   }
 
+  // 界面只读一眼 core 在不在；启停经它转发，界面本身不是监督者
+  if (path === '/api/core' && req.method === 'GET') {
+    const core = await probeCore();
+    sendJson(
+      res,
+      200,
+      core
+        ? { running: true, pid: core.pid, startedAt: core.startedAt, version: core.version }
+        : { running: false },
+    );
+    return;
+  }
+
   if (path === '/api/harnesses' && req.method === 'GET') {
     const probe = url.searchParams.get('probe') !== '0';
     sendJson(
@@ -312,11 +326,14 @@ async function handle(req: IncomingMessage, res: ServerResponse, insecure: boole
       return;
     }
     if (action === 'start' && req.method === 'POST') {
-      sendJson(res, 200, await startInstance(id, { supervise: true }));
+      // 启停归 core：界面只是客户端，杀掉界面不影响实例与看护
+      requireInstance(id);
+      sendJson(res, 200, await coreCall('start', { id }));
       return;
     }
     if (action === 'restart' && req.method === 'POST') {
-      sendJson(res, 200, await restartInstance(id, { supervise: true }));
+      requireInstance(id);
+      sendJson(res, 200, await coreCall('restart', { id }));
       return;
     }
     if (action === 'update' && req.method === 'POST') {
@@ -367,7 +384,8 @@ async function handle(req: IncomingMessage, res: ServerResponse, insecure: boole
       return;
     }
     if (action === 'stop' && req.method === 'POST') {
-      sendJson(res, 200, await stopInstance(id));
+      requireInstance(id);
+      sendJson(res, 200, await coreCall('stop', { id }));
       return;
     }
     if (action === 'active' && req.method === 'POST') {

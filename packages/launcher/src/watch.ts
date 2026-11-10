@@ -4,19 +4,20 @@ import { appendEvent } from './logs.ts';
 import { isPidAlive } from './process.ts';
 import { readRecord, type InstanceRecord } from './records.ts';
 import { writeInstance } from './recordWrite.ts';
-import { startInstance } from './start.ts';
+import { isSupervisedPid, startInstance } from './start.ts';
+import { isStopping } from './stopMark.ts';
 import { nowIso } from './time.ts';
 
 /**
- * headless 看护：不依赖 `pal serve` 的进程内 supervisor。
- * 只扫 `scanInstances()`（坏记录只略过，不隔离），对「记录说 running、pid 其实已经死了」的实例：
- *  - restart='on-failure' 且还有重起预算 → startInstance 重起，watch 补写 lastExit.restarts+1；
+ * 轮询看护：不依赖子进程句柄，只扫 `scanInstances()`（坏记录只略过，不隔离），
+ * 对「记录说 running、pid 其实已经死了」的实例：
+ *  - restart='on-failure' 且还有重起预算 → startInstance 重起，并补写 lastExit.restarts+1；
  *  - 否则 → 写 broken、清掉 pid/port/url。
- * 记录写入统一走 writeInstance + withInstanceLock（同进程重入时 owned=false，不会死锁）。
- * 重起逻辑本身不复制：只调用 startInstance，让它照常写 pid/port/url/status。
+ *
+ * 由 core 按间隔调用。它管的是「没人拿到退出事件」的那批：接管来的实例、core 上次退出前起的实例。
+ * 已经被 core 按退出事件看护的 pid（isSupervisedPid）、正在被 stop 的实例一概跳过——
+ * 同一个实例只能有一个监督者，否则两边各重起一次就是双实例。
  */
-
-export const DEFAULT_WATCH_INTERVAL_MS = 2000;
 
 export interface WatchStats {
   /** 这一轮扫到的记录数（坏记录不在 records 里，不计） */
@@ -25,7 +26,7 @@ export interface WatchStats {
   restarted: number;
   /** 写成 broken 的数（预算用完、restart=never、重起失败） */
   broken: number;
-  /** 不需要动或动不了的数（活着、已停、安装中、无 pid、锁被占等） */
+  /** 不需要动或动不了的数（活着、已停、安装中、无 pid、锁被占、已有监督者等） */
   skipped: number;
 }
 
@@ -36,15 +37,6 @@ export interface WatchOptions {
   start?: (id: string) => Promise<unknown>;
   /** 诊断日志；默认 console.error。单条失败只打日志，不中断整轮。 */
   log?: (line: string) => void;
-}
-
-export interface WatchLoopOptions extends WatchOptions {
-  /** 每轮间隔毫秒，默认 DEFAULT_WATCH_INTERVAL_MS */
-  intervalMs?: number;
-  /** 停止信号；不传时 watchLoop 自己接 SIGINT（Ctrl+C 后正常返回，退出码 0） */
-  signal?: AbortSignal;
-  /** 每轮结束回调；测试和 CLI 用它打统计或中途 abort */
-  onRound?: (stats: WatchStats) => void;
 }
 
 type Outcome = 'restarted' | 'broken' | 'skipped';
@@ -58,27 +50,29 @@ function emptyExit(): NonNullable<InstanceRecord['lastExit']> {
 }
 
 /**
- * 处理一条「记录说 running、pid 已死」的候选。已被别的进程改掉（不再是 running、pid 变了、
- * 其实还活着）就按 skipped 返回，不覆盖别人的状态。
+ * 这条记录该不该由轮询动：只碰「running、有 pid、pid 已死、没人按事件看护、也不在停止中」。
+ * 其余只算 skipped，绝不覆盖别人的状态。
+ */
+function reapable(rec: InstanceRecord, isAlive: (pid: number) => boolean): boolean {
+  if (rec.status !== 'running' || typeof rec.pid !== 'number') return false;
+  if (isSupervisedPid(rec.pid)) return false;
+  if (isStopping(rec.root, rec.pid)) return false;
+  return !isAlive(rec.pid);
+}
+
+/**
+ * 处理一条「记录说 running、pid 已死」的候选。进了锁之后还要再核一次：
+ * 已被别的进程改掉（不再是 running、pid 变了、其实还活着、刚被 stop）就按 skipped 返回。
  */
 async function reapDead(
   rec: InstanceRecord,
-  opts: WatchOptions,
   isAlive: (pid: number) => boolean,
   start: (id: string) => Promise<unknown>,
   log: (line: string) => void,
 ): Promise<Outcome> {
   return withInstanceLock(rec.root, 'watch', async (): Promise<Outcome> => {
     const current = readRecord(rec.root);
-    if (
-      !current ||
-      current.id !== rec.id ||
-      current.status !== 'running' ||
-      typeof current.pid !== 'number' ||
-      isAlive(current.pid)
-    ) {
-      return 'skipped';
-    }
+    if (!current || !reapable(current, isAlive)) return 'skipped';
 
     const restarts = current.lastExit?.restarts ?? 0;
     const maxRestarts = current.maxRestarts ?? 3;
@@ -155,13 +149,13 @@ export async function watchOnce(opts: WatchOptions = {}): Promise<WatchStats> {
 
   for (const rec of scanInstances().records) {
     stats.checked += 1;
-    // 只动「running 且 pid 已死」；其余（活着 / stopped / installing / 没有 pid）完全不碰。
-    if (rec.status !== 'running' || typeof rec.pid !== 'number' || isAlive(rec.pid)) {
+    // 已经被 core 按退出事件看护 / 正在被 stop / 活着 / 不是 running / 没有 pid：完全不碰。
+    if (!reapable(rec, isAlive)) {
       stats.skipped += 1;
       continue;
     }
     try {
-      stats[await reapDead(rec, opts, isAlive, start, log)] += 1;
+      stats[await reapDead(rec, isAlive, start, log)] += 1;
     } catch (err) {
       // 锁被占、写记录失败等都只影响这一条，不中断整轮。
       stats.skipped += 1;
@@ -169,52 +163,4 @@ export async function watchOnce(opts: WatchOptions = {}): Promise<WatchStats> {
     }
   }
   return stats;
-}
-
-function sleep(ms: number, signal: AbortSignal): Promise<void> {
-  if (signal.aborted) return Promise.resolve();
-  return new Promise((resolve) => {
-    const done = (): void => {
-      clearTimeout(timer);
-      signal.removeEventListener('abort', done);
-      resolve();
-    };
-    const timer = setTimeout(done, Math.max(1, ms));
-    signal.addEventListener('abort', done, { once: true });
-  });
-}
-
-/**
- * 定时跑 watchOnce，直到 signal 中止（或 Ctrl+C）；错误只打日志，不退出循环。
- * 返回整个循环累计的统计（每轮相加）。
- */
-export async function watchLoop(opts: WatchLoopOptions = {}): Promise<WatchStats> {
-  const intervalMs = opts.intervalMs ?? DEFAULT_WATCH_INTERVAL_MS;
-  const log = opts.log ?? ((line: string) => console.error(line));
-  // 没给 signal 就自己接 SIGINT：Ctrl+C 之后当前这一轮结束、循环正常返回。
-  const controller = opts.signal ? undefined : new AbortController();
-  const signal = opts.signal ?? controller!.signal;
-  const onSigint = (): void => controller?.abort();
-  if (controller) process.once('SIGINT', onSigint);
-
-  const total: WatchStats = { checked: 0, restarted: 0, broken: 0, skipped: 0 };
-  try {
-    while (!signal.aborted) {
-      try {
-        const round = await watchOnce(opts);
-        total.checked += round.checked;
-        total.restarted += round.restarted;
-        total.broken += round.broken;
-        total.skipped += round.skipped;
-        opts.onRound?.(round);
-      } catch (err) {
-        log(`看护这一轮失败（继续下一轮）：${errorText(err)}`);
-      }
-      if (signal.aborted) break;
-      await sleep(intervalMs, signal);
-    }
-  } finally {
-    if (controller) process.removeListener('SIGINT', onSigint);
-  }
-  return total;
 }

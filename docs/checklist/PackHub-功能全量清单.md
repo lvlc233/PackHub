@@ -303,7 +303,7 @@ PAL 是 `packages/launcher` 里的实例内核 + Electron 壳（`apps/pal-electr
 | PAL-19 | 界面 | 实例列表/详情增量更新（不整块重渲）、包与版本选择、更新提示、体检面板、删除保留数据 | [done] | `web/app.js` |
 | PAL-20 | 取包缓存 | 按来源 + 版本分目录，重取先清空；失败不留半份 | [done] | `materialize.ts`、`test/materialize.test.ts` |
 | PAL-21 | 打包与 CI | `pal:bundle` 出单文件 pal.cjs；`pal:smoke` 端到端冒烟；CI 的 Linux 与 Windows 都跑 check，Linux 另跑 bundle + smoke | [done] | `scripts/pal/*`、`.github/workflows/pal.yml` |
-| PAL-22 | 看护 | `pal serve` 期间按 on-failure 退避重起；`pal watch` 提供 headless 看护（与 serve 二选一）；没有 Windows 服务/开机自启 | [part] | `watch.ts`；`docs/checklist/details/pal.md` 缺口 |
+| PAL-22 | 看护 | 常驻 core 独占实例的启停与看护：CLI / 界面都只是客户端，关掉界面不影响看护；core 被杀由用户任务计划（登录拉起 + 每分钟兜底）带回来，起来先按记录接管，不出现双实例 | [done] | `core.ts`、`coreClient.ts`、`coreTask.ts`、`watch.ts` |
 | PAL-23 | 运行时管理 | 记录/展示 node 版本（baseline、doctor、health），不切换；0.x 单运行时是范围决定 | [na] | A11 / E5 决策 |
 | PAL-24 | 界面的实例流转 | 详情页「更多」有克隆/改名/迁移/导出，新建对话框有接管/导入 | [done] | `web/app.js`、`server.ts` |
 | PAL-25 | 数据目录 | 优先级：`PACKHUB_HOME` → `pal config --home` 指针 → 便携 `data/` → 系统默认；`pal config` 显示来源，`doctor` 报当前目录 | [done] | `paths.ts`、`cli.ts`、`test/home.test.ts` |
@@ -318,7 +318,7 @@ PAL 是 `packages/launcher` 里的实例内核 + Electron 壳（`apps/pal-electr
 
 PAL 域剩下的缺口（不算阻断）：
 
-- PAL-22：`pal watch` 是无头进程，没有 Windows 服务/开机自启；和 `pal serve` 二选一。
+- PAL-22：系统级拉起靠用户任务计划（登录后生效，每分钟兜底）；没有做 Windows 服务（要管理员）。
 - PAL-23：运行时只记录、展示，不切换（0.x 只承诺 Windows，单运行时是范围决定）。
 
 PAL 域的完整待办（隔离策略、缓存管理、Electron 迁移等）见 [PAL 审计待办](PAL-审计待办.md)。

@@ -19,6 +19,7 @@ export type PalErrorCode =
   | 'record-corrupt'
   | 'not-found'
   | 'forbidden'
+  | 'core-unavailable'
   | 'internal';
 
 const STATUS: Record<PalErrorCode, number> = {
@@ -38,6 +39,7 @@ const STATUS: Record<PalErrorCode, number> = {
   'record-corrupt': 422,
   'not-found': 404,
   forbidden: 403,
+  'core-unavailable': 503,
   internal: 500,
 };
 

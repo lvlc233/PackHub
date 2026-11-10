@@ -68,7 +68,7 @@ PAL 的数据（实例、取包缓存、备份、导出模板、全局配置）�
 
 - **建实例失败**：只清理自己造的根。复用已有目录时不删目录，只摘 `instance.json`；自己造的根移进 `instances/.failed/` 并写 `reason.json`。
 - **删除**：先停进程并等它真的退出，再删根（默认既不先卸包，也不搬目录；包记录只用来填结果里的 `uninstalled`）。`--keep-data` 才先按 state 卸包、再把根挪进 `instances/.archive/`。删目录会重试，仍被占用就改名进归档；删根失败时记录与 state 都原样留着，可以直接重试。默认删除不逐文件调 `removePack`：当前安装落点都在实例根内，删根即清干净；以后若写入宿主级副作用（全局 MCP 注册、宿主配置键），必须在这里补反向清理，不能只靠删根。
-- **停止标记**：`stopInstance` 与 `removeInstance` 都在 kill 之前写 `<root>/.pal-stopping`（pid + 时间，60s TTL），结束时清掉。`pal serve` 的 onExit 有三道闸：标记与 pid 对得上、记录里的 pid 已经换人、记录已是 `stopped` —— 任一成立都不按崩溃处理，也不触发 `on-failure` 重起。
+- **停止标记**：`stopInstance` 与 `removeInstance` 都在 kill 之前写 `<root>/.pal-stopping`（pid + 时间，60s TTL），结束时清掉。core 的 onExit（拿到子进程退出事件时）有三道闸：标记与 pid 对得上、记录里的 pid 已经换人、记录已是 `stopped` —— 任一成立都不按崩溃处理，也不触发 `on-failure` 重起。
 - **迁移**：同盘用 rename（原子）；跨盘时 rename 报 `EXDEV`，PAL 先复制到目标盘的临时目录，再在同盘内 rename 成正式目录，写记录成功后才删旧根。目录移动与写记录在同一把实例锁里；写记录失败就回滚（rename 挪回，copy 撤掉新根）。旧根删不掉时整次撤回，不留下两个根。
 - **坏记录**：`instance.json` 或 `runtime.json` 解析失败不再静默跳过 —— `pal list` / `pal status` 会把它移进 `instances/.quarantine/` 并写原因（接管实例只收走 `.links` 指针，目录不动），`pal recover` 能看。读接口（GET `/api/instances`、体检）只把问题列进 `broken`，不写记录、也不隔离。
 - **原子写**：两份记录各自「临时文件 + rename」；先写 `runtime.json` 再写 `instance.json`，崩在中间时 runtime 新、config 旧，读取仍以 runtime 为准，不会丢运行态。
@@ -76,6 +76,8 @@ PAL 的数据（实例、取包缓存、备份、导出模板、全局配置）�
 - **凭据**：启动输出里的 `token` 等查询参数摘进 `secrets.json`（0600）；记录、API、界面只见脱敏地址；「打开」走 `/api/instances/:id/open` 的 302，页面拿不到 token。
 
 ## 启动与看护
+
+启停与看护归常驻 core（`pal core`）：CLI、界面（`pal serve`）、桌面壳都只是它的客户端，把命令经回环 HTTP 转给它。客户端退出不影响实例，也不影响看护；没有 core 时，下一条命令按需拉起（`core.json` 记地址与 token，`core.lock` 保证单例，抢不到锁的第二个 core 直接退出）。core 被杀了由计划任务带回来（`pal core install`：登录拉起 + 每分钟兜底检查）；它起来的第一轮看护就是接管——活着的 running 实例继续跑，pid 已死的按重启预算处理，不会出现双实例。
 
 1. 读记录 → 宿主能不能起（`dir` / `claude-code` / `codex` 明确报“没有常驻服务”，附原因）。
 2. 上一轮的 pid 已死 → 先标 `broken` 再继续（启动前自愈）。
@@ -85,7 +87,7 @@ PAL 的数据（实例、取包缓存、备份、导出模板、全局配置）�
 6. spawn 不走 shell 拼串：日志用 `stdio` 的 fd 直接写，`cwd` 是实例根，home 走宿主自己的环境变量。环境也不整份继承：`hostEnv` 只留 PATH/PATHEXT、SystemRoot 等系统项、TEMP、home 与语言变量，代理按原名带上；名字命中 `API_KEY`/`TOKEN`/`SECRET`/`PASSWORD`/`CREDENTIAL` 的、`PACKHUB_*`、`PAL_*` 以及各模型厂商前缀的一律剔除。要额外给，用 `opts.env` 显式补 —— 它最后应用，能覆盖先前的值（包括被剔除的项）。
 7. 从日志里等地址；等不到就收掉进程，并把日志尾部贴进错误里。
 8. 进程证据分两栏：`spawnPid` 是自己 spawn 的（唯一 kill 目标），`listenPid` 是端口反查到的监听者（只作证据）；记录里的 `pid` 是兼容字段，等于 `spawnPid ?? listenPid`。Windows 上 spawn 的是 `.cmd` 垫片，监听者往往是它的子进程。
-9. `pal serve` 期间会记退出码/信号到 `lastExit`；`restart: on-failure` 的实例按 1s/2s/4s… 退避重起，超过 `maxRestarts` 停止。
+9. core 对「自己 spawn 的」实例拿子进程退出事件：记退出码/信号到 `lastExit`，`restart: on-failure` 按 1s/2s/4s… 退避重起，超过 `maxRestarts` 停止。接管来的实例没有子进程句柄，由 core 每 2s 的轮询（`watch.ts`）处理；同一个 pid 只由一边看护（`isSupervisedPid`），轮询跳过它，不会两边各重起一次。
 
 ## dsh 的 MCP 接线
 
@@ -144,9 +146,9 @@ Pack 里的 `type: mcp` 资源安装时写进实例的 `.packhub/config.json`（
 
 ## 命令
 
-`pal create / config / list / show / cache / remove / start / stop / restart / status / ps / watch / health / doctor / logs / use / current / serve / scan / adopt / clone / rename / migrate / update / rebaseline / export / import / backup / restore / recover`。
+`pal create / config / list / show / cache / remove / start / stop / restart / status / ps / core / health / doctor / logs / use / current / serve / scan / adopt / clone / rename / migrate / update / rebaseline / export / import / backup / restore / recover`。
 
-`start` 会立刻退出（宿主 detach）；要看着护就用 `pal serve` 或 `pal watch`（二选一）。实例流转（接管 / 导入 / 克隆 / 改名 / 迁移 / 导出）在 CLI 与详情页「更多」里都有入口。
+`core` 管常驻核：`run`（前台）/ `start`（按需拉起）/ `status` / `stop` / `install` / `uninstall`。`start` 会立刻退出（宿主 detach），启停与看护都由 core 做；界面只是它的客户端。`pal serve` 只负责界面与本地接口，杀它不影响看护。实例流转（接管 / 导入 / 克隆 / 改名 / 迁移 / 导出）在 CLI 与详情页「更多」里都有入口。
 
 `adopt` 只有实例 state 里恰好 1 个 Pack 时才记下它的名字/版本；0 个或多个一律记 `external`，免得记录谎称身份。`planHash` 不进记录，只在 `baseline.json` 里维护。`clone` 复制出来的记录是 `managed: true`、`origin: {kind:'copy', from}`，端口与运行信息清空 —— 它是拷贝，不从 Pack 重建，导出的模板不可复现。
 
@@ -161,7 +163,7 @@ Pack 里的 `type: mcp` 资源安装时写进实例的 `.packhub/config.json`（
 
 ## 缺口
 
-- 系统级守护只有 `pal watch`（headless 进程），没有 Windows 服务/开机自启；`pal watch` 与 `pal serve` 二选一。
+- 系统级守护靠用户任务计划（`pal core install`）：只在用户登录后生效，没登录时 core 起不来；没有做 Windows 服务（需要管理员）。
 - 运行时只记录、展示，不切换：`baseline.json` 记下建/更新实例时的 node 版本，`pal doctor` 报当前运行时，`pal health` 的 `runtime` 检查在版本变过时只提醒；不支持切换（0.x 只承诺 Windows，见 E5）。跨盘迁移会自动复制，但复制期间会占双份空间。
 - 侧车传输固定 HTTP + token（E3 决定保留），stdio / 内部 RPC 未做。
 - 0.x 只承诺 Windows（E5）；POSIX 的进程组/信号/路径假设未审。

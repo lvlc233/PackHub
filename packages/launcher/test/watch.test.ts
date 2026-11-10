@@ -7,7 +7,8 @@ import { readRecord } from '../src/records.ts';
 import { writeInstance } from '../src/recordWrite.ts';
 import { readEvents } from '../src/logs.ts';
 import { main } from '../src/cli.ts';
-import { DEFAULT_WATCH_INTERVAL_MS, watchLoop, watchOnce } from '../src/watch.ts';
+import { attachSupervisor } from '../src/start.ts';
+import { watchOnce } from '../src/watch.ts';
 
 let tmp: string;
 let instancesDir: string;
@@ -161,45 +162,67 @@ describe('pal watch：headless 看护', () => {
     expect(stats).toEqual({ checked: 3, restarted: 0, broken: 0, skipped: 3 });
   });
 
-  it('watchLoop 用 AbortController 跑一轮即停，返回这一轮统计', async () => {
-    const id = '20260101000000-111111111111';
+  it('已经被 core 按退出事件看护的 pid，轮询不再碰（一个实例只有一个监督者）', async () => {
+    const id = '20260101000000-333333333333';
     writeRecord(id, {
-      pid: DEAD_PID,
-      port: 43040,
-      url: 'http://127.0.0.1:43040',
+      pid: 24681,
+      port: 43060,
+      url: 'http://127.0.0.1:43060',
       restart: 'on-failure',
       maxRestarts: 3,
     });
-    const start = vi.fn(async (target: string) => {
-      writeRunning(target, 4243);
-    });
-    const controller = new AbortController();
+    attachSupervisor(readRecordFile(id), { peek: () => undefined, wait: () => new Promise(() => {}) });
+    const start = vi.fn();
 
-    const stats = await watchLoop({
-      intervalMs: 60_000,
-      signal: controller.signal,
-      isAlive: (pid) => pid !== DEAD_PID,
-      start,
-      onRound: () => controller.abort(),
-    });
+    const stats = await watchOnce({ isAlive: () => false, start });
 
-    expect(start).toHaveBeenCalledTimes(1);
-    expect(stats).toEqual({ checked: 1, restarted: 1, broken: 0, skipped: 0 });
-    expect(DEFAULT_WATCH_INTERVAL_MS).toBe(2000);
+    expect(start).not.toHaveBeenCalled();
+    expect(stats).toEqual({ checked: 1, restarted: 0, broken: 0, skipped: 1 });
+  });
+
+  it('正在被 stop 的实例（有停止标记）不重起，也不改记录', async () => {
+    const id = '20260101000000-222222222222';
+    const dir = writeRecord(id, {
+      pid: 43210,
+      port: 43050,
+      url: 'http://127.0.0.1:43050',
+      restart: 'on-failure',
+      maxRestarts: 3,
+    });
+    writeFileSync(
+      join(dir, '.pal-stopping'),
+      JSON.stringify({ pid: 43210, at: new Date().toISOString() }),
+      'utf8',
+    );
+    const start = vi.fn();
+
+    const stats = await watchOnce({ isAlive: () => false, start });
+
+    expect(start).not.toHaveBeenCalled();
+    expect(readRecordFile(id).pid).toBe(43210);
+    expect(stats).toEqual({ checked: 1, restarted: 0, broken: 0, skipped: 1 });
   });
 });
 
-describe('pal watch CLI', () => {
+describe('pal core CLI', () => {
   interface CommandShape {
     args?: Record<string, { type?: string; default?: unknown } | undefined>;
+    subCommands?: Record<string, CommandShape | undefined>;
   }
 
-  const command = (main as unknown as { subCommands?: Record<string, CommandShape | undefined> })
-    .subCommands?.['watch'];
+  const subCommands = (main as unknown as { subCommands?: Record<string, CommandShape | undefined> }).subCommands;
+  const core = subCommands?.['core'];
 
-  it('挂了 watch 子命令，--interval 是字符串，默认 2000', () => {
-    expect(command, 'watch 应存在').toBeTruthy();
-    expect(command?.args?.interval?.type).toBe('string');
-    expect(command?.args?.interval?.default).toBe('2000');
+  it('看护不再是一个可和 serve 并开的命令：watch 子命令已删', () => {
+    expect(subCommands?.['watch']).toBeUndefined();
+  });
+
+  it('core 子命令带 run / start / status / stop / install / uninstall', () => {
+    expect(core, 'core 应存在').toBeTruthy();
+    expect(Object.keys(core?.subCommands ?? {}).sort()).toEqual(
+      ['install', 'run', 'start', 'status', 'stop', 'uninstall'].sort(),
+    );
+    expect(core?.subCommands?.run?.args?.interval?.type).toBe('string');
+    expect(core?.subCommands?.run?.args?.interval?.default).toBe('2000');
   });
 });

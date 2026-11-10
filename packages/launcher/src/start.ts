@@ -356,6 +356,7 @@ export async function startInstanceDetailed(
       cwd: rec.root,
       env,
       stdio: ['ignore', log.fd, log.fd],
+      // 实例要在 core 退出后继续跑：只有脱离当前进程组才不会被一起收掉。
       detached: true,
       windowsHide: true,
       ...(plan.verbatim ? { windowsVerbatimArguments: true } : {}),
@@ -539,10 +540,21 @@ async function waitForReady(
 /* ---------- 守护 ---------- */
 
 /**
+ * 这一进程正按「子进程退出事件」看护的 pid。
+ * core 之外没人再做事件看护；轮询看护（watch.ts）跳过这些 pid，同一个实例不会有两个监督者。
+ */
+const supervisedPids = new Set<number>();
+
+export function isSupervisedPid(pid: number | undefined): boolean {
+  return typeof pid === 'number' && supervisedPids.has(pid);
+}
+
+/**
  * 进程退出就把结果写进记录（退出码、信号），on-failure 的实例按退避重起。
- * 只有活在同一个进程里的 PAL（pal serve）能看护；CLI 起完就退出，状态靠下次刷新。
+ * 只有留在同一个进程里的看护者能拿到退出事件——现在只有 core 会调它。
  */
 export function attachSupervisor(record: InstanceRecord, tracker: ExitTracker): void {
+  if (record.pid !== undefined) supervisedPids.add(record.pid);
   void tracker.wait(24 * 60 * 60 * 1000).then(async (info) => {
     if (!info) return;
     await onExit(record, info);
@@ -550,6 +562,14 @@ export function attachSupervisor(record: InstanceRecord, tracker: ExitTracker): 
 }
 
 async function onExit(record: InstanceRecord, info: ExitInfo): Promise<void> {
+  try {
+    await handleExit(record, info);
+  } finally {
+    if (record.pid !== undefined) supervisedPids.delete(record.pid);
+  }
+}
+
+async function handleExit(record: InstanceRecord, info: ExitInfo): Promise<void> {
   const current = readInstance(record.id);
   if (!current) return;
   // 主动停止：stopInstance 在 kill 之前落了标记。onExit 可能比 stopInstance 收尾更早到，

@@ -118,6 +118,14 @@ function homeBase(): string {
   return palHomeInfo().home;
 }
 
+/**
+ * PAL 自己的数据目录（core.json / core.lock / core.log 落这里）。
+ * 与实例无关：core 是 PAL 的一份，不是某个实例的。
+ */
+export function palHome(): string {
+  return homeBase();
+}
+
 /** PAL 自己的配置：新实例的默认隔离策略放这里（不是任何实例的配置）。 */
 export function palConfigFile(): string {
   return join(homeBase(), 'config.json');
