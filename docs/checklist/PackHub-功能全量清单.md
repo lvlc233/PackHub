@@ -27,8 +27,8 @@
 | TRU | 安全与信任 | 签名、凭据、许可、可见性 |
 | OPS | 工程与运维 | 测试、构建、CI、镜像、文档 |
 | X | 跨切面 | Windows、编码、代理、并发、性能 |
-| PAL | 实例启动器 | 把 Pack 装进独立实例根，按宿主起停、看护、体检；`packages/launcher` + `apps/pal-desktop` |
-| PAL-TODO | PAL 审计待办 | 2026-11-09 审计剩余 37 条（A–D 组 + Electron 迁移），见 [PAL 审计待办](PAL-审计待办.md) |
+| PAL | 实例启动器 | 把 Pack 装进独立实例根，按宿主起停、看护、体检；`packages/launcher` + `apps/pal-electron` |
+| PAL-TODO | PAL 审计待办 | 2026-11-09 审计剩余 4 条（D1/D7/E4 + A11 切换），见 [PAL 审计待办](PAL-审计待办.md) |
 | AUD | 全系统审计 | 命令/参数/状态/发布/市场/同步的漏项，见 [系统全量审计](系统全量审计.md) |
 | NA | 不属于本项目的部分 | 防止把“没有”当“漏做” |
 
@@ -276,7 +276,7 @@
 
 ## 14 PAL ｜实例启动器
 
-PAL 是 `packages/launcher` 里的实例内核 + Windows 壳（`apps/pal-desktop`）。它把 Pack 装进独立的实例根，并按宿主起停进程；细节见 [details/pal.md](details/pal.md)，待办见 [PAL 审计待办](PAL-审计待办.md)。
+PAL 是 `packages/launcher` 里的实例内核 + Electron 壳（`apps/pal-electron`）。它把 Pack 装进独立的实例根，并按宿主起停进程；细节见 [details/pal.md](details/pal.md)，待办见 [PAL 审计待办](PAL-审计待办.md)。
 
 | 编号 | 功能点 | 能观察到的事实 | 现状 | 证据/缺口 |
 |---|---|---|---|---|

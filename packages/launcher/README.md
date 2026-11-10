@@ -2,7 +2,7 @@
 
 把 Pack 装进一个独立的实例，并按宿主把它跑起来：`建实例 → 起 dsh → 停进程`。实例有自己的 home、端口、日志和基线，所以同一台机器上可以并存多个互不干扰的 agent 环境。
 
-用户面的入口是 `pal` 命令和本地界面（`pal serve`，Windows 上还有 `apps/pal-desktop` 的壳）。
+用户面的入口是 `pal` 命令和本地界面（`pal serve`，桌面壳是 `apps/pal-electron`）。
 
 ## 上手
 

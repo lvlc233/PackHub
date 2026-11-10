@@ -1,6 +1,6 @@
 # PAL 实例启动器
 
-PAL 把 Pack 装进一个独立实例根，并按宿主起停进程。代码在 `packages/launcher`（内核 + CLI + 本地界面），桌面壳在 `apps/pal-electron`（新）与 `apps/pal-desktop`（旧，待退役）。
+PAL 把 Pack 装进一个独立实例根，并按宿主起停进程。代码在 `packages/launcher`（内核 + CLI + 本地界面），桌面壳在 `apps/pal-electron`。
 
 ## 三层边界
 
@@ -143,12 +143,11 @@ Pack 里的 `type: mcp` 资源安装时写进实例的 `.packhub/config.json`（
 
 ## CI
 
-`.github/workflows/pal.yml`：Ubuntu 跑 `pnpm check`（含 PAL 内核测试）+ `pal:bundle`（esbuild 单文件）+ `pal:smoke`（起服务 → 建实例 → 体检 → 删）；Windows 跑全量测试 + `build:pal-desktop` + `Pal.exe --smoke` + 用分发里的 `runtime/node.exe` 跑 `pal.cjs doctor`。
+`.github/workflows/pal.yml`：Ubuntu 跑 `pnpm check`（含 PAL 内核测试）+ `pal:bundle`（esbuild 单文件）+ `pal:smoke`（起服务 → 建实例 → 体检 → 删）；Windows 跑全量测试 + `pal:smoke`。
 
 ## 缺口
 
 - 系统级守护只有 `pal watch`（headless 进程），没有 Windows 服务/开机自启；`pal watch` 与 `pal serve` 二选一。
-- 旧壳 `apps/pal-desktop` 仍在，E4 退役前两套壳并存。
 - 运行时只记录、展示，不切换：`baseline.json` 记下建/更新实例时的 node 版本，`pal doctor` 报当前运行时，`pal health` 的 `runtime` 检查在版本变过时只提醒；不支持切换（0.x 只承诺 Windows，见 E5）；跨盘迁移要手动搬。
 - 侧车传输固定 HTTP + token（E3 决定保留），stdio / 内部 RPC 未做。
 - 0.x 只承诺 Windows（E5）；POSIX 的进程组/信号/路径假设未审。

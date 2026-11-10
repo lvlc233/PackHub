@@ -5,13 +5,13 @@ on:
     branches: [main]
     paths:
       - 'packages/launcher/**'
-      - 'apps/pal-desktop/**'
+      - 'apps/pal-electron/**'
       - 'scripts/pal/**'
       - '.github/workflows/pal.yml'
   pull_request:
     paths:
       - 'packages/launcher/**'
-      - 'apps/pal-desktop/**'
+      - 'apps/pal-electron/**'
       - 'scripts/pal/**'
       - '.github/workflows/pal.yml'
   workflow_dispatch:
@@ -46,7 +46,7 @@ jobs:
       - name: 端到端冒烟（起服务 → 建 → 体检 → 删）
         run: pnpm pal:smoke
 
-  desktop:
+  windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -57,24 +57,11 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: 8.0.x
 
       - run: pnpm install --frozen-lockfile
 
       - name: Windows 全量测试（路径、垫片、权限位）
         run: pnpm check
 
-      - name: 打包 Windows 壳（Pal.exe + runtime + web）
-        run: pnpm build:pal-desktop
-
-      - name: 壳的自检（起侧车并回报地址）
-        run: |
-          dist\pal-desktop\Pal.exe --smoke --log tmp\pal-smoke.log
-          Get-Content tmp\pal-smoke.log
-
-      - name: 分发里 launcher 能独立跑
-        run: |
-          $env:PACKHUB_HOME = "$PWD\tmp\pal-dist-home"
-          & .\dist\pal-desktop\runtime\node.exe .\dist\pal-desktop\runtime\pal.cjs doctor --json
+      - name: Windows 端到端冒烟
+        run: pnpm pal:smoke
