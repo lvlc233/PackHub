@@ -5,7 +5,7 @@ import { installPack, loadLock, loadPack, loadState, withLockPins } from '@packh
 import { ADAPTERS, targetVarsFor } from './layout.ts';
 import { baselineFromState, writeBaseline } from './baseline.ts';
 import { withInstanceLock } from './lock.ts';
-import { API_VERSION, readRecord, recordFile, type InstanceRecord } from './records.ts';
+import { API_VERSION, readRecord, recordFile, runtimeFile, type InstanceRecord } from './records.ts';
 import { assertIsolationSupported, parseIsolation, type Isolation } from './isolation.ts';
 import { readPalConfig } from './config.ts';
 import { dropActive, readActiveMap, writeActiveMap } from './catalog.ts';
@@ -293,9 +293,10 @@ export async function createInstance(opts: CreateInstanceOptions): Promise<Insta
     const record = readRecord(root);
     if (record) writeInstance({ ...record, status: 'failed', lastError: { ...reason, at: nowIso() } });
     if (existed) {
-      // 复用已有目录：只把配置摘掉，目录本身和里面的东西一概不动
+      // 复用已有目录：只把 PAL 的记录（配置 + 运行态）摘掉，目录本身和里面的东西一概不动
       try {
         rmSync(recordFile(root), { force: true });
+        rmSync(runtimeFile(root), { force: true });
       } catch {
         /* 摘不掉就留着 failed 记录，至少能查能删 */
       }
