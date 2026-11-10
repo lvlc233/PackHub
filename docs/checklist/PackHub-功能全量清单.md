@@ -306,7 +306,7 @@ PAL 是 `packages/launcher` 里的实例内核 + Electron 壳（`apps/pal-electr
 | PAL-22 | 看护 | `pal serve` 期间按 on-failure 退避重起；`pal watch` 提供 headless 看护（与 serve 二选一）；没有 Windows 服务/开机自启 | [part] | `watch.ts`；`docs/checklist/details/pal.md` 缺口 |
 | PAL-23 | 运行时管理 | 记录/展示 node 版本（baseline、doctor、health），不切换；0.x 单运行时是范围决定 | [na] | A11 / E5 决策 |
 | PAL-24 | 界面的实例流转 | 详情页「更多」有克隆/改名/迁移/导出，新建对话框有接管/导入 | [done] | `web/app.js`、`server.ts` |
-| PAL-25 | 数据目录 | 优先级：`PACKHUB_HOME` → `pal config --home` 指针 → 旧版 `~/.packhub` → 便携 `data/` → 系统默认；`pal config` 显示来源，`doctor` 报当前目录 | [done] | `paths.ts`、`cli.ts`、`test/home.test.ts` |
+| PAL-25 | 数据目录 | 优先级：`PACKHUB_HOME` → `pal config --home` 指针 → 便携 `data/` → 系统默认；`pal config` 显示来源，`doctor` 报当前目录 | [done] | `paths.ts`、`cli.ts`、`test/home.test.ts` |
 | PAL-26 | 跨盘迁移 | 同盘 rename；跨盘 `EXDEV` 自动复制到目标盘临时目录再落位，写记录后删旧根；复制/删根失败都回滚，不留两个根 | [done] | `migrate.ts`、`test/instance.test.ts` |
 
 ## 缺口汇总

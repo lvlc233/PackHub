@@ -16,9 +16,10 @@ PAL 的数据（实例、取包缓存、备份、导出模板、全局配置）�
 
 1. `PACKHUB_HOME`：显式覆盖，测试与多环境都用它；
 2. `pal config --home <绝对路径>` 写下的选择（指针在 `%LOCALAPPDATA%\PackHub\location.json`，与数据目录本身分开存）；
-3. 旧版默认 `~/.packhub`：存在就沿用，升级不会让已有实例突然消失；
-4. 便携默认：打包后的 `pal.cjs` 同级 `data/`，目录可写时才用；
-5. 系统默认：Windows `%LOCALAPPDATA%\PackHub`，其它平台 `~/.packhub`。
+3. 便携默认：打包后的 `pal.cjs` 同级 `data/`，目录可写时才用；
+4. 系统默认：Windows `%LOCALAPPDATA%\PackHub`，其它平台 `~/.packhub`。
+
+没有旧版 `~/.packhub` 兼容层：0.x 还没人用，不参与解析。
 
 `pal config` 会显示当前数据目录与来源。`--home` 只改“以后往哪写”，不搬已有数据；当前目录里还有数据（实例、缓存、备份或配置）时默认拒绝（确认不再需要可加 `--force`），搬数据用 `pal backup` / `pal restore` 或手动搬整个目录。`PACKHUB_INSTANCES` 仍可单独指定实例根，压过 `<数据目录>/instances`。
 

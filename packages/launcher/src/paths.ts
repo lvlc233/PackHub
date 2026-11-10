@@ -11,17 +11,17 @@ import { PalError } from './errors.ts';
  * 数据目录（PAL home）按下面的顺序决定，先命中先赢：
  *   1. `PACKHUB_HOME`：显式覆盖，测试与多环境都用它；
  *   2. `pal config --home` 写过的手动选择（location.json）；
- *   3. 旧版默认 `~/.packhub`（存在就沿用，别让升级把已有实例弄丢）；
- *   4. 便携默认：打包后的 `pal.cjs` 同级 `data/`，目录可写时才用；
- *   5. 系统默认：Windows `%LOCALAPPDATA%\PackHub`，其它平台 `~/.packhub`。
+ *   3. 便携默认：打包后的 `pal.cjs` 同级 `data/`，目录可写时才用；
+ *   4. 系统默认：Windows `%LOCALAPPDATA%\PackHub`，其它平台 `~/.packhub`。
+ *
+ * 没有旧版兼容层：0.x 还没人用，旧路径不参与解析，少一条分支。
  */
 
-export type PalHomeSource = 'env' | 'pointer' | 'legacy' | 'portable' | 'default';
+export type PalHomeSource = 'env' | 'pointer' | 'portable' | 'default';
 
 export const HOME_SOURCE_LABEL: Record<PalHomeSource, string> = {
   env: '环境变量 PACKHUB_HOME',
   pointer: '自定义（location.json）',
-  legacy: '旧版默认（~/.packhub）',
   portable: '便携（程序目录旁）',
   default: '系统默认',
 };
@@ -29,8 +29,6 @@ export const HOME_SOURCE_LABEL: Record<PalHomeSource, string> = {
 export interface HomeChoiceInput {
   env?: string;
   pointerHome?: string;
-  legacy: string;
-  legacyExists: boolean;
   portable?: string;
   portableWritable?: boolean;
   fallback: string;
@@ -45,7 +43,6 @@ export function choosePalHome(input: HomeChoiceInput): { home: string; source: P
   if (env) return { home: resolve(env), source: 'env' };
   const pointer = input.pointerHome?.trim();
   if (pointer && isAbsolute(pointer)) return { home: resolve(pointer), source: 'pointer' };
-  if (input.legacyExists) return { home: resolve(input.legacy), source: 'legacy' };
   if (input.portable && input.portableWritable) return { home: resolve(input.portable), source: 'portable' };
   return { home: resolve(input.fallback), source: 'default' };
 }
@@ -55,12 +52,12 @@ function localAppData(): string {
   return value ? resolve(value) : join(homedir(), 'AppData', 'Local');
 }
 
-function legacyHome(): string {
+function posixHome(): string {
   return join(homedir(), '.packhub');
 }
 
 function fallbackHome(): string {
-  return process.platform === 'win32' ? join(localAppData(), 'PackHub') : legacyHome();
+  return process.platform === 'win32' ? join(localAppData(), 'PackHub') : posixHome();
 }
 
 /**
@@ -111,8 +108,6 @@ export function palHomeInfo(): PalHomeInfo {
   return choosePalHome({
     env: process.env.PACKHUB_HOME,
     pointerHome: readPointerHome(),
-    legacy: legacyHome(),
-    legacyExists: existsSync(legacyHome()),
     ...(portable ? { portable } : {}),
     portableWritable: portable !== undefined && canWrite(dirname(portable)),
     fallback: fallbackHome(),

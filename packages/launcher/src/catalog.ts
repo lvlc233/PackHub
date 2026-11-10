@@ -27,8 +27,7 @@ export function scanInstances(): InstanceScan {
   const broken: InstanceScan['broken'] = [];
   const seen = new Set<string>();
   for (const entry of readdirSync(base, { withFileTypes: true })) {
-    // `exports` 是旧版默认导出目录：它没有 instance.json，不能当坏记录隔离
-    if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'exports') continue;
+    if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
     const dir = join(base, entry.name);
     const read = readRecordResult(dir);
     if (read.record) {

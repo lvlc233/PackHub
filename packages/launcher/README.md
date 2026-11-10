@@ -21,7 +21,7 @@ pnpm pal remove demo --keep-data                  # 先卸包，再把剩下的�
 
 `pnpm pal serve` 起本地界面：实例列表、创建（可选包与版本）、启停、体检、日志、删除（可保留数据）。
 
-数据默认放在哪：先看 `PACKHUB_HOME`，再看 `pal config --home` 记下的选择，再看旧版 `~/.packhub`；打包后的 `pal.cjs` 在没有旧数据时默认用程序目录旁的 `data/`。`pal config` 会显示当前目录与来源，`pal config --home D:\PackHubData` 改选择（不搬已有数据）。
+数据默认放在哪：先看 `PACKHUB_HOME`，再看 `pal config --home` 记下的选择；打包后的 `pal.cjs` 默认用程序目录旁的 `data/`，否则用系统默认（Windows `%LOCALAPPDATA%\PackHub`）。`pal config` 会显示当前目录与来源，`pal config --home D:\PackHubData` 改选择（不搬已有数据）。
 
 ## 代码在哪
 

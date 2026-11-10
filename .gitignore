@@ -7,6 +7,3 @@ dist/
 !registry/packs/**/*.phub
 .tmp/
 tmp/
-apps/pal-desktop/bin/
-apps/pal-desktop/obj/
-apps/pal-desktop/*.user
