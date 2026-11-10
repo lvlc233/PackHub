@@ -45,7 +45,7 @@
 | D2 | 外壳边界：launcher 直接 `installPack` 与「外壳只依赖 kernel/runtime」的说明不一致；要么改文档承认 launcher 是装配外壳，要么把编排下沉 | 无 |
 | D7 | 桌面壳优雅退出：先请求 `pal serve` 关闭，再收进程；现在两套壳都是 `/T /F` | E3 |
 | A11 | 运行时版本管理：当前分发自带 node，不能切换；先记录/展示版本，再谈多版本 | 无 |
-| E4 | 退役 `apps/pal-desktop`：删目录前需要你点头 | E1 可用 |
+| E4 | 退役 `apps/pal-desktop`：已获批准并删除（`bfe21fd`） | E1 可用 |
 
 ## 三、如果你说「按建议继续」
 

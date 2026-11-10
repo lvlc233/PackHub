@@ -1,6 +1,6 @@
 # PAL 审计待办（37 条）
 
-> 日期：2026-11-09 ／ 基线：`6d4cf2f`，`pnpm check` 全绿 ／ 口径：2026-11-09 的 PAL 全量审计 50 条，已关闭 47 条（A 12、B 16、C 12、D 7），本文只记**原始剩余 3 条**与 E 组未完成的 1 条（E4），共 **4 条**。
+> 日期：2026-11-09 ／ 基线：`bfe21fd`，`pnpm check` 全绿 ／ 口径：2026-11-09 的 PAL 全量审计 50 条，已关闭 48 条（A 12、B 16、C 12、D 8），本文只记**剩余 2 条**（A11 切换、D1 持久化）。
 > 需要拍板的四组语义（A3/B12/E3/E5）与结构项顺序见 [PAL-剩余决策](PAL-剩余决策.md)。
 > 用途：跨会话派工，不依赖聊天记录。编号沿用审计原号，新增组往后排，**不重排、不复用**。
 > 相关：功能现状见 [PackHub-功能全量清单](PackHub-功能全量清单.md) 的 PAL 域，机制细节见 [details/pal.md](details/pal.md)。本表只记待办，做完就改状态；现状描述不在这里续写。
@@ -63,7 +63,7 @@
 | D3 | `ADAPTERS` 缺能力字段 | 新增 `credentialFiles`（dsh/claude/codex）+ `credentialRels`；备份默认排除、keepData 归档前删除宿主凭据文件（与 secrets.json 同一策略） | `[done]` d40ea05 | A3 |
 | D4 | 实例 id 是「时间戳 + 随机后缀」 | `newId`（`paths.ts`）改为 14 位时间戳 + 12 位 crypto 十六进制；旧 id 不迁移，两种并存可读 | `[done]` 8a02c18 | 无 |
 | D5 | 错误文案回显绝对路径 | 错误消息改为 `details`/`hint`，message 不再拼 root/home（`create/migrate/remove/update` 等） | `[done]` 65e2183 | 无 |
-| D7 | 桌面壳 `taskkill /F` 硬杀 | 新壳：`pal serve --exit-on-stdin-close`，Electron 先 `stdin.end()` 等 1.5s，再 `taskkill /T /F` 兜底；旧 `apps/pal-desktop` 仍硬杀，随 E4 退役 | `[part]` 087c940 | E3/A10 |
+| D7 | 桌面壳 `taskkill /F` 硬杀 | 新壳先 `stdin.end()` 等 1.5s 再兜底硬收；旧 `apps/pal-desktop` 已随 E4 删除 | `[done]` bfe21fd | E3/A10 |
 | D9 | 取包缓存 slug 只截末 40 字符 | `slug()` 现在拼完整引用的 sha256 前 10 hex；旧缓存目录被弃用，等 A4 清理 | `[done]` 9793c18 | A4 |
 
 ## E 组：Electron 工作流（5 条）
@@ -73,7 +73,7 @@
 | E1 | 最小 Electron 壳 | `apps/pal-electron`：spawn `pal serve --json`、读地址、窗口加载；侧车异常有可见错误。pnpm 跳过 electron postinstall，二进制要手动补一次（README 已写） | `[done]` e48ea2d | 无 |
 | E2 | 前端 API 层抽离 + IPC 桥 | `web/api.js` 是唯一 API 入口：浏览器 fetch、Electron 走 `pal.request`；`forward.mjs` 校验 `/api/` 路径并补 `x-pal-client`/`origin`；页面代码不动即可换传输 | `[done]` 2f4bd2e | E3 只改 transport 与 forward |
 | E3 | 侧车传输收敛 | 决定保留 HTTP + token（仅 127.0.0.1，token 只校验 `/api/*`）；stdio / 内部 RPC 留作以后，不在 0.x 做 | `[done]` 本次文档 | E1、E2 |
-| E4 | 退役 WinForms/WebView2 壳 | 删 `apps/pal-desktop/*.cs`；同步 `README.md`、`.github/workflows/pal.yml`、`build:pal-desktop` 与分发脚本 | `[open]` | E1 可用后 |
+| E4 | 退役 WinForms/WebView2 壳 | 删除 `apps/pal-desktop`、`scripts/pal/build-desktop.mjs` 与 `build:pal-desktop`；CI 只保留 Windows `pnpm check` + `pal:smoke`；README/功能清单同步 | `[done]` bfe21fd | E1 可用 |
 | E5 | 打包范围 | 决定 0.x 只承诺 Windows；POSIX 进程组/信号/路径假设未审，跨平台另开 | `[done]` 本次文档 | E1 |
 
 ## N 组：本轮实现暴露的（5 条）
@@ -93,11 +93,11 @@
 | A | A11 | 1 |
 | B | — | 0 |
 | C | — | 0 |
-| D | D1、D7 | 2 |
-| 小计 | 原始剩余 | **3** |
-| E | E4 | 1 |
+| D | D1 | 1 |
+| 小计 | 原始剩余 | **2** |
+| E | — | 0 |
 | N | — | 0 |
-| 合计 |  | **4** |
+| 合计 |  | **2** |
 
 ## 建议开工顺序
 
@@ -114,7 +114,7 @@ Electron 这条线独立于 A–D：先 **E1**（壳能起来），再 **E2**（
 
 新会话开场可直接写：
 
-> 继续 PackHub PAL 审计剩余 4 条，仓库在 `6d4cf2f`。A1–A10/A12/A13/B1–B16/C1–C12/D3/E1–E3/E5/N2 已完成；A11 记录/展示版本（不切换）；剩 D1 持久化、D7 旧壳、E4 删旧壳（需你点头）。
+> 继续 PackHub PAL 审计剩余 2 条，仓库在 `bfe21fd`。A1–A10/A12/A13/B1–B16/C1–C12/D2–D9/E1–E5/N2 已完成；A11 记录版本不切换；D1 待拆 `runtime.json`。
 
 ## 完成判据
 
