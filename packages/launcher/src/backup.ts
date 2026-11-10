@@ -11,7 +11,7 @@ import {
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { TargetId } from '@packhub/kernel';
 import { PalError } from './errors.ts';
-import { API_VERSION, readRecordResult, type InstanceRecord } from './records.ts';
+import { API_VERSION, RUNTIME, readRecordResult, type InstanceRecord } from './records.ts';
 import { writeInstance } from './recordWrite.ts';
 import { requireInstance } from './catalog.ts';
 import { ADAPTERS, credentialRels } from './layout.ts';
@@ -25,9 +25,10 @@ import { assertExternalRoot, assertHarness, assertNameFree } from './validators.
 /**
  * 整实例备份与恢复：目录快照，不引 tar 依赖。
  *
- * 备份就是「把实例根原样拷一份」：excluded 的只有运行痕迹（锁、停止标记、logs/）与凭据 ——
+ * 备份就是「把实例根原样拷一份」：excluded 的只有运行痕迹（锁、停止标记、logs/、runtime.json）与凭据 ——
  * 根里的 secrets.json，以及宿主自己的凭据文件（`ADAPTERS.credentialFiles`，如 auth.json）。
- * 凭据默认不带——对齐 A3 的 copy 方向，要带必须显式 includeSecrets。
+ * 凭据默认不带——对齐 A3 的 copy 方向，要带必须显式 includeSecrets；
+ * runtime.json 是运行态，不跟凭据走、也不跟着恢复（includeSecrets 也不带）。
  *
  * 恢复总是生成一份新实例：新 id、新根（显式 root 只收外部目录），记录整体重写；
  * 备份目录里的 backup.json 是信封，不进实例根。
@@ -38,7 +39,7 @@ import { assertExternalRoot, assertHarness, assertNameFree } from './validators.
 export const BACKUP_FILE = 'backup.json';
 export const BACKUP_API_VERSION = 'packhub.dev/instance-backup/v0';
 
-/** 备份信封：身份摘要 + 是否带凭据 + 文件数；记录本体在备份目录的 instance.json 里。 */
+/** 备份信封：身份摘要 + 是否带凭据 + 文件数；配置本体在备份目录的 instance.json 里（运行态不备份）。 */
 export interface BackupMeta {
   apiVersion: typeof BACKUP_API_VERSION;
   instance: {
@@ -114,8 +115,8 @@ function countFiles(dir: string): number {
   return total;
 }
 
-/** 运行痕迹：备份与恢复都不搬。`logs/` 只排实例根这一层。 */
-const SKIP_RUNTIME = new Set([LOCK, STOPPING_MARK, 'logs', 'secrets.json']);
+/** 运行痕迹：备份与恢复都不搬。`logs/` 只排实例根这一层；runtime.json 是运行态，永不进备份。 */
+const SKIP_RUNTIME = new Set([LOCK, STOPPING_MARK, 'logs', RUNTIME, 'secrets.json']);
 
 /**
  * cpSync 的过滤器：按「相对实例根」的路径判断，绝不接受解析后落到根外的条目
@@ -275,7 +276,7 @@ export function restoreBackup(dir: string, opts: RestoreOptions = {}): InstanceR
   const source = requireBackupDir(dir);
   const meta = readBackupMeta(source);
 
-  // 记录本体在备份目录的 instance.json 里：root / home 还是旧路径，下面全部重写
+  // 配置本体在备份目录的 instance.json 里（runtime.json 不进备份）：root / home 还是旧路径，下面全部重写
   const read = readRecordResult(source);
   if (!read.record) {
     throw new PalError('invalid-input', `备份里的实例记录读不了：${read.error ?? '未知原因'}`, {

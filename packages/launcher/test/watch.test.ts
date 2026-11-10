@@ -3,6 +3,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync }
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { InstanceRecord } from '../src/records.ts';
+import { readRecord } from '../src/records.ts';
+import { writeInstance } from '../src/recordWrite.ts';
 import { readEvents } from '../src/logs.ts';
 import { main } from '../src/cli.ts';
 import { DEFAULT_WATCH_INTERVAL_MS, watchLoop, watchOnce } from '../src/watch.ts';
@@ -34,20 +36,13 @@ function writeRecord(id: string, overrides: Partial<InstanceRecord> = {}): strin
 }
 
 function readRecordFile(id: string): InstanceRecord {
-  return JSON.parse(readFileSync(join(instancesDir, id, 'instance.json'), 'utf8')) as InstanceRecord;
+  // 记录拆成 instance.json + runtime.json 后，按合并视图读；不要再直接解析 instance.json 拿 status
+  return readRecord(join(instancesDir, id))!;
 }
 
 function writeRunning(id: string, pid: number): void {
-  const rec = readRecordFile(id);
-  writeFileSync(
-    join(instancesDir, id, 'instance.json'),
-    JSON.stringify(
-      { ...rec, status: 'running', pid, port: 43001, url: `http://127.0.0.1:43001` },
-      null,
-      2,
-    ) + '\n',
-    'utf8',
-  );
+  const rec = readRecord(join(instancesDir, id))!;
+  writeInstance({ ...rec, status: 'running', pid, port: 43001, url: `http://127.0.0.1:43001` });
 }
 
 function eventsOf(id: string): Array<Record<string, unknown>> {

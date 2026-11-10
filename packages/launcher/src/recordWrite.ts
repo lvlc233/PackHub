@@ -1,11 +1,11 @@
 import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
-import { API_VERSION, recordFile, type InstanceRecord } from './records.ts';
+import { API_VERSION, partitionRecord, recordFile, runtimeFile, type InstanceRecord } from './records.ts';
 import { nowIso } from './time.ts';
 import { instancesRoot } from './paths.ts';
 
 /**
- * 写实例记录：记录本体（recordFile/API_VERSION/读取）在 records.ts，这里只放带副作用的写。
+ * 写实例记录：记录本体（recordFile/runtimeFile/API_VERSION/读取）在 records.ts，这里只放带副作用的写。
  * 写记录同时维护 .links 指针，所以它不能待在纯读模块里；也不从入口模块 import（避免循环）。
  */
 
@@ -41,13 +41,11 @@ export function removeLink(id: string): void {
   rmSync(linkFile(id), { force: true });
 }
 
-/** 原子写：临时文件 + rename。写到一半崩溃只会留临时文件，不会留半份配置。 */
-export function writeInstance(record: InstanceRecord): void {
-  const next: InstanceRecord = { ...record, apiVersion: API_VERSION, updatedAt: nowIso() };
-  const file = recordFile(record.root);
+/** 原子写：临时文件 + rename。写到一半崩溃只会留临时文件，不会留半份 JSON。 */
+function writeAtomic(file: string, value: unknown): void {
   mkdirSync(dirname(file), { recursive: true });
   const tmp = `${file}.tmp-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
-  writeFileSync(tmp, JSON.stringify(next, null, 2) + '\n', 'utf8');
+  writeFileSync(tmp, JSON.stringify(value, null, 2) + '\n', 'utf8');
   try {
     renameSync(tmp, file);
   } catch (err) {
@@ -58,6 +56,18 @@ export function writeInstance(record: InstanceRecord): void {
     }
     throw err;
   }
+}
+
+/**
+ * 写记录：拆成 config（instance.json）与 runtime（runtime.json）两份，各自原子。
+ * 先写 runtime 再写 instance：崩在中间时 runtime 是新的、config 是旧的；
+ * 读取以 runtime 为准，运行态不会丢，配置也还是原来那份能读的。
+ */
+export function writeInstance(record: InstanceRecord): void {
+  const next: InstanceRecord = { ...record, apiVersion: API_VERSION, updatedAt: nowIso() };
+  const { config, runtime } = partitionRecord(next);
+  writeAtomic(runtimeFile(next.root), runtime);
+  writeAtomic(recordFile(next.root), config);
   record.updatedAt = next.updatedAt;
   writeLink(next);
 }

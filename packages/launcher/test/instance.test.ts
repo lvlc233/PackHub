@@ -27,8 +27,10 @@ import {
   renameInstance,
   scanInstances,
   updateInstance,
+  writeInstance,
   writeTemplate,
 } from '../src/index.ts';
+import { runtimeFile } from '../src/records.ts';
 import { isPalError } from '../src/errors.ts';
 import { DEFAULT_ISOLATION, type Isolation } from '../src/isolation.ts';
 import { writePalConfig } from '../src/config.ts';
@@ -49,7 +51,7 @@ const fsBlock = vi.hoisted(() => ({ root: '' }));
  * 改名竞态：在写实例锁的那一刻删掉 instance.json，模拟「等锁期间记录被别的进程 remove」。
  * 和 fsBlock 一样用开关，只有对应用例打开时才生效。
  */
-const fsRemoveOnLock = vi.hoisted(() => ({ lockFile: '', recordFile: '' }));
+const fsRemoveOnLock = vi.hoisted(() => ({ lockFile: '', recordFile: '', runtimeFile: '' }));
 
 /**
  * 静默失败（C7）的现场：让指定文件的 cpSync / rmSync 抛错，其他路径照常。
@@ -88,6 +90,7 @@ vi.mock('node:fs', async (importOriginal) => {
     writeFileSync: ((file: string, data: unknown, options?: unknown) => {
       if (fsRemoveOnLock.lockFile !== '' && String(file) === fsRemoveOnLock.lockFile) {
         actual.rmSync(fsRemoveOnLock.recordFile, { force: true });
+        if (fsRemoveOnLock.runtimeFile !== '') actual.rmSync(fsRemoveOnLock.runtimeFile, { force: true });
       }
       return actual.writeFileSync(file, data as never, options as never);
     }) as typeof actual.writeFileSync,
@@ -106,6 +109,7 @@ beforeEach(() => {
 afterEach(() => {
   fsRemoveOnLock.lockFile = '';
   fsRemoveOnLock.recordFile = '';
+  fsRemoveOnLock.runtimeFile = '';
   fsCopyFail.src = '';
   fsRmFail.file = '';
   delete process.env.PACKHUB_INSTANCES;
@@ -185,6 +189,21 @@ describe('实例配置', () => {
     expect(result.removed).toBe(true);
     expect(listInstances()).toEqual([]);
     expect(existsSync(record.root)).toBe(false);
+  });
+
+  it('新建实例：instance.json 只存配置，运行态在 runtime.json', async () => {
+    const record = await createInstance({ name: 'split', harness: 'dir', packDir: PACK });
+    const config = JSON.parse(readFileSync(join(record.root, 'instance.json'), 'utf8')) as Record<string, unknown>;
+    const runtime = JSON.parse(readFileSync(runtimeFile(record.root), 'utf8')) as Record<string, unknown>;
+
+    for (const key of ['status', 'pid', 'port', 'url', 'startedAt', 'lastExit', 'lastError', 'ports']) {
+      expect(key in config).toBe(false);
+    }
+    expect(runtime.status).toBe('installed');
+    expect(runtime.ports).toEqual([]);
+    expect(config).toMatchObject({ id: record.id, name: 'split', managed: true });
+    expect(typeof config.updatedAt).toBe('string');
+    expect(readInstance(record.id)?.status).toBe('installed');
   });
 
   it('显式 root：建在给的外部目录，记录与列表都指向它；相对路径与实例根以内一律拒绝', async () => {
@@ -385,6 +404,20 @@ describe('实例配置', () => {
     expect(reason).toContain('instance.json');
   });
 
+  it('runtime.json 损坏也算坏记录：readRecordResult / scan / 隔离口径一致', async () => {
+    const record = await createInstance({ name: 'bad-runtime', harness: 'dir', packDir: PACK });
+    writeFileSync(runtimeFile(record.root), '{ not json', 'utf8');
+
+    const read = readRecordResult(record.root);
+    expect(read.record).toBeUndefined();
+    expect(read.error).toContain('runtime.json');
+    expect(scanInstances().broken.map((bad) => bad.dir)).toContain(record.root);
+
+    const rows = listInstances();
+    expect(rows.map((row) => row.id)).not.toContain(record.id);
+    expect(existsSync(record.root)).toBe(false);
+  });
+
   it('建实例失败：复用已有目录时不删目录；自己建的根移进失败区', async () => {
     const reuse = join(tmp, 'reuse-root');
     mkdirSync(reuse, { recursive: true });
@@ -410,11 +443,7 @@ describe('实例配置', () => {
     const record = await createInstance({ name: 'busy-one', harness: 'dsh', packDir: PACK });
     const killed: number[] = [];
     // 让记录看起来在跑：删除必须调 kill 并等进程退出，再直接删根
-    writeFileSync(
-      join(record.root, 'instance.json'),
-      JSON.stringify({ ...readInstance(record.id)!, status: 'running', pid: 4242, port: 41234 }, null, 2),
-      'utf8',
-    );
+    writeInstance({ ...readInstance(record.id)!, status: 'running', pid: 4242, port: 41234 });
     let alive = true;
     const result = await removeInstance('busy-one', {
       isAlive: () => alive,
@@ -435,15 +464,13 @@ describe('实例配置', () => {
   it('删除运行中的 on-failure 实例：kill 时带停止标记，删完不留', async () => {
     const record = await createInstance({ name: 'restarting', harness: 'dsh', packDir: PACK });
     // 造一个会被看护重起的记录：删除如果不落标记，serve 里的 onExit 会把它拉起来
-    writeFileSync(
-      join(record.root, 'instance.json'),
-      JSON.stringify(
-        { ...readInstance(record.id)!, status: 'running', pid: 4343, port: 41235, restart: 'on-failure' },
-        null,
-        2,
-      ),
-      'utf8',
-    );
+    writeInstance({
+      ...readInstance(record.id)!,
+      status: 'running',
+      pid: 4343,
+      port: 41235,
+      restart: 'on-failure',
+    });
     const markFile = stoppingMarkFile(record.root);
     let alive = true;
     const result = await removeInstance('restarting', {
@@ -463,15 +490,13 @@ describe('实例配置', () => {
 
   it('删除失败（kill 后进程还活）也要清掉停止标记', async () => {
     const record = await createInstance({ name: 'stuck-remove', harness: 'dsh', packDir: PACK });
-    writeFileSync(
-      join(record.root, 'instance.json'),
-      JSON.stringify(
-        { ...readInstance(record.id)!, status: 'running', pid: 4344, port: 41236, restart: 'on-failure' },
-        null,
-        2,
-      ),
-      'utf8',
-    );
+    writeInstance({
+      ...readInstance(record.id)!,
+      status: 'running',
+      pid: 4344,
+      port: 41236,
+      restart: 'on-failure',
+    });
     const markFile = stoppingMarkFile(record.root);
     let caught: unknown;
     try {
@@ -497,22 +522,14 @@ describe('实例配置', () => {
 
   it('删除运行中的实例：只杀 PAL 自己 spawn 的进程，端口主人不动', async () => {
     const record = await createInstance({ name: 'pid-split', harness: 'dsh', packDir: PACK });
-    writeFileSync(
-      join(record.root, 'instance.json'),
-      JSON.stringify(
-        {
-          ...readInstance(record.id)!,
-          status: 'running',
-          pid: 9999,
-          spawnPid: 9999,
-          listenPid: 4321,
-          port: 41238,
-        },
-        null,
-        2,
-      ),
-      'utf8',
-    );
+    writeInstance({
+      ...readInstance(record.id)!,
+      status: 'running',
+      pid: 9999,
+      spawnPid: 9999,
+      listenPid: 4321,
+      port: 41238,
+    });
     const killed: number[] = [];
     let alive = true;
     const result = await removeInstance('pid-split', {
@@ -531,15 +548,7 @@ describe('实例配置', () => {
 
   it('删除运行中的实例：记录 pid 与端口主人对不上就拒杀，记录与根原样留着', async () => {
     const record = await createInstance({ name: 'pid-suspect', harness: 'dsh', packDir: PACK });
-    writeFileSync(
-      join(record.root, 'instance.json'),
-      JSON.stringify(
-        { ...readInstance(record.id)!, status: 'running', pid: 4321, port: 41239 },
-        null,
-        2,
-      ),
-      'utf8',
-    );
+    writeInstance({ ...readInstance(record.id)!, status: 'running', pid: 4321, port: 41239 });
     const killed: number[] = [];
     let caught: unknown;
     try {
@@ -560,15 +569,13 @@ describe('实例配置', () => {
 
   it('keepData 搬根不把停止标记带进归档', async () => {
     const record = await createInstance({ name: 'archive-marked', harness: 'dsh', packDir: PACK });
-    writeFileSync(
-      join(record.root, 'instance.json'),
-      JSON.stringify(
-        { ...readInstance(record.id)!, status: 'running', pid: 4345, port: 41237, restart: 'on-failure' },
-        null,
-        2,
-      ),
-      'utf8',
-    );
+    writeInstance({
+      ...readInstance(record.id)!,
+      status: 'running',
+      pid: 4345,
+      port: 41237,
+      restart: 'on-failure',
+    });
     let alive = true;
     const result = await removeInstance('archive-marked', {
       keepData: true,
@@ -848,8 +855,9 @@ describe('实例配置', () => {
 
   it('改名：等锁期间记录被删掉就抛 unknown-instance，不把实例写回来', async () => {
     const rec = await createInstance({ name: 'rename-gone', harness: 'dir', packDir: PACK });
-    // requireInstance 已经看到记录；模拟另一个进程在写锁前（锁内重读前）remove 掉 instance.json
+    // requireInstance 已经看到记录；模拟另一个进程在写锁前（锁内重读前）remove 掉记录文件
     fsRemoveOnLock.recordFile = join(rec.root, 'instance.json');
+    fsRemoveOnLock.runtimeFile = runtimeFile(rec.root);
     fsRemoveOnLock.lockFile = join(rec.root, '.pal-lock.json');
 
     let caught: unknown;
@@ -862,6 +870,7 @@ describe('实例配置', () => {
     if (isPalError(caught)) expect(caught.code).toBe('unknown-instance');
     // 记录没有被旧内存写回来
     expect(existsSync(fsRemoveOnLock.recordFile)).toBe(false);
+    expect(existsSync(fsRemoveOnLock.runtimeFile)).toBe(false);
     // 锁也照常放掉
     expect(existsSync(fsRemoveOnLock.lockFile)).toBe(false);
   });
@@ -1186,11 +1195,7 @@ resources:
 
   it('运行中的实例拒绝更新', async () => {
     const rec = await createInstance({ name: 'run-upd', harness: 'dsh', packDir: 'examples/doc-review' });
-    writeFileSync(
-      join(rec.root, 'instance.json'),
-      JSON.stringify({ ...readInstance(rec.id)!, status: 'running', pid: process.pid }, null, 2),
-      'utf8',
-    );
+    writeInstance({ ...readInstance(rec.id)!, status: 'running', pid: process.pid });
     await expect(updateInstance('run-upd', { packDir: 'examples/doc-review' })).rejects.toThrow('先停掉再更新');
   });
 

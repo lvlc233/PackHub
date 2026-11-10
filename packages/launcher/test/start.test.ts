@@ -431,11 +431,7 @@ resources:
 
   it('进程已经不在的记录会被刷新成异常，不会一直显示在跑', async () => {
     const rec = await createInstance({ name: 'stale', harness: 'dsh', packDir: 'examples/doc-review' });
-    writeFileSync(
-      join(rec.root, 'instance.json'),
-      JSON.stringify({ ...requireInstance(rec.id), status: 'running', pid: 777777, port: 1 }, null, 2),
-      'utf8',
-    );
+    writeInstance({ ...requireInstance(rec.id), status: 'running', pid: 777777, port: 1 });
     const rows = refreshStatuses(() => false);
     expect(rows.find((row) => row.id === rec.id)?.status).toBe('broken');
     expect(rows.find((row) => row.id === rec.id)?.pid).toBeUndefined();
@@ -456,16 +452,13 @@ resources:
 
 describe('状态视图（stale 只读不写）', () => {
   /** 把记录改成「说在跑」的现场：pid 给了就带上端口/url，没给就是 pid 缺席。 */
-  async function runningRecord(name: string, pid?: number): Promise<{ id: string; file: string }> {
+  async function runningRecord(name: string, pid?: number): Promise<{ id: string; file: string; runtimeFile: string }> {
     const rec = await createInstance({ name, harness: 'dsh', packDir: 'examples/doc-review' });
     const file = join(rec.root, 'instance.json');
+    const runtimeFile = join(rec.root, 'runtime.json');
     const runtime = pid === undefined ? {} : { pid, port: 5123, url: 'http://127.0.0.1:5123/' };
-    writeFileSync(
-      file,
-      JSON.stringify({ ...requireInstance(rec.id), status: 'running', ...runtime }, null, 2),
-      'utf8',
-    );
-    return { id: rec.id, file };
+    writeInstance({ ...requireInstance(rec.id), status: 'running', ...runtime });
+    return { id: rec.id, file, runtimeFile };
   }
 
   it('running + pid 已死：视图给 broken + stale，记录文件内容与 mtime 不变', async () => {
@@ -503,12 +496,12 @@ describe('状态视图（stale 只读不写）', () => {
   });
 
   it('refreshStatuses 落盘：status 写 broken，记录里没有 stale 字段', async () => {
-    const { id, file } = await runningRecord('view-refresh', 777777);
+    const { id, runtimeFile } = await runningRecord('view-refresh', 777777);
 
     const rows = refreshStatuses(() => false);
 
     expect(rows.find((row) => row.id === id)?.status).toBe('broken');
-    const persisted = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+    const persisted = JSON.parse(readFileSync(runtimeFile, 'utf8')) as Record<string, unknown>;
     expect(persisted.status).toBe('broken');
     expect('stale' in persisted).toBe(false);
   });

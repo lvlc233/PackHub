@@ -493,17 +493,18 @@ describe('PAL 本地界面 API', () => {
     expect(res.body.code).toBe('not-running');
   });
 
-  it('读列表没有副作用：pid 已死的记录只报告，不改 instance.json、不隔离坏记录', async () => {
+  it('读列表没有副作用：pid 已死的记录只报告，不改记录文件、不隔离坏记录', async () => {
     const rec = await createInstance({ name: 'dead', harness: 'dir', packDir: 'examples/doc-review' });
     const file = join(rec.root, 'instance.json');
-    // 造一个"记录说在跑、进程其实已经不在了"的现场
+    const runtimePath = join(rec.root, 'runtime.json');
+    // 造一个"记录说在跑、进程其实已经不在了"的现场：运行态写在 runtime.json
     writeFileSync(
-      file,
-      JSON.stringify({ ...JSON.parse(readFileSync(file, 'utf8')), status: 'running', pid: 777777, port: 1 }, null, 2) +
-        '\n',
+      runtimePath,
+      JSON.stringify({ status: 'running', pid: 777777, port: 1 }, null, 2) + '\n',
       'utf8',
     );
     const before = readFileSync(file, 'utf8');
+    const runtimeBefore = readFileSync(runtimePath, 'utf8');
 
     // 再放一条真正读不了的坏记录：读列表应该只报告，不把它搬进 .quarantine
     const badDir = join(tmp, 'instances', 'broken-record');
@@ -517,6 +518,7 @@ describe('PAL 本地界面 API', () => {
     expect(row?.stale).toBe(true);
     expect(row?.pid).toBeUndefined();
     expect(readFileSync(file, 'utf8')).toBe(before);
+    expect(readFileSync(runtimePath, 'utf8')).toBe(runtimeBefore);
     expect(list.broken.map((bad: { dir: string }) => bad.dir)).toContain(badDir);
     expect(existsSync(badDir)).toBe(true);
     expect(existsSync(join(tmp, 'instances', '.quarantine'))).toBe(false);

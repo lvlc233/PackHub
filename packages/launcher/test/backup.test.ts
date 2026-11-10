@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
-import { createInstance, listInstances, readInstance, type InstanceRecord } from '../src/index.ts';
+import { createInstance, listInstances, readInstance, writeInstance, type InstanceRecord } from '../src/index.ts';
 import {
   BACKUP_API_VERSION,
   BACKUP_FILE,
@@ -80,8 +80,9 @@ describe('整实例备份', () => {
     expect(meta.fileCount).toBe(result.meta.fileCount);
     expect(meta.fileCount).toBeGreaterThan(0);
 
-    // 实例内容在：记录与 home 文件都能从备份里读到
+    // 实例内容在：配置记录与 home 文件都能从备份里读到；运行态不跟着备份
     expect(existsSync(join(result.dir, 'instance.json'))).toBe(true);
+    expect(existsSync(join(result.dir, 'runtime.json'))).toBe(false);
     expect(readFileSync(join(result.dir, 'home', 'dsh', 'note.txt'), 'utf8')).toBe('hello\n');
     expect(readFileSync(join(result.dir, 'home', 'dsh', 'skills', 'SKILL.md'), 'utf8')).toBe('# skill\n');
     // 凭据与运行痕迹不在
@@ -98,6 +99,16 @@ describe('整实例备份', () => {
       caught = err;
     }
     expect(isPalError(caught) && caught.code).toBe('root-occupied');
+  });
+
+  it('备份默认不含 runtime.json：运行态不跟着恢复，includeSecrets 也不带', async () => {
+    await makeSource();
+    const plain = backupInstance('src', { out: join(tmp, 'no-runtime') });
+    expect(existsSync(join(plain.dir, 'instance.json'))).toBe(true);
+    expect(existsSync(join(plain.dir, 'runtime.json'))).toBe(false);
+
+    const withSecrets = backupInstance('src', { includeSecrets: true, out: join(tmp, 'no-runtime-secrets') });
+    expect(existsSync(join(withSecrets.dir, 'runtime.json'))).toBe(false);
   });
 
   it('includeSecrets 才带 secrets.json（要显式）', async () => {
@@ -140,11 +151,7 @@ describe('整实例备份', () => {
 
   it('运行中的实例拒绝备份（拷一份正在写的 home 没有意义）', async () => {
     const source = await makeSource();
-    writeFileSync(
-      join(source.root, 'instance.json'),
-      JSON.stringify({ ...readInstance(source.id)!, status: 'running', pid: process.pid }, null, 2),
-      'utf8',
-    );
+    writeInstance({ ...readInstance(source.id)!, status: 'running', pid: process.pid });
     let caught: unknown;
     try {
       backupInstance('src');
@@ -189,15 +196,18 @@ describe('从备份恢复', () => {
     // 备份本身没被改动
     expect(existsSync(join(backup.dir, BACKUP_FILE))).toBe(true);
 
-    // 磁盘上的记录与返回值一致：id / name / root / home 全部重写
-    const disk = JSON.parse(readFileSync(join(targetRoot, 'instance.json'), 'utf8')) as InstanceRecord;
+    // 磁盘上的记录与返回值一致：配置写进 instance.json，运行态单独进 runtime.json
+    const disk = JSON.parse(readFileSync(join(targetRoot, 'instance.json'), 'utf8')) as Record<string, unknown>;
     expect(disk.id).toBe(rec.id);
     expect(disk.name).toBe('restored');
     expect(disk.root).toBe(targetRoot);
     expect(disk.home).toBe(join(targetRoot, 'home', 'dsh'));
-    expect(disk.status).toBe('installed');
     expect(disk.managed).toBe(true);
     expect(disk.origin).toEqual({ kind: 'copy', from: source.id });
+    expect('status' in disk).toBe(false);
+    const runtime = JSON.parse(readFileSync(join(targetRoot, 'runtime.json'), 'utf8')) as Record<string, unknown>;
+    expect(runtime.status).toBe('installed');
+    expect(runtime.ports).toEqual([]);
     // 外部根靠 .links 进列表
     expect(readInstance(rec.id)?.root).toBe(targetRoot);
     expect(listInstances().map((row) => row.id)).toContain(rec.id);

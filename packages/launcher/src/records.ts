@@ -8,9 +8,15 @@ import { nowIso } from './time.ts';
  * 实例记录：文件名、记录类型、解析与读取。
  * 只做纯文件读写，依赖 fs/path、time.ts、isolation.ts 和 kernel 的类型；不 import index.ts（避免循环）。
  * 带副作用的写记录在 recordWrite.ts；列表、隔离区与归档仍在 index.ts。
+ *
+ * 持久化分两份：instance.json 只存 InstanceConfig，runtime.json 只存 RuntimeState。
+ * 旧记录（运行态字段还在 instance.json、没有 runtime.json）读取时按 legacy 合并回来；
+ * 下一次写记录会自动拆成两份。
  */
 
 export const RECORD = 'instance.json';
+/** 运行态单独一份：进程/端口/地址不该跟着备份恢复，也不该混在配置里。 */
+export const RUNTIME = 'runtime.json';
 export const API_VERSION = 'packhub.dev/instance/v1';
 
 export type InstanceStatus =
@@ -54,7 +60,7 @@ export interface InstanceConfig {
 /**
  * 运行态：进程、端口、地址与最近一次退出/报错。
  * 只随启停与看护变化。`ports` 在类型上是可选的（旧记录/手写记录可能没有），
- * 读取时 `parseRecord` 会归一到 `[]`；写回时按存在性带，避免给旧记录凭空补字段。
+ * 读取时 `parseRuntime` 会归一到 `[]`；写回时按存在性带，避免给旧记录凭空补字段。
  */
 export interface RuntimeState {
   status: InstanceStatus;
@@ -79,10 +85,24 @@ export interface RuntimeState {
 }
 
 /**
- * 一条实例记录 = 配置 + 运行态。持久化仍是同一个 instance.json（兼容旧记录），
- * 类型上先分开，将来要落单独文件时只需换读写层。
+ * 一条实例记录 = 配置 + 运行态。读的时候合并成这一条；写的时候拆开落两个文件：
+ * instance.json 只写 InstanceConfig，runtime.json 只写 RuntimeState。
  */
 export interface InstanceRecord extends InstanceConfig, RuntimeState {}
+
+/** 运行态字段清单：拆分配置时按它剔除，也是「哪些字段只在 runtime.json」的唯一口径。 */
+const RUNTIME_KEYS = [
+  'status',
+  'pid',
+  'spawnPid',
+  'listenPid',
+  'port',
+  'ports',
+  'url',
+  'startedAt',
+  'lastExit',
+  'lastError',
+] as const;
 
 /**
  * 把一条记录拆成配置与运行态。用剩余展开而不是逐字段重建：
@@ -132,30 +152,84 @@ export function recordFile(root: string): string {
   return join(root, RECORD);
 }
 
-function parseRecord(root: string, text: string): InstanceRecord {
-  // 旧记录可能带 planHash：事实只在 baseline.json，读的时候直接丢掉，写回时也不会再带上
-  const data = JSON.parse(text) as InstanceRecord & { planHash?: unknown };
-  if (!data || typeof data !== 'object' || typeof data.id !== 'string' || typeof data.name !== 'string') {
-    throw new Error('记录缺字段');
+export function runtimeFile(root: string): string {
+  return join(root, RUNTIME);
+}
+
+/** 读一个 JSON 对象；数组/标量都不算记录。 */
+function jsonObject(text: string): Record<string, unknown> {
+  const data = JSON.parse(text) as unknown;
+  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('内容不是对象');
+  return data as Record<string, unknown>;
+}
+
+/** instance.json 必须有身份字段；缺了就是坏记录，不能拿默认值蒙混。 */
+function instanceData(text: string): Record<string, unknown> {
+  const data = jsonObject(text);
+  if (typeof data.id !== 'string' || typeof data.name !== 'string') throw new Error('记录缺字段');
+  return data;
+}
+
+/**
+ * 运行态归一：status 缺省 installed，ports 缺省 []；
+ * pid 证据只认有限数字，手写/旧记录里的坏值直接丢掉，宁可当没有，也不当证据。
+ */
+function runtimeFrom(data: Record<string, unknown>): RuntimeState {
+  const runtime: RuntimeState = {
+    status: (typeof data.status === 'string' && data.status !== '' ? data.status : 'installed') as InstanceStatus,
+    ports: Array.isArray(data.ports) ? (data.ports as number[]) : [],
+  };
+  if (data.pid !== undefined) runtime.pid = data.pid as number;
+  if (data.port !== undefined) runtime.port = data.port as number;
+  if (data.url !== undefined) runtime.url = data.url as string;
+  if (data.startedAt !== undefined) runtime.startedAt = data.startedAt as string;
+  if (data.lastExit !== undefined) runtime.lastExit = data.lastExit as RuntimeState['lastExit'];
+  if (data.lastError !== undefined) runtime.lastError = data.lastError as RuntimeState['lastError'];
+  for (const key of ['spawnPid', 'listenPid'] as const) {
+    const pid = data[key];
+    if (typeof pid === 'number' && Number.isFinite(pid)) runtime[key] = pid;
   }
-  delete data.planHash;
-  const harness = (data.harness ?? 'dir') as TargetId;
-  const normalized: InstanceRecord = {
-    ...data,
+  return runtime;
+}
+
+/**
+ * 把 instance.json 的原始对象归一成一条记录：运行态字段也一起收，legacy 读取要用。
+ * 旧记录可能带 planHash：事实只在 baseline.json，读的时候直接丢掉，写回时也不会再带上。
+ */
+function normalizeRecord(root: string, data: Record<string, unknown>): InstanceRecord {
+  const config: Record<string, unknown> = { ...data };
+  for (const key of RUNTIME_KEYS) delete config[key];
+  delete config.planHash;
+  return {
+    ...(config as unknown as InstanceConfig),
     apiVersion: API_VERSION,
-    harness,
-    root: data.root ?? root,
-    updatedAt: data.updatedAt ?? data.createdAt ?? nowIso(),
-    managed: data.managed ?? true,
-    ports: Array.isArray(data.ports) ? data.ports : [],
-    pack: data.pack ?? { name: 'unknown', version: '0.0.0' },
+    harness: (data.harness as TargetId | undefined) ?? 'dir',
+    root: typeof data.root === 'string' ? data.root : root,
+    updatedAt:
+      typeof data.updatedAt === 'string'
+        ? data.updatedAt
+        : typeof data.createdAt === 'string'
+          ? data.createdAt
+          : nowIso(),
+    managed: typeof data.managed === 'boolean' ? data.managed : true,
+    pack: (data.pack as InstanceConfig['pack'] | undefined) ?? { name: 'unknown', version: '0.0.0' },
     // 隔离策略坏了不至于让整份记录变坏记录：解析不了就按默认策略读
     isolation: parseIsolation(data.isolation) ?? DEFAULT_ISOLATION,
+    ...runtimeFrom(data),
   };
-  // pid 证据只认数字：手写/旧记录里的坏值直接丢掉，宁可当没有，也不当证据
-  if (typeof normalized.spawnPid !== 'number' || !Number.isFinite(normalized.spawnPid)) delete normalized.spawnPid;
-  if (typeof normalized.listenPid !== 'number' || !Number.isFinite(normalized.listenPid)) delete normalized.listenPid;
-  return normalized;
+}
+
+/**
+ * 解析 instance.json（配置半份）。旧记录里还带着运行态字段也认：这里只取配置；
+ * 运行态由 readRecordResult 决定（有 runtime.json 用 runtime.json，没有就从 instance.json 取）。
+ */
+export function parseConfig(root: string, text: string): InstanceConfig {
+  return partitionRecord(normalizeRecord(root, instanceData(text))).config;
+}
+
+/** 解析 runtime.json（运行态半份）。坏 JSON 由调用方当坏记录处理，不静默丢。 */
+export function parseRuntime(text: string): RuntimeState {
+  return runtimeFrom(jsonObject(text));
 }
 
 export interface RecordRead {
@@ -167,10 +241,25 @@ export interface RecordRead {
 export function readRecordResult(root: string): RecordRead {
   const file = recordFile(root);
   if (!existsSync(file)) return { error: '没有 instance.json' };
+
+  let legacy: InstanceRecord;
+  let config: InstanceConfig;
   try {
-    return { record: parseRecord(root, readFileSync(file, 'utf8')) };
+    legacy = normalizeRecord(root, instanceData(readFileSync(file, 'utf8')));
+    config = partitionRecord(legacy).config;
   } catch (err) {
     return { error: `instance.json 读不了：${(err as Error).message}` };
+  }
+
+  // 旧记录：运行态还在 instance.json 里，没有 runtime.json
+  const runtimePath = runtimeFile(root);
+  if (!existsSync(runtimePath)) return { record: legacy };
+
+  // 新格式：instance.json 只提供配置，runtime.json 提供运行态；runtime 坏就算坏记录
+  try {
+    return { record: mergeRecord(config, parseRuntime(readFileSync(runtimePath, 'utf8'))) };
+  } catch (err) {
+    return { error: `runtime.json 读不了：${(err as Error).message}` };
   }
 }
 

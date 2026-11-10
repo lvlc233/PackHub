@@ -1,18 +1,38 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   API_VERSION,
   mergeRecord,
   partitionRecord,
+  readRecordResult,
+  recordFile,
+  runtimeFile,
   type InstanceConfig,
   type InstanceRecord,
   type RuntimeState,
 } from '../src/records.ts';
+import { writeInstance } from '../src/recordWrite.ts';
 
 /**
- * 记录的类型分层：配置（InstanceConfig）与运行态（RuntimeState）只是类型上分开，
- * 持久化仍是同一个 instance.json。这里守两件事：往返不丢字段（含可选缺省与未知字段），
- * 以及拆分不把两边的字段混到对方那半。
+ * 记录的类型分层与持久化拆分：配置（InstanceConfig）进 instance.json，运行态（RuntimeState）进 runtime.json；
+ * 旧记录（两者还在 instance.json 里）读取兼容，写一次自动迁移。
+ * 这里守：往返不丢字段、拆文件不混字段、旧记录可读、runtime.json 坏了算坏记录。
  */
+
+const RUNTIME_KEYS = [
+  'status',
+  'pid',
+  'spawnPid',
+  'listenPid',
+  'port',
+  'ports',
+  'url',
+  'startedAt',
+  'lastExit',
+  'lastError',
+];
 
 function minimalRecord(): InstanceRecord {
   return {
@@ -171,5 +191,93 @@ describe('记录分层：partitionRecord / mergeRecord', () => {
     expect(merged.status).toBe('broken');
     expect(merged.ports).toEqual([1]);
     expect(merged.managed).toBe(false);
+  });
+});
+
+describe('持久化拆分：instance.json（配置）+ runtime.json（运行态）', () => {
+  let tmp: string;
+  let root: string;
+
+  beforeEach(() => {
+    tmp = mkdtempSync(join(tmpdir(), 'pal-records-'));
+    process.env.PACKHUB_HOME = join(tmp, 'home');
+    process.env.PACKHUB_INSTANCES = join(tmp, 'instances');
+    root = join(tmp, 'instances', 'demo');
+  });
+
+  afterEach(() => {
+    delete process.env.PACKHUB_HOME;
+    delete process.env.PACKHUB_INSTANCES;
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  function readJson(file: string): Record<string, unknown> {
+    return JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+  }
+
+  it('新记录：instance.json 只有配置，status/ports 在 runtime.json', () => {
+    const rec = { ...minimalRecord(), root };
+    writeInstance(rec);
+
+    const config = readJson(recordFile(root));
+    const runtime = readJson(runtimeFile(root));
+    for (const key of RUNTIME_KEYS) expect(key in config).toBe(false);
+    expect(runtime.status).toBe('installed');
+    expect(runtime.ports).toEqual([]);
+    expect('id' in runtime).toBe(false);
+    expect('root' in runtime).toBe(false);
+    expect(config).toMatchObject({ id: rec.id, name: 'demo', root, managed: true });
+
+    const back = readRecordResult(root);
+    expect(back.error).toBeUndefined();
+    expect(back.record).toMatchObject({ id: rec.id, name: 'demo', root, status: 'installed', ports: [] });
+  });
+
+  it('旧格式（运行态在 instance.json、没有 runtime.json）可读；写一次就迁移成两份', () => {
+    const legacy = { ...fullRecord(), root };
+    mkdirSync(root, { recursive: true });
+    writeFileSync(recordFile(root), JSON.stringify(legacy, null, 2) + '\n', 'utf8');
+    expect(existsSync(runtimeFile(root))).toBe(false);
+
+    const read = readRecordResult(root);
+    expect(read.error).toBeUndefined();
+    expect(read.record?.status).toBe('running');
+    expect(read.record?.pid).toBe(4321);
+    expect(read.record?.ports).toEqual([5000, 5123]);
+
+    writeInstance(read.record!);
+
+    expect(existsSync(runtimeFile(root))).toBe(true);
+    const config = readJson(recordFile(root));
+    const runtime = readJson(runtimeFile(root));
+    for (const key of RUNTIME_KEYS) expect(key in config).toBe(false);
+    expect(runtime).toMatchObject({
+      status: 'running',
+      pid: 4321,
+      spawnPid: 9999,
+      listenPid: 4321,
+      port: 5123,
+      ports: [5000, 5123],
+    });
+    expect(config).toMatchObject({ id: legacy.id, name: legacy.name, pack: legacy.pack, isolation: legacy.isolation });
+    expect(readRecordResult(root).record).toMatchObject({ status: 'running', pid: 4321, ports: [5000, 5123] });
+  });
+
+  it('runtime.json 损坏 → 记录算坏（problem），不静默丢运行态', () => {
+    writeInstance({ ...minimalRecord(), root });
+    writeFileSync(runtimeFile(root), '{ not json', 'utf8');
+
+    const read = readRecordResult(root);
+    expect(read.record).toBeUndefined();
+    expect(read.error).toContain('runtime.json');
+  });
+
+  it('runtime.json 不是对象也算坏记录；缺 instance.json 仍报没有记录', () => {
+    writeInstance({ ...minimalRecord(), root });
+    writeFileSync(runtimeFile(root), '[]', 'utf8');
+    expect(readRecordResult(root).error).toContain('runtime.json');
+
+    rmSync(recordFile(root));
+    expect(readRecordResult(root).error).toContain('没有 instance.json');
   });
 });
