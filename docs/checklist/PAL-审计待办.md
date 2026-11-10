@@ -1,6 +1,6 @@
 # PAL 审计待办（37 条）
 
-> 日期：2026-11-09 ／ 基线：`bfe21fd`，`pnpm check` 全绿 ／ 口径：2026-11-09 的 PAL 全量审计 50 条，已关闭 48 条（A 12、B 16、C 12、D 8），本文只记**剩余 2 条**（A11 切换、D1 持久化）。
+> 日期：2026-11-09 ／ 基线：`726056a`，`pnpm check` 全绿 ／ 口径：2026-11-09 的 PAL 全量审计 50 条，已关闭 **50 条**；E 组 E1–E5、N 组 N1–N5 也已全部收口。本文保留为历史记录与证据索引。
 > 需要拍板的四组语义（A3/B12/E3/E5）与结构项顺序见 [PAL-剩余决策](PAL-剩余决策.md)。
 > 用途：跨会话派工，不依赖聊天记录。编号沿用审计原号，新增组往后排，**不重排、不复用**。
 > 相关：功能现状见 [PackHub-功能全量清单](PackHub-功能全量清单.md) 的 PAL 域，机制细节见 [details/pal.md](details/pal.md)。本表只记待办，做完就改状态；现状描述不在这里续写。
@@ -33,7 +33,7 @@
 | A8 | 没有整实例快照 / 备份 / 恢复 | `pal backup <id> [--include-secrets]` 目录快照到 `PACKHUB_HOME/backups`；`pal restore <dir> [--name] [--root]` 重写 id/root/home 后恢复 | `[done]` 71e0b94 | 无 |
 | A9 | 没有发现 / 导入已有实例 | `pal scan <dir> [--depth] [--json]` 只读识别三类：instance.json / packhub.yaml / .packhub/state.json；`scan.ts` + test | `[done]` dae2efc | 无 |
 | A10 | 系统级看护缺失 | `pal watch [--interval]`：headless 轮询 scanInstances，对 running 但 pid 已死的记录按 on-failure 预算重起，否则写 broken；与 `pal serve` 二选一 | `[done]` 6fea5d6 | 无 |
-| A11 | 没有运行时版本管理 | 第一步：baseline 记 node 版本、`pal doctor` 展示（文本/JSON）、体检在版本变化时给 warn；不支持切换（0.x Windows-only，见 E5） | `[part]` 6d4cf2f | 无 |
+| A11 | 没有运行时版本管理 | 0.x 定为单运行时（随分发自带 node）：baseline 记录版本、`pal doctor` 展示、体检在版本变过时告警；不支持切换是范围决定（与 E5 Windows-only 一致） | `[done]` 6d4cf2f | 无 |
 | A12 | 没有并发多实例管理面 | `pal ps [--json]`：running/pid 实例、端口冲突、stale、坏记录与总计；纯读不写盘（`ps.ts`） | `[done]` 1ea038c | 无 |
 | A13 | 决策没写回文档 | `pal.md` 已写清隔离五层/默认/覆盖/快照与凭据 copy/shared-ro 拒绝、归档/备份剥离；`concepts.md` 未动（你的未提交文件） | `[done]` 0d4f6d6 | A3 |
 
@@ -58,7 +58,7 @@
 
 | 编号 | 事项 | 位置 / 证据 | 状态 | 前置 |
 |---|---|---|---|---|
-| D1 | 记录同时是配置与运行态 | 类型已拆 `InstanceConfig` / `RuntimeState` + `partitionRecord`/`mergeRecord`；持久化仍是同一个 `instance.json`（兼容旧记录），拆文件待后续 | `[part]` 5b18904 | A1 |
+| D1 | 记录同时是配置与运行态 | 运行态拆到 `runtime.json`，`instance.json` 只留配置；写两份各自原子（先 runtime 后 config），旧记录读取时合并、写一次自动迁移；备份默认不含 runtime | `[done]` 726056a | A1 |
 | D2 | 外壳边界糊 | `pal.md` 明确三层：PackHub CLI / PAL launcher（装配外壳，可调 runtime.installPack）/ 桌面壳（只起 serve、不碰实例文件）；不设限定的「外壳」指桌面壳 | `[done]` 本次文档 | 无 |
 | D3 | `ADAPTERS` 缺能力字段 | 新增 `credentialFiles`（dsh/claude/codex）+ `credentialRels`；备份默认排除、keepData 归档前删除宿主凭据文件（与 secrets.json 同一策略） | `[done]` d40ea05 | A3 |
 | D4 | 实例 id 是「时间戳 + 随机后缀」 | `newId`（`paths.ts`）改为 14 位时间戳 + 12 位 crypto 十六进制；旧 id 不迁移，两种并存可读 | `[done]` 8a02c18 | 无 |
@@ -90,14 +90,14 @@
 
 | 组 | 编号 | 条数 |
 |---|---|---|
-| A | A11 | 1 |
+| A | — | 0 |
 | B | — | 0 |
 | C | — | 0 |
-| D | D1 | 1 |
-| 小计 | 原始剩余 | **2** |
+| D | — | 0 |
+| 小计 | 原始剩余 | **0** |
 | E | — | 0 |
 | N | — | 0 |
-| 合计 |  | **2** |
+| 合计 |  | **0** |
 
 ## 建议开工顺序
 
@@ -114,7 +114,7 @@ Electron 这条线独立于 A–D：先 **E1**（壳能起来），再 **E2**（
 
 新会话开场可直接写：
 
-> 继续 PackHub PAL 审计剩余 2 条，仓库在 `bfe21fd`。A1–A10/A12/A13/B1–B16/C1–C12/D2–D9/E1–E5/N2 已完成；A11 记录版本不切换；D1 待拆 `runtime.json`。
+> 收口：50 条已全部关闭（46 条原始审计 + A/E/N 相关项），仓库在 `726056a`；最终 `pnpm check` 与 `pal:smoke` 见收口报告。
 
 ## 完成判据
 
