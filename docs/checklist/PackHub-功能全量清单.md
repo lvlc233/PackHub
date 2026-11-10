@@ -276,7 +276,7 @@
 
 ## 14 PAL ｜实例启动器
 
-PAL 是 `packages/launcher` 里的实例内核 + Electron 壳（`apps/pal-electron`）。它把 Pack 装进独立的实例根，并按宿主起停进程；细节见 [details/pal.md](details/pal.md)，待办见 [PAL 审计待办](PAL-审计待办.md)。
+PAL 是 `packages/launcher` 里的实例内核 + Electron 壳（`apps/pal-electron`）。它把 Pack 装进独立的实例根，并按宿主起停进程；细节见 [details/pal.md](details/pal.md)，审计收口记录见 [PAL 审计待办](PAL-审计待办.md)。
 
 | 编号 | 功能点 | 能观察到的事实 | 现状 | 证据/缺口 |
 |---|---|---|---|---|
@@ -321,7 +321,7 @@ PAL 域剩下的缺口（不算阻断）：
 - PAL-22：系统级拉起靠用户任务计划（登录后生效，每分钟兜底）；没有做 Windows 服务（要管理员）。
 - PAL-23：运行时只记录、展示，不切换（0.x 只承诺 Windows，单运行时是范围决定）。
 
-PAL 域的完整待办（隔离策略、缓存管理、Electron 迁移等）见 [PAL 审计待办](PAL-审计待办.md)。
+PAL 域的审计记录（隔离策略、缓存管理、Electron 迁移等）见 [PAL 审计待办](PAL-审计待办.md)。
 
 另有几条非阻断的运维建议，不算功能缺口：
 
@@ -344,7 +344,7 @@ PAL 域的完整待办（隔离策略、缓存管理、Electron 迁移等）见 
 | [details/sync.md](details/sync.md) | 全局 harness 同步的落点、state、安全与缺口 |
 | [details/windows.md](details/windows.md) | 路径、BOM、代理、PowerShell、tar |
 | [details/pal.md](details/pal.md) | 实例根布局、启停与看护、错误码、HTTP 面、dsh MCP 接线、界面刷新策略、CI |
-| [PAL-审计待办.md](PAL-审计待办.md) | PAL 剩余 37 条待办（隔离/凭据/缓存/看护、Electron 迁移、清理项）的编号、证据与顺序 |
+| [PAL-审计待办.md](PAL-审计待办.md) | PAL 审计 50 条的收口记录与 commit 证据（历史） |
 
 ## 退出码
 

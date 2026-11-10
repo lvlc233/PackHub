@@ -49,9 +49,9 @@ PAL 的数据（实例、取包缓存、备份、导出模板、全局配置）�
 
 记录里的 `isolation` 描述五层各自怎么放：`assembly`（Pack 装出来的文件）、`session`（会话/缓存）、`credentials`（凭据）、`cache`（取包缓存）、`runtime`（宿主运行时）。每层两种模式：`instance`（这个实例独有）或 `shared`（跟宿主共用）。默认值见 `isolation.ts`：`assembly`/`session`/`credentials` 为 `instance`，`cache`/`runtime` 为 `shared`。
 
-默认策略存在 `<PACKHUB_HOME>/config.json` 的 `isolation`；`pal create --isolation assembly=shared,session=instance` 可显式覆盖，`pal config` 可看/改默认。策略在**建实例那一刻**快照进记录，之后改全局默认不追溯已有实例；`pal adopt` 也按当时的默认值记一份。配置里缺策略或策略值坏了回落默认。凭据只支持 copy（每实例一份，建实例时从已有 home 复制）；shared-ro 未实现，策略里写 `credentials=shared` 会在写任何东西之前被拒绝（`invalid-input`，提示改回 `credentials=instance`）；`keepData` 归档与备份默认剥离 `secrets.json`，宿主凭据文件（`ADAPTERS.credentialFiles`：dsh 的 `.credentials.yaml` / `auth.json`，claude-code 的 `auth.json` / `.credentials.json`，codex 的 `auth.json`）按同一份清单剥离，只匹配适配器 home 段内的路径；备份要带凭据得显式 `--include-secrets`。
+默认策略存在 `<数据目录>/config.json` 的 `isolation`；`pal create --isolation assembly=shared,session=instance` 可显式覆盖，`pal config` 可看/改默认。策略在**建实例那一刻**快照进记录，之后改全局默认不追溯已有实例；`pal adopt` 也按当时的默认值记一份。配置里缺策略或策略值坏了回落默认。凭据只支持 copy（每实例一份，建实例时从已有 home 复制）；shared-ro 未实现，策略里写 `credentials=shared` 会在写任何东西之前被拒绝（`invalid-input`，提示改回 `credentials=instance`）；`keepData` 归档与备份默认剥离 `secrets.json`，宿主凭据文件（`ADAPTERS.credentialFiles`：dsh 的 `.credentials.yaml` / `auth.json`，claude-code 的 `auth.json` / `.credentials.json`，codex 的 `auth.json`）按同一份清单剥离，只匹配适配器 home 段内的路径；备份要带凭据得显式 `--include-secrets`。
 
-改 `<PACKHUB_HOME>/config.json` 的默认只影响之后新建的实例：已有实例保持创建时那份快照，改默认不动它，也没有原地迁移工具。要换策略就 `pal create --isolation` 新建；`pal clone` 沿用源实例的策略，换不了策略。这是有意取舍，不是功能缺口：按新策略重排一个装好、可能正在跑的 home，要么挪丢文件，要么在不可知的时刻半途失败，而换一次策略的代价本来就只是新建一次实例；`pal migrate` 仍只负责挪根，不碰 home 布局。写默认值时也会先校验：`credentials=shared` 这类未实现的值直接 `invalid-input`，不落盘、不改原文件，`pal config` 设置那一刻就拦住，不必等到 `pal create`。
+改 `<数据目录>/config.json` 的默认只影响之后新建的实例：已有实例保持创建时那份快照，改默认不动它，也没有原地迁移工具。要换策略就 `pal create --isolation` 新建；`pal clone` 沿用源实例的策略，换不了策略。这是有意取舍，不是功能缺口：按新策略重排一个装好、可能正在跑的 home，要么挪丢文件，要么在不可知的时刻半途失败，而换一次策略的代价本来就只是新建一次实例；`pal migrate` 仍只负责挪根，不碰 home 布局。写默认值时也会先校验：`credentials=shared` 这类未实现的值直接 `invalid-input`，不落盘、不改原文件，`pal config` 设置那一刻就拦住，不必等到 `pal create`。
 
 ## 记录与状态
 持久化分两份：`instance.json` 只存配置：`id`、`name`、`harness`、`harnessVersion`、`root`、`home`、`pack{name,version,ref}`、`managed`、`origin`、`isolation`、`restart`、`maxRestarts`、`createdAt`、`updatedAt`；`runtime.json` 只存运行态：`status`、`pid`、`spawnPid`、`listenPid`、`port`、`ports[]`、`url`（已摘凭据）、`startedAt`、`lastExit{code,signal,at,restarts}`、`lastError`。`InstanceRecord` 是两者之和；`records.ts` 的 `partitionRecord` / `mergeRecord` 负责拆分与合回，`parseConfig` / `parseRuntime` 分别解析两份。缺 `runtime.json` 直接算坏记录，没有旧格式合并；`runtime.json` 损坏同样按坏记录处理，不静默丢运行态。`planHash` 只记在 `baseline.json`：`update` 用它判断计划有没有变，没有 baseline 视为已变；配置里多余的 `planHash` 读取时忽略、不再写回。
@@ -86,7 +86,7 @@ PAL 的数据（实例、取包缓存、备份、导出模板、全局配置）�
 5. dsh 实例：把 Pack 的 mcp 资源写成 `home/dsh/pal-mcp.patch.yml`，用 `--patch` 传给宿主（见下）。
 6. spawn 不走 shell 拼串：日志用 `stdio` 的 fd 直接写，`cwd` 是实例根，home 走宿主自己的环境变量。环境也不整份继承：`hostEnv` 只留 PATH/PATHEXT、SystemRoot 等系统项、TEMP、home 与语言变量，代理按原名带上；名字命中 `API_KEY`/`TOKEN`/`SECRET`/`PASSWORD`/`CREDENTIAL` 的、`PACKHUB_*`、`PAL_*` 以及各模型厂商前缀的一律剔除。要额外给，用 `opts.env` 显式补 —— 它最后应用，能覆盖先前的值（包括被剔除的项）。
 7. 从日志里等地址；等不到就收掉进程，并把日志尾部贴进错误里。
-8. 进程证据分两栏：`spawnPid` 是自己 spawn 的（唯一 kill 目标），`listenPid` 是端口反查到的监听者（只作证据）；记录里的 `pid` 是兼容字段，等于 `spawnPid ?? listenPid`。Windows 上 spawn 的是 `.cmd` 垫片，监听者往往是它的子进程。
+8. 进程证据分两栏：`spawnPid` 是自己 spawn 的（唯一 kill 目标），`listenPid` 是端口反查到的监听者（只作证据）；记录里的 `pid` 是兼容字段，等于 `spawnPid ?? listenPid`。Windows 上 spawn 的是 `.cmd` 垫片，监听者往往是它的子进程。没有 `spawnPid` 的记录一律拒杀，`--force` 也不放行。
 9. core 对「自己 spawn 的」实例拿子进程退出事件：记退出码/信号到 `lastExit`，`restart: on-failure` 按 1s/2s/4s… 退避重起，超过 `maxRestarts` 停止。接管来的实例没有子进程句柄，由 core 每 2s 的轮询（`watch.ts`）处理；同一个 pid 只由一边看护（`isSupervisedPid`），轮询跳过它，不会两边各重起一次。
 
 ## dsh 的 MCP 接线

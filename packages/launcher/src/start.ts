@@ -614,8 +614,7 @@ async function handleExit(record: InstanceRecord, info: ExitInfo): Promise<void>
  * - `pid`：兼容字段，= `spawnPid ?? listenPid`，不额外承担 kill 目标语义。
  *
  * 判定只回答「能不能杀、杀谁」：spawnPid 活着就只杀它；进程树没了、端口却换到别人手里就拒杀。
- * 旧记录（没有 spawnPid）里 `pid` 是反查来的监听者，只有端口主人与它一致时才当目标，
- * 其余情况拒杀；`--force` 也只允许退回「按记录里的 pid 处理」，永远不会去杀 listenPid。
+ * 没有 `spawnPid` 的记录无法确认归属，一律拒杀（`--force` 也不放行）。
  */
 export type KillRefusalReason = 'listen-not-ours' | 'pid-suspect';
 
@@ -624,6 +623,8 @@ export interface KillRefusal {
   message: string;
   hint: string;
   details: Record<string, unknown>;
+  /** 连 --force 也不放行：证据缺到没法安全处理 */
+  noForce?: boolean;
 }
 
 export interface KillDecision {
@@ -631,8 +632,6 @@ export interface KillDecision {
   target?: number;
   /** 可疑现场：默认拒杀，由调用方抛 busy */
   refusal?: KillRefusal;
-  /** --force 时允许改用的目标：只可能是记录自己的 pid，永远不会是 listenPid */
-  forceTarget?: number;
   /** 证据对不上但不该改目标的提醒（例如 listenPid 变了） */
   warnings: string[];
 }
@@ -688,36 +687,19 @@ export function killTargetFor(record: InstanceRecord, probe: KillProbe): KillDec
     return { warnings };
   }
 
-  // c. legacy（没有 spawnPid）：`pid` 是旧版反查来的监听者，只能当嫌疑人
+  // c. 没有 spawnPid：无法确认 pid 归属，不杀
   const pid = record.pid;
   if (pid === undefined || !probe.isAlive(pid)) return { warnings };
-  const current = owner();
-  if (current !== undefined && current !== pid) {
-    return {
-      refusal: {
-        reason: 'pid-suspect',
-        message: '监听进程还活着，但不在本实例的进程树里',
-        hint: SUSPECT_HINT,
-        details: { port, pid, owner: current },
-      },
-      warnings,
-    };
-  }
-  if (current === undefined) {
-    // 端口上查不到主人：无法确认 pid 是谁，按可疑处理（--force 才按记录里的 pid 处理）
-    return {
-      refusal: {
-        reason: 'pid-suspect',
-        message: '记录里的 pid 还活着，但端口上查不到主人，没法确认它是本实例的进程',
-        hint: '先确认这个进程；pal stop --force 会按记录里的 pid 处理',
-        details: { port, pid },
-      },
-      forceTarget: pid,
-      warnings,
-    };
-  }
-  // d. 证据一致（端口主人就是记录里的 pid）：按旧行为杀它
-  return { target: pid, warnings };
+  return {
+    refusal: {
+      reason: 'pid-suspect',
+      message: '记录里没有 spawnPid，没法确认这个进程是本实例的',
+      hint: '重起这个实例；不要直接杀记录里的 pid',
+      details: { port, pid },
+      noForce: true,
+    },
+    warnings,
+  };
 }
 
 export interface StopOptions {
@@ -725,7 +707,7 @@ export interface StopOptions {
   isAlive?: (pid: number) => boolean;
   /** 查端口主人；默认走 portOwner（netstat/lsof） */
   ownerOf?: (port: number) => number | undefined;
-  /** 跳过可疑拒杀：仍不会杀 listenPid，只影响「记录里的 pid 能不能当目标」 */
+  /** 跳过「监听者不是本实例」的拒杀；仍不会杀 listenPid，也放不过缺 spawnPid 的记录 */
   force?: boolean;
   timeoutMs?: number;
 }
@@ -749,14 +731,14 @@ export async function stopInstance(idOrName: string, opts: StopOptions = {}): Pr
   const ownerOf = opts.ownerOf ?? ((port: number) => portOwner(port)?.pid);
   const decision = killTargetFor(rec, { isAlive: alive, ownerOf });
   for (const warning of decision.warnings) appendEvent(rec.root, { event: 'pid-mismatch', message: warning });
-  if (decision.refusal && !opts.force) {
+  if (decision.refusal && (!opts.force || decision.refusal.noForce)) {
     throw new PalError('busy', decision.refusal.message, {
       hint: decision.refusal.hint,
       details: decision.refusal.details,
     });
   }
-  // --force 只让「记录里的 pid」变成可杀目标；listenPid 永远不进这里
-  const target = decision.refusal ? decision.forceTarget : decision.target;
+  // --force 只跳过「监听者不是本实例」的拒杀：不杀监听者，只把记录收成 stopped
+  const target = decision.refusal ? undefined : decision.target;
   const stoppingPid = target ?? rec.pid;
   // 标记必须先于 kill 落盘：看护可能活在另一个进程（pal serve）里，它一看到退出就会走 onExit
   markStopping(rec.root, stoppingPid);

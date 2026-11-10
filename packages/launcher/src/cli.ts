@@ -496,7 +496,7 @@ const stop = defineCommand({
     force: {
       type: 'boolean',
       default: false,
-      description: '跳过「可疑 pid」拒杀检查；仍不会杀端口反查到的 listenPid',
+      description: '跳过「监听者不是本实例」的拒杀；记录缺 spawnPid 时仍拒杀，也仍不会杀 listenPid',
     },
     json: { type: 'boolean', default: false },
   },

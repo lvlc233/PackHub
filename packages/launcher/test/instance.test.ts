@@ -250,9 +250,9 @@ describe('实例配置', () => {
     expect(adopted.isolation).toEqual(DEFAULT_ISOLATION);
 
     // 配置里没有 isolation 字段：读出来就是默认策略，不算坏记录
-    const legacy = { ...record } as Record<string, unknown>;
-    delete legacy.isolation;
-    writeFileSync(join(record.root, 'instance.json'), JSON.stringify(legacy, null, 2), 'utf8');
+    const sparse = { ...record } as Record<string, unknown>;
+    delete sparse.isolation;
+    writeFileSync(join(record.root, 'instance.json'), JSON.stringify(sparse, null, 2), 'utf8');
     const read = readRecordResult(record.root);
     expect(read.error).toBeUndefined();
     expect(read.record?.isolation).toEqual(DEFAULT_ISOLATION);
@@ -260,7 +260,7 @@ describe('实例配置', () => {
     // 坏策略也只回落默认，不把整份记录判坏
     writeFileSync(
       join(record.root, 'instance.json'),
-      JSON.stringify({ ...legacy, isolation: { version: 2, layers: {} } }, null, 2),
+      JSON.stringify({ ...sparse, isolation: { version: 2, layers: {} } }, null, 2),
       'utf8',
     );
     const fallback = readRecordResult(record.root);
@@ -444,12 +444,10 @@ describe('实例配置', () => {
     const record = await createInstance({ name: 'busy-one', harness: 'dsh', packDir: PACK });
     const killed: number[] = [];
     // 让记录看起来在跑：删除必须调 kill 并等进程退出，再直接删根
-    writeInstance({ ...readInstance(record.id)!, status: 'running', pid: 4242, port: 41234 });
+    writeInstance({ ...readInstance(record.id)!, status: 'running', pid: 4242, spawnPid: 4242, port: 41234 });
     let alive = true;
     const result = await removeInstance('busy-one', {
       isAlive: () => alive,
-      // 旧记录：端口主人和记录里的 pid 一致，才允许按旧行为停
-      ownerOf: () => 4242,
       kill: (pid) => {
         killed.push(pid);
         alive = false;
@@ -469,6 +467,7 @@ describe('实例配置', () => {
       ...readInstance(record.id)!,
       status: 'running',
       pid: 4343,
+      spawnPid: 4343,
       port: 41235,
       restart: 'on-failure',
     });
@@ -476,7 +475,6 @@ describe('实例配置', () => {
     let alive = true;
     const result = await removeInstance('restarting', {
       isAlive: () => alive,
-      ownerOf: () => 4343,
       kill: (pid) => {
         expect(pid).toBe(4343);
         // 标记必须已经在磁盘上，另一个进程里的看护才认得出这是删除不是崩溃
@@ -495,6 +493,7 @@ describe('实例配置', () => {
       ...readInstance(record.id)!,
       status: 'running',
       pid: 4344,
+      spawnPid: 4344,
       port: 41236,
       restart: 'on-failure',
     });
@@ -503,7 +502,6 @@ describe('实例配置', () => {
     try {
       await removeInstance('stuck-remove', {
         isAlive: () => true,
-        ownerOf: () => 4344,
         kill: () => {
           expect(existsSync(markFile)).toBe(true);
         },
@@ -547,7 +545,7 @@ describe('实例配置', () => {
     expect(result.removed).toBe(true);
   });
 
-  it('删除运行中的实例：记录 pid 与端口主人对不上就拒杀，记录与根原样留着', async () => {
+  it('删除运行中的实例：记录缺 spawnPid 就拒杀，记录与根原样留着', async () => {
     const record = await createInstance({ name: 'pid-suspect', harness: 'dsh', packDir: PACK });
     writeInstance({ ...readInstance(record.id)!, status: 'running', pid: 4321, port: 41239 });
     const killed: number[] = [];
@@ -574,6 +572,7 @@ describe('实例配置', () => {
       ...readInstance(record.id)!,
       status: 'running',
       pid: 4345,
+      spawnPid: 4345,
       port: 41237,
       restart: 'on-failure',
     });
@@ -581,7 +580,6 @@ describe('实例配置', () => {
     const result = await removeInstance('archive-marked', {
       keepData: true,
       isAlive: () => alive,
-      ownerOf: () => 4345,
       kill: () => {
         alive = false;
       },
@@ -1247,28 +1245,6 @@ resources:
     expect(entries).toHaveLength(1);
     expect(readInstance(rec.id)?.pack.name).toBe(entries[0]!.pack);
     expect(readInstance(rec.id)?.pack.version).toBe(entries[0]!.version);
-  });
-
-  it('旧记录带 planHash 仍可读；更新后 instance.json 不再写 planHash，baseline 仍保留', async () => {
-    const v1 = knowledgePack(join(tmp, 'legacy-v1'), '0.1.0', { 'a.md': '# a1\n' });
-    const v2 = knowledgePack(join(tmp, 'legacy-v2'), '0.2.0', { 'a.md': '# a2\n' });
-    const rec = await createInstance({ name: 'legacy', harness: 'dir', packDir: v1, packRef: v1 });
-    const file = join(rec.root, 'instance.json');
-    // 模拟旧版记录：planHash 还写在 instance.json 里
-    const legacy = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
-    legacy.planHash = 'sha256-legacy';
-    writeFileSync(file, JSON.stringify(legacy, null, 2) + '\n', 'utf8');
-
-    const old = readRecordResult(rec.root);
-    expect(old.error).toBeUndefined();
-    expect(old.record?.pack.name).toBe('demo/guard');
-    expect(old.record && 'planHash' in old.record).toBe(false);
-
-    const result = await updateInstance('legacy', { packDir: v2 });
-    expect(result.changed).toBe(true);
-    expect(JSON.parse(readFileSync(file, 'utf8')).planHash).toBeUndefined();
-    expect(readBaseline(rec.root)?.planHash).toBe(result.planHash);
-    expect(readInstance(rec.id)?.pack.version).toBe('0.2.0');
   });
 
   it('运行中的实例拒绝更新', async () => {

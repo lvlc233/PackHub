@@ -102,8 +102,8 @@ export async function removeInstance(
   let archivedTo: string | undefined;
 
   await withInstanceLock(record.root, 'remove', async () => {
-    // B12：和 pal stop 用同一套判定——只杀 PAL 自己 spawn 的进程，记录里的 pid 不再直接当目标。
-    // 判定可疑（端口主人换了、旧记录没有 spawnPid）就拒杀，删除失败并保持记录。
+    // B12：和 pal stop 用同一套判定——只杀 PAL 自己 spawn 的进程，记录里的 pid 不直接当目标。
+    // 判定可疑（端口主人换了、记录缺 spawnPid）就拒杀，删除失败并保持记录。
     const decision = killTargetFor(record, { isAlive, ownerOf });
     for (const warning of decision.warnings) {
       appendEvent(record.root, { event: 'pid-mismatch', message: warning });

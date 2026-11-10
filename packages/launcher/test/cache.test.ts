@@ -83,13 +83,13 @@ describe('缓存条目形状', () => {
     expect(formatBytes(stats.totalBytes)).toMatch(/B|KB|MB/);
   });
 
-  it('没有 meta 的旧目录也能列，meta 为 null、名字与版本从清单补', async () => {
+  it('没有 meta 的目录也能列，meta 为 null、名字与版本从清单补', async () => {
     const { a } = await fetchBoth();
-    const legacy = join(packCacheRoot(), 'legacy-deadbeef01', '1.0.0');
-    mkdirSync(legacy, { recursive: true });
-    copyFileSync(join(a, 'packhub.yaml'), join(legacy, 'packhub.yaml'));
+    const noMeta = join(packCacheRoot(), 'no-meta-deadbeef01', '1.0.0');
+    mkdirSync(noMeta, { recursive: true });
+    copyFileSync(join(a, 'packhub.yaml'), join(noMeta, 'packhub.yaml'));
 
-    const entry = listCache().find((item) => item.dir === legacy);
+    const entry = listCache().find((item) => item.dir === noMeta);
     expect(entry).toBeDefined();
     expect(entry?.meta).toBeNull();
     expect(entry?.ref).toBeNull();
@@ -103,12 +103,12 @@ describe('缓存条目形状', () => {
 
   it('meta 坏了照常列出条目，但把问题挂在条目上', async () => {
     const { a } = await fetchBoth();
-    const legacy = join(packCacheRoot(), 'broken-meta-aaaaaaaaaa', '1.0.0');
-    mkdirSync(legacy, { recursive: true });
-    copyFileSync(join(a, 'packhub.yaml'), join(legacy, 'packhub.yaml'));
-    writeFileSync(join(legacy, '.pal-cache.json'), '{ not json', 'utf8');
+    const brokenMeta = join(packCacheRoot(), 'broken-meta-aaaaaaaaaa', '1.0.0');
+    mkdirSync(brokenMeta, { recursive: true });
+    copyFileSync(join(a, 'packhub.yaml'), join(brokenMeta, 'packhub.yaml'));
+    writeFileSync(join(brokenMeta, '.pal-cache.json'), '{ not json', 'utf8');
 
-    const entry = listCache().find((item) => item.dir === legacy);
+    const entry = listCache().find((item) => item.dir === brokenMeta);
     expect(entry).toBeDefined();
     expect(entry?.meta).toBeNull();
     expect(entry?.version).toBe('0.1.0');
@@ -155,9 +155,9 @@ describe('cleanCache 选择器', () => {
     expect(existsSync(a)).toBe(false);
   });
 
-  it('--ref 也认目录 slug（老缓存没有 meta 时）', async () => {
+  it('--ref 也认目录 slug（目录没有 meta 时）', async () => {
     const { a } = await fetchBoth();
-    // 把 meta 删掉：模拟老缓存，只能靠目录名对上
+    // 把 meta 删掉：只剩目录名可对
     rmSync(join(a, '.pal-cache.json'));
     const result = cleanCache({ ref: slug(archive) });
     expect(result.removed).toEqual([a]);

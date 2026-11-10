@@ -185,7 +185,7 @@ export async function updateInstance(
     }
     saveState(record.root, after);
 
-    // 身份跟 create 一样只认 state：装完恰好一个 Pack 时以它为准，旧记录里的漂移在这里被纠正；
+    // 身份跟 create 一样只认 state：装完恰好一个 Pack 时以它为准，记录里的漂移在这里被纠正；
     // state 读不出来（0/多个/损坏）才退回清单里的名字版本。
     const pack = packIdentityFromState(record.root, {
       name: ctx.manifest.metadata.name,

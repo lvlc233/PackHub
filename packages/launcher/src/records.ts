@@ -42,7 +42,7 @@ export interface InstanceConfig {
   root: string;
   /** 实例自己的 home 段（dsh: DSH_HOME）；dir 没有 */
   home?: string;
-  /** 隔离策略：每层是每实例一份还是全局共享；旧记录没有这个字段，读出来是默认策略 */
+  /** 隔离策略：每层是每实例一份还是全局共享；配置里缺这个字段时读出来是默认策略 */
   isolation?: Isolation;
   pack: { name: string; version: string; ref?: string };
   createdAt: string;
@@ -58,8 +58,8 @@ export interface InstanceConfig {
 
 /**
  * 运行态：进程、端口、地址与最近一次退出/报错。
- * 只随启停与看护变化。`ports` 在类型上是可选的（旧记录/手写记录可能没有），
- * 读取时 `parseRuntime` 会归一到 `[]`；写回时按存在性带，避免给旧记录凭空补字段。
+ * 只随启停与看护变化。`ports` 在类型上是可选的（手写记录可能没有），
+ * 读取时 `parseRuntime` 会归一到 `[]`；写回时按存在性带，避免凭空补字段。
  */
 export interface RuntimeState {
   status: InstanceStatus;
@@ -171,7 +171,7 @@ function instanceData(text: string): Record<string, unknown> {
 
 /**
  * 运行态归一：status 缺省 installed，ports 缺省 []；
- * pid 证据只认有限数字，手写/旧记录里的坏值直接丢掉，宁可当没有，也不当证据。
+ * pid 证据只认有限数字，手写记录里的坏值直接丢掉，宁可当没有，也不当证据。
  */
 function runtimeFrom(data: Record<string, unknown>): RuntimeState {
   const runtime: RuntimeState = {
@@ -193,12 +193,10 @@ function runtimeFrom(data: Record<string, unknown>): RuntimeState {
 
 /**
  * 把 instance.json 的原始对象归一成一条记录：缺省字段补默认，运行态字段剔除。
- * 配置里若混进 planHash：事实只在 baseline.json，读的时候直接丢掉，写回时也不会再带上。
  */
 function normalizeRecord(root: string, data: Record<string, unknown>): InstanceRecord {
   const config: Record<string, unknown> = { ...data };
   for (const key of RUNTIME_KEYS) delete config[key];
-  delete config.planHash;
   return {
     ...(config as unknown as InstanceConfig),
     apiVersion: API_VERSION,

@@ -591,6 +591,7 @@ describe('主动停止与看护', () => {
       ...base,
       status: 'running',
       pid,
+      spawnPid: pid,
       port,
       url: `http://127.0.0.1:${port}/`,
       restart: 'on-failure',
@@ -637,8 +638,6 @@ describe('主动停止与看护', () => {
         polls += 1;
         return polls <= 3;
       },
-      // 旧记录没有 spawnPid：端口主人就是记录里的 pid 时按旧行为杀它
-      ownerOf: () => 24680,
       timeoutMs: 5000,
     });
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -727,8 +726,6 @@ describe('主动停止与看护', () => {
           expect(existsSync(stoppingMarkFile(created.root))).toBe(true);
         },
         isAlive: () => true,
-        // 旧记录：端口主人就是记录里的 pid，才允许按旧行为杀它
-        ownerOf: () => 11111,
         timeoutMs: 150,
       });
     } catch (err) {
@@ -744,7 +741,7 @@ describe('主动停止与看护', () => {
 });
 
 describe('pid 归属判定（B12：spawnPid 唯一 kill 目标，listenPid 只作证据）', () => {
-  /** 造一条「在跑」的记录；不给 spawnPid 就模拟旧版记录（pid 来自端口反查）。 */
+  /** 造一条「在跑」的记录；不给 spawnPid 就不是一条完整运行记录，用来验证拒杀。 */
   async function runningRecord(name: string, runtime: Partial<InstanceRecord>): Promise<InstanceRecord> {
     const created = await createInstance({ name, harness: 'dsh', packDir: 'examples/doc-review' });
     const record: InstanceRecord = {
@@ -824,21 +821,22 @@ describe('pid 归属判定（B12：spawnPid 唯一 kill 目标，listenPid 只�
     expect(after.listenPid).toBe(4321);
   });
 
-  it('旧记录（没有 spawnPid）里记录 pid 与端口主人不一致：busy 拒杀', async () => {
-    const rec = await runningRecord('legacy-suspect', { pid: 4321, port: 51401 });
+  it('没有 spawnPid：pid 活着也拒杀，--force 也不放行', async () => {
+    const rec = await runningRecord('no-spawn', { pid: 4321, port: 51401 });
     const killed: number[] = [];
     let caught: unknown;
     try {
       await stopInstance(rec.id, {
+        force: true,
         kill: (pid) => killed.push(pid),
         isAlive: () => true,
-        ownerOf: () => 5555,
       });
     } catch (err) {
       caught = err;
     }
 
     expect(isPalError(caught) && caught.code).toBe('busy');
+    expect((caught as Error).message).toContain('没有 spawnPid');
     expect(killed).toEqual([]);
     expect(requireInstance(rec.id).status).toBe('running');
   });
@@ -858,22 +856,7 @@ describe('pid 归属判定（B12：spawnPid 唯一 kill 目标，listenPid 只�
     expect(stopped.pid).toBeUndefined();
   });
 
-  it('--force 只把记录里的 pid 当目标；listenPid 仍然不杀', async () => {
-    const legacy = await runningRecord('legacy-force', { pid: 4321, port: 51402 });
-    const killed: number[] = [];
-    let alive = true;
-    const stopped = await stopInstance(legacy.id, {
-      force: true,
-      kill: (pid) => {
-        killed.push(pid);
-        alive = false;
-      },
-      isAlive: (pid) => pid === 4321 && alive,
-      ownerOf: () => undefined,
-    });
-    expect(killed).toEqual([4321]);
-    expect(stopped.status).toBe('stopped');
-
+  it('--force 也不杀 listenPid，只把记录收成 stopped', async () => {
     // 进程树已经没了、端口换人：--force 也不会去杀监听者
     const ours = await runningRecord('listen-force', { pid: 9999, spawnPid: 9999, listenPid: 4321 });
     const killedAgain: number[] = [];

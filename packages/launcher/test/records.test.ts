@@ -96,13 +96,13 @@ describe('记录分层：partitionRecord / mergeRecord', () => {
     }
   });
 
-  it('旧记录没有 ports：往返保持缺省，不凭空补字段', () => {
-    const { ports: _ports, ...legacy } = minimalRecord();
+  it('没有 ports：往返保持缺省，不凭空补字段', () => {
+    const { ports: _ports, ...sparse } = minimalRecord();
 
-    const { config, runtime } = partitionRecord(legacy);
+    const { config, runtime } = partitionRecord(sparse);
 
     expect('ports' in runtime).toBe(false);
-    expect(mergeRecord(config, runtime)).toEqual(legacy);
+    expect(mergeRecord(config, runtime)).toEqual(sparse);
   });
 
   it('字段齐全：往返后与原记录相等', () => {
