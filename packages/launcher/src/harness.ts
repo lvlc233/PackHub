@@ -3,6 +3,7 @@ import { existsSync, statSync } from 'node:fs';
 import { delimiter, extname, isAbsolute, join, sep } from 'node:path';
 import type { TargetId } from '@packhub/kernel';
 import { ADAPTERS, HARNESS_IDS, isHarnessId } from './layout.ts';
+import { entriesOf } from './entries.ts';
 import { PalError } from './errors.ts';
 
 /** 宿主发现结果：装了没有、在哪、什么版本、能不能由 PAL 起。 */
@@ -148,7 +149,8 @@ export function discoverHarness(id: TargetId, opts: DiscoverOptions = {}): Harne
     ...(adapter.homeEnv ? { homeEnv: adapter.homeEnv } : {}),
     ...(binary ? { executable: binary } : {}),
     available: false,
-    startable: Boolean(adapter.start),
+    // 能不能起看它声明了几个入口：web 只是其中一个（dsh），别的宿主从 tui / 一次性入口起
+    startable: entriesOf(id).length > 0,
     ...(!adapter.start && adapter.noStartReason ? { reason: adapter.noStartReason } : {}),
   };
 
@@ -193,7 +195,7 @@ export function requireHarness(value: string): TargetId {
 export function requireHarnessBinary(id: TargetId): HarnessInfo {
   const info = discoverHarness(id);
   if (!info.startable) {
-    throw new PalError('not-startable', `${ADAPTERS[id].label} 没有可启动的常驻服务`, {
+    throw new PalError('not-startable', `${ADAPTERS[id].label} 没有可启动的入口`, {
       hint: info.reason,
     });
   }

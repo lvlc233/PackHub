@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, wri
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInstance } from '../src/index.ts';
+import { adoptInstance } from '../src/index.ts';
 import { requireInstance, writeInstance, type InstanceRecord } from '../src/index.ts';
 import {
   attachSupervisor,
@@ -341,29 +342,10 @@ describe('实例启动', () => {
     expect(isPalError(caught) && caught.code).toBe('already-running');
   });
 
-  it('没有常驻服务的宿主直接给能力说明，不是让它起不来', async () => {
-    const rec = await createInstance({
-      name: 'claude-home',
-      harness: 'claude-code',
-      packDir: (() => {
-        const dir = join(tmp, 'cc-pack');
-        mkdirSync(dir, { recursive: true });
-        writeFileSync(
-          join(dir, 'packhub.yaml'),
-          `apiVersion: packhub.dev/v0
-kind: Pack
-metadata: { name: demo/cc, version: 0.1.0, targets: [claude-code] }
-resources:
-  - id: rules
-    type: knowledge
-    source: ./rules.md
-`,
-          'utf8',
-        );
-        writeFileSync(join(dir, 'rules.md'), '# r\n', 'utf8');
-        return dir;
-      })(),
-    });
+  it('只装配 home 的宿主给能力说明，不是让它起不来', async () => {
+    const dir = join(tmp, 'plain-project');
+    mkdirSync(dir, { recursive: true });
+    const rec = adoptInstance({ dir, name: 'plain', harness: 'dir' });
     let caught: unknown;
     try {
       await startInstance(rec.id, { spawn: fakeSpawn({}, ''), isAlive: () => false });
@@ -371,7 +353,7 @@ resources:
       caught = err;
     }
     expect(isPalError(caught) && caught.code).toBe('not-startable');
-    expect((caught as Error).message).toContain('Claude Code');
+    expect((caught as Error).message).toContain('普通项目');
   });
 
   it('等不到地址时把日志尾部贴进错误，并把实例标成异常', async () => {

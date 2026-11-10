@@ -27,6 +27,11 @@ const state = {
   /** 一次操作的成功提示；跨轮询保留，直到下一次操作或换实例 */
   flash: null,
   health: null,
+  /** 当前实例声明的入口（带能不能起的结论） */
+  entries: [],
+  /** 这份入口表是哪个实例的：换实例后重新取，不拿别人的入口糊上去 */
+  entriesFor: null,
+  entryKey: '',
   offline: false,
   rows: new Map(),
   detailKey: '',
@@ -137,7 +142,10 @@ function select(id) {
   state.selected = id;
   state.health = null;
   state.flash = null;
-  // 换实例后「覆盖本地改动」回到默认不勾
+  // 换实例后入口表要重新取；「覆盖本地改动」回到默认不勾
+  state.entries = [];
+  state.entriesFor = null;
+  state.entryKey = '';
   $('#d-force').checked = false;
   clearMoreInputs();
   clearError();
@@ -182,6 +190,8 @@ function renderDetail() {
   setText($('#d-home'), rec.home || '—');
   setText($('#d-port'), rec.port ?? '—');
   setText($('#d-url'), rec.url || '—');
+  setText($('#d-entry-kind'), rec.entry ? ENTRY_TEXT[rec.entry] ?? rec.entry : '—');
+  setText($('#d-endpoint'), rec.url || (rec.endpoint ? `${rec.endpoint.kind} ${rec.endpoint.value}` : '—'));
   setText($('#d-hver'), rec.harnessVersion || (harness?.version ?? '—'));
   setText(
     $('#d-exit'),
@@ -233,7 +243,78 @@ function renderDetail() {
   setHidden(errorEl, !state.error);
   if (state.error) errorEl.textContent = state.error;
 
+  renderEntries(rec);
   renderHealth();
+}
+
+const ENTRY_TEXT = { web: 'Web', app: '桌面应用', tui: '终端', headless: '一次性' };
+
+/** 当前选的入口：以下拉框为准，没选过就用记录里那个，再没有就用第一个能起的。 */
+function selectedEntry(rec) {
+  const value = $('#d-entry').value;
+  return (
+    state.entries.find((entry) => entry.kind === value) ??
+    state.entries.find((entry) => entry.kind === rec.entry) ??
+    state.entries.find((entry) => entry.startable) ??
+    state.entries[0]
+  );
+}
+
+async function loadEntries(rec) {
+  state.entriesFor = rec.id;
+  try {
+    const entries = await api(`/api/instances/${encodeURIComponent(rec.id)}/entries`);
+    if (state.selected !== rec.id) return;
+    state.entries = entries;
+  } catch {
+    if (state.selected !== rec.id) return;
+    state.entries = [];
+  }
+  state.entryKey = '';
+  renderDetail();
+}
+
+/** 入口下拉、任务框与两个按钮的可用性都由这里定；别的字段不动。 */
+function renderEntries(rec) {
+  if (state.entriesFor !== rec.id) {
+    void loadEntries(rec);
+    return;
+  }
+  const selectEl = $('#d-entry');
+  const running = rec.status === 'running';
+  const signature = [
+    rec.entry ?? '',
+    rec.status,
+    ...state.entries.map((entry) => `${entry.kind}:${entry.label}:${entry.startable ? 1 : 0}:${entry.needsTask ? 1 : 0}`),
+  ].join('|');
+  if (state.entryKey !== signature) {
+    state.entryKey = signature;
+    const previous = selectEl.value;
+    selectEl.innerHTML = state.entries
+      .map(
+        (entry) =>
+          `<option value="${entry.kind}"${entry.startable ? '' : ' disabled'}>${escapeHtml(entry.label)}${entry.startable ? '' : '（不可用）'}</option>`,
+      )
+      .join('');
+    const preferred =
+      (rec.entry && state.entries.some((entry) => entry.kind === rec.entry) ? rec.entry : '') ||
+      (state.entries.some((entry) => entry.kind === previous) ? previous : '') ||
+      state.entries.find((entry) => entry.startable)?.kind ||
+      state.entries[0]?.kind;
+    if (preferred) selectEl.value = preferred;
+  }
+
+  const entry = selectedEntry(rec);
+  const needsTask = Boolean(entry?.needsTask);
+  setHidden($('#d-task'), !needsTask);
+  setDisabled($('#d-start'), running || !entry?.startable || Boolean(state.busy));
+  const canOpen = running && Boolean(entry) && entry.surface !== 'none';
+  setHidden($('#d-open'), !canOpen);
+  setDisabled($('#d-open'), !canOpen || Boolean(state.busy));
+  const note = $('#d-entry-note');
+  const reason = entry && !entry.startable ? entry.reason : undefined;
+  setHidden(note, !reason);
+  if (reason) note.textContent = reason;
 }
 
 function renderHealth() {
@@ -294,7 +375,20 @@ async function act(name) {
   clearError();
   state.flash = null;
   if (name === 'open') {
-    window.open(`/api/instances/${encodeURIComponent(rec.id)}/open`, '_blank', 'noopener');
+    const entry = selectedEntry(rec);
+    if (!entry || entry.surface === 'none') return;
+    if (entry.surface === 'browser') {
+      window.open(`/api/instances/${encodeURIComponent(rec.id)}/open`, '_blank', 'noopener');
+      return;
+    }
+    try {
+      // app / tui 没有浏览器地址：让服务端再落一次启动命令（应用聚焦、终端新开）
+      await api(`/api/instances/${encodeURIComponent(rec.id)}/open`, { method: 'POST' });
+      state.flash = entry.surface === 'window' ? '已请宿主开一次窗口' : '已开一个终端窗口';
+      await refresh();
+    } catch (err) {
+      showError(err, '打开');
+    }
     return;
   }
   const routes = {
@@ -324,6 +418,13 @@ async function act(name) {
     }
     const path = routes[name];
     if (!path) return;
+    const chosen = name === 'start' || name === 'restart' ? selectedEntry(rec) : null;
+    if (chosen?.needsTask && !$('#d-task').value.trim()) {
+      const missing = new Error('一次性入口要一条任务');
+      missing.hint = '在入口旁边把任务填上再启动';
+      showError(missing, '启动');
+      return;
+    }
     state.busy = name;
     renderDetail();
     if (name === 'update') {
@@ -343,8 +444,12 @@ async function act(name) {
       }
       return;
     }
-    await api(path, { method: 'POST' });
+    await api(path, { method: 'POST', body: startBody(name, rec) });
     await refresh();
+    // 起来后自动打开对应面：web 是浏览器；app / tui 的窗口由宿主自己开
+    if (chosen?.surface === 'browser' && currentRecord()?.url) {
+      window.open(`/api/instances/${encodeURIComponent(rec.id)}/open`, '_blank', 'noopener');
+    }
   } catch (err) {
     showError(name === 'update' ? updateErrorForUi(err) : err, labels[name]);
     if (name === 'health') state.health = null;
@@ -354,8 +459,16 @@ async function act(name) {
   }
 }
 
-/* ---------- 确认对话框 ---------- */
+/** 启动/重起要带的 body：选中的入口，加上一次性入口的任务。 */
+function startBody(name, rec) {
+  if (name !== 'start' && name !== 'restart') return {};
+  const entry = selectedEntry(rec);
+  if (!entry) return {};
+  const task = $('#d-task').value.trim();
+  return { entry: entry.kind, ...(entry.needsTask && task ? { task } : {}) };
+}
 
+/* ---------- 确认对话框 ---------- */
 let confirmResolve = null;
 
 /**
@@ -1000,6 +1113,7 @@ document.addEventListener('keydown', (event) => {
 });
 
 $('#d-open').addEventListener('click', () => act('open'));
+$('#d-entry').addEventListener('change', () => renderDetail());
 $('#d-start').addEventListener('click', () => act('start'));
 $('#d-stop').addEventListener('click', () => act('stop'));
 $('#d-restart').addEventListener('click', () => act('restart'));

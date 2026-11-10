@@ -358,10 +358,15 @@ export function restoreBackup(dir: string, opts: RestoreOptions = {}): InstanceR
   };
   if (home) next.home = home;
   else delete next.home;
-  // 运行痕迹全部作废：旧 pid/port 指的不是这份实例
+  // 运行痕迹全部作废：旧 pid/port 指的不是这份实例；入口也回到未启动状态
   delete next.pid;
+  delete next.spawnPid;
+  delete next.listenPid;
   delete next.port;
   delete next.url;
+  delete next.entry;
+  delete next.endpoint;
+  delete next.exitCode;
   delete next.startedAt;
   delete next.lastExit;
   delete next.lastError;

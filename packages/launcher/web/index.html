@@ -46,10 +46,16 @@
             <dt>home</dt><dd id="d-home" class="mono"></dd>
             <dt>端口</dt><dd id="d-port"></dd>
             <dt>地址</dt><dd id="d-url"></dd>
+            <dt>入口</dt><dd id="d-entry-kind"></dd>
+            <dt>端点</dt><dd id="d-endpoint"></dd>
             <dt>宿主版本</dt><dd id="d-hver"></dd>
             <dt>最近退出</dt><dd id="d-exit"></dd>
           </dl>
           <div class="actions-row">
+            <label class="entry-pick" for="d-entry">入口
+              <select id="d-entry"></select>
+            </label>
+            <input id="d-task" class="entry-task" placeholder="这条任务要干什么（一次性入口用）" hidden />
             <button id="d-open" class="primary" type="button">打开</button>
             <button id="d-start" type="button">启动</button>
             <button id="d-stop" type="button">停止</button>
@@ -120,6 +126,7 @@
             <button id="d-remove" class="danger" type="button">删除</button>
           </div>
           <p id="d-note" class="hint" hidden></p>
+          <p id="d-entry-note" class="hint" hidden></p>
           <p id="d-error" class="msg" role="alert" hidden></p>
           <div id="d-healthbox" class="health" hidden></div>
         </article>

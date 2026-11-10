@@ -62,8 +62,23 @@ export interface InstanceConfig {
  * 只随启停与看护变化。`ports` 在类型上是可选的（旧记录/手写记录可能没有），
  * 读取时 `parseRuntime` 会归一到 `[]`；写回时按存在性带，避免给旧记录凭空补字段。
  */
+/** 入口的访问端点：web 是 url/port，app 是内部端口或管道，tui 是终端。 */
+export interface EntryEndpoint {
+  kind: 'url' | 'port' | 'pipe' | 'tty';
+  value: string;
+}
+
 export interface RuntimeState {
   status: InstanceStatus;
+  /** 这次是用哪个入口跑起来的；没跑过就没有 */
+  entry?: 'web' | 'app' | 'tui' | 'headless';
+  /**
+   * 非 web 入口的端点：app 的内部端口或管道、tui 的终端名。
+   * web 的地址与端口仍在 url/port 里（它们本来就只属于 web）。
+   */
+  endpoint?: EntryEndpoint;
+  /** headless 的退出码：它没有「在跑」这回事，跑完就记这一条 */
+  exitCode?: number;
   /**
    * 运行中的进程与端口；停掉后清空。url 已摘掉凭据，凭据在 secrets.json。
    * 语义 = `spawnPid ?? listenPid`（旧记录没有这两个字段时就是旧版的端口反查 pid）。
@@ -93,6 +108,9 @@ export interface InstanceRecord extends InstanceConfig, RuntimeState {}
 /** 运行态字段清单：拆分配置时按它剔除，也是「哪些字段只在 runtime.json」的唯一口径。 */
 const RUNTIME_KEYS = [
   'status',
+  'entry',
+  'endpoint',
+  'exitCode',
   'pid',
   'spawnPid',
   'listenPid',
@@ -109,11 +127,14 @@ const RUNTIME_KEYS = [
  * 记录里将来多出来的字段（未知/旧字段）会原样留在 config 侧，不会在往返中丢掉。
  */
 export function partitionRecord(record: InstanceRecord): { config: InstanceConfig; runtime: RuntimeState } {
-  const { status, pid, spawnPid, listenPid, port, ports, url, startedAt, lastExit, lastError, ...config } = record;
+  const { status, entry, endpoint, exitCode, pid, spawnPid, listenPid, port, ports, url, startedAt, lastExit, lastError, ...config } = record;
   return {
     config,
     runtime: {
       status,
+      ...(entry === undefined ? {} : { entry }),
+      ...(endpoint === undefined ? {} : { endpoint }),
+      ...(exitCode === undefined ? {} : { exitCode }),
       ...(pid === undefined ? {} : { pid }),
       ...(spawnPid === undefined ? {} : { spawnPid }),
       ...(listenPid === undefined ? {} : { listenPid }),
@@ -132,10 +153,13 @@ export function partitionRecord(record: InstanceRecord): { config: InstanceConfi
  * 可选字段按存在性带，缺省的不补成 undefined。
  */
 export function mergeRecord(config: InstanceConfig, runtime: RuntimeState): InstanceRecord {
-  const { status, pid, spawnPid, listenPid, port, ports, url, startedAt, lastExit, lastError } = runtime;
+  const { status, entry, endpoint, exitCode, pid, spawnPid, listenPid, port, ports, url, startedAt, lastExit, lastError } = runtime;
   return {
     ...config,
     status,
+    ...(entry === undefined ? {} : { entry }),
+    ...(endpoint === undefined ? {} : { endpoint }),
+    ...(exitCode === undefined ? {} : { exitCode }),
     ...(pid === undefined ? {} : { pid }),
     ...(spawnPid === undefined ? {} : { spawnPid }),
     ...(listenPid === undefined ? {} : { listenPid }),
@@ -179,6 +203,9 @@ function runtimeFrom(data: Record<string, unknown>): RuntimeState {
     status: (typeof data.status === 'string' && data.status !== '' ? data.status : 'installed') as InstanceStatus,
     ports: Array.isArray(data.ports) ? (data.ports as number[]) : [],
   };
+  if (data.entry !== undefined && typeof data.entry === 'string') runtime.entry = data.entry as RuntimeState['entry'];
+  if (data.endpoint !== undefined) runtime.endpoint = data.endpoint as EntryEndpoint;
+  if (typeof data.exitCode === 'number' && Number.isFinite(data.exitCode)) runtime.exitCode = data.exitCode;
   if (data.pid !== undefined) runtime.pid = data.pid as number;
   if (data.port !== undefined) runtime.port = data.port as number;
   if (data.url !== undefined) runtime.url = data.url as string;

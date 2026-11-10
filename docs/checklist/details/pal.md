@@ -54,7 +54,7 @@ PAL 的数据（实例、取包缓存、备份、导出模板、全局配置）�
 改 `<PACKHUB_HOME>/config.json` 的默认只影响之后新建的实例：已有实例保持创建时那份快照，改默认不动它，也没有原地迁移工具。要换策略就 `pal create --isolation` 新建；`pal clone` 沿用源实例的策略，换不了策略。这是有意取舍，不是功能缺口：按新策略重排一个装好、可能正在跑的 home，要么挪丢文件，要么在不可知的时刻半途失败，而换一次策略的代价本来就只是新建一次实例；`pal migrate` 仍只负责挪根，不碰 home 布局。写默认值时也会先校验：`credentials=shared` 这类未实现的值直接 `invalid-input`，不落盘、不改原文件，`pal config` 设置那一刻就拦住，不必等到 `pal create`。
 
 ## 记录与状态
-持久化分两份：`instance.json` 只存配置：`id`、`name`、`harness`、`harnessVersion`、`root`、`home`、`pack{name,version,ref}`、`managed`、`origin`、`isolation`、`restart`、`maxRestarts`、`createdAt`、`updatedAt`；`runtime.json` 只存运行态：`status`、`pid`、`spawnPid`、`listenPid`、`port`、`ports[]`、`url`（已摘凭据）、`startedAt`、`lastExit{code,signal,at,restarts}`、`lastError`。`InstanceRecord` 是两者之和；`records.ts` 的 `partitionRecord` / `mergeRecord` 负责拆分与合回，`parseConfig` / `parseRuntime` 分别解析两份。旧记录（运行态还在 `instance.json`、没有 `runtime.json`）读取时按 legacy 合并，下一次写盘自动迁移成两份；`runtime.json` 损坏按坏记录处理，不静默丢运行态。D1（持久化拆分）已完成。`planHash` 只记在 `baseline.json`：`update` 用它判断计划有没有变，没有 baseline 视为已变；旧记录里残留的 `planHash` 读取时忽略、不再写回。
+持久化分两份：`instance.json` 只存配置：`id`、`name`、`harness`、`harnessVersion`、`root`、`home`、`pack{name,version,ref}`、`managed`、`origin`、`isolation`、`restart`、`maxRestarts`、`createdAt`、`updatedAt`；`runtime.json` 只存运行态：`status`、`entry`、`pid`、`spawnPid`、`listenPid`、`port`、`ports[]`、`url`（已摘凭据）、`endpoint{kind,value}`、`exitCode`、`startedAt`、`lastExit{code,signal,at,restarts}`、`lastError`。`InstanceRecord` 是两者之和；`records.ts` 的 `partitionRecord` / `mergeRecord` 负责拆分与合回，`parseConfig` / `parseRuntime` 分别解析两份。旧记录（运行态还在 `instance.json`、没有 `runtime.json`）读取时按 legacy 合并，下一次写盘自动迁移成两份；`runtime.json` 损坏按坏记录处理，不静默丢运行态。D1（持久化拆分）已完成。`planHash` 只记在 `baseline.json`：`update` 用它判断计划有没有变，没有 baseline 视为已变；旧记录里残留的 `planHash` 读取时忽略、不再写回。
 
 `pack{name,version}` 不另立事实：`create` / `update` 装完后、`adopt` 写记录前都走 `packIdentityFromState`，按 `.packhub/state.json` 里**恰好一个** Pack 的名字版本写回（旧 state 没写 version 时用清单值或 `0.0.0`）；0 个 / 多个 Pack、state 读不出来时退回清单值（`adopt` 是 `external`@`0.0.0`）。记录漂移会在下一次 `update` 被纠正，`pack.ref` 仍记原始引用。
 
@@ -77,15 +77,34 @@ PAL 的数据（实例、取包缓存、备份、导出模板、全局配置）�
 
 ## 启动与看护
 
-1. 读记录 → 宿主能不能起（`dir` / `claude-code` / `codex` 明确报“没有常驻服务”，附原因）。
+入口决定「怎么起、算不算起好、开成什么面、怎么停」；PAL 只记这次用了哪个入口，不重新定义入口。五个入口的契约在 `src/entries.ts` 的 `ENTRIES`，一个宿主声明几个入口就决定它能不能起（`dir` 没有入口，所以只装配 home）。
+
+| 入口 | dsh | codex | claude-code |
+|---|---|---|---|
+| `web` | `dsh --profile web --patch … --no-open --port N`，日志里等地址 | — | — |
+| `app` | 起桌面应用（`PAL_DSH_APP` 或从 dsh 垫片往上找 `DeepSeek Harness.exe`） | `codex app <实例根>` | — |
+| `tui` | `dsh --profile tui`（要实例 home 里有 tui profile） | `codex` | `claude` |
+| `headless` | `dsh --profile headless <任务>` | `codex exec <任务>` | `claude -p <任务>` |
+
+四条已定的取舍：
+
+- **TUI 走外部终端**：PAL 在 `cmd start /wait`（有 Windows Terminal 就 `wt -w 0 nt`）里跑宿主，`spawnPid` 是终端那棵树，关面就是收这棵树。选它是因为 PAL 不带 node-pty 依赖；ConPTY + 页面终端留作以后。
+- **app 只到进程级就绪**：桌面应用不接受「就绪」查询，PAL 等它稳住就记 `running`；体检会写明「只能确认进程在」。app 自己起内部服务，PAL 不再起第二份（`binds.port=false`）。
+- **app 按实例 home 起**：dsh 走 `DSH_HOME`、codex 走 `CODEX_HOME`；宿主是否把会话/凭据也落在这份 home 里，PAL 这回没有逐项验证（见文档末尾「缺口」）。
+- **入口不接受实例 home 就拒绝**：`binds.home=false` 的入口在有 home 的实例上起不来，报 `not-startable`；不替用户把隔离悄悄绕过去。
+
+启动顺序：
+
+1. 读记录 → 解析入口（`--entry` → 记录里的 `entry` → 宿主声明的第一个）；入口不可用（命令不在、dsh 没装 tui profile、桌面应用找不到）时给 `not-startable` 与原因。
 2. 上一轮的 pid 已死 → 先标 `broken` 再继续（启动前自愈）。
 3. 找宿主可执行文件并探测版本（Windows 的 `.cmd` 垫片按 `/d /s /c ""…""` 引号规则跑，先认 PATHEXT 再认无扩展名壳）。
-4. 选端口：显式指定被占时报告占用者（pid + 进程名）；否则沿用上次端口，再不行让系统挑。
-5. dsh 实例：把 Pack 的 mcp 资源写成 `home/dsh/pal-mcp.patch.yml`，用 `--patch` 传给宿主（见下）。
-6. spawn 不走 shell 拼串：日志用 `stdio` 的 fd 直接写，`cwd` 是实例根，home 走宿主自己的环境变量。环境也不整份继承：`hostEnv` 只留 PATH/PATHEXT、SystemRoot 等系统项、TEMP、home 与语言变量，代理按原名带上；名字命中 `API_KEY`/`TOKEN`/`SECRET`/`PASSWORD`/`CREDENTIAL` 的、`PACKHUB_*`、`PAL_*` 以及各模型厂商前缀的一律剔除。要额外给，用 `opts.env` 显式补 —— 它最后应用，能覆盖先前的值（包括被剔除的项）。
-7. 从日志里等地址；等不到就收掉进程，并把日志尾部贴进错误里。
-8. 进程证据分两栏：`spawnPid` 是自己 spawn 的（唯一 kill 目标），`listenPid` 是端口反查到的监听者（只作证据）；记录里的 `pid` 是兼容字段，等于 `spawnPid ?? listenPid`。Windows 上 spawn 的是 `.cmd` 垫片，监听者往往是它的子进程。
-9. `pal serve` 期间会记退出码/信号到 `lastExit`；`restart: on-failure` 的实例按 1s/2s/4s… 退避重起，超过 `maxRestarts` 停止。
+4. 只有 `binds.port` 的入口选端口：显式指定被占时报告占用者（pid + 进程名）；否则沿用上次端口，再不行让系统挑。
+5. dsh 实例且入口有命令行（`app` 除外）：把 Pack 的 mcp 资源写成 `home/dsh/pal-mcp.patch.yml`，用 `--patch` 传给宿主（见下）。
+6. spawn 不走 shell 拼串：日志用 `stdio` 的 fd 直接写，`cwd` 是实例根，home 走宿主自己的环境变量。终端入口 `windowsHide=false`（窗口要看得见），其余藏起来。环境也不整份继承：`hostEnv` 只留 PATH/PATHEXT、SystemRoot 等系统项、TEMP、home 与语言变量，代理按原名带上；名字命中 `API_KEY`/`TOKEN`/`SECRET`/`PASSWORD`/`CREDENTIAL` 的、`PACKHUB_*`、`PAL_*` 以及各模型厂商前缀的一律剔除。要额外给，用 `opts.env` 显式补 —— 它最后应用，能覆盖先前的值（包括被剔除的项）。
+7. 就绪按入口判：`web` 从日志里等地址；`app` / `tui` 等进程稳住；`headless` 等退出码（0 记 `stopped`，非 0 记 `failed`）。等不到就收掉进程，并把日志尾部贴进错误里。
+8. 进程证据分两栏：`spawnPid` 是自己 spawn 的（唯一 kill 目标），`listenPid` 是端口反查到的监听者（只作证据）；记录里的 `pid` 是兼容字段，等于 `spawnPid ?? listenPid`。Windows 上 spawn 的可能是 `.cmd` 垫片或终端，监听者/界面进程往往是它的子进程。
+9. 终止按入口：`web` 直接收树；`app` 先 `taskkill`（不带 `/F`）请它自己退，5s 不退再收树；`tui` 关终端那棵树；`headless` 不用停（跑完就在记录里）。
+10. `pal serve` 期间会记退出码/信号到 `lastExit`；`restart: on-failure` 的实例按 1s/2s/4s… 退避重起，超过 `maxRestarts` 停止。
 
 ## dsh 的 MCP 接线
 
@@ -113,7 +132,7 @@ Pack 里的 `type: mcp` 资源安装时写进实例的 `.packhub/config.json`（
 | `invalid-input` | 400 | 缺字段、模板不可复现、参数不合法 |
 | `unknown-harness` | 400 | 宿主名不认识（附可选值） |
 | `unknown-instance` / `not-found` | 404 | 找不到实例或文件 |
-| `name-taken` / `root-occupied` / `already-running` / `not-running` / `busy` / `port-in-use` | 409 | 冲突类 |
+| `name-taken` / `root-occupied` / `already-running` / `not-running` / `not-openable` / `busy` / `port-in-use` | 409 | 冲突类；`not-openable` 是这个入口没有可打开的面 |
 | `not-startable` / `harness-missing` / `install-failed` / `start-failed` / `record-corrupt` | 422 | 宿主起不来、安装失败，或记录写下了却读不回来 |
 | `forbidden` | 403 | 跨源写请求、缺客户端头、外部页面触发打开 |
 | `internal` | 500 | 兜底 |
@@ -129,10 +148,12 @@ Pack 里的 `type: mcp` 资源安装时写进实例的 `.packhub/config.json`（
 | GET | `/api/instances` | `{instances, broken, active}`；纯视图，不写记录文件、不隔离坏记录 |
 | POST | `/api/instances` | 建实例（`pack`/`name`/`harness`/`version`/`index`） |
 | GET | `/api/instances/:id` | 单份记录 |
-| POST | `/api/instances/:id/start` / `stop` / `restart` / `active` | 启停、重起、设为当前 |
+| GET | `/api/instances/:id/entries` | 入口表：每个入口的访问面、就绪判据、能不能起、是不是当前那个 |
+| POST | `/api/instances/:id/start` / `stop` / `restart` / `active` | 启停、重起、设为当前；`start` / `restart` 收 `{entry, task}`（不传 entry 就用记录里的） |
 | GET | `/api/instances/:id/logs` | 日志（`?file=` 看归档），带事件流 |
-| GET | `/api/instances/:id/health` | 体检报告 |
-| GET | `/api/instances/:id/open` | 302 到带凭据的地址 |
+| GET | `/api/instances/:id/health` | 体检报告（带 `entry` 与入口那一项） |
+| GET | `/api/instances/:id/open` | web 入口：302 到带凭据的地址 |
+| POST | `/api/instances/:id/open` | app / tui 入口：再落一次启动命令（窗口聚焦、终端新开） |
 | DELETE | `/api/instances/:id` | 删除（`?keepData=1` 保留数据） |
 | GET | `/api/packs` | registry 索引的包与版本 + 本地 Pack 目录 |
 
@@ -142,9 +163,13 @@ Pack 里的 `type: mcp` 资源安装时写进实例的 `.packhub/config.json`（
 
 创建对话框从索引拉包与版本（也可手填目录/`.phub`/`git+https`），选宿主时显示是否安装、能不能起；详情页有更新提示（索引 latest ≠ 已装版本）、体检面板、删除时「保留数据」勾选。
 
+详情页的入口下拉来自 `/api/instances/:id/entries`：不能起的入口置灰并把原因写在下面；选中 `headless` 才出现任务框。启动/重起都带选中的入口，「打开」按入口分两条路（web 走 302 开浏览器，app/tui 走 POST 让服务端再落一次命令）。
+
 ## 命令
 
-`pal create / config / list / show / cache / remove / start / stop / restart / status / ps / watch / health / doctor / logs / use / current / serve / scan / adopt / clone / rename / migrate / update / rebaseline / export / import / backup / restore / recover`。
+`pal create / config / list / show / cache / remove / start / open / stop / restart / status / ps / watch / health / doctor / logs / use / current / serve / scan / adopt / clone / rename / migrate / update / rebaseline / export / import / backup / restore / recover`。
+
+`start <实例> [--entry web|app|tui|headless] [--task "…"] [--port N] [--no-open]`：入口决定跑成什么，`--task` 只对 `headless` 有意义，`--port` 只对 `web` 有意义（别的入口传了直接报 `invalid-input`）。`open <实例>` 按记录里的入口打开访问面，`--entry` 可以按另一个入口开而不改记录。
 
 `start` 会立刻退出（宿主 detach）；要看着护就用 `pal serve` 或 `pal watch`（二选一）。实例流转（接管 / 导入 / 克隆 / 改名 / 迁移 / 导出）在 CLI 与详情页「更多」里都有入口。
 
@@ -162,6 +187,8 @@ Pack 里的 `type: mcp` 资源安装时写进实例的 `.packhub/config.json`（
 ## 缺口
 
 - 系统级守护只有 `pal watch`（headless 进程），没有 Windows 服务/开机自启；`pal watch` 与 `pal serve` 二选一。
+- **入口里没验到的三处**：① dsh 的 `app` 是否把会话/凭据也落进实例 `DSH_HOME`，只按环境变量指过去、没有逐项核对；② codex 的 `app` 依赖桌面应用本体（`codex app` 找不到会去开安装器），PAL 只等进程；③ `tui` 用外部终端窗口，`spawnPid` 是终端那棵树，宿主内部再开 pty/子进程时靠 `taskkill /T` 收，没做 ConPTY 那种逐字节接管。
+- `app` 的就绪只到「进程稳住」，没有窗口/内部端点的硬判据（dsh 的 58752 是它自己的服务端口，PAL 没有拿它当本实例的凭据）。
 - 运行时只记录、展示，不切换：`baseline.json` 记下建/更新实例时的 node 版本，`pal doctor` 报当前运行时，`pal health` 的 `runtime` 检查在版本变过时只提醒；不支持切换（0.x 只承诺 Windows，见 E5）。跨盘迁移会自动复制，但复制期间会占双份空间。
 - 侧车传输固定 HTTP + token（E3 决定保留），stdio / 内部 RPC 未做。
 - 0.x 只承诺 Windows（E5）；POSIX 的进程组/信号/路径假设未审。

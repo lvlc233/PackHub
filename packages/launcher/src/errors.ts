@@ -13,6 +13,7 @@ export type PalErrorCode =
   | 'start-failed'
   | 'already-running'
   | 'not-running'
+  | 'not-openable'
   | 'port-in-use'
   | 'busy'
   | 'install-failed'
@@ -32,6 +33,7 @@ const STATUS: Record<PalErrorCode, number> = {
   'start-failed': 422,
   'already-running': 409,
   'not-running': 409,
+  'not-openable': 409,
   'port-in-use': 409,
   busy: 409,
   'install-failed': 422,

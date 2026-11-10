@@ -24,7 +24,8 @@ import { createFromRef, importFromFile, updateFromRef } from './service.ts';
 import { cacheStats, cleanCache, formatBytes, planClean, scanCache } from './cache.ts';
 import { DEFAULT_SCAN_DEPTH, scanDirectory, type ScanEntry } from './scan.ts';
 import { backupInstance, restoreBackup } from './backup.ts';
-import { refreshStatuses, restartInstance, startInstance, startInstanceDetailed, stopInstance } from './start.ts';
+import { openInstance, refreshStatuses, restartInstance, startInstance, startInstanceDetailed, stopInstance } from './start.ts';
+import { entryStates } from './entries.ts';
 import { DEFAULT_WATCH_INTERVAL_MS, watchLoop } from './watch.ts';
 import { psReport } from './ps.ts';
 import { activeEntries, setActive } from './active.ts';
@@ -428,12 +429,14 @@ const remove = defineCommand({
 });
 
 const start = defineCommand({
-  meta: { name: 'start', description: '起一个实例（现在能起 dsh web，端口自动分配）' },
+  meta: { name: 'start', description: '起一个实例（入口决定跑成什么：web / app / tui / headless）' },
   args: {
     target: { type: 'positional', required: false, description: '实例 id 或名字；不写就用当前实例' },
-    port: { type: 'string', description: '指定端口；被占时报告占用者' },
+    entry: { type: 'string', description: '入口：web / app / tui / headless；不写就用上次那个' },
+    task: { type: 'string', description: 'headless 入口要跑的任务' },
+    port: { type: 'string', description: '指定端口（只有 web 入口吃）；被占时报告占用者' },
     restart: { type: 'string', description: 'on-failure：崩了就让 PAL 重起（serve 时看护）' },
-    'no-open': { type: 'boolean', default: false, description: '起来后不用浏览器打开' },
+    'no-open': { type: 'boolean', default: false, description: 'web 入口起来后不用浏览器打开' },
     json: { type: 'boolean', default: false },
   },
   async run({ args }) {
@@ -462,15 +465,54 @@ const start = defineCommand({
     }
     const detail = await startInstanceDetailed(rec.id, {
       ...(args.port ? { port: Number(args.port) } : {}),
+      ...(args.entry ? { entry: String(args.entry) as never } : {}),
+      ...(args.task ? { task: String(args.task) } : {}),
     });
     const record = detail.record;
     if (args.json) {
       console.log(JSON.stringify(record, null, 2));
       return;
     }
-    console.log(`✓ ${record.id}  running  pid ${record.pid ?? '-'}`);
-    console.log(`  ${record.url ?? ''}`);
+    if (record.entry === 'headless') {
+      console.log(`✓ ${record.id}  headless  退出码 ${record.exitCode ?? '-'}`);
+      console.log(`  日志：${detail.logFile}`);
+      return;
+    }
+    console.log(`✓ ${record.id}  ${record.entry ?? '-'}  running  pid ${record.pid ?? '-'}`);
+    if (record.url) console.log(`  ${record.url}`);
+    if (detail.surface === 'window') console.log('  · 窗口由宿主自己打开');
+    if (detail.surface === 'terminal') console.log('  · 已开一个终端窗口');
     console.log(`  日志：${detail.logFile}`);
+    // web 入口起完就把浏览器打开；--no-open 只拦这一下
+    if (detail.surface === 'browser' && detail.url && !args['no-open']) openExternal(detail.url);
+  },
+});
+
+const open = defineCommand({
+  meta: { name: 'open', description: '打开实例的访问面：按记录里的入口开浏览器 / 应用窗口 / 终端' },
+  args: {
+    target: { type: 'positional', required: true, description: '实例 id 或名字' },
+    entry: { type: 'string', description: '按另一个入口打开（不改记录）' },
+    json: { type: 'boolean', default: false },
+  },
+  async run({ args }) {
+    const result = await openInstance(requireTarget(args.target), {
+      ...(args.entry ? { entry: String(args.entry) as never } : {}),
+    });
+    if (args.json) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    if (result.surface === 'browser' && result.url) {
+      openExternal(result.url);
+      console.log('✓ 已在浏览器打开');
+      return;
+    }
+    if (result.surface === 'window') {
+      console.log('✓ 已请宿主再开一次窗口（单实例应用会聚焦已有的那个）');
+      return;
+    }
+    console.log('✓ 已开一个终端窗口');
   },
 });
 
@@ -666,6 +708,12 @@ const doctor = defineCommand({
       const state = !info.available ? '未安装' : info.startable ? '可启动' : '只装配 home';
       console.log(`${info.id}\t${state}\t${info.version ?? info.probeError ?? '-'}`);
       if (info.commandPath) console.log(`  ${info.commandPath}`);
+      const entries = entryStates(info.id, { ...(info.commandPath ? { commandPath: info.commandPath } : {}) });
+      if (entries.length > 0) {
+        console.log(
+          `  入口：${entries.map((entry) => `${entry.kind}${entry.startable ? '' : '(不可用)'}`).join(' / ')}`,
+        );
+      }
       if (info.reason) console.log(`  ${info.reason}`);
     }
   },
@@ -1132,6 +1180,19 @@ function openAppWindow(url: string): void {
   child.unref();
 }
 
+/** 用系统默认浏览器打开一个地址：web 入口的「访问面」就是它。 */
+function openExternal(url: string): void {
+  const child =
+    process.platform === 'win32'
+      ? spawn(process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', 'start', '', url], {
+          detached: true,
+          stdio: 'ignore',
+          windowsHide: true,
+        })
+      : spawn(process.platform === 'darwin' ? 'open' : 'xdg-open', [url], { detached: true, stdio: 'ignore' });
+  child.unref();
+}
+
 export const main = defineCommand({
   // 版本号只认 package.json 一份，别在这里手写第二份。
   meta: { name: 'pal', version: pkg.version, description: '实例内核：建、起、停、看护、迁移' },
@@ -1143,6 +1204,7 @@ export const main = defineCommand({
     cache,
     remove,
     start,
+    open,
     stop,
     restart,
     status,
