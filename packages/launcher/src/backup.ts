@@ -11,7 +11,7 @@ import {
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { TargetId } from '@packhub/kernel';
 import { PalError } from './errors.ts';
-import { API_VERSION, RUNTIME, readRecordResult, type InstanceRecord } from './records.ts';
+import { API_VERSION, RECORD, RUNTIME, parseConfig, readRecordResult, type InstanceConfig, type InstanceRecord } from './records.ts';
 import { writeInstance } from './recordWrite.ts';
 import { requireInstance } from './catalog.ts';
 import { ADAPTERS, credentialRels } from './layout.ts';
@@ -276,15 +276,17 @@ export function restoreBackup(dir: string, opts: RestoreOptions = {}): InstanceR
   const source = requireBackupDir(dir);
   const meta = readBackupMeta(source);
 
-  // 配置本体在备份目录的 instance.json 里（runtime.json 不进备份）：root / home 还是旧路径，下面全部重写
-  const read = readRecordResult(source);
-  if (!read.record) {
-    throw new PalError('invalid-input', `备份里的实例记录读不了：${read.error ?? '未知原因'}`, {
+  // 配置本体在备份目录的 instance.json 里（runtime.json 不进备份，所以只读配置半份）：
+  // root / home 还是旧路径，下面全部重写
+  let saved: InstanceConfig;
+  try {
+    saved = parseConfig(source, readFileSync(join(source, RECORD), 'utf8'));
+  } catch (err) {
+    throw new PalError('invalid-input', `备份里的实例记录读不了：${(err as Error).message}`, {
       hint: '备份里必须有能解析的 instance.json',
       details: { dir: source },
     });
   }
-  const saved = read.record;
   const harness = assertHarness(saved.harness);
 
   const name = String(opts.name ?? meta.instance.name ?? saved.name).trim();

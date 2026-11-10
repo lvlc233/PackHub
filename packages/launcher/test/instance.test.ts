@@ -238,7 +238,7 @@ describe('实例配置', () => {
     expect(listInstances().map((row) => row.name)).toEqual(['rooted']);
   });
 
-  it('新建实例与接管都写默认隔离策略，旧记录读出来也是默认', async () => {
+  it('新建实例与接管都写默认隔离策略，配置缺 isolation 时读出来也是默认', async () => {
     const record = await createInstance({ name: 'iso-new', harness: 'dir', packDir: PACK });
     expect(record.isolation).toEqual(DEFAULT_ISOLATION);
     const onDisk = JSON.parse(readFileSync(join(record.root, 'instance.json'), 'utf8')) as { isolation?: unknown };
@@ -249,7 +249,7 @@ describe('实例配置', () => {
     const adopted = adoptInstance({ dir, name: 'iso-adopt', harness: 'dir' });
     expect(adopted.isolation).toEqual(DEFAULT_ISOLATION);
 
-    // 旧记录（没有 isolation 字段）：读出来就是默认策略，不算坏记录
+    // 配置里没有 isolation 字段：读出来就是默认策略，不算坏记录
     const legacy = { ...record } as Record<string, unknown>;
     delete legacy.isolation;
     writeFileSync(join(record.root, 'instance.json'), JSON.stringify(legacy, null, 2), 'utf8');

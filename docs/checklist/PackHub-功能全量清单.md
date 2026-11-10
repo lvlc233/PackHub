@@ -280,12 +280,12 @@ PAL 是 `packages/launcher` 里的实例内核 + Electron 壳（`apps/pal-electr
 
 | 编号 | 功能点 | 能观察到的事实 | 现状 | 证据/缺口 |
 |---|---|---|---|---|
-| PAL-01 | 实例记录 | `instance.json` 记 id/name/harness/harnessVersion/pack/root/home/planHash/status/ports[]/managed/lastExit | [done] | `launcher/src/index.ts` |
+| PAL-01 | 实例记录 | `instance.json` 只存配置（id/name/harness/root/home/pack/managed/isolation 等），运行态（status/pid/ports/url/lastExit）在 `runtime.json`；缺 runtime 即坏记录 | [done] | `records.ts`、`test/records.test.ts` |
 | PAL-02 | 建实例 | `pal create` 从 Pack 建目录；先落 `installing`，失败进 `.failed` 并写原因 | [done] | `createInstance`、`test/instance.test.ts` |
 | PAL-03 | 失败清理 | 复用已有目录时不删目录；只有自己造的根才移走 | [done] | `test/instance.test.ts` |
 | PAL-04 | 删除 | 先停进程，默认直接删根（不卸包）；`--keep-data` 先卸包再归档；接管目录只摘记录 | [done] | `removeInstance`、`test` |
 | PAL-05 | 启动 | 不拼 shell；日志走 fd；等地址超时贴日志尾部 | [done] | `start.ts`、`test/start.test.ts` |
-| PAL-06 | pid 与退出码 | 记真正在监听的 pid（Windows 垫片不再记成 cmd）；退出码/信号进 `lastExit` | [done] | `portOwner`、`attachSupervisor` |
+| PAL-06 | pid 与退出码 | `spawnPid` 是唯一 kill 目标，`listenPid` 只作证据；`pid` 兼容为 `spawnPid ?? listenPid`；退出码/信号进 `lastExit` | [done] | `start.ts`、`test/start.test.ts` |
 | PAL-07 | 端口 | 自动挑空闲端口；冲突报占用者 pid/进程名 | [done] | `port.ts` |
 | PAL-08 | 日志 | 每次启动归档 `start.<时间>.log`，读日志脱敏，保留 5 份 | [done] | `logs.ts`、`secrets.ts` |
 | PAL-09 | 凭据 | 地址里的 token 存 `secrets.json`（0600），记录与 API 只见脱敏地址；打开走 302 | [done] | `secrets.ts`、`server.ts` |
@@ -293,7 +293,7 @@ PAL 是 `packages/launcher` 里的实例内核 + Electron 壳（`apps/pal-electr
 | PAL-11 | 错误语义 | 未知实例 404、未知宿主 400、已运行 409，带 code/hint | [done] | `errors.ts`、`test/server.test.ts` |
 | PAL-12 | 宿主发现 | `pal doctor` / `/api/harnesses` 报可用性与版本；不可启动给说明 | [done] | `harness.ts` |
 | PAL-13 | dsh MCP 接线 | Pack 的 mcp 资源写成 `--patch` 层，dsh 启动时真连上 MCP server | [done] | `mcp.ts`、`test/mcp.test.ts` 与实机日志 |
-| PAL-14 | 实例流转 | `adopt` 接管、`clone` 复制、`rename` 改名、`migrate` 挪目录 | [done] | `index.ts`、`test/instance.test.ts` |
+| PAL-14 | 实例流转 | `adopt` 接管、`clone` 复制、`rename` 改名、`migrate` 挪目录 | [done] | `migrate.ts`、`create.ts`、`test/instance.test.ts` |
 | PAL-14b | 沿用已有 home | `create --from-home` 只补空缺地搬凭据与用户指令，不盖掉 Pack 写的文件；`sessions` 等不搬 | [done] | `seedHome`、`test/instance.test.ts` |
 | PAL-15 | 模板 | `export` 出可复现模板 JSON，`import` 按引用重建；不可复现的明确拒绝 | [done] | `exportTemplate`、`readTemplate` |
 | PAL-16 | 健康检查 | 记录/锁/进程/端口/home/基线/MCP 七项 | [done] | `health.ts`、`test/health.test.ts` |

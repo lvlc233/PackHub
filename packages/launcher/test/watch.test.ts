@@ -32,7 +32,7 @@ function writeRecord(id: string, overrides: Partial<InstanceRecord> = {}): strin
     managed: true,
     ...overrides,
   };
-  writeFileSync(join(dir, 'instance.json'), JSON.stringify(record, null, 2) + '\n', 'utf8');
+  writeInstance(record);
   return dir;
 }
 

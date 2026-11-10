@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { main } from '../src/cli.ts';
 import { psReport } from '../src/ps.ts';
 import type { InstanceRecord } from '../src/records.ts';
+import { writeInstance } from '../src/recordWrite.ts';
 
 /** 固定的「现在」：运行时长断言不依赖机器时钟。 */
 const NOW = Date.parse('2026-03-01T12:00:00.000Z');
@@ -29,7 +30,7 @@ function writeRecord(id: string, overrides: Partial<InstanceRecord> = {}): strin
     managed: true,
     ...overrides,
   };
-  writeFileSync(join(dir, 'instance.json'), JSON.stringify(record, null, 2) + '\n', 'utf8');
+  writeInstance(record);
   return dir;
 }
 
@@ -119,7 +120,7 @@ describe('pal ps：并发账本', () => {
     });
   });
 
-  it('pid 已经不在 → 标 stale；instance.json 的内容与 mtime 都不变', () => {
+  it('pid 已经不在 → 标 stale；instance.json 与 runtime.json 的内容与 mtime 都不变', () => {
     // 起一个立刻退出的子进程，拿它真实存在过、现在已死的 pid
     const child = spawnSync(process.execPath, ['-e', 'process.exit(0)'], { windowsHide: true });
     const deadPid = child.pid;
@@ -131,9 +132,12 @@ describe('pal ps：并发账本', () => {
       port: 43212,
       startedAt: new Date(NOW - 3_600_000).toISOString(),
     });
-    const file = join(dir, 'instance.json');
-    const beforeText = readFileSync(file, 'utf8');
-    const beforeMtime = statSync(file).mtimeMs;
+    const configFile = join(dir, 'instance.json');
+    const runtimeFile = join(dir, 'runtime.json');
+    const beforeConfig = readFileSync(configFile, 'utf8');
+    const beforeRuntime = readFileSync(runtimeFile, 'utf8');
+    const beforeConfigMtime = statSync(configFile).mtimeMs;
+    const beforeRuntimeMtime = statSync(runtimeFile).mtimeMs;
 
     const report = psReport({ now: NOW });
     expect(report.instances).toHaveLength(1);
@@ -146,9 +150,11 @@ describe('pal ps：并发账本', () => {
     expect(report.total).toMatchObject({ instances: 1, running: 0, stale: 1, conflicts: 0 });
 
     // 只标 stale，不刷新、不清 pid、不写盘
-    expect(readFileSync(file, 'utf8')).toBe(beforeText);
-    expect(statSync(file).mtimeMs).toBe(beforeMtime);
-    expect(JSON.parse(beforeText).pid).toBe(deadPid);
+    expect(readFileSync(configFile, 'utf8')).toBe(beforeConfig);
+    expect(readFileSync(runtimeFile, 'utf8')).toBe(beforeRuntime);
+    expect(statSync(configFile).mtimeMs).toBe(beforeConfigMtime);
+    expect(statSync(runtimeFile).mtimeMs).toBe(beforeRuntimeMtime);
+    expect(JSON.parse(beforeRuntime).pid).toBe(deadPid);
   });
 
   it('空环境 → total 全 0，数组为空', () => {

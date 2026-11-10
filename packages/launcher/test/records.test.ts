@@ -16,9 +16,8 @@ import {
 import { writeInstance } from '../src/recordWrite.ts';
 
 /**
- * 记录的类型分层与持久化拆分：配置（InstanceConfig）进 instance.json，运行态（RuntimeState）进 runtime.json；
- * 旧记录（两者还在 instance.json 里）读取兼容，写一次自动迁移。
- * 这里守：往返不丢字段、拆文件不混字段、旧记录可读、runtime.json 坏了算坏记录。
+ * 记录的类型分层与持久化拆分：配置（InstanceConfig）进 instance.json，运行态（RuntimeState）进 runtime.json。
+ * 这里守：往返不丢字段、拆文件不混字段、缺 runtime.json 算坏记录、runtime.json 坏了也算坏记录。
  */
 
 const RUNTIME_KEYS = [
@@ -233,34 +232,15 @@ describe('持久化拆分：instance.json（配置）+ runtime.json（运行态�
     expect(back.record).toMatchObject({ id: rec.id, name: 'demo', root, status: 'installed', ports: [] });
   });
 
-  it('旧格式（运行态在 instance.json、没有 runtime.json）可读；写一次就迁移成两份', () => {
-    const legacy = { ...fullRecord(), root };
+  it('缺 runtime.json：算坏记录，不再从 instance.json 读运行态', () => {
+    const rec = { ...fullRecord(), root };
     mkdirSync(root, { recursive: true });
-    writeFileSync(recordFile(root), JSON.stringify(legacy, null, 2) + '\n', 'utf8');
+    writeFileSync(recordFile(root), JSON.stringify(rec, null, 2) + '\n', 'utf8');
     expect(existsSync(runtimeFile(root))).toBe(false);
 
     const read = readRecordResult(root);
-    expect(read.error).toBeUndefined();
-    expect(read.record?.status).toBe('running');
-    expect(read.record?.pid).toBe(4321);
-    expect(read.record?.ports).toEqual([5000, 5123]);
-
-    writeInstance(read.record!);
-
-    expect(existsSync(runtimeFile(root))).toBe(true);
-    const config = readJson(recordFile(root));
-    const runtime = readJson(runtimeFile(root));
-    for (const key of RUNTIME_KEYS) expect(key in config).toBe(false);
-    expect(runtime).toMatchObject({
-      status: 'running',
-      pid: 4321,
-      spawnPid: 9999,
-      listenPid: 4321,
-      port: 5123,
-      ports: [5000, 5123],
-    });
-    expect(config).toMatchObject({ id: legacy.id, name: legacy.name, pack: legacy.pack, isolation: legacy.isolation });
-    expect(readRecordResult(root).record).toMatchObject({ status: 'running', pid: 4321, ports: [5000, 5123] });
+    expect(read.record).toBeUndefined();
+    expect(read.error).toContain('runtime.json');
   });
 
   it('runtime.json 损坏 → 记录算坏（problem），不静默丢运行态', () => {
