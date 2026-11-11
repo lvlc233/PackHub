@@ -65,3 +65,31 @@ jobs:
 
       - name: Windows 端到端冒烟
         run: pnpm pal:smoke
+
+  package:
+    # 只验「能打出一个可运行的目录」：安装器与签名不做
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: 11
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: 打包运行时 + Electron 壳（--dir）
+        run: pnpm pal:pack
+
+      - name: 校验产物布局，并真起一次侧车
+        run: |
+          app=dist/pal-app/linux-unpacked
+          test -f "$app/resources/app.asar"
+          test -x "$app/resources/runtime/node"
+          test -f "$app/resources/runtime/pal.cjs"
+          out=$(printf '' | "$app/resources/runtime/node" "$app/resources/runtime/pal.cjs" serve --port 0 --json --exit-on-stdin-close)
+          echo "$out"
+          echo "$out" | grep -q '"url":"http://127.0.0.1:'
