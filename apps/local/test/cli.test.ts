@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
@@ -614,5 +614,41 @@ resources:
 
     rmSync(src, { recursive: true, force: true });
     rmSync(project, { recursive: true, force: true });
+  });
+});
+
+describe('cli 端到端：install', () => {
+  it('--dry-run 一个文件都不写，真装才落盘', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'packhub-cli-dry-'));
+    writeFileSync(
+      join(dir, 'packhub.yaml'),
+      `apiVersion: packhub.dev/v0
+kind: Pack
+metadata: { name: demo/dry, version: 0.0.1, targets: [dir] }
+requires: { packhub: ">=0.0.1 <0.1" }
+resources:
+  - id: rules
+    type: knowledge
+    source: ./rules.md
+verify:
+  - type: file-exists
+    path: "\${target.knowledgeDir}/rules.md"
+`,
+      'utf8',
+    );
+    writeFileSync(join(dir, 'rules.md'), '# rules\n', 'utf8');
+
+    const dry = run(['install', dir, '--dry-run']);
+    expect(dry.status).toBe(0);
+    expect(dry.out).toContain('done');
+    // 计划里写的东西一个都不该出现：没有 .packhub，包目录也没多出文件
+    expect(existsSync(join(dir, '.packhub'))).toBe(false);
+    expect(readdirSync(dir).sort()).toEqual(['packhub.yaml', 'rules.md']);
+
+    const real = run(['install', dir]);
+    expect(real.status).toBe(0);
+    expect(readFileSync(join(dir, '.packhub/knowledge/rules.md'), 'utf8')).toBe('# rules\n');
+
+    rmSync(dir, { recursive: true, force: true });
   });
 });

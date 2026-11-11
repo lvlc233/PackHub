@@ -90,7 +90,7 @@ review: 任何行为变更的提交
 | PLN-09 | target 变量 | `${target.*}` 随 target 变化（skills / knowledge / prompts / bin / 配置与指令文件位置） | [done] | `plan.ts`、`targets.ts`、`state.test.ts` |
 | PLN-10 | 未知 target | `planFor` 报 `unknown-target`（无测试）；`install` / `add` 更早一步报「没有声明 target」并退出 2 | [done] | `packages/kernel/src/index.ts`、`cli.ts` |
 | PLN-11 | 预览 API | `POST /api/plan` 现算、不落盘，能力已在 Hub 里；`apps/local/server.ts` 这个路径从未存在过 | [na] | 并入 HUB-03 |
-| PLN-12 | dry-run | `install --dry-run` 不取锁、不建 generation、不写 state；`add --dry-run` 只取包到临时目录；install 的 dry-run 无单测 | [done] | `install.ts`、`cli.ts`、`cli.test.ts` |
+| PLN-12 | dry-run | `install --dry-run` 不取锁、不建 generation、不写 state，一个文件都不落；`add --dry-run` 只取包到临时目录；两者都有端到端用例 | [done] | `install.ts`、`cli.ts`、`cli.test.ts` |
 | PLN-13 | 未定义变量 | 模板变量解析不到报 `undefined-variable`，`vars` / `target` / `state` 共用同一套收集 | [done] | `plan.ts`、`util.ts` |
 | PLN-14 | excluded 原因 | 四类：`unbound-slot` / `optional-unmet` / `target-mismatch` / `host-managed` | [done] | `graph.ts`、`plan.ts` |
 | PLN-15 | 检查回填 integrity | 计划里的 `knowledge-integrity` 会带上资源的 `integrity`，校验按期望哈希核对 | [done] | `plan.ts`、`verify.ts` |
@@ -354,7 +354,7 @@ review: 任何行为变更的提交
 | 发布校验的位置 | 在进程内 `runPack`，已拒可执行检查 | 放进沙箱，或只收 CI 报告 |
 | 全局 MCP | Claude Code 走宿主 CLI，codex 写 TOML 托管块，dsh 无稳定契约 | 其余宿主等有稳定契约再接 |
 | 性能口径 | 只有耗时，没有内存 / 吞吐 | 需要时再加指标，并把 install / overlay 基准纳入 CI |
-| 测试覆盖 | `config-key`、mcp 的 SSE 分支、`sync` 的本地来源拒绝、install 的 dry-run、`logs` / `secrets` 无直接用例 | 补用例，或把这几条的 `[done]` 降为 `[part]` |
+| 测试覆盖 | `config-key`、mcp 的 SSE 分支、`sync` 的本地来源拒绝、`logs` / `secrets` 无直接用例 | 补用例，或把这几条的 `[done]` 降为 `[part]` |
 
 ## 与 Agent Harness 清单的对照
 
