@@ -295,8 +295,8 @@ review: 任何行为变更的提交
 | PAL-05 | 启动 | 参数数组直传、日志走 fd；只有 Windows `.cmd` / `.bat` 垫片经 `cmd.exe /d /s /c`；等地址超时贴日志尾部 | [done] | `start.ts`、`harness.ts`、`start.test.ts` |
 | PAL-06 | pid 与退出码 | `spawnPid` 是唯一 kill 对象的**根**（实际收整棵子树），`listenPid` 只作证据；`pid` 兼容为 `spawnPid ?? listenPid`；退出码 / 信号进 `lastExit` | [done] | `start.ts`、`process.ts`、`start.test.ts` |
 | PAL-07 | 端口 | 自动挑空闲端口；冲突时报告占用者 pid 与进程名 | [done] | `port.ts`、`start.ts` |
-| PAL-08 | 日志 | 每次启动归档 `start.<时间>.log`，超出保留数的自动清掉（见 `logs.ts`）；读取时脱敏；无单测 | [done] | `logs.ts`、`secrets.ts` |
-| PAL-09 | 凭据 | 地址里的 token 存 `secrets.json`（0600），记录与 API 只见脱敏地址；打开走 302 | [done] | `secrets.ts`、`server.ts`、`server.test.ts` |
+| PAL-08 | 日志 | 每次启动归档 `start.<时间>.log`，超出保留数的自动清掉（见 `logs.ts`）；读取时脱敏；`events.jsonl` 与 `start.log` 分开，`tailLog` 只留尾部 | [done] | `logs.ts`、`secrets.ts`、`logs-secrets.test.ts` |
+| PAL-09 | 凭据 | 地址里的 token 存 `secrets.json`（0600），记录与 API 只见脱敏地址；打开走 302；`splitUrl` / `withSecrets` 往返与文本脱敏有用例 | [done] | `secrets.ts`、`server.ts`、`server.test.ts`、`logs-secrets.test.ts` |
 | PAL-10 | 来源校验 | 跨源写请求、缺客户端头的写请求一律 403；静态资源与 `--insecure` 是例外 | [done] | `server.ts`、`server.test.ts` |
 | PAL-11 | 错误语义 | 未知实例 404、未知宿主 400、已运行 409，带 code / hint；`core-unavailable` 是 503 | [done] | `errors.ts`、`server.test.ts` |
 | PAL-12 | 宿主发现 | `pal doctor` / `/api/harnesses` 报可用性、版本、能不能起；起不来说明原因 | [done] | `harness.ts`、`cli.test.ts` |
@@ -354,7 +354,6 @@ review: 任何行为变更的提交
 | 发布校验的位置 | 在进程内 `runPack`，已拒可执行检查 | 放进沙箱，或只收 CI 报告 |
 | 全局 MCP | Claude Code 走宿主 CLI，codex 写 TOML 托管块，dsh 无稳定契约 | 其余宿主等有稳定契约再接 |
 | 性能口径 | 只有耗时，没有内存 / 吞吐 | 需要时再加指标，并把 install / overlay 基准纳入 CI |
-| 测试覆盖 | `logs` / `secrets` 无直接用例 | 补用例，或把这几条的 `[done]` 降为 `[part]` |
 
 ## 与 Agent Harness 清单的对照
 
