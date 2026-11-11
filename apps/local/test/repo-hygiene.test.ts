@@ -7,6 +7,8 @@ const ROOT = fileURLToPath(new URL('../../..', import.meta.url));
 const WORKFLOWS = join(ROOT, '.github/workflows');
 
 describe('仓库的供应链卫生', () => {
+  // 钉的必须是 commit。annotated tag 的 `refs/tags/v4` 指向的是 tag 对象而不是 commit，
+  // 拿那个 SHA 钉上去，Actions 在 setup 阶段就解析不了（pnpm/action-setup@v4 踩过）。
   it('workflow 里的 action 钉在 commit SHA 上，注释里写版本', () => {
     const files = readdirSync(WORKFLOWS).filter((f) => /\.ya?ml$/.test(f));
     expect(files.length).toBeGreaterThan(0);
