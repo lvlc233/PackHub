@@ -85,7 +85,7 @@ review: 任何行为变更的提交
 | PLN-03 | 依赖与顺序 | `dependsOn` 拓扑排序；无依赖的资源按清单顺序；成环报 `dependency-cycle` | [done] | `graph.ts` |
 | PLN-04 | 能力检查 | `needs` 没有提供方报 `unmet-need` | [done] | `graph.ts`、`graph.test.ts` |
 | PLN-05 | 槽位排除 | 未绑定的候选进 `excluded`，不进动作；只有「槽位已绑定别人」时这条才可见，完全没绑定是错误而不是排除 | [done] | `graph.ts`、`slots.test.ts` |
-| PLN-06 | 冲突检测 | 输出冲突、覆盖层冲突、配置键冲突都是错误；`overlay-shadows` 只警告 | [done] | `plan.ts`、`overlay.test.ts` |
+| PLN-06 | 冲突检测 | 输出冲突、补丁冲突、配置键冲突都是错误；`modify-shadows`（补丁盖住资源产物）只警告 | [done] | `plan.ts`、`modify.test.ts` |
 | PLN-07 | planHash | 规范化 JSON 的 sha256（`sha256-` + base64）；同输入两次一致有测试；跨机器只靠规范化，无专门用例 | [done] | `packages/kernel/src/util.ts`、`plan.ts`、`plan.test.ts` |
 | PLN-08 | 一 target 一计划 | `lock` 为每个声明的 target 各算一份；主快照由 `--target` 指定，多 target 时才写 `plans` | [done] | `resolve.ts`、`lock.ts`、`lock-targets.test.ts` |
 | PLN-09 | target 变量 | `${target.*}` 随 target 变化（skills / knowledge / prompts / bin / 配置与指令文件位置） | [done] | `plan.ts`、`targets.ts`、`state.test.ts` |

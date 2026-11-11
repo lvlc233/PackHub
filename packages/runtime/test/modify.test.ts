@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { installPack, loadPack, planFor, verifyPack } from '../src/index.ts';
+import { installPack, loadPack, packArchive, planFor, verifyPack } from '../src/index.ts';
 
 function pack(files: Record<string, string>): string {
   const dir = mkdtempSync(join(tmpdir(), 'packhub-modify-'));
@@ -450,8 +450,7 @@ describe('重名标题：nth 指定第几个', () => {
   });
 });
 
-describe('overlays 不能逃出包目录（旧口径保留）', () => {
-  it('远程资源按锚点改 → modify-remote-unsupported', () => {
+describe('远程资源', () => {  it('远程资源按锚点改 → modify-remote-unsupported', () => {
     const dir = pack({
       'packhub.yaml': manifest(
         `  - id: rule
@@ -468,6 +467,25 @@ describe('overlays 不能逃出包目录（旧口径保留）', () => {
     });
     const { issues } = planFor(loadPack(dir));
     expect(issues.map((i) => i.code)).toContain('modify-remote-unsupported');
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe('打包', () => {
+  it('reference 模式打不出去：补丁文件不在归档里', async () => {
+    const dir = pack({
+      'packhub.yaml': manifest(
+        `  - id: rules
+    type: knowledge
+    source: npm:something@1.0.0`,
+        `modify:
+  - resource: rules
+    with: ./patches/rules.md
+`,
+      ),
+      'patches/rules.md': '# 我改过的\n',
+    });
+    await expect(packArchive(dir, { vendored: false })).rejects.toThrow(/reference 模式打出来装不上/);
     rmSync(dir, { recursive: true, force: true });
   });
 });

@@ -26,7 +26,7 @@ export class LocalSourceNotVendoredError extends Error {
   constructor(sources: string[]) {
     const shown = sources.slice(0, 3).map((s) => `  ${s}`).join('\n');
     super(
-      `清单里有 ${sources.length} 条本地来源，reference 模式打出来装不上：\n${shown}${sources.length > 3 ? '\n  …' : ''}\n去掉 --reference（默认自包含），或把这些内容换成可远程获取的来源。`,
+      `清单里有 ${sources.length} 个本地文件（来源或补丁），reference 模式打出来装不上：\n${shown}${sources.length > 3 ? '\n  …' : ''}\n去掉 --reference（默认自包含），或把这些内容换成可远程获取的来源。`,
     );
     this.name = 'local-source-not-vendored';
     this.sources = sources;
@@ -51,6 +51,14 @@ export function localSources(root: string): string[] {
     .filter((source) => parseSource(source).kind === 'local');
 }
 
+/** `modify` 里指向本机文件的补丁；reference 模式下它们同样不在归档里。 */
+export function localPatchFiles(root: string): string[] {
+  const ctx = loadPack(root);
+  return (ctx.manifest?.modify ?? [])
+    .map((m) => m.with)
+    .filter((w): w is string => typeof w === 'string' && /^\.\.?\//.test(w));
+}
+
 /**
  * 封装：把 Pack 目录打成 `.phub`（tar.gz）。只带清单、锁与要随包走的内容，不生成安装计划。
  * 默认自包含；reference 只适合全部来源都能在安装时远程取到的包。
@@ -63,9 +71,9 @@ export async function packArchive(
   if (!existsSync(manifest)) throw new Error(`没有 packhub.yaml：${root}`);
 
   const vendored = opts.vendored !== false;
-  const locals = localSources(root);
+  const locals = [...localSources(root), ...localPatchFiles(root)];
   if (!vendored && locals.length > 0) {
-    // reference 模式只可能对远程来源成立：./ 的文件不在归档里，装到 write 那步必然 ENOENT。
+    // reference 模式只可能对远程来源成立：./ 的文件（来源与补丁）不在归档里，装到 write 那步必然 ENOENT。
     throw new LocalSourceNotVendoredError(locals);
   }
 

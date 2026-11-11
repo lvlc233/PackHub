@@ -84,11 +84,11 @@ function parseLocalOverrides(file: string): LocalOverrides {
 }
 
 /** 读项目根的 `.packhub/local.yaml`；不存在就返回 undefined。 */
-export function readLocalOverrides(root: string): { overrides?: LocalOverrides; issues: Issue[] } {
+export function readLocalOverrides(root: string): { file?: LocalOverrides; issues: Issue[] } {
   const file = join(resolve(root), '.packhub', 'local.yaml');
   if (!existsSync(file)) return { issues: [] };
   try {
-    return { overrides: parseLocalOverrides(file), issues: [] };
+    return { file: parseLocalOverrides(file), issues: [] };
   } catch (err) {
     return {
       issues: [{ code: 'local-overrides', severity: 'error', message: `读不了 ${file}：${(err as Error).message}` }],

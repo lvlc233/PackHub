@@ -20,7 +20,7 @@ Pack 不是资源的压缩包，哪怕有依赖关系也不自动成为有机整
 
 1. 清单 `packhub.yaml`
 2. 锁 `packhub.lock.json`
-3. 随包资源（`resources/`、`skills/`、`fragments/`、`overrides/`、`glue/` 等）
+3. 随包资源（`resources/`、`skills/`、`fragments/`、`glue/` 等）与补丁文件（目录名自选，`modify` 里按路径引用）
 4. 说明与变更记录（`PACK.md` / `CHANGELOG.md`，可选）
 5. 签名（旁挂 `packhub.signatures.json`，或在清单里，可选）
 

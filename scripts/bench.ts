@@ -23,15 +23,15 @@ for (let i = 0; i < count; i++) {
   lines.push(`  - id: r${i}\n    type: knowledge\n    source: ./r${i}.md`);
 }
 
-const overlayCount = withOverlay ? count : 0;
-if (overlayCount > 0) {
-  mkdirSync(join(dir, 'overlays'), { recursive: true });
-  for (let i = 0; i < overlayCount; i++) {
-    writeFileSync(join(dir, `overlays/o${i}.md`), `# overlay ${i}\n`, 'utf8');
+const modifyCount = withOverlay ? count : 0;
+if (modifyCount > 0) {
+  mkdirSync(join(dir, 'patches'), { recursive: true });
+  for (let i = 0; i < modifyCount; i++) {
+    writeFileSync(join(dir, `patches/p${i}.md`), `# patch ${i}\n`, 'utf8');
   }
 }
 
-const modifyLines = Array.from({ length: overlayCount }, (_, i) => `  - { resource: r${i}, with: ./overlays/o${i}.md }`);
+const modifyLines = Array.from({ length: modifyCount }, (_, i) => `  - { resource: r${i}, with: ./patches/p${i}.md }`);
 
 writeFileSync(
   join(dir, 'packhub.yaml'),
@@ -41,7 +41,7 @@ metadata: { name: demo/bench, version: 0.0.1, targets: [dir] }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
 ${lines.join('\n')}
-${overlayCount > 0 ? `modify:\n${modifyLines.join('\n')}\n` : ''}`,
+${modifyCount > 0 ? `modify:\n${modifyLines.join('\n')}\n` : ''}`,
   'utf8',
 );
 

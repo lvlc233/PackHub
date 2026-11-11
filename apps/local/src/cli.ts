@@ -650,10 +650,10 @@ const add = defineCommand({
       say('这个包没有签名（未配置信任列表，按开发者模式继续）');
     }
 
-    // 项目根的 .packhub/local.yaml 只改这次安装：覆盖 pin、绑定、路径与环境变量
+    // 项目根的 .packhub/local.yaml 只改这次安装：补丁、绑定、变量
     const local = readLocalOverrides(projectDir);
-    if (local.overrides) {
-      const merged = mergeLocalOverrides(ctx.manifest, local.overrides);
+    if (local.file) {
+      const merged = mergeLocalOverrides(ctx.manifest, local.file);
       const validated = validateGraph(merged.manifest);
       const localIssues = [...local.issues, ...merged.issues, ...validated.issues];
       if (localIssues.some((i) => i.severity === 'error')) {
@@ -666,7 +666,7 @@ const add = defineCommand({
         graph: validated.graph,
         issues: [...ctx.issues, ...localIssues],
       };
-      say('已应用 .packhub/local.yaml 覆盖');
+      say('已应用 .packhub/local.yaml 补丁');
     }
 
     const { plan, issues } = planFor(ctx, { target: targetEnv as never });
