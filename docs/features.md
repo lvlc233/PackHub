@@ -246,7 +246,7 @@ review: 任何行为变更的提交
 | TRU-09 | 许可策略 | 策略键 `allow` / `deny` / `allowCopyleft` / `allowNC` / `allowND` / `requireSpdx`；判序 deny → NC → ND → copyleft → allow，命中有原因 | [done] | `license.ts`、`license.test.ts` |
 | TRU-10 | 可见性 | 四档，默认 private；默认值在 registry 侧以 `?? 'private'` 落定，非 public 拒收 | [done] | `packages/registry/src/build.ts`、`publish.ts`、`packhub.v0.schema.json` |
 | TRU-11 | 操作审计 | `add` / `install` / `update` 追加 `~/.packhub/audit.jsonl`（0600）；`packhub audit --tail/--json` 查看；写失败只 warn 不阻断 | [done] | `audit.ts`、`cli.ts`、`trust.test.ts` |
-| TRU-12 | `requireSignature` 的开关 | 只能手改 `trust.json`，没有 `trust require on/off` 命令 | [part] | `trust.ts`、`cli.ts` |
+| TRU-12 | `requireSignature` 的开关 | `trust require on` / `off` 直接改 `trust.json`，公钥列表不动；列表非空时仍然只收列表里的签名（`off` 不解除这条，命令会提示）；`trust list` 显示当前是否要求签名 | [done] | `trust.ts` 的 `setRequireSignature`、`cli.ts` 的 `trust`、`cli.test.ts` |
 
 ## 11 OPS ｜工程与运维
 

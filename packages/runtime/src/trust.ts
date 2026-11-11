@@ -74,6 +74,17 @@ export function trustedKeyIds(): string[] {
 }
 
 /**
+ * 改「强制签名」开关；公钥列表原样保留。
+ * 注意它不解除「有信任列表就必须签名」那条：列表非空时仍然只收列表里的签名。
+ */
+export function setRequireSignature(require: boolean): TrustFile {
+  const data = readTrust();
+  data.requireSignature = require;
+  writeTrust(data);
+  return data;
+}
+
+/**
  * 要不要强制签名：
  * 显式 --require-signature > 显式 --allow-unsigned > trust.json.requireSignature > 有信任列表 > 不强制。
  * 有信任列表就只用列表里的公钥，绝不“任意签名都算”。

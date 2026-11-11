@@ -79,6 +79,7 @@ import {
   readTrust,
   addTrustedKey,
   removeTrustedKey,
+  setRequireSignature,
   signaturePolicy,
   auditPath,
   appendAudit,
@@ -1335,13 +1336,36 @@ const trustList = defineCommand({
     for (const key of trust.keys) {
       console.log(`${key.key}${key.label ? `  ${key.label}` : ''}  ${key.addedAt.slice(0, 19)}`);
     }
-    console.log(`\n共 ${trust.keys.length} 个；requireSignature=${trust.requireSignature === true}`);
+    console.log(
+      `\n共 ${trust.keys.length} 个；要求签名：${trust.requireSignature === true || trust.keys.length > 0 ? '是' : '否'}`,
+    );
+  },
+});
+
+const trustRequire = defineCommand({
+  meta: { name: 'require', description: '要不要强制签名（on | off）；公钥列表不动' },
+  args: {
+    value: { type: 'positional', required: true, description: 'on | off' },
+  },
+  run({ args }) {
+    const raw = String(args.value).toLowerCase();
+    if (raw !== 'on' && raw !== 'off') {
+      console.error(`只认 on 或 off：收到 ${String(args.value)}`);
+      process.exit(2);
+    }
+    const on = raw === 'on';
+    const data = setRequireSignature(on);
+    console.log(on ? '✓ 之后安装要求签名（单次可被 --allow-unsigned 绕过）' : '✓ 不再要求签名');
+    console.log(`  ${trustPath()}`);
+    if (!on && data.keys.length > 0) {
+      console.warn(`warn  信任列表里还有 ${data.keys.length} 把公钥：列表非空时仍然只收列表里的签名`);
+    }
   },
 });
 
 const trust = defineCommand({
   meta: { name: 'trust', description: '管理持久信任的签名公钥' },
-  subCommands: { add: trustAdd, remove: trustRemove, list: trustList },
+  subCommands: { add: trustAdd, remove: trustRemove, list: trustList, require: trustRequire },
 });
 
 const audit = defineCommand({

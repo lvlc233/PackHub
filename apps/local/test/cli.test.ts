@@ -261,6 +261,35 @@ describe('cli 端到端：add → verify → uninstall', () => {
     rmSync(project, { recursive: true, force: true });
   });
 
+  it('trust require on/off 切强制签名，不用手改 trust.json', () => {
+    const home = mkdtempSync(join(tmpdir(), 'packhub-cli-trustreq-'));
+    const project = mkdtempSync(join(tmpdir(), 'packhub-cli-trustreq-proj-'));
+    const env = { PACKHUB_INDEX: join(ROOT, 'registry/index.json'), PACKHUB_HOME: home };
+
+    const on = run(['trust', 'require', 'on'], env);
+    expect(on.status).toBe(0);
+    expect(JSON.parse(readFileSync(join(home, 'trust.json'), 'utf8')).requireSignature).toBe(true);
+
+    const denied = run(['add', 'lvlc233/team-conventions', '--dir', project], env);
+    expect(denied.status).toBe(2);
+    expect(denied.out).toMatch(/签名/);
+
+    const off = run(['trust', 'require', 'off'], env);
+    expect(off.status).toBe(0);
+    expect(JSON.parse(readFileSync(join(home, 'trust.json'), 'utf8')).requireSignature).toBe(false);
+
+    const allowed = run(['add', 'lvlc233/team-conventions', '--dir', project], env);
+    expect(allowed.status).toBe(0);
+    expect(existsSync(join(project, '.packhub/knowledge/style-guide.md'))).toBe(true);
+
+    const bad = run(['trust', 'require', 'maybe'], env);
+    expect(bad.status).toBe(2);
+    expect(bad.out).toContain('只认 on 或 off');
+
+    rmSync(home, { recursive: true, force: true });
+    rmSync(project, { recursive: true, force: true });
+  });
+
   it('search 能读索引并按关键词过滤', () => {
     const index = join(ROOT, 'registry/index.json');
     const res = run(['search', 'conventions', '--index', index]);

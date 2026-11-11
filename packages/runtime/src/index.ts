@@ -85,6 +85,7 @@ export {
   readTrust,
   addTrustedKey,
   removeTrustedKey,
+  setRequireSignature,
   trustedKeyIds,
   signaturePolicy,
   type TrustFile,
