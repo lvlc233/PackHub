@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { canonicalize, loadPack, planFor, sha256, type LockFile } from '@packhub/kernel';
@@ -87,6 +88,18 @@ export function buildIndex(registryRoot: string): BuildResult {
     }
   };
 
+  /** 二进制用字节比：`git show` 按 utf8 解码会毁掉归档。 */
+  const gitShowHeadBytes = (relPath: string): Buffer | null => {
+    try {
+      return execFileSync('git', ['show', `HEAD:./${relPath}`], {
+        cwd: registryRoot,
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+    } catch {
+      return null;
+    }
+  };
+
   for (const scope of dirs(packsDir)) {
     for (const name of dirs(join(packsDir, scope))) {
       const packName = `${scope}/${name}`;
@@ -116,6 +129,18 @@ export function buildIndex(registryRoot: string): BuildResult {
           if (headText === null) continue;
           if (norm(headText) !== norm(readFileSync(abs, 'utf8'))) {
             errors.push(`${packName}@${version}: 版本目录不可变，${file} 已被修改（改动要发新版本）`);
+          }
+        }
+
+        // 归档也是发布内容：字节变了就说明版本被改过（按 utf8 读会毁掉二进制，所以单独走 buffer）
+        const archive = join(versionsDir, `${version}.phub`);
+        if (existsSync(archive)) {
+          const headBytes = gitShowHeadBytes(relative(registryRoot, archive).replaceAll('\\', '/'));
+          if (headBytes) {
+            const digest = (buf: Buffer): string => createHash('sha256').update(buf).digest('hex');
+            if (digest(headBytes) !== digest(readFileSync(archive))) {
+              errors.push(`${packName}@${version}: 版本目录不可变，${version}.phub 已被修改（改动要发新版本）`);
+            }
           }
         }
 

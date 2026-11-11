@@ -97,7 +97,7 @@ describe('publish', () => {
     rmSync(reg, { recursive: true, force: true });
   });
 
-  it('版本目录里的锁被改过，索引门禁会指出（只在 git 里有历史时）', async () => {
+  it('版本目录里的锁与归档被改过，索引门禁都会指出（只在 git 里有历史时）', async () => {
     const pack = makePack();
     const reg = registry();
     const res = await publishPack(pack, { registry: reg });
@@ -114,11 +114,20 @@ describe('publish', () => {
     expect(buildIndex(reg).errors).toEqual([]);
 
     const lockFile = join(res.dir, 'packhub.lock.json');
-    writeFileSync(lockFile, `${readFileSync(lockFile, 'utf8')}\n`, 'utf8');
+    const lockText = readFileSync(lockFile, 'utf8');
+    writeFileSync(lockFile, `${lockText}\n`, 'utf8');
 
     const after = buildIndex(reg);
     expect(after.errors.length).toBeGreaterThan(0);
     expect(after.errors.join('\n')).toContain('packhub.lock.json 已被修改');
+
+    // 锁归位，改归档：归档字节也要核
+    writeFileSync(lockFile, lockText, 'utf8');
+    expect(buildIndex(reg).errors).toEqual([]);
+
+    const archive = join(reg, 'packs/demo/published/0.1.0.phub');
+    writeFileSync(archive, Buffer.concat([readFileSync(archive), Buffer.from('x')]));
+    expect(buildIndex(reg).errors.join('\n')).toContain('0.1.0.phub 已被修改');
 
     rmSync(pack, { recursive: true, force: true });
     rmSync(reg, { recursive: true, force: true });
