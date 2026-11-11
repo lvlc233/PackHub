@@ -226,7 +226,7 @@ review: 任何行为变更的提交
 | CLI-07 | 凭据管理 | `auth set/list/remove/rotate`；列表只给掩码 | [done] | `cli.ts`、`credentials.test.ts` |
 | CLI-08 | 回滚 / 卸载 / 升级 | 三个命令可用；升级走 `update`，回滚按 generation；CLI 级没有 update / rollback 的端到端用例 | [done] | `cli.ts`、`versioning.test.ts`、`state.test.ts` |
 | CLI-09 | 全局同步 | `sync --to dsh,codex,claude-code` / `--to .` | [done] | `cli.ts`、`cli.test.ts` |
-| CLI-10 | 错误可执行 | 缺清单指 `init`、缺索引指 `PACKHUB_INDEX`、签名问题指 `trust add`；Hub 端口被占时只透出原始 `EADDRINUSE`，没有额外提示 | [part] | `cli.ts`、`cli.test.ts` |
+| CLI-10 | 错误可执行 | 缺清单指 `init`、缺索引指 `PACKHUB_INDEX`、签名问题指 `trust add`；Hub 端口被占时给「换 --port / --port 0」和查占用的命令，退出 2 | [done] | `cli.ts`、`cli.test.ts` |
 | CLI-11 | shell 补全 | `completion` 支持 bash / zsh / pwsh，从活的子命令表生成，含每个命令的参数 | [done] | `cli.ts` |
 | CLI-12 | 版本与分发 | `--version` 输出 `package.json` 里的版本；CLI 未发布到 npm（workspace 包私有），分发走 `build:local` + `pack:local` 出的 tgz；没有自更新 | [done] | `cli.ts`、`scripts/build-local.mjs`、`package.json` |
 | CLI-13 | init 的名字闸 | `init --name` 只收 `owner/name`，pattern 取自 schema；裸名字退出 2，一个文件都不写；产出清单随即能 `plan` | [done] | `cli.ts` 的 `init`、`manifest.ts` 的 `PACK_NAME_PATTERN`、`cli.test.ts` |
@@ -274,7 +274,7 @@ review: 任何行为变更的提交
 | X-01 | Windows 路径 | `within()` 做 resolve + 越界拒绝；盘符 / 绝对路径 / `..` 在 state 与解包两处都有用例 | [done] | `install.ts` 的 `within`、`packages/kernel/test/state.test.ts`、`guards.test.ts` |
 | X-02 | 编码与 BOM | 读 `SKILL.md` frontmatter 前剥 BOM；版本不可变比对时对清单与报告做 CRLF 归一 | [done] | `skill-meta.ts`、`sync.test.ts`、`build.ts` |
 | X-03 | 代理 | 下载与索引走 `HTTPS_PROXY` / `https_proxy` / `HTTP_PROXY`；进程级 dispatcher，运行中改环境变量不生效；无代理用例 | [done] | `download.ts` |
-| X-04 | 并发与端口 | 同一目录同时只允许一次安装（O_EXCL + 死 pid 回收）；`hub --port 0` 打印系统分配的实际端口；端口被占只透出原始 `EADDRINUSE` | [part] | `install.ts`、`cli.ts`、`bin.ts`、`guards.test.ts` |
+| X-04 | 并发与端口 | 同一目录同时只允许一次安装（O_EXCL + 死 pid 回收）；`hub --port 0` 打印系统分配的实际端口；端口被占时给换端口与查占用的命令，退出 2 | [done] | `install.ts`、`cli.ts`、`bin.ts`、`guards.test.ts` |
 | X-05 | tar 安全 | 解包 filter 拒绝 `..`、绝对路径（含盘符）、符号链接与硬链接条目 | [done] | `pack.ts` 的 `isSafeArchiveEntry`、`guards.test.ts` |
 | X-06 | 大仓库性能 | `bench:large` 提供大规模资源 + overlay 的计划与安装基准；不在 CI | [done] | `package.json`、`scripts/bench.ts` |
 | X-07 | 平台兼容 | CI 同时跑 Linux 与 Windows 全量测试；开发在 Windows | [done] | workflows |

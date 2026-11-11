@@ -2080,14 +2080,24 @@ const hub = defineCommand({
     rpm: { type: 'string', default: '240', description: '每 IP 每分钟请求上限，0 不限' },
   },
   async run({ args }) {
+    const wanted = Number(args.port);
     const server = await startHub({
       root: resolve(String(args.dir)),
-      port: Number(args.port),
+      port: wanted,
       host: String(args.host),
       ...(args.token ? { auth: { token: String(args.token) } } : {}),
       ...(args['user-header'] ? { auth: { userHeader: String(args['user-header']) } } : {}),
       ...(args.audit ? { auditFile: resolve(String(args.audit)) } : {}),
       rpm: Number(args.rpm),
+    }).catch((err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE') {
+        console.error(`端口 ${wanted} 已经被占用：换一个 --port（--port 0 让系统分配），或先停掉占用它的进程`);
+        console.error(
+          `  查占用：${process.platform === 'win32' ? `netstat -ano | findstr :${wanted}` : `lsof -iTCP:${wanted} -sTCP:LISTEN`}`,
+        );
+        process.exit(2);
+      }
+      throw err;
     });
     const addr = server.address();
     const port = typeof addr === 'object' && addr ? addr.port : Number(args.port);

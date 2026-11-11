@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildLock, loadPack, planFor } from '@packhub/kernel';
@@ -143,6 +144,21 @@ verify:
     } finally {
       child.kill();
       rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it('hub 端口被占时给能照做的提示，不是原始 EADDRINUSE', async () => {
+    const blocker = createServer();
+    await new Promise<void>((resolve) => blocker.listen(0, '127.0.0.1', () => resolve()));
+    const port = (blocker.address() as { port: number }).port;
+    try {
+      const res = run(['hub', '--port', String(port)]);
+      expect(res.status).toBe(2);
+      expect(res.out).toContain(`端口 ${port} 已经被占用`);
+      expect(res.out).toContain('--port 0');
+      expect(res.out).not.toContain('EADDRINUSE');
+    } finally {
+      await new Promise<void>((resolve) => blocker.close(() => resolve()));
     }
   });
 
