@@ -235,7 +235,7 @@ review: 任何行为变更的提交
 
 | 编号 | 功能点 | 能观察到的事实 | 现状 | 证据 |
 |---|---|---|---|---|
-| TRU-01 | ed25519 签名 | `keygen` / `sign` / `verify-sig` 可用；签的载荷是 `{pack@version, planHash}` | [done] | `signature.ts`、`signature.test.ts` |
+| TRU-01 | ed25519 签名 | `keygen` / `sign` / `verify-sig` 可用；签的载荷是 `{pack@version, planHash}`；`sign` 与 `verify-sig` 都按锁钉死的清单算计划（和 install 看同一份），有锁且快照与当前计划对不上时 `sign` 直接拒、要求先重锁 | [done] | `signature.ts`、`signature.test.ts`、`cli.ts`、`cli.test.ts` |
 | TRU-02 | 私钥权限 | `keygen` 以 0600 写私钥；没有像凭据库那样的 chmod 兜底，Windows 上 mode 只是提示 | [done] | `cli.ts` |
 | TRU-03 | 签名旁挂 | 默认写 `packhub.signatures.json`，不改清单；签名也能写回清单的 `signatures` 字段，读取端两边合并 | [done] | `signfile.ts`、`authoring.ts`、`consume.ts`、`signature.test.ts` |
 | TRU-04 | 签名策略 | 优先级：`--require-signature` > `--allow-unsigned` > `trust.json` 的 `requireSignature` > 有信任列表就强制；要求而未满足时 `add` 退出 2 | [done] | `trust.ts`、`trust.test.ts`、`cli.test.ts` |
@@ -350,7 +350,6 @@ review: 任何行为变更的提交
 | 事项 | 现状 | 未决 / 建议 |
 |---|---|---|
 | 市场整体 | 代码在，但**暂时不实现也不维护**（REG-12..21 标 `[parked]`） | 重开时要先定：是继续做成服务，还是把「上传 / 审核 / 下架 / 评分 / 统计」抽成协议再落实现。抽协议能换实现，但只有一个实现时会把形状钉死 |
-| 签名与锁的顺序 | `sign` 用未按锁解析的计划 | 改 `sign` 先按锁算计划，或在文档里要求「先 lock 再 sign」 |
 | 发布校验的位置 | 在进程内 `runPack`，已拒可执行检查 | 放进沙箱，或只收 CI 报告 |
 | 全局 MCP | Claude Code 走宿主 CLI，codex 写 TOML 托管块，dsh 无稳定契约 | 其余宿主等有稳定契约再接 |
 | 性能口径 | 只有耗时，没有内存 / 吞吐 | 需要时再加指标，并把 install / overlay 基准纳入 CI |

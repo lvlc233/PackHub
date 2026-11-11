@@ -652,3 +652,46 @@ verify:
     rmSync(dir, { recursive: true, force: true });
   });
 });
+
+describe('cli 端到端：签名', () => {
+  const MANIFEST = (extra: string): string => `apiVersion: packhub.dev/v0
+kind: Pack
+metadata: { name: demo/sign, version: 0.0.1, targets: [dir] }
+requires: { packhub: ">=0.0.1 <0.1" }
+resources:
+  - id: rules
+    type: knowledge
+    source: ./rules.md
+${extra}`;
+
+  it('锁过期时 sign 先拒，重锁后才签得上；签完 verify-sig 通过', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'packhub-cli-sign-'));
+    const keys = mkdtempSync(join(tmpdir(), 'packhub-cli-sign-keys-'));
+    writeFileSync(join(dir, 'packhub.yaml'), MANIFEST(''), 'utf8');
+    writeFileSync(join(dir, 'rules.md'), '# rules\n', 'utf8');
+
+    expect(run(['lock', dir]).status).toBe(0);
+    const key = join(keys, 'test.key');
+    expect(run(['keygen', '--out', key]).status).toBe(0);
+
+    // 锁之后再改清单：锁里的快照和当前计划对不上
+    writeFileSync(join(dir, 'extra.md'), '# extra\n', 'utf8');
+    writeFileSync(
+      join(dir, 'packhub.yaml'),
+      MANIFEST('  - id: extra\n    type: knowledge\n    source: ./extra.md\n'),
+      'utf8',
+    );
+    const stale = run(['sign', dir, '--key', key]);
+    expect(stale.status).toBe(2);
+    expect(stale.out).toContain('先跑 packhub lock');
+
+    expect(run(['lock', dir]).status).toBe(0);
+    expect(run(['sign', dir, '--key', key]).status).toBe(0);
+    const verified = run(['verify-sig', dir]);
+    expect(verified.status).toBe(0);
+    expect(verified.out).toContain('1/1 个签名通过');
+
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(keys, { recursive: true, force: true });
+  });
+});

@@ -1717,11 +1717,26 @@ const sign = defineCommand({
   },
   run({ args }) {
     const dir = resolve(String(args.dir));
-    const ctx = loadPack(dir);
+    const loaded = loadPack(dir);
+    if (!loaded.manifest) {
+      reportIssues(loaded.issues);
+      process.exit(2);
+    }
+    // 和 install / verify 看同一份：有锁就按锁钉死的引用算计划，否则签的哈希和装的对不上
+    const lockRead = loadLock(dir);
+    if (lockRead.problem) {
+      reportIssues([lockRead.problem]);
+      process.exit(2);
+    }
+    const ctx = withLockPins(loaded, lockRead.lock);
     if (reportIssues(ctx.issues)) process.exit(2);
     const { plan, issues } = planFor(ctx, { target: 'dir' });
     if (!plan) {
       reportIssues(issues, 'packhub sign');
+      process.exit(2);
+    }
+    if (lockRead.lock?.planHash && lockRead.lock.planHash !== plan.planHash) {
+      console.error('锁里的计划快照和当前清单对不上：先跑 packhub lock 再签，否则签的是一个装不上去的哈希');
       process.exit(2);
     }
     const pack = `${ctx.manifest.metadata.name}@${ctx.manifest.metadata.version}`;
@@ -1744,7 +1759,17 @@ const verifySig = defineCommand({
   run({ args }) {
     const dir = resolve(String(args.dir));
     {
-      const ctx = loadPack(dir);
+      const loaded = loadPack(dir);
+      if (!loaded.manifest) {
+        reportIssues(loaded.issues);
+        process.exit(2);
+      }
+      const lockRead = loadLock(dir);
+      if (lockRead.problem) {
+        reportIssues([lockRead.problem]);
+        process.exit(2);
+      }
+      const ctx = withLockPins(loaded, lockRead.lock);
       if (reportIssues(ctx.issues)) process.exit(2);
       const { plan, issues } = planFor(ctx, { target: 'dir' });
       if (!plan) {
