@@ -196,7 +196,7 @@ review: 任何行为变更的提交
 | SYN-01 | 项目内 codex target | 安装到 `.codex/skills`，指令写进项目 `AGENTS.md` 托管块；无专门测试 | [done] | `packages/kernel/src/targets.ts`、`plan.ts` |
 | SYN-02 | 全局 skills | 三个 home 的 `skills/`：`~/.dsh`、`~/.claude`、`~/.codex` | [done] | `packages/runtime/src/harnesses.ts` |
 | SYN-03 | 只收 skill 与 mcp | 其他类型整次拒绝；dsh 不接受 mcp，理由写进落点表 | [done] | `sync.ts`、`sync.test.ts` |
-| SYN-04 | 本地来源 | 非 `./` 源拒绝；无直接测试 | [done] | `sync.ts` |
+| SYN-04 | 本地来源 | skill 源不是 `./` 开头就整包拒绝，且在写任何 home 之前 | [done] | `sync.ts`、`sync.test.ts` |
 | SYN-05 | frontmatter 预检 | `SKILL.md` 的 YAML 坏、`name` / `description` 缺失或非字符串都拒绝；开头 BOM 兼容 | [done] | `skill-meta.ts`、`sync.test.ts` |
 | SYN-06 | 每个 harness 一份 state | `<home>/.packhub/state.json`，快照在各自 `.packhub/snapshots/` | [done] | `sync.ts`、`install.ts` |
 | SYN-07 | dry-run | 只出计划，不写任何文件 | [done] | `sync.ts`、`sync.test.ts` |
@@ -354,7 +354,7 @@ review: 任何行为变更的提交
 | 发布校验的位置 | 在进程内 `runPack`，已拒可执行检查 | 放进沙箱，或只收 CI 报告 |
 | 全局 MCP | Claude Code 走宿主 CLI，codex 写 TOML 托管块，dsh 无稳定契约 | 其余宿主等有稳定契约再接 |
 | 性能口径 | 只有耗时，没有内存 / 吞吐 | 需要时再加指标，并把 install / overlay 基准纳入 CI |
-| 测试覆盖 | `sync` 的本地来源拒绝、`logs` / `secrets` 无直接用例 | 补用例，或把这几条的 `[done]` 降为 `[part]` |
+| 测试覆盖 | `logs` / `secrets` 无直接用例 | 补用例，或把这几条的 `[done]` 降为 `[part]` |
 
 ## 与 Agent Harness 清单的对照
 

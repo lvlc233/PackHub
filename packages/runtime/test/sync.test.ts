@@ -50,6 +50,39 @@ afterEach(() => {
 });
 
 describe('全局 harness 同步', () => {
+  it('skill 源不是本地路径时直接拒，且在写任何 home 之前', async () => {
+    const { dsh, codex } = homes();
+    const src = pack();
+    writeFileSync(
+      join(src, 'packhub.yaml'),
+      readFileSync(join(src, 'packhub.yaml'), 'utf8').replace('source: ./skills/hello', 'source: npm:hello-skill@1.0.0'),
+      'utf8',
+    );
+
+    await expect(syncPack(src, { targets: ['dsh', 'codex'] })).rejects.toThrow(/要求本地 skill 源/);
+    for (const home of [dsh, codex]) {
+      expect(existsSync(join(home, 'skills'))).toBe(false);
+      expect(existsSync(join(home, '.packhub/state.json'))).toBe(false);
+    }
+  });
+
+  it('只收 skill 与 mcp，其他类型整包拒绝', async () => {
+    const { dsh } = homes();
+    const src = pack();
+    writeFileSync(join(src, 'rules.md'), '# rules\n', 'utf8');
+    writeFileSync(
+      join(src, 'packhub.yaml'),
+      readFileSync(join(src, 'packhub.yaml'), 'utf8').replace(
+        '  - id: hello',
+        '  - id: rules\n    type: knowledge\n    source: ./rules.md\n  - id: hello',
+      ),
+      'utf8',
+    );
+
+    await expect(syncPack(src, { targets: ['dsh'] })).rejects.toThrow(/只支持 skill 与 mcp/);
+    expect(existsSync(join(dsh, 'skills'))).toBe(false);
+  });
+
   it('把 skill 同步到 dsh 与 codex，state 各记一份', async () => {
     const { dsh, codex } = homes();
     const src = pack();
