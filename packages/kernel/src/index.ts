@@ -12,7 +12,7 @@ import { TARGET_VARS } from './targets.ts';
 
 export * from './types.ts';
 export { parseSource, checkSource, isVolatilePin, type ParsedSource, type SourceKind } from './ref.ts';
-export { loadManifest, parseManifest, type LoadResult } from './manifest.ts';
+export { loadManifest, parseManifest, PACK_NAME_PATTERN, type LoadResult } from './manifest.ts';
 export { validateGraph, type Graph } from './graph.ts';
 export { buildPlan, buildMcpSpec, type PlanOptions } from './plan.ts';
 export { DIR_TARGET_VARS, TARGET_VARS, type TargetVars } from './targets.ts';

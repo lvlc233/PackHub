@@ -26,6 +26,7 @@ import {
   mergeLocalOverrides,
   readLocalOverrides,
   validateGraph,
+  PACK_NAME_PATTERN,
   RESOURCE_TYPES,
   TARGET_IDS,
   type Issue,
@@ -334,6 +335,11 @@ const init = defineCommand({
   run({ args }) {
     const dir = resolve(String(args.dir));
     const file = join(dir, 'packhub.yaml');
+    const name = String(args.name);
+    if (!PACK_NAME_PATTERN.test(name)) {
+      console.error(`--name 要写成 owner/name（小写字母、数字、连字符，两段各至少一个字符）：收到 ${name}`);
+      process.exit(2);
+    }
     if (existsSync(file)) {
       console.error(`已存在：${file}`);
       process.exit(1);
@@ -344,7 +350,7 @@ apiVersion: packhub.dev/v0
 kind: Pack
 
 metadata:
-  name: ${String(args.name)}
+  name: ${name}
   version: 0.0.1
   title: 未命名整合包
   description: 一句话说清这个 Pack 替使用者完成了哪些整合工作。

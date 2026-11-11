@@ -8,6 +8,16 @@ import type { Issue, Manifest } from './types.ts';
 
 import schemaJson from '../../../schema/packhub.v0.schema.json' with { type: 'json' };
 
+/**
+ * `metadata.name` 的形状：`owner/name`。
+ *
+ * 从 schema 里取，不在这里再写一遍——init 需要提前拦一个坏名字，而权威只有一个来源。
+ */
+export const PACK_NAME_PATTERN = new RegExp(
+  (schemaJson as { properties: { metadata: { properties: { name: { pattern: string } } } } })
+    .properties.metadata.properties.name.pattern,
+);
+
 let cachedValidator: ValidateFunction | undefined;
 
 function validator(): ValidateFunction {

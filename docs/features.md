@@ -1,4 +1,4 @@
-﻿---
+---
 kind: ledger
 summary: 功能台账（现状 + 证据）
 verified: 2026-11-11
@@ -229,6 +229,7 @@ review: 任何行为变更的提交
 | CLI-10 | 错误可执行 | 缺清单指 `init`、缺索引指 `PACKHUB_INDEX`、签名问题指 `trust add`；Hub 端口被占时只透出原始 `EADDRINUSE`，没有额外提示 | [part] | `cli.ts`、`cli.test.ts` |
 | CLI-11 | shell 补全 | `completion` 支持 bash / zsh / pwsh，从活的子命令表生成，含每个命令的参数 | [done] | `cli.ts` |
 | CLI-12 | 版本与分发 | `--version` 输出 `package.json` 里的版本；CLI 未发布到 npm（workspace 包私有），分发走 `build:local` + `pack:local` 出的 tgz；没有自更新 | [done] | `cli.ts`、`scripts/build-local.mjs`、`package.json` |
+| CLI-13 | init 的名字闸 | `init --name` 只收 `owner/name`，pattern 取自 schema；裸名字退出 2，一个文件都不写；产出清单随即能 `plan` | [done] | `cli.ts` 的 `init`、`manifest.ts` 的 `PACK_NAME_PATTERN`、`cli.test.ts` |
 
 ## 10 TRU ｜安全与信任
 

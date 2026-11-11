@@ -439,6 +439,24 @@ verify:
     expect(existsSync(join(reg, 'packs', 'demo', 'init-flow'))).toBe(false);
     rmSync(base, { recursive: true, force: true });
   });
+
+  it('init 只收 owner/name：裸名字当场拒，产出的清单能过自己的 schema', () => {
+    const base = mkdtempSync(join(tmpdir(), 'packhub-cli-init-name-'));
+
+    const bare = join(base, 'bare');
+    const rejected = run(['init', bare, '--name', 'demo']);
+    expect(rejected.status).toBe(2);
+    expect(rejected.out).toContain('owner/name');
+    expect(existsSync(join(bare, 'packhub.yaml'))).toBe(false);
+
+    const pack = join(base, 'ok');
+    expect(run(['init', pack, '--name', 'demo/first-mile']).status).toBe(0);
+    const planned = run(['plan', pack]);
+    expect(planned.status).toBe(0);
+    expect(planned.out).toContain('demo/first-mile@0.0.1');
+
+    rmSync(base, { recursive: true, force: true });
+  });
   it('discover 能按关键词列候选并写进清单', () => {
     const base = mkdtempSync(join(tmpdir(), 'packhub-cli-discover-'));
     const pack = join(base, 'pack');
