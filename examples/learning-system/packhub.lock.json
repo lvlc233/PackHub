@@ -7,28 +7,28 @@
       "type": "skill",
       "source": "./skills/learn-core",
       "integrity": null,
-      "resolvedAt": "2026-11-11T11:11:36.443Z"
+      "resolvedAt": "2026-11-11T11:21:35.161Z"
     },
     {
       "id": "memory-core",
       "type": "skill",
       "source": "./skills/memory-core",
       "integrity": null,
-      "resolvedAt": "2026-11-11T11:11:36.443Z"
+      "resolvedAt": "2026-11-11T11:21:35.161Z"
     },
     {
       "id": "loader-notes",
       "type": "knowledge",
       "source": "./resources/loader.md",
       "integrity": null,
-      "resolvedAt": "2026-11-11T11:11:36.443Z"
+      "resolvedAt": "2026-11-11T11:21:35.161Z"
     }
   ],
-  "planHash": "sha256-XEGfhDNrTOLYtCK8XzNP72PM2xVDomH2+b1FE5iAQyE=",
+  "planHash": "sha256-pZZJ0OLv54kxterdW10PaoOEllNHqzQzfqgDoZmXtHs=",
   "generatedBy": "packhub/0.0.1",
   "plan": {
     "target": "dir",
-    "planHash": "sha256-XEGfhDNrTOLYtCK8XzNP72PM2xVDomH2+b1FE5iAQyE=",
+    "planHash": "sha256-pZZJ0OLv54kxterdW10PaoOEllNHqzQzfqgDoZmXtHs=",
     "actions": [
       {
         "op": "link.skill",
@@ -39,7 +39,7 @@
       },
       {
         "op": "link.skill",
-        "from": "./skills/memory-core",
+        "from": "./forks/memory-core",
         "to": ".packhub/skills/memory-core",
         "resource": "memory-core",
         "actionId": "link.skill#2"
@@ -50,6 +50,13 @@
         "to": ".packhub/knowledge/loader.md",
         "resource": "loader-notes",
         "actionId": "write#1"
+      },
+      {
+        "op": "write",
+        "from": "overlays/learn-core/SKILL.md",
+        "to": ".packhub/skills/learn-core/SKILL.md",
+        "resource": "overlay#1",
+        "actionId": "write#2"
       }
     ],
     "verify": [

@@ -25,6 +25,17 @@ resources:
     type: knowledge
     source: ./resources/loader.md
 
+overrides:
+  # 上游那份 memory-core 里写死了打包机器的绝对路径；换成改过的一份，随包走
+  - resource: memory-core
+    source: ./forks/memory-core
+
+overlays:
+  # 装完之后再把 learn-core 的 SKILL.md 盖一遍：改掉同一处绝对路径
+  - from: ./overlays/learn-core
+    to: .packhub/skills/learn-core
+    include: [SKILL.md]
+
 verify:
   - type: file-exists
     path: "${target.skillsDir}/learn-core/SKILL.md"
