@@ -123,7 +123,7 @@ review: 任何行为变更的提交
 
 | 编号 | 功能点 | 能观察到的事实 | 现状 | 证据 |
 |---|---|---|---|---|
-| VER-01 | 文件与配置检查 | `file-exists`、`config-key` 可 pass / fail；`config-key` 的 equals 分支没有直接测试 | [done] | `verify.ts`、`verify-deep.test.ts` |
+| VER-01 | 文件与配置检查 | `file-exists`、`config-key` 可 pass / fail；`config-key` 按点路径取值，`equals` 比较、不写 `equals` 只看键在不在，JSON 与 YAML 都读，越界路径直接拒绝 | [done] | `verify.ts`、`verify-deep.test.ts`、`verify-checks.test.ts` |
 | VER-02 | 命令检查 | `command` 执行并按退出码判，默认 30s 超时，失败带命令尾行 | [done] | `verify.ts`、`verify-deep.test.ts` |
 | VER-03 | stdio MCP 握手 | `mcp-ready` 起进程发 initialize 并判响应；计划里没有 `register.mcp` 规格时记 `skipped` | [done] | `verify.ts`、`verify-deep.test.ts` |
 | VER-04 | 内容哈希 | `knowledge-integrity` 在产物里按 sha256 找文件；无 `.packhub` 时回落项目根，跳过 `versions/`、`cache/` 与超过 8MB 的文件 | [done] | `verify.ts`、`verify-deep.test.ts` |
@@ -354,7 +354,7 @@ review: 任何行为变更的提交
 | 发布校验的位置 | 在进程内 `runPack`，已拒可执行检查 | 放进沙箱，或只收 CI 报告 |
 | 全局 MCP | Claude Code 走宿主 CLI，codex 写 TOML 托管块，dsh 无稳定契约 | 其余宿主等有稳定契约再接 |
 | 性能口径 | 只有耗时，没有内存 / 吞吐 | 需要时再加指标，并把 install / overlay 基准纳入 CI |
-| 测试覆盖 | `config-key`、mcp 的 SSE 分支、`sync` 的本地来源拒绝、`logs` / `secrets` 无直接用例 | 补用例，或把这几条的 `[done]` 降为 `[part]` |
+| 测试覆盖 | mcp 的 SSE 分支、`sync` 的本地来源拒绝、`logs` / `secrets` 无直接用例 | 补用例，或把这几条的 `[done]` 降为 `[part]` |
 
 ## 与 Agent Harness 清单的对照
 
