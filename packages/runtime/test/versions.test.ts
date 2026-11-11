@@ -91,7 +91,9 @@ describe('staged 版本与激活指针', () => {
     rmSync(v1, { recursive: true, force: true });
   });
 
-  it('切换失败时 state 与 active 跟文件一起退回', async () => {
+  // 失败注入靠 Windows 的 rename 语义：目标是只读文件时 rename 报 EPERM。
+  // Linux 上 rename 只看目录权限，只读文件照样换得过去，没有等价的注入点。
+  it.skipIf(process.platform !== 'win32')('切换失败时 state 与 active 跟文件一起退回', async () => {
     const project = mkdtempSync(join(tmpdir(), 'packhub-vers-fail-'));
     const v1 = makePack('0.1.0', 'one');
     const v2 = makePack('0.2.0', 'two');
