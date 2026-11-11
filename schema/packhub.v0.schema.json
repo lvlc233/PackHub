@@ -201,6 +201,7 @@
           "resource": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
           "file": { "type": "string", "minLength": 1, "description": "资源内的相对路径；单文件资源可省略" },
           "at": { "type": "string", "minLength": 1, "description": "锚点：`#` 开头是整节，否则按整行匹配；必须唯一命中" },
+          "nth": { "type": "integer", "minimum": 1, "description": "命中多处时取第几个（按文档顺序，从 1 起）" },
           "where": { "enum": ["replace", "before", "after"], "default": "replace" },
           "with": {
             "oneOf": [{ "type": "string" }, { "type": "null" }, { "type": "object" }]

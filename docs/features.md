@@ -54,7 +54,7 @@ review: 任何行为变更的提交
 | PKG-17 | requires.agent 只警告 | 未知 agent 报 `unknown-agent` 警告；agent 不在 `metadata.targets` 报 `agent-target-mismatch` 警告；都不阻断 | [done] | `graph.ts`、`optional.test.ts` |
 | PKG-18 | overlays 细节 | 已并入 `modify`：目录叠、空目录、越界与冲突的判定搬到了 PKG-20 | [na] | `docs/features.md` PKG-20 |
 | PKG-19 | vars 类型与插值 | `vars` 只收字符串 / 数字 / 布尔，`${vars.x}` 在计划期替换 | [done] | `schema/packhub.v0.schema.json`、`plan.ts`、`sync-claude.test.ts` |
-| PKG-20 | `modify` 二次修改 | 一个字段按资源定位：`with` 是路径则整文件替换、是目录则逐文件叠（没有的就新增）、是文本则内联、是 `null` 则删、是对象则并进资源参数。`file` / `at` 是定位编辑，目标必须存在；`at` 必须唯一命中；两条补丁改同一文件报 `modify-conflict`；越出包目录报 `modify-outside-pack`；改完与原文相同只给 `modify-noop` 警告。远程资源的按锚点修改报 `modify-remote-unsupported`；非文件类资源（mcp / config / tool）改文件报 `modify-not-file`；参数补丁只能打 mcp / tool，其他类型报 `modify-invalid` | [done] | `packages/kernel/src/plan.ts` 的 `applyAnchor`、`packages/kernel/src/graph.ts`、`modify.test.ts` |
+| PKG-20 | `modify` 二次修改 | 一个字段按资源定位：`with` 是路径则整文件替换、是目录则逐文件叠（没有的就新增）、是文本则内联、是 `null` 则删、是对象则并进资源参数。`file` / `at` 是定位编辑，目标必须存在；`at` 必须唯一命中，重名标题用 `nth` 指定第几个（超出范围报 `modify-nth-out-of-range`，不给 `nth` 时把候选行号与父标题列出来）；两条补丁改同一文件报 `modify-conflict`；越出包目录报 `modify-outside-pack`；改完与原文相同只给 `modify-noop` 警告。远程资源的按锚点修改报 `modify-remote-unsupported`；非文件类资源（mcp / config / tool）改文件报 `modify-not-file`；参数补丁只能打 mcp / tool，其他类型报 `modify-invalid` | [done] | `packages/kernel/src/plan.ts` 的 `applyAnchor`、`packages/kernel/src/graph.ts`、`modify.test.ts` |
 
 ## 2 REF ｜引用、锁与解析
 

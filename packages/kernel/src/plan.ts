@@ -393,16 +393,30 @@ export function buildPlan(
       }
       const upstream = readFileSync(upstreamAbs, 'utf8');
       const replacement = value === null ? null : isPath ? readFileSync(absWith!, 'utf8') : value;
-      const applied = applyAnchor(upstream, m.at, where, replacement);
+      const applied = applyAnchor(upstream, m.at, where, replacement, m.nth);
       if (!applied.ok) {
-        issues.push({
-          code: applied.reason === 'missing' ? 'modify-anchor-missing' : 'modify-anchor-ambiguous',
-          severity: 'error',
-          message:
-            applied.reason === 'missing'
-              ? `${label}：找不到锚点「${m.at}」`
-              : `${label}：锚点「${m.at}」命中多处，补丁不知道改哪个`,
-        });
+        if (applied.reason === 'missing') {
+          issues.push({
+            code: 'modify-anchor-missing',
+            severity: 'error',
+            message: `${label}：找不到锚点「${m.at}」`,
+          });
+        } else if (applied.reason === 'out-of-range') {
+          issues.push({
+            code: 'modify-nth-out-of-range',
+            severity: 'error',
+            message: `${label}：锚点「${m.at}」只有 ${applied.count} 处，nth: ${m.nth} 超出范围（1..${applied.count}）`,
+          });
+        } else {
+          const list = applied.candidates
+            .map((c, i) => `  ${i + 1}. 第 ${c.line} 行${c.parent ? `（上面最近的标题：${c.parent}）` : ''}`)
+            .join('\n');
+          issues.push({
+            code: 'modify-anchor-ambiguous',
+            severity: 'error',
+            message: `${label}：锚点「${m.at}」命中 ${applied.candidates.length} 处，补丁不知道改哪个：\n${list}\n用 nth 指定第几个：at: '${m.at}', nth: 1`,
+          });
+        }
         continue;
       }
       if (applied.text === upstream) {
@@ -657,18 +671,30 @@ function looksLikeArchive(url: string): boolean {
 /** `with` 是路径还是内联文本：只有 ./ ../ 或带 scheme 的才算路径。 */
 const PACK_PATH_RE = /^(\.\.?\/|[a-z][a-z0-9+.-]*:)/i;
 
+export interface AnchorCandidate {
+  /** 1 起的行号 */
+  line: number;
+  /** 这行上面最近的标题，给人认位置用 */
+  parent?: string;
+}
+
 /**
  * 在正文里定位 `at` 并替换 / 插入 / 删除。
  * - `at` 以 `#` 开头：整节，从这行到下一个同级或更高级标题
  * - 否则：按整行匹配
- * 命中必须唯一；找不到或命中多处都算失败，不猜。
+ * 命中多处时用 `nth` 指定第几个；不给就要求唯一，不猜。
  */
 export function applyAnchor(
   text: string,
   at: string,
   where: 'replace' | 'before' | 'after',
   replacement: string | null,
-): { ok: true; text: string } | { ok: false; reason: 'missing' | 'ambiguous' } {
+  nth?: number,
+):
+  | { ok: true; text: string }
+  | { ok: false; reason: 'missing' }
+  | { ok: false; reason: 'ambiguous'; candidates: AnchorCandidate[] }
+  | { ok: false; reason: 'out-of-range'; count: number } {
   const eol = text.includes('\r\n') ? '\r\n' : '\n';
   const trailing = text.endsWith(eol);
   const lines = (trailing ? text.slice(0, -eol.length) : text).split(eol);
@@ -678,8 +704,24 @@ export function applyAnchor(
     if (line.trim() === needle) hits.push(i);
   });
   if (hits.length === 0) return { ok: false, reason: 'missing' };
-  if (hits.length > 1) return { ok: false, reason: 'ambiguous' };
-  const start = hits[0]!;
+
+  let start: number;
+  if (nth !== undefined) {
+    if (!Number.isInteger(nth) || nth < 1 || nth > hits.length) {
+      return { ok: false, reason: 'out-of-range', count: hits.length };
+    }
+    start = hits[nth - 1]!;
+  } else {
+    if (hits.length > 1) {
+      return {
+        ok: false,
+        reason: 'ambiguous',
+        candidates: hits.map((i) => ({ line: i + 1, parent: nearestHeading(lines, i) })),
+      };
+    }
+    start = hits[0]!;
+  }
+
   let end = start + 1;
   if (needle.startsWith('#')) {
     const level = (needle.match(/^#+/) ?? ['#'])[0]!.length;
@@ -694,6 +736,14 @@ export function applyAnchor(
   else if (where === 'after') lines.splice(end, 0, ...block);
   else lines.splice(start, end - start, ...block);
   return { ok: true, text: lines.join(eol) + (trailing ? eol : '') };
+}
+
+/** 这一行上面最近的标题：报错时让人认出是哪个块。 */
+function nearestHeading(lines: string[], index: number): string | undefined {
+  for (let i = index - 1; i >= 0; i--) {
+    if (/^#{1,6}\s+/.test(lines[i] ?? '')) return (lines[i] ?? '').trim();
+  }
+  return undefined;
 }
 
 /** 替换内容自带结尾换行时，按行切开不要多出空行。 */

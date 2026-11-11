@@ -79,6 +79,8 @@ export interface ModifySpec {
   file?: string;
   /** 锚点：`#` 开头是整节（到下一个同级或更高级标题），否则按整行匹配；必须唯一命中 */
   at?: string;
+  /** 命中多处时指定第几个（按文档顺序，从 1 起）；不写就要求唯一 */
+  nth?: number;
   /** 换掉整段（默认）、插在它前面、插在它后面 */
   where?: 'replace' | 'before' | 'after';
   with: string | null | Record<string, unknown>;

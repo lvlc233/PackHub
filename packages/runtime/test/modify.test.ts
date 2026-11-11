@@ -363,6 +363,93 @@ describe('modify：改不了就报错', () => {
   });
 });
 
+describe('重名标题：nth 指定第几个', () => {
+  const DOC = `# 技能
+
+## A
+
+第一块。
+
+## B
+
+中间。
+
+## A
+
+第二块。
+`;
+
+  it('nth: 2 只改第二个', async () => {
+    const dir = pack({
+      'packhub.yaml': manifest(
+        SKILL_RESOURCE,
+        `modify:
+  - resource: rule
+    file: SKILL.md
+    at: '## A'
+    nth: 2
+    with: |
+      ## A
+
+      第二块改过。
+`,
+      ),
+      'skills/rule/SKILL.md': DOC,
+    });
+    const ctx = loadPack(dir);
+    expect(ctx.issues.filter((i) => i.severity === 'error')).toEqual([]);
+    const { plan } = planFor(ctx);
+    await installPack(ctx, plan!, {});
+    const installed = readFileSync(join(dir, '.packhub/skills/rule/SKILL.md'), 'utf8');
+    expect(installed).toContain('第一块。');
+    expect(installed).toContain('第二块改过。');
+    expect(installed).not.toContain('第二块。');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('不给 nth 就报错，并把候选和写法列出来', () => {
+    const dir = pack({
+      'packhub.yaml': manifest(
+        SKILL_RESOURCE,
+        `modify:
+  - resource: rule
+    file: SKILL.md
+    at: '## A'
+    with: 'x'
+`,
+      ),
+      'skills/rule/SKILL.md': DOC,
+    });
+    const { issues } = planFor(loadPack(dir));
+    const issue = issues.find((i) => i.code === 'modify-anchor-ambiguous');
+    expect(issue).toBeDefined();
+    expect(issue!.message).toContain('命中 2 处');
+    expect(issue!.message).toContain('第 3 行');
+    expect(issue!.message).toContain('第 11 行');
+    expect(issue!.message).toContain("at: '## A', nth: 1");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('nth 超出范围 → modify-nth-out-of-range', () => {
+    const dir = pack({
+      'packhub.yaml': manifest(
+        SKILL_RESOURCE,
+        `modify:
+  - resource: rule
+    file: SKILL.md
+    at: '## A'
+    nth: 3
+    with: 'x'
+`,
+      ),
+      'skills/rule/SKILL.md': DOC,
+    });
+    const { issues } = planFor(loadPack(dir));
+    expect(issues.map((i) => i.code)).toContain('modify-nth-out-of-range');
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
 describe('overlays 不能逃出包目录（旧口径保留）', () => {
   it('远程资源按锚点改 → modify-remote-unsupported', () => {
     const dir = pack({
