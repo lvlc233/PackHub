@@ -1,0 +1,231 @@
+{
+  "apiVersion": "packhub.dev/lock/v0",
+  "pack": "lvlc233/code-review@0.0.1",
+  "resolved": [
+    {
+      "id": "repo-search",
+      "type": "mcp",
+      "source": "npm:@modelcontextprotocol/server-everything@2.3.0",
+      "integrity": "sha512-GrmmVZxdvy2k7zjM4W0ROAs8Dot8+FrBacGHNI83+c5dePgQORErksMLg0g3BZsxiVLZ7qExdu/QOY2wBbD9Rw==",
+      "resolvedAt": "2026-11-11T10:06:48.340Z"
+    },
+    {
+      "id": "review-rules",
+      "type": "skill",
+      "source": "./skills/review-rules",
+      "integrity": null,
+      "resolvedAt": "2026-11-11T10:06:48.340Z"
+    },
+    {
+      "id": "house-style",
+      "type": "knowledge",
+      "source": "./fragments/house-style.md",
+      "integrity": null,
+      "resolvedAt": "2026-11-11T10:06:48.340Z"
+    },
+    {
+      "id": "agent-config",
+      "type": "config",
+      "source": "./fragments/agent.yaml",
+      "integrity": null,
+      "resolvedAt": "2026-11-11T10:06:48.340Z"
+    }
+  ],
+  "planHash": "sha256-vEB/gAfCwjeo/38MCwpckhbKOUGRlyAfWbENs1Wi6Ic=",
+  "generatedBy": "packhub/0.0.1",
+  "plan": {
+    "target": "dir",
+    "planHash": "sha256-vEB/gAfCwjeo/38MCwpckhbKOUGRlyAfWbENs1Wi6Ic=",
+    "actions": [
+      {
+        "op": "register.mcp",
+        "spec": {
+          "transport": "stdio",
+          "env": {
+            "ROOT": "."
+          },
+          "command": "npx",
+          "args": [
+            "-y",
+            "@modelcontextprotocol/server-everything@2.3.0"
+          ]
+        },
+        "path": ".packhub/config.json",
+        "resource": "repo-search",
+        "actionId": "register.mcp#1"
+      },
+      {
+        "op": "link.skill",
+        "from": "./skills/review-rules",
+        "to": ".packhub/skills/review-rules",
+        "resource": "review-rules",
+        "actionId": "link.skill#1"
+      },
+      {
+        "op": "write",
+        "from": "./fragments/house-style.md",
+        "to": ".packhub/knowledge/house-style.md",
+        "resource": "house-style",
+        "actionId": "write#1"
+      },
+      {
+        "op": "merge.config",
+        "path": ".packhub/config.json",
+        "strategy": "yaml-merge",
+        "patchFrom": "./fragments/agent.yaml",
+        "resource": "agent-config",
+        "actionId": "merge.config#1"
+      }
+    ],
+    "verify": [
+      {
+        "type": "file-exists",
+        "path": ".packhub/skills/review-rules/SKILL.md"
+      },
+      {
+        "type": "config-key",
+        "path": ".packhub/config.json",
+        "key": "mcpServers.repo-search.command",
+        "equals": "npx"
+      },
+      {
+        "type": "file-exists",
+        "path": ".packhub/knowledge/house-style.md"
+      }
+    ],
+    "excluded": []
+  },
+  "plans": {
+    "dir": {
+      "target": "dir",
+      "planHash": "sha256-vEB/gAfCwjeo/38MCwpckhbKOUGRlyAfWbENs1Wi6Ic=",
+      "actions": [
+        {
+          "op": "register.mcp",
+          "spec": {
+            "transport": "stdio",
+            "env": {
+              "ROOT": "."
+            },
+            "command": "npx",
+            "args": [
+              "-y",
+              "@modelcontextprotocol/server-everything@2.3.0"
+            ]
+          },
+          "path": ".packhub/config.json",
+          "resource": "repo-search",
+          "actionId": "register.mcp#1"
+        },
+        {
+          "op": "link.skill",
+          "from": "./skills/review-rules",
+          "to": ".packhub/skills/review-rules",
+          "resource": "review-rules",
+          "actionId": "link.skill#1"
+        },
+        {
+          "op": "write",
+          "from": "./fragments/house-style.md",
+          "to": ".packhub/knowledge/house-style.md",
+          "resource": "house-style",
+          "actionId": "write#1"
+        },
+        {
+          "op": "merge.config",
+          "path": ".packhub/config.json",
+          "strategy": "yaml-merge",
+          "patchFrom": "./fragments/agent.yaml",
+          "resource": "agent-config",
+          "actionId": "merge.config#1"
+        }
+      ],
+      "verify": [
+        {
+          "type": "file-exists",
+          "path": ".packhub/skills/review-rules/SKILL.md"
+        },
+        {
+          "type": "config-key",
+          "path": ".packhub/config.json",
+          "key": "mcpServers.repo-search.command",
+          "equals": "npx"
+        },
+        {
+          "type": "file-exists",
+          "path": ".packhub/knowledge/house-style.md"
+        }
+      ],
+      "excluded": []
+    },
+    "dsh": {
+      "target": "dsh",
+      "planHash": "sha256-B9Wo9PukbMpcB67QHst4bHHK8Qbjlcm63n/MXegJ/Lg=",
+      "actions": [
+        {
+          "op": "register.mcp",
+          "spec": {
+            "transport": "stdio",
+            "env": {
+              "ROOT": "."
+            },
+            "command": "npx",
+            "args": [
+              "-y",
+              "@modelcontextprotocol/server-everything@2.3.0"
+            ]
+          },
+          "path": ".packhub/config.json",
+          "resource": "repo-search",
+          "actionId": "register.mcp#1"
+        },
+        {
+          "op": "link.skill",
+          "from": "./skills/review-rules",
+          "to": ".packhub/skills/review-rules",
+          "resource": "review-rules",
+          "actionId": "link.skill#1"
+        },
+        {
+          "op": "write",
+          "from": "./fragments/house-style.md",
+          "to": ".packhub/knowledge/house-style.md",
+          "resource": "house-style",
+          "actionId": "write#1"
+        },
+        {
+          "op": "merge.config",
+          "path": ".packhub/config.json",
+          "strategy": "yaml-merge",
+          "patchFrom": "./fragments/agent.yaml",
+          "resource": "agent-config",
+          "actionId": "merge.config#1"
+        },
+        {
+          "op": "instruction",
+          "file": "AGENTS.md",
+          "blockId": "lvlc233/code-review",
+          "content": "这个项目装了一个整合包：**代码审查整合包**（0.0.1）。\n\n组合代码检索 MCP、审查规范 Skill、团队规范知识与 Agent 配置片段，形成一套装完即用的审查工作流。\n\n可用的能力：\n- `repo-search`（mcp） → tool:repo_search、tool:read_file\n- `review-rules`（skill） → skill:code_review\n- `house-style`（knowledge） → knowledge:house_style\n- `agent-config`（config）\n\n文件位置：\n- skills：`.packhub/skills`\n- 知识：`.packhub/knowledge`\n- 提示词：`.packhub/prompts`\n- 工具入口：`.packhub/bin`\n- 配置：`.packhub/config.json`",
+          "actionId": "instruction#1"
+        }
+      ],
+      "verify": [
+        {
+          "type": "file-exists",
+          "path": ".packhub/skills/review-rules/SKILL.md"
+        },
+        {
+          "type": "config-key",
+          "path": ".packhub/config.json",
+          "key": "mcpServers.repo-search.command",
+          "equals": "npx"
+        },
+        {
+          "type": "file-exists",
+          "path": ".packhub/knowledge/house-style.md"
+        }
+      ],
+      "excluded": []
+    }
+  }
+}

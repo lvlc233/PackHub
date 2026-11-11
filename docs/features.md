@@ -263,7 +263,7 @@ review: 任何行为变更的提交
 | OPS-09 | 性能基准 | `bench` 量计划与安装耗时；CI 只卡**计划**耗时（规模与预算都是脚本参数，见 `scripts/bench.ts`），install 无预算，overlay 与大规模基准不在 CI | [done] | `scripts/bench.ts`、`registry.yml` |
 | OPS-10 | Windows 矩阵 | `registry.yml` 的 `test-windows` 与 `pal.yml` 的 `windows` 都跑 `pnpm check`；后者带 paths 过滤，只在改 PAL 时触发 | [done] | `.github/workflows/*.yml` |
 | OPS-11 | 依赖安全 | CI 跑 `pnpm audit --audit-level high`，只在 ubuntu job | [done] | `registry.yml` |
-| OPS-12 | 示例包矩阵 | `verify:examples` 逐个真装 + verify；CI 在 ubuntu job 跑 | [done] | `scripts/verify-examples.mjs`、`registry.yml` |
+| OPS-12 | 示例包矩阵 | `verify:examples` 逐个真装 + verify（三个示例都不再依赖上游仓库与外网清单）；`--skip-network` 只跑本地引用那一个；CI 在 ubuntu job 跑 | [done] | `scripts/verify-examples.mjs`、`registry.yml`、`examples/code-review` |
 | OPS-13 | 工具链固定 | `packageManager pnpm@11.22.0`、`engines.node >=22.13`，两个 workflow 都用 node 22 + pnpm 11 | [done] | `package.json`、workflows |
 | OPS-14 | 供应链 | actions 全部钉在 commit SHA（注释写版本），dependabot 每周看 github-actions 与 npm；`pnpm verify:lockfile` 查每条 resolution 都带 integrity，CI 与用例都跑；仓库内本地 action 不钉 | [done] | `.github/workflows`、`.github/dependabot.yml`、`scripts/verify-lockfile.mjs`、`repo-hygiene.test.ts`、`lockfile.test.ts` |
 
