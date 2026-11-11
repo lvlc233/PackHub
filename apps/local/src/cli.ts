@@ -578,7 +578,12 @@ const add = defineCommand({
       reportIssues(rawCtx.issues);
       process.exit(2);
     }
-    const lock = loadLock(packDir);
+    const read = loadLock(packDir);
+    if (read.problem) {
+      reportIssues([read.problem]);
+      process.exit(2);
+    }
+    const lock = read.lock;
     // 清单里写的是 tag/范围也没关系：按锁把它换成本次要装的 commit/版本
     let ctx = withLockPins(rawCtx, lock);
     if (reportIssues(ctx.issues)) process.exit(2);
@@ -1841,18 +1846,18 @@ const diff = defineCommand({
   },
   async run({ args }) {
     const dir = resolve(String(args.dir));
-    const lockPath = join(dir, 'packhub.lock.json');
-    if (!existsSync(lockPath)) {
-      console.error('没有 packhub.lock.json：先跑 packhub lock');
+    const target = String(args.target ?? 'dir');
+    const read = loadLock(dir);
+    if (!read.lock) {
+      if (read.problem) {
+        reportIssues([read.problem]);
+      } else {
+        console.error('没有 packhub.lock.json：先跑 packhub lock');
+      }
       process.exit(2);
     }
-    const target = String(args.target ?? 'dir');
-    const lock = JSON.parse(readFileSync(lockPath, 'utf8')) as {
-      planHash: string;
-      plan?: { target?: string; actions: import('@packhub/kernel').PlanAction[] };
-      plans?: Record<string, { planHash: string; actions: import('@packhub/kernel').PlanAction[] }>;
-    };
-    const ctx = withLockPins(loadPack(dir), loadLock(dir));
+    const lock = read.lock;
+    const ctx = withLockPins(loadPack(dir), lock);
     if (reportIssues(ctx.issues)) process.exit(2);
     const { plan, issues } = planFor(ctx, { target: target as never });
     if (!plan) {
@@ -1861,7 +1866,7 @@ const diff = defineCommand({
     }
     // 多 target 锁优先用对应 target 的快照；旧锁只有一个 plan
     const snapshot =
-      lock.plans?.[target] ??
+      lock.plans?.[target as TargetId] ??
       (lock.plan && (lock.plan.target ?? 'dir') === target
         ? { planHash: lock.planHash, actions: lock.plan.actions }
         : undefined);

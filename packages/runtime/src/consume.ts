@@ -20,15 +20,42 @@ export interface PackInspection {
   issues: InspectionIssue[];
 }
 
-/** 读锁文件；没有或坏掉都返回 undefined（坏锁不静默当通过，见 inspectPack）。 */
-export function loadLock(dir: string): LockFile | undefined {
+/** 锁文件的格式版本。v0 只认这一代；读到别的主版本必须拒绝，不猜字段。 */
+export const LOCK_API = 'packhub.dev/lock/v0';
+
+export interface LockRead {
+  lock?: LockFile;
+  /** 读不了或版本不认识：调用方当错误处理，不能当成「没有锁」 */
+  problem?: InspectionIssue;
+}
+
+/** 读锁文件。没有锁返回空；坏锁与不认识的主版本都落到 problem。 */
+export function loadLock(dir: string): LockRead {
   const file = join(dir, 'packhub.lock.json');
-  if (!existsSync(file)) return undefined;
+  if (!existsSync(file)) return {};
+  let parsed: unknown;
   try {
-    return JSON.parse(readFileSync(file, 'utf8')) as LockFile;
+    parsed = JSON.parse(readFileSync(file, 'utf8'));
   } catch {
-    return undefined;
+    return {
+      problem: {
+        code: 'lock-unreadable',
+        severity: 'error',
+        message: 'packhub.lock.json 读不出来（不是合法 JSON）',
+      },
+    };
   }
+  const api = (parsed as { apiVersion?: unknown } | null)?.apiVersion;
+  if (api !== LOCK_API) {
+    return {
+      problem: {
+        code: 'lock-version',
+        severity: 'error',
+        message: `锁的格式版本不认识：${String(api)}（只认 ${LOCK_API}）；确认它是不是更高版本的 PackHub 写的`,
+      },
+    };
+  }
+  return { lock: parsed as LockFile };
 }
 
 /**
@@ -67,8 +94,8 @@ export function inspectPack(
 ): PackInspection {
   const issues: InspectionIssue[] = [];
   const pack = `${manifest.metadata.name}@${manifest.metadata.version}`;
-  const lockFile = join(dir, 'packhub.lock.json');
-  const lock = loadLock(dir);
+  const read = loadLock(dir);
+  const lock = read.lock;
   let lockMatches: boolean | undefined;
 
   if (lock) {
@@ -95,12 +122,8 @@ export function inspectPack(
         message: `锁记录的包是 ${lock.pack}，清单是 ${pack}`,
       });
     }
-  } else if (existsSync(lockFile)) {
-    issues.push({
-      code: 'lock-unreadable',
-      severity: 'error',
-      message: 'packhub.lock.json 读不出来（不是合法 JSON）',
-    });
+  } else if (read.problem) {
+    issues.push(read.problem);
   } else {
     issues.push({
       code: 'lock-missing',

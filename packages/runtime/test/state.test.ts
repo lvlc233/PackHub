@@ -118,6 +118,21 @@ describe('持久状态目录的生命周期', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  it('state 写了别的主版本 → 拒绝读取，不当成 v0 接着装', async () => {
+    const dir = scaffold('0.0.1', DEFAULT_STATE);
+    const ctx = loadPack(dir);
+    const plan = planFor(ctx).plan!;
+    await installPack(ctx, plan);
+
+    const file = join(dir, '.packhub/state.json');
+    const parsed = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+    writeFileSync(file, JSON.stringify({ ...parsed, apiVersion: 'packhub.dev/state/v1' }, null, 2), 'utf8');
+
+    await expect(installPack(ctx, plan)).rejects.toThrow(/格式版本不认识/);
+    expect(() => doctorPack(dir)).toThrow(/格式版本不认识/);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   it('两个包声明同一状态目录时算所有权冲突', async () => {
     const a = scaffold('0.0.1', DEFAULT_STATE);
     const ctxA = loadPack(a);

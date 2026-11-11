@@ -1400,6 +1400,13 @@ export function loadState(root: string): State {
     throw new Error(`state 损坏：${file}（${(err as Error).message}）；先备份再删除或修复后重试`);
   }
   // 早期 state 没有 apiVersion：补上而不是拒绝——它是本机缓存，不是发布契约
+  // 但写了别的主版本就是另一份格式：拒绝，按契约不猜字段
+  const api = (parsed as { apiVersion?: unknown }).apiVersion;
+  if (api !== undefined && api !== STATE_API) {
+    throw new Error(
+      `state 的格式版本不认识：${String(api)}（只认 ${STATE_API}）；它可能是更高版本的 PackHub 写的，先备份再处理`,
+    );
+  }
   return {
     apiVersion: STATE_API,
     ...(parsed.generations ? { generations: parsed.generations } : {}),

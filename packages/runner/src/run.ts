@@ -55,7 +55,9 @@ export async function runPack(packDir: string, opts: RunOptions = {}): Promise<R
     // 干净环境：不带上一次的安装状态
     rmSync(join(work, '.packhub'), { recursive: true, force: true });
 
-    const ctx = withLockPins(loadPack(work), loadLock(work));
+    const read = loadLock(work);
+    if (read.problem) throw new Error(read.problem.message);
+    const ctx = withLockPins(loadPack(work), read.lock);
     const errors = ctx.issues.filter((i) => i.severity === 'error');
     if (errors.length > 0) {
       for (const e of errors) log(`error ${e.message}`);

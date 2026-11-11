@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildLock, loadPack, planFor } from '@packhub/kernel';
@@ -76,6 +76,20 @@ describe('消费端核对', () => {
     const res = inspectPack(dir, ctx.manifest!, plan);
     expect(res.issues.map((i) => i.code)).toContain('lock-missing');
     expect(res.issues.filter((i) => i.severity === 'error')).toEqual([]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('锁的主版本不认识 → lock-version（error），不拿里面的结果装', () => {
+    const dir = pack();
+    const file = join(dir, 'packhub.lock.json');
+    const lock = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
+    writeFileSync(file, JSON.stringify({ ...lock, apiVersion: 'packhub.dev/lock/v1' }, null, 2), 'utf8');
+
+    const { ctx, plan } = lockPlan(dir);
+    const res = inspectPack(dir, ctx.manifest!, plan);
+    const issue = res.issues.find((i) => i.code === 'lock-version');
+    expect(issue?.severity).toBe('error');
+    expect(res.lock).toBeUndefined();
     rmSync(dir, { recursive: true, force: true });
   });
 

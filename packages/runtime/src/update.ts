@@ -45,8 +45,9 @@ export async function updatePack(opts: UpdateOptions): Promise<UpdateResult> {
   });
 
   const raw = loadPack(dest);
-  const lock = loadLock(dest);
-  const ctx = withLockPins(raw, lock);
+  const read = loadLock(dest);
+  if (read.problem) throw new Error(read.problem.message);
+  const ctx = withLockPins(raw, read.lock);
   const errors = ctx.issues.filter((i) => i.severity === 'error');
   if (errors.length) {
     throw new Error(`新版本清单有错：${errors.map((e) => e.message).join('; ')}`);
@@ -67,10 +68,10 @@ export async function updatePack(opts: UpdateOptions): Promise<UpdateResult> {
   const { plan, issues } = planFor(ctx, { target: target as never });
   if (!plan) throw new Error(`新版本生成不了计划：${issues.map((i) => i.message).join('; ')}`);
 
-  const lockSnapshot = lock?.plans?.[target as never] ?? lock?.plan;
+  const lockSnapshot = read.lock?.plans?.[target as never] ?? read.lock?.plan;
   if (lockSnapshot) {
     const lockTarget = String(lockSnapshot.target ?? 'dir');
-    const expected = lockSnapshot.planHash ?? lock!.planHash;
+    const expected = lockSnapshot.planHash ?? read.lock!.planHash;
     const { plan: lockPlan } = planFor(ctx, { target: lockTarget as never });
     if (lockPlan && lockPlan.planHash !== expected && !opts.allowStaleLock) {
       throw new Error('新版本的锁与清单对不上（清单在锁定后被改过）；确认后用 --allow-stale-lock 继续');

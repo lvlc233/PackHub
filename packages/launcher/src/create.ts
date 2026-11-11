@@ -198,8 +198,9 @@ export async function createInstance(opts: CreateInstanceOptions): Promise<Insta
       details: { packDir },
     });
   }
-  const lock = loadLock(packDir);
-  const ctx: PackContext = withLockPins(loaded, lock);
+  const read = loadLock(packDir);
+  if (read.problem) throw new PalError('invalid-input', read.problem.message);
+  const ctx: PackContext = withLockPins(loaded, read.lock);
   const errors = ctx.issues.filter((i) => i.severity === 'error');
   if (errors.length > 0) {
     throw new PalError('invalid-input', `清单有问题：${errors.map((i) => i.message).join('; ')}`);
