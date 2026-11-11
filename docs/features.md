@@ -265,7 +265,7 @@ review: 任何行为变更的提交
 | OPS-11 | 依赖安全 | CI 跑 `pnpm audit --audit-level high`，只在 ubuntu job | [done] | `registry.yml` |
 | OPS-12 | 示例包矩阵 | `verify:examples` 逐个真装 + verify；CI 在 ubuntu job 跑 | [done] | `scripts/verify-examples.mjs`、`registry.yml` |
 | OPS-13 | 工具链固定 | `packageManager pnpm@11.22.0`、`engines.node >=22.13`，两个 workflow 都用 node 22 + pnpm 11 | [done] | `package.json`、workflows |
-| OPS-14 | 供应链 | 无 dependabot / renovate；actions 用浮动 `@v4` 标签；没有锁文件完整性校验 | [part] | `.github/`、workflows |
+| OPS-14 | 供应链 | actions 全部钉在 commit SHA（注释写版本），dependabot 每周看 github-actions 与 npm；仓库内本地 action 不钉；锁文件完整性校验仍未做 | [part] | `.github/workflows`、`.github/dependabot.yml`、`repo-hygiene.test.ts` |
 
 ## 12 X ｜跨切面
 
