@@ -127,7 +127,7 @@ review: 任何行为变更的提交
 | VER-02 | 命令检查 | `command` 执行并按退出码判，默认 30s 超时，失败带命令尾行 | [done] | `verify.ts`、`verify-deep.test.ts` |
 | VER-03 | stdio MCP 握手 | `mcp-ready` 起进程发 initialize 并判响应；计划里没有 `register.mcp` 规格时记 `skipped` | [done] | `verify.ts`、`verify-deep.test.ts` |
 | VER-04 | 内容哈希 | `knowledge-integrity` 在产物里按 sha256 找文件；无 `.packhub` 时回落项目根，跳过 `versions/`、`cache/` 与超过 8MB 的文件 | [done] | `verify.ts`、`verify-deep.test.ts` |
-| VER-05 | http MCP 探活 | POST initialize，JSON / SSE 响应都认；判据是响应里有 `result` 或 `protocolVersion` 且状态 < 400。SSE 分支无直接测试 | [done] | `verify.ts`、`mcp-http.test.ts` |
+| VER-05 | http MCP 探活 | POST initialize，JSON / SSE 响应都认；SSE 只取 `data:` 行拼接（注释与 `event:` 行不算，跨行 JSON 能拼回），只有 `error` 对象时判失败；判据是响应里有 `result` 或 `protocolVersion` 且状态 < 400 | [done] | `verify.ts`、`mcp-http.test.ts` |
 | VER-06 | runner 判定 | 每步 `done`/`noop` 且每项 `pass` 才 `ok`；`skipped` / `needs-approval` / `failed` 都算未完成 | [done] | `packages/runner/src/run.ts`、`run.test.ts` |
 | VER-07 | 报告绑哈希 | 报告记下计划的 `planHash`；与锁的对齐发生在发布侧（`report.planHash === lock.planHash`），不在 runner 里 | [done] | `run.ts`、`packages/registry/src/publish.ts` |
 | VER-08 | 干净目录 runner | 复制到临时目录、删 `.packhub`、install + verify、写完报告删临时目录 | [done] | `run.ts`、`run.test.ts` |
@@ -354,7 +354,7 @@ review: 任何行为变更的提交
 | 发布校验的位置 | 在进程内 `runPack`，已拒可执行检查 | 放进沙箱，或只收 CI 报告 |
 | 全局 MCP | Claude Code 走宿主 CLI，codex 写 TOML 托管块，dsh 无稳定契约 | 其余宿主等有稳定契约再接 |
 | 性能口径 | 只有耗时，没有内存 / 吞吐 | 需要时再加指标，并把 install / overlay 基准纳入 CI |
-| 测试覆盖 | mcp 的 SSE 分支、`sync` 的本地来源拒绝、`logs` / `secrets` 无直接用例 | 补用例，或把这几条的 `[done]` 降为 `[part]` |
+| 测试覆盖 | `sync` 的本地来源拒绝、`logs` / `secrets` 无直接用例 | 补用例，或把这几条的 `[done]` 降为 `[part]` |
 
 ## 与 Agent Harness 清单的对照
 
