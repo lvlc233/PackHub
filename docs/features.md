@@ -65,7 +65,7 @@ review: 任何行为变更的提交
 | REF-04 | 字节完整性 | npm 用 `dist.integrity`；https 下载边算边校验；github 按 commit 取归档算 sha256。下载端按前缀自适应 sha256 / sha512，但清单 schema 只允许 `sha256-` | [done] | `resolve.ts`、`download.ts`、`download.test.ts` |
 | REF-05 | 私有来源鉴权 | `auth.env` 只存变量名；环境变量优先于凭据库；缺变量时报错只给变量名与 host，不含 token。token 只加在最终文件下载上，npm 元数据与 PyPI JSON 请求不带 | [done] | `install.ts`、`credentials.ts`、`auth.test.ts` |
 | REF-06 | 计划快照 | 锁里有主计划 `plan`；声明多个 target 时另有 `plans`，每个 target 一份。单 target 不写 `plans` | [done] | `packages/kernel/src/lock.ts`、`lock-targets.test.ts` |
-| REF-07 | 离线锁 | `lock --offline` 只解析本地引用；npm / github / https / pypi 一律原样写入锁并给 warning，已 pin 的也不解析。`--help` 文案写「只锁本地与已 pin」，与实现不符 | [part] | `resolve.ts`、`apps/local/src/cli.ts`、`lock-targets.test.ts` |
+| REF-07 | 离线锁 | `lock --offline` 只解析本地引用；npm / github / https / pypi 原样写入锁（integrity 记 null）并逐条 warning，已 pin 的也不解析；`--help` 文案与实现一致 | [done] | `resolve.ts` 的 `resolveReferences`、`cli.ts` 的 `lock`、`lock-offline.test.ts` |
 | REF-08 | pypi 只收 sdist | 从 PyPI 版本 JSON 里挑未 yanked、`packagetype=sdist` 且 `.tar.gz` 的包；只有 wheel 或 sdist 不是 `.tar.gz` 时明确报错，不落二进制 | [done] | `download.ts` 的 `pickSdist`、`pypi.test.ts` |
 | REF-09 | `packhub://` 跨包引用 | v0 已移除：解析器遇到未知 scheme 直接报错，代码里无实现 | [na] | `ref.ts`；移除提交 `095de32` |
 | REF-10 | 缓存与 GC | `cache ls` 标引用、`cache clean` 只删没被引用项并支持 dry-run。引用只认 state 里的计划快照——没有 `plan` 的旧 state 会被当成无引用 | [done] | `packages/runtime/src/cache.ts`、`cache.test.ts` |
