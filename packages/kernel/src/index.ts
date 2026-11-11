@@ -74,7 +74,7 @@ export function loadPack(dir: string): PackContext {
 }
 
 export interface LocalOverrides {
-  overrides?: Manifest['overrides'];
+  modify?: Manifest['modify'];
   bindings?: Record<string, string>;
   vars?: Record<string, string | number | boolean>;
 }
@@ -106,16 +106,16 @@ export function mergeLocalOverrides(
     issues.push({ code: 'local-overrides', severity: 'error', message: '.packhub/local.yaml 不是一个对象' });
     return { manifest, issues };
   }
-  const overrides = Array.isArray(raw.overrides) ? raw.overrides : [];
-  for (const ov of overrides) {
-    if (!ov?.resource) {
-      issues.push({ code: 'local-overrides', severity: 'error', message: 'local.yaml 的 overrides 缺少 resource' });
+  const modify = Array.isArray(raw.modify) ? raw.modify : [];
+  for (const [i, m] of modify.entries()) {
+    if (!m?.resource) {
+      issues.push({ code: 'local-overrides', severity: 'error', message: `local.yaml 的 modify[${i}] 缺少 resource` });
     }
   }
   return {
     manifest: {
       ...manifest,
-      overrides: [...(manifest.overrides ?? []), ...overrides],
+      modify: [...(manifest.modify ?? []), ...modify],
       bindings: { ...(manifest.bindings ?? {}), ...(raw.bindings ?? {}) },
       vars: { ...(manifest.vars ?? {}), ...(raw.vars ?? {}) },
     },
@@ -124,7 +124,7 @@ export function mergeLocalOverrides(
 }
 
 
-/** 解析 + 出计划（只读：会读 overrides/overlays 的文件，但不落盘）。 */
+/** 解析 + 出计划（只读：会读 modify 补丁的文件，但不落盘）。 */
 export function planFor(
   ctx: PackContext,
   opts: Partial<PlanOptions> = {},

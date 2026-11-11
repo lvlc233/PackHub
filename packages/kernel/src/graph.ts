@@ -1,6 +1,6 @@
 import type { Issue, Manifest, ResourceSpec, TargetId } from './types.ts';
 import { checkSource, parseSource } from './ref.ts';
-import { deepMerge } from './util.ts';
+import { deepMerge, isPlainObject } from './util.ts';
 
 /** 已知的 harness 名称；requires.agent 写别的名字只警告，不阻断（新 harness 不该让旧包装不上）。 */
 export const KNOWN_AGENTS = ['dsh', 'claude-code', 'codex', 'opencode'] as const;
@@ -100,7 +100,16 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
   const issues: Issue[] = [];
   const resources = new Map<string, ResourceSpec>();
 
-  const overrideOf = new Map((manifest.overrides ?? []).map((o) => [o.resource, o]));
+  // 补丁必须指向真实存在的资源，否则写了等于没写
+  for (const [i, m] of (manifest.modify ?? []).entries()) {
+    if (!manifest.resources.some((r) => r.id === m.resource)) {
+      issues.push({
+        code: 'modify-unknown-resource',
+        severity: 'error',
+        message: `modify[${i}] 指向不存在的资源：${m.resource}`,
+      });
+    }
+  }
   const { active, excluded } = resolveSlots(manifest, issues);
 
   // requires.agent 只做提示：写错名字不阻断安装，但要让人看见
@@ -133,16 +142,30 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
     seen.add(r.id);
   }
 
+  // 参数补丁：`modify` 里 with 是对象的那些，并进资源自己的参数（mcp / tool 用得上）。
+  // 文件类修改不在这儿做——它要等资源落点算出来，在 plan 里生成动作。
+  const paramPatches = new Map<string, Record<string, unknown>>();
+  for (const [i, m] of (manifest.modify ?? []).entries()) {
+    if (!isPlainObject(m.with)) continue;
+    if (m.file || m.at) {
+      issues.push({
+        code: 'modify-invalid',
+        severity: 'error',
+        message: `modify[${i}] 的参数补丁不能带 file / at：那是文件修改的字段`,
+      });
+      continue;
+    }
+    paramPatches.set(
+      m.resource,
+      deepMerge(paramPatches.get(m.resource) ?? {}, m.with) as Record<string, unknown>,
+    );
+  }
+
   manifest.resources.forEach((raw, index) => {
     const at = `resources[${index}]`;
-    // 资源级覆盖：换 pin / 实现 / 安装参数，但不动上游那份清单
-    const ov = overrideOf.get(raw.id);
-    const res: ResourceSpec = ov
-      ? {
-          ...raw,
-          ...(ov.source ? { source: ov.source } : {}),
-          ...(ov.config ? { config: deepMerge(raw.config ?? {}, ov.config) as Record<string, unknown> } : {}),
-        }
+    const patch = paramPatches.get(raw.id);
+    const res: ResourceSpec = patch
+      ? { ...raw, config: deepMerge(raw.config ?? {}, patch) as Record<string, unknown> }
       : raw;
     // 未绑定槽位的候选：只做结构检查，不进依赖图、不进计划
     if (!active.has(res.id)) return;
@@ -198,7 +221,7 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
         severity: 'error',
         message: `${locator} 在不同资源里锁到不同版本：${entries
           .map((e) => `${e.id}@${e.pin ?? '<无>'}`)
-          .join(', ')}；请用 overrides 显式定夺`,
+          .join(', ')}；把它们钉到同一个版本再打包`,
       });
     }
   }

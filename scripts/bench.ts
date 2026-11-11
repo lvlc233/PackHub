@@ -31,6 +31,8 @@ if (overlayCount > 0) {
   }
 }
 
+const modifyLines = Array.from({ length: overlayCount }, (_, i) => `  - { resource: r${i}, with: ./overlays/o${i}.md }`);
+
 writeFileSync(
   join(dir, 'packhub.yaml'),
   `apiVersion: packhub.dev/v0
@@ -39,7 +41,7 @@ metadata: { name: demo/bench, version: 0.0.1, targets: [dir] }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
 ${lines.join('\n')}
-${overlayCount > 0 ? 'overlays:\n  - from: ./overlays\n    to: .packhub/overlay\n' : ''}`,
+${overlayCount > 0 ? `modify:\n${modifyLines.join('\n')}\n` : ''}`,
   'utf8',
 );
 

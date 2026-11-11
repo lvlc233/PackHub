@@ -19,22 +19,18 @@ resources:
 
   - id: memory-core
     type: skill
-    source: ./skills/memory-core
+    source: ./forks/memory-core # 上游那份写死了打包机器的绝对路径，这份改成随包走
 
   - id: loader-notes
     type: knowledge
     source: ./resources/loader.md
 
-overrides:
-  # 上游那份 memory-core 里写死了打包机器的绝对路径；换成改过的一份，随包走
-  - resource: memory-core
-    source: ./forks/memory-core
-
-overlays:
-  # 装完之后再把 learn-core 的 SKILL.md 盖一遍：改掉同一处绝对路径
-  - from: ./overlays/learn-core
-    to: .packhub/skills/learn-core
-    include: [SKILL.md]
+# 二次修改：按资源定位到一行 / 一段 / 整份文件
+modify:
+  - resource: learn-core
+    file: SKILL.md
+    at: '本机的配置在 `G:\work\tool\skill-hub\learning\config.md`；下面写的 `config.md:xxx` 都指那一份里的键。读完它再看这一段，不然位置全靠猜。'
+    with: '本机的配置在 `config.md`（随包走，和 SKILL.md 同级目录）；下面写的 `config.md:xxx` 都指那一份里的键。读完它再看这一段，不然位置全靠猜。'
 
 verify:
   - type: file-exists

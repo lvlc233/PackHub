@@ -6,18 +6,28 @@
 
 - `skills/learn-core`、`skills/memory-core`：两个 skill 的原始版本
 - `resources/loader.md`：加载器说明（装完要做的三件事、两个 skill 的边界）
-- `forks/memory-core`：改过一份的 memory-core
-- `overlays/learn-core/SKILL.md`：装完之后盖上去的 learn-core
+- `forks/memory-core`：改过一份的 memory-core，用 `source` 直接指过去
 
 ## 二次修改落在哪
 
-1. **换来源（`overrides`）**：`memory-core` 不用 `skills/` 里那份，换成 `forks/memory-core`。上游把配置路径写成打包机器的绝对路径，这一份改成随包走。
-2. **盖文件（`overlays`）**：装完两个 skill 之后，再把 `overlays/learn-core/SKILL.md` 写到 `.packhub/skills/learn-core/SKILL.md`，改的是同一处路径。
+只有一处 `modify`：`learn-core` 的 `SKILL.md` 里有一行写死了打包机器的绝对路径，改成随包走。
+
+```yaml
+modify:
+  - resource: learn-core
+    file: SKILL.md
+    at: '本机的配置在 `G:\work\tool\skill-hub\learning\config.md`；…'
+    with: '本机的配置在 `config.md`（随包走，和 SKILL.md 同级目录）；…'
+```
+
+`at` 是整行原文，必须唯一命中；找不到或命中多处，`plan` 阶段就报错，不写盘。改的是那一行，其余 63 行原样。
+
+`memory-core` 没走 `modify`：它换的是整个资源来源，直接写 `source: ./forks/memory-core`。
 
 ## 怎么看出来
 
 ```bash
-packhub plan          # 四个动作：两个 link.skill、一份 knowledge、一条覆盖写入（排在最后）
+packhub plan          # 三个动作：两个 link.skill、一份 knowledge，外加一条改过的文件写入
 packhub install .     # 装完
 ```
 

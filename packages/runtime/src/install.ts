@@ -214,7 +214,7 @@ function generationId(): string {
 function touchedPaths(plan: Plan): string[] {
   const out: string[] = [];
   for (const a of plan.actions) {
-    if (a.op === 'write' || a.op === 'unpack' || a.op === 'link.skill') out.push(a.to);
+    if (a.op === 'write' || a.op === 'unpack' || a.op === 'link.skill' || a.op === 'delete') out.push(a.to);
     else if (a.op === 'link.bin') out.push(a.to, `${a.to}.cmd`);
     else if (a.op === 'merge.config') out.push(a.path);
     else if (a.op === 'register.mcp') out.push(a.path ?? '.packhub/config.json');
@@ -1150,6 +1150,18 @@ async function applyAction(
       rmSync(to, { recursive: true, force: true });
       cpSync(from, to, { recursive: true, force: true });
       written.push(action.to);
+      return { actionId: action.actionId, op: action.op, status: 'done', target: action.to };
+    }
+
+    case 'delete': {
+      const to = within(opts.root, action.to);
+      // 目标已经不在：补丁要删的东西本来就没有，不当作失败（快照里也没有它）
+      if (!existsSync(to)) {
+        return { actionId: action.actionId, op: action.op, status: 'noop', target: action.to };
+      }
+      if (!opts.dryRun) {
+        rmSync(to, { force: true });
+      }
       return { actionId: action.actionId, op: action.op, status: 'done', target: action.to };
     }
 

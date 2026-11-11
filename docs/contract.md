@@ -65,7 +65,9 @@ review: 格式升版、字段增删、apiVersion 变化时
 3. `actions[].dependsOn` 指向的 id 必须存在于同一 plan。
 4. 动作目标路径相对安装根（state 所在目录）；来源路径相对 Pack 目录；执行层必须拒绝 `..` 逃逸。
 
-动作原语：`fetch` · `unpack` · `write` · `link.skill` · `link.bin` · `register.mcp` · `merge.config` · `exec` · `instruction` · `state.dir`。
+动作原语：`fetch` · `unpack` · `write` · `delete` · `link.skill` · `link.bin` · `register.mcp` · `merge.config` · `exec` · `instruction` · `state.dir`。
+
+- `delete` 只删单个文件（`modify` 用它删掉上游带的文件或整段命中的文件）；目标不存在算 `noop`，不失败，也不进 `written`——卸载不会去恢复它，回滚由快照负责。
 
 - `link.bin` 从解包目录读 `package.json` 的 `bin`，在目标 binDir 生成 wrapper，不执行包里的代码。
 - `register.mcp` 在 `.toml` 目标上写带标记的 `[mcp_servers.<id>]` 托管块，卸载只摘自己那段。

@@ -26,13 +26,13 @@ resources:
 }
 
 describe('.packhub/local.yaml', () => {
-  it('覆盖资源 source，不改清单本身', async () => {
+  it('本机 modify 进计划，不改清单本身，也不进锁', async () => {
     const dir = pack();
     writeFileSync(
       join(dir, '.packhub/local.yaml'),
-      `overrides:
+      `modify:
   - resource: rules
-    source: ./alt.md
+    with: ./alt.md
 `,
       'utf8',
     );
@@ -43,17 +43,18 @@ describe('.packhub/local.yaml', () => {
 
     const { plan } = planFor(ctx);
     expect(plan).toBeTruthy();
-    const write = plan!.actions.find((a) => a.op === 'write');
-    expect(write && 'from' in write ? write.from : '').toBe('./alt.md');
+    const writes = plan!.actions.filter((a) => a.op === 'write');
+    const write = writes.at(-1);
+    expect(write && 'from' in write ? write.from : '').toBe('alt.md');
     const result = await installPack(ctx, plan!, { root: join(dir, 'out') });
     expect(result.outcomes.every((o) => o.status === 'done')).toBe(true);
-    expect(readFileSync(join(dir, 'out/.packhub/knowledge/alt.md'), 'utf8')).toBe('local\n');
+    expect(readFileSync(join(dir, 'out/.packhub/knowledge/base.md'), 'utf8')).toBe('local\n');
     rmSync(dir, { recursive: true, force: true });
   });
 
   it('坏 YAML 明确报错，不静默忽略', () => {
     const dir = pack();
-    writeFileSync(join(dir, '.packhub/local.yaml'), 'overrides: [\n', 'utf8');
+    writeFileSync(join(dir, '.packhub/local.yaml'), 'modify: [\n', 'utf8');
     const ctx = loadPack(dir);
     expect(ctx.issues.some((i) => i.code === 'local-overrides')).toBe(true);
     rmSync(dir, { recursive: true, force: true });

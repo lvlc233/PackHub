@@ -61,13 +61,27 @@ export interface StateDirSpec {
   description?: string;
 }
 
-export interface Overlay {
-  /** Pack 内的目录，例如 ./overrides */
-  from: string;
-  /** 目标根，默认 "."（Pack 目录） */
-  to?: string;
-  /** 只覆盖文件名匹配这些后缀/名字的文件 */
-  include?: string[];
+/**
+ * 对某个资源做二次修改（整合包里的「mod 的 mod」）。
+ *
+ * `with` 决定动作：
+ * - 以 `./`、`../` 或 scheme 开头的字符串 = 包内路径：文件则整份替换，目录则逐文件叠上去
+ * - 其他字符串 = 内联文本，直接当内容用
+ * - null = 删掉目标（文件，或 `at` 指的那一段）
+ * - 对象 = 并进资源参数（mcp / tool 那类），不能带 `file` / `at`
+ *
+ * 寻址：`resource` → `file` → `at`。给了 `file` 或 `at` 就是定位编辑，目标必须存在；
+ * 只有 `with` 是目录、且没给 `file` 时，才允许目标不存在（那是新增）。
+ */
+export interface ModifySpec {
+  resource: string;
+  /** 资源内的相对路径；单文件资源（knowledge / prompt）可省略 */
+  file?: string;
+  /** 锚点：`#` 开头是整节（到下一个同级或更高级标题），否则按整行匹配；必须唯一命中 */
+  at?: string;
+  /** 换掉整段（默认）、插在它前面、插在它后面 */
+  where?: 'replace' | 'before' | 'after';
+  with: string | null | Record<string, unknown>;
   note?: string;
 }
 
@@ -134,9 +148,8 @@ export interface Manifest {
   bindings?: Record<string, string>;
   /** 持久状态目录；资源里用 ${state.<id>} 引用 */
   state?: StateDirSpec[];
-  overrides?: { resource: string; source?: string; config?: Record<string, unknown> }[];
-  /** 装完之后按路径覆盖目标文件：mod 的 mod */
-  overlays?: Overlay[];
+  /** 按资源做二次修改（整文件 / 一段 / 删掉 / 改参数），见 ModifySpec */
+  modify?: ModifySpec[];
   /** 对 {pack, planHash} 的 ed25519 签名 */
   signatures?: { key: string; sig: string; at?: string }[];
   install?: { exec?: ExecSpec[] };
@@ -155,6 +168,7 @@ export type PlanOp =
     }
   | { op: 'unpack'; from: string; to: string; strip?: number }
   | { op: 'write'; to: string; from?: string; content?: string }
+  | { op: 'delete'; to: string }
   | { op: 'link.skill'; from: string; to: string }
   | { op: 'register.mcp'; spec: Record<string, unknown>; path?: string }
   | {

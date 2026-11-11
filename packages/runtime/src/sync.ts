@@ -105,8 +105,8 @@ export async function syncPack(
   if (ctx.manifest.install?.exec?.length) {
     throw new Error('全局同步不会执行 install.exec');
   }
-  if (ctx.manifest.overlays?.length) {
-    throw new Error('全局同步不支持 overlays（会写 skills/ 之外的文件）');
+  if (ctx.manifest.modify?.some((m) => typeof m.with !== 'object' || m.with === null)) {
+    throw new Error('全局同步不支持 modify（会写 skills/ 之外的文件，或改 skill 正文）');
   }
 
   for (const r of resources.filter((x) => x.type === 'skill')) {

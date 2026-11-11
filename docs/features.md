@@ -41,19 +41,20 @@ review: 任何行为变更的提交
 | PKG-04 | 槽位与绑定 | 被 `bindings` 点名的候选进计划，其余进 `excluded`（`unbound-slot`）；绑定的实现缺契约能力报 `slot-contract-unmet`；有候选却完全没绑定报 `slot-unbound` 且不出计划。`slot swap` 只改一行并打印计划差异 | [done] | `packages/kernel/src/graph.ts`、`slots.test.ts`、`cli.ts` |
 | PKG-05 | （编号未使用） | 历史空缺，不补号 | [na] | — |
 | PKG-06 | composition | v0 已移除：schema 无该字段，源码 2026-11-07 删除；接线由 `provides` / `needs` / `dependsOn` 与 `slots` / `bindings` 承担 | [na] | `schema/packhub.v0.schema.json`；`f10bc49`、`095de32` |
-| PKG-07 | overrides | 资源级覆盖 pin / 参数，不改上游清单；覆盖不存在的资源报 `override-unknown-resource` | [done] | `graph.ts`、`plan.ts`、`overlay.test.ts` |
-| PKG-08 | overlays | 文件级覆盖排在资源之后；两个覆盖层改同一文件报 `overlay-conflict`，盖掉生成物只给 `overlay-shadows` 警告；`from` 越出包目录报错 | [done] | `packages/kernel/src/plan.ts`、`overlay.test.ts`、`overlay-outside.test.ts` |
+| PKG-07 | overrides | 已并入 `modify`：资源级换来源改成直接改 `resources[].source`，参数覆盖用 `modify` 的对象形式 | [na] | `docs/features.md` PKG-20 |
+| PKG-08 | overlays | 已并入 `modify`：按资源定位到文件 / 段落，规则见 PKG-20 | [na] | `docs/features.md` PKG-20 |
 | PKG-09 | 可见性声明 | 四档写在 schema；schema 的 `default` 不参与运行时，未写时由读端按 `private` 兜底 | [done] | `schema/packhub.v0.schema.json`、`packages/registry/src/build.ts`、`publish.ts` |
 | PKG-10 | 签名声明 | 清单可带 `signatures`，也可写独立文件；读取端两边合并 | [done] | `schema/packhub.v0.schema.json`、`packages/runtime/src/signature.ts`、`signfile.ts`、`consume.ts` |
 | PKG-11 | `extends` | v0 已移除：schema 无该字段，`extends.ts` 已删除；`install.ts` 里还留着一段提 extends 的注释与 `../` 只读分支（死路径） | [na] | `schema/packhub.v0.schema.json`；`f10bc49` |
 | PKG-12 | 资源级 target 裁剪 | 资源 `targets` 未命中时进 `excluded`（`target-mismatch`），不进动作 | [done] | `packages/kernel/src/plan.ts`、`target-trim.test.ts` |
-| PKG-13 | 本地覆盖 | `.packhub/local.yaml` 只支持 `overrides` / `bindings` / `vars`（无 `env`）；不进 `lock.resolved`，但会改计划与 `planHash`；`add` 在锁核对之后才应用 | [done] | `packages/kernel/src/index.ts`、`lock.ts`、`local-overrides.test.ts` |
+| PKG-13 | 本地覆盖 | `.packhub/local.yaml` 只支持 `modify` / `bindings` / `vars`（无 `env`）；不进 `lock.resolved`，但会改计划与 `planHash`；`add` 在锁核对之后才应用 | [done] | `packages/kernel/src/index.ts`、`lock.ts`、`local-overrides.test.ts` |
 | PKG-14 | PACK.md / CHANGELOG | 发布时复制进版本目录；Hub 与市场接口返回原文；不参与 `planHash` | [done] | `packages/registry/src/publish.ts`、`hub/src/server.ts`、`market/server.ts` |
 | PKG-15 | 持久状态目录 | `state` 块声明目录与 `retain`；`${state.x}` 计划期插值；安装建目录（`state.dir` 排最前），升级 / 卸载默认保留 | [done] | `packages/kernel/src/plan.ts`、`packages/runtime/test/state.test.ts`、`state.test.ts` |
 | PKG-16 | optional 级联跳过 | `optional: true` 且 `needs` 没有提供方时进 `excluded`（`optional-unmet`），依赖它的也级联跳过；显式绑定到槽位的不跳过 | [done] | `graph.ts`、`optional.test.ts` |
 | PKG-17 | requires.agent 只警告 | 未知 agent 报 `unknown-agent` 警告；agent 不在 `metadata.targets` 报 `agent-target-mismatch` 警告；都不阻断 | [done] | `graph.ts`、`optional.test.ts` |
-| PKG-18 | overlays 细节 | `include` 按后缀过滤；目录不在包里报 `overlay-missing` / `overlay-outside-pack`，空覆盖给 `overlay-empty` 警告 | [done] | `plan.ts`、`overlay-outside.test.ts` |
+| PKG-18 | overlays 细节 | 已并入 `modify`：目录叠、空目录、越界与冲突的判定搬到了 PKG-20 | [na] | `docs/features.md` PKG-20 |
 | PKG-19 | vars 类型与插值 | `vars` 只收字符串 / 数字 / 布尔，`${vars.x}` 在计划期替换 | [done] | `schema/packhub.v0.schema.json`、`plan.ts`、`sync-claude.test.ts` |
+| PKG-20 | `modify` 二次修改 | 一个字段按资源定位：`with` 是路径则整文件替换、是目录则逐文件叠（没有的就新增）、是文本则内联、是 `null` 则删、是对象则并进资源参数。`file` / `at` 是定位编辑，目标必须存在；`at` 必须唯一命中；两条补丁改同一文件报 `modify-conflict`；越出包目录报 `modify-outside-pack`；改完与原文相同只给 `modify-noop` 警告。远程资源的按锚点修改报 `modify-remote-unsupported` | [done] | `packages/kernel/src/plan.ts` 的 `applyAnchor`、`packages/kernel/src/graph.ts`、`modify.test.ts` |
 
 ## 2 REF ｜引用、锁与解析
 

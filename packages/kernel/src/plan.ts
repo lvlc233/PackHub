@@ -80,6 +80,10 @@ export function buildPlan(
     return next;
   };
 
+  // 资源装到哪儿、本地来源在哪；文件类补丁要按这个落点算目标、按来源读上游内容
+  type InstalledResource = { type: ResourceType; kind: 'dir' | 'file'; to: string; from?: string };
+  const installed = new Map<string, InstalledResource>();
+
   // 状态目录：建目录，不写文件。放在最前面，后续动作引用 ${state.x} 时目录已经存在。
   for (const spec of manifest.state ?? []) {
     const to = statePaths[spec.id];
@@ -131,6 +135,7 @@ export function buildPlan(
         }
         if (parsed.kind === 'local') {
           push({ op: 'link.skill', from: parsed.locator, to: `${targetVars.skillsDir}/${id}`, resource: id });
+          installed.set(id, { type: res.type, kind: 'dir', to: `${targetVars.skillsDir}/${id}`, from: parsed.locator });
         } else {
           const fetched = push({
             op: 'fetch',
@@ -159,6 +164,8 @@ export function buildPlan(
             resource: id,
             dependsOn: [unpacked.actionId],
           });
+          // 远程资源的正文要等安装时才取回：能做整文件替换与删除，做不了按锚点改
+          installed.set(id, { type: res.type, kind: 'dir', to: `${targetVars.skillsDir}/${id}` });
         }
         break;
       }
@@ -168,6 +175,7 @@ export function buildPlan(
         const name = fileNameOf(parsed.locator);
         if (parsed.kind === 'local') {
           push({ op: 'write', from: parsed.locator, to: `${dir}/${name}`, resource: id });
+          installed.set(id, { type: res.type, kind: 'file', to: `${dir}/${name}`, from: parsed.locator });
         } else {
           push({
             op: 'fetch',
@@ -177,6 +185,7 @@ export function buildPlan(
             ...(res.auth ? { auth: res.auth } : {}),
             resource: id,
           });
+          installed.set(id, { type: res.type, kind: 'file', to: `${dir}/${name}` });
         }
         break;
       }
@@ -263,46 +272,148 @@ export function buildPlan(
     }
   }
 
-  // 覆盖层：装完之后按路径盖上去（mod 的 mod）。必须排在资源之后，才盖得住生成文件。
-  const packDir = opts.packDir ?? '.';
-  for (const [i, ov] of (manifest.overlays ?? []).entries()) {
-    const relFrom = ov.from.replace(/^\.\//, '').replace(/\/+$/, '');
-    const absFrom = resolve(packDir, relFrom);
-    const base = resolve(packDir);
-    if (absFrom !== base && !absFrom.startsWith(base + sep)) {
+  // 二次修改：按资源定位到文件或段落，排在资源动作之后，才盖得住刚装好的东西。
+  const claimed = new Map<string, string>();
+  const claim = (path: string, label: string): boolean => {
+    const prev = claimed.get(path);
+    if (prev) {
       issues.push({
-        code: 'overlay-outside-pack',
+        code: 'modify-conflict',
         severity: 'error',
-        message: `overlays[${i}] 指向包目录之外：${ov.from}`,
+        message: `${path} 被两条补丁同时改：${prev}、${label}`,
+      });
+      return false;
+    }
+    claimed.set(path, label);
+    return true;
+  };
+  const packBase = resolve(opts.packDir ?? '.');
+  const insidePack = (abs: string): boolean => abs === packBase || abs.startsWith(packBase + sep);
+
+  for (const [i, m] of (manifest.modify ?? []).entries()) {
+    const label = `modify[${i}]`;
+    const resourceId = `modify#${i + 1}`;
+    const info = installed.get(m.resource);
+    if (!info) continue; // 未知资源、参数类资源的参数补丁都由 graph 处理
+    if (isPlainObject(m.with)) continue;
+
+    const value = m.with;
+    const where = m.where ?? 'replace';
+    const isPath = typeof value === 'string' && PACK_PATH_RE.test(value);
+    const fileRel = m.file ? normalizeRel(m.file) : undefined;
+    if (m.file && !fileRel) {
+      issues.push({ code: 'modify-invalid', severity: 'error', message: `${label}：file 必须是包内的相对路径：${m.file}` });
+      continue;
+    }
+    if (info.kind === 'file' && fileRel && fileRel !== fileNameOf(info.to)) {
+      issues.push({
+        code: 'modify-invalid',
+        severity: 'error',
+        message: `${label}：${m.resource} 是单文件资源，file 只能是 ${fileNameOf(info.to)}`,
       });
       continue;
     }
-    if (!existsSync(absFrom)) {
+
+    const absWith = isPath ? resolve(packBase, value) : undefined;
+    if (absWith) {
+      if (!insidePack(absWith)) {
+        issues.push({ code: 'modify-outside-pack', severity: 'error', message: `${label}：指向包目录之外：${value}` });
+        continue;
+      }
+      if (!existsSync(absWith)) {
+        issues.push({ code: 'modify-source-missing', severity: 'error', message: `${label}：找不到 ${value}` });
+        continue;
+      }
+    }
+    const withIsDir = absWith ? statSync(absWith).isDirectory() : false;
+
+    // 目标文件（相对安装根）：目录资源必须写 file，单文件资源就是它自己
+    const targetPath = info.kind === 'file' ? info.to : fileRel ? `${info.to}/${fileRel}` : undefined;
+
+    if (withIsDir) {
+      if (m.file || m.at || where !== 'replace') {
+        issues.push({
+          code: 'modify-invalid',
+          severity: 'error',
+          message: `${label}：目录补丁不带 file / at / where——整目录逐个文件叠上去`,
+        });
+        continue;
+      }
+      const relDir = String(value).replace(/^\.\//, '').replace(/\/+$/, '');
+      const files = walkFiles(absWith!);
+      if (files.length === 0) {
+        issues.push({ code: 'modify-empty', severity: 'warning', message: `${label}：目录是空的：${value}` });
+      }
+      for (const rel of files) {
+        const to = `${info.to}/${rel}`;
+        if (!claim(to, label)) continue;
+        push({ op: 'write', from: `${relDir}/${rel}`, to, resource: resourceId });
+      }
+      continue;
+    }
+
+    if (!targetPath) {
       issues.push({
-        code: 'overlay-missing',
+        code: 'modify-needs-file',
         severity: 'error',
-        message: `overlays[${i}] 指向的目录不存在：${ov.from}`,
+        message: `${label}：${m.resource} 是目录资源，要写 file 指明改哪个文件`,
       });
       continue;
     }
-    const files = walkFiles(absFrom);
-    if (files.length === 0) {
-      issues.push({
-        code: 'overlay-empty',
-        severity: 'warning',
-        message: `overlays[${i}] 目录是空的：${ov.from}`,
-      });
+
+    // 按锚点改一段 / 删一段：要读上游正文，只有本地来源读得到
+    if (m.at) {
+      if (info.from === undefined) {
+        issues.push({
+          code: 'modify-remote-unsupported',
+          severity: 'error',
+          message: `${label}：${m.resource} 是远程资源，正文要等安装时才取回；只能整文件替换或删除`,
+        });
+        continue;
+      }
+      const upstreamAbs = info.kind === 'file' ? resolve(packBase, info.from) : resolve(packBase, info.from, fileRel ?? '');
+      if (!existsSync(upstreamAbs)) {
+        issues.push({
+          code: 'modify-file-missing',
+          severity: 'error',
+          message: `${label}：上游没有这个文件：${m.file ?? info.from}`,
+        });
+        continue;
+      }
+      const upstream = readFileSync(upstreamAbs, 'utf8');
+      const replacement = value === null ? null : isPath ? readFileSync(absWith!, 'utf8') : value;
+      const applied = applyAnchor(upstream, m.at, where, replacement);
+      if (!applied.ok) {
+        issues.push({
+          code: applied.reason === 'missing' ? 'modify-anchor-missing' : 'modify-anchor-ambiguous',
+          severity: 'error',
+          message:
+            applied.reason === 'missing'
+              ? `${label}：找不到锚点「${m.at}」`
+              : `${label}：锚点「${m.at}」命中多处，补丁不知道改哪个`,
+        });
+        continue;
+      }
+      if (applied.text === upstream) {
+        issues.push({ code: 'modify-noop', severity: 'warning', message: `${label}：改完和原文一样，这条补丁可能过期了` });
+        continue;
+      }
+      if (!claim(targetPath, label)) continue;
+      push({ op: 'write', to: targetPath, content: applied.text, resource: resourceId });
+      continue;
     }
-    const toRoot = normalizeRel(ov.to ?? '.');
-    for (const rel of files) {
-      if (ov.include && ov.include.length > 0 && !ov.include.some((p) => rel.endsWith(p))) continue;
-      const to = toRoot === '.' ? rel : `${toRoot}/${rel}`;
-      push({
-        op: 'write',
-        from: `${relFrom}/${rel}`,
-        to,
-        resource: `overlay#${i + 1}`,
-      });
+
+    if (where !== 'replace') {
+      issues.push({ code: 'modify-invalid', severity: 'error', message: `${label}：where 要配合 at 用` });
+      continue;
+    }
+    if (!claim(targetPath, label)) continue;
+    if (value === null) {
+      push({ op: 'delete', to: targetPath, resource: resourceId });
+    } else if (isPath) {
+      push({ op: 'write', from: value.replace(/^\.\//, ''), to: targetPath, resource: resourceId });
+    } else {
+      push({ op: 'write', to: targetPath, content: value, resource: resourceId });
     }
   }
 
@@ -350,7 +461,7 @@ export function buildPlan(
     });
   }
 
-  issues.push(...detectConflicts(actions, packDir, manifest));
+  issues.push(...detectConflicts(actions, packBase, manifest));
 
   if (issues.some((i) => i.severity === 'error')) return { issues };
 
@@ -462,20 +573,21 @@ function detectConflicts(
   manifest: Manifest,
 ): Issue[] {
   const issues: Issue[] = [];
-  const fsPaths = new Map<string, { id: string; overlay: boolean }[]>();
+  const fsPaths = new Map<string, { id: string; modify: boolean }[]>();
   const configKeys = new Map<string, string[]>();
 
   for (const a of actions) {
-    const isOverlay = (a.resource ?? '').startsWith('overlay#');
+    const isModify = (a.resource ?? '').startsWith('modify#');
     if (
       a.op === 'write' ||
+      a.op === 'delete' ||
       a.op === 'link.skill' ||
       a.op === 'unpack' ||
       a.op === 'link.bin' ||
       a.op === 'state.dir'
     ) {
       const list = fsPaths.get(a.to) ?? [];
-      list.push({ id: a.actionId, overlay: isOverlay });
+      list.push({ id: a.actionId, modify: isModify });
       fsPaths.set(a.to, list);
     }
     if (a.op === 'merge.config') {
@@ -493,8 +605,8 @@ function detectConflicts(
   }
 
   for (const [path, entries] of fsPaths) {
-    const overlays = entries.filter((e) => e.overlay);
-    const producers = entries.filter((e) => !e.overlay);
+    const modifiers = entries.filter((e) => e.modify);
+    const producers = entries.filter((e) => !e.modify);
     if (producers.length > 1) {
       issues.push({
         code: 'output-conflict',
@@ -502,18 +614,11 @@ function detectConflicts(
         message: `${path} 被多个动作同时写：${producers.map((p) => p.id).join(', ')}`,
       });
     }
-    if (overlays.length > 1) {
+    if (modifiers.length === 1 && producers.length > 0) {
       issues.push({
-        code: 'overlay-conflict',
-        severity: 'error',
-        message: `${path} 被多个覆盖层同时改：${overlays.map((o) => o.id).join(', ')}`,
-      });
-    }
-    if (overlays.length === 1 && producers.length > 0) {
-      issues.push({
-        code: 'overlay-shadows',
+        code: 'modify-shadows',
         severity: 'warning',
-        message: `${path} 会被覆盖层盖掉（${overlays[0]?.id} 覆盖 ${producers[0]?.id}）；确认是有意的`,
+        message: `${path} 会被补丁盖掉（${modifiers[0]?.id} 覆盖 ${producers[0]?.id}）；确认是有意的`,
       });
     }
   }
@@ -529,16 +634,6 @@ function detectConflicts(
     }
   }
 
-  // overrides 里引用了不存在的资源，等于什么都没覆盖
-  for (const ov of manifest.overrides ?? []) {
-    if (!manifest.resources.some((r) => r.id === ov.resource)) {
-      issues.push({
-        code: 'override-unknown-resource',
-        severity: 'error',
-        message: `overrides 指向不存在的资源：${ov.resource}`,
-      });
-    }
-  }
   return issues;
 }
 
@@ -546,6 +641,54 @@ function detectConflicts(
 function looksLikeArchive(url: string): boolean {
   const path = url.split('?')[0] ?? url;
   return /\.(tar\.gz|tgz|tar)$/i.test(path);
+}
+
+/** `with` 是路径还是内联文本：只有 ./ ../ 或带 scheme 的才算路径。 */
+const PACK_PATH_RE = /^(\.\.?\/|[a-z][a-z0-9+.-]*:)/i;
+
+/**
+ * 在正文里定位 `at` 并替换 / 插入 / 删除。
+ * - `at` 以 `#` 开头：整节，从这行到下一个同级或更高级标题
+ * - 否则：按整行匹配
+ * 命中必须唯一；找不到或命中多处都算失败，不猜。
+ */
+export function applyAnchor(
+  text: string,
+  at: string,
+  where: 'replace' | 'before' | 'after',
+  replacement: string | null,
+): { ok: true; text: string } | { ok: false; reason: 'missing' | 'ambiguous' } {
+  const eol = text.includes('\r\n') ? '\r\n' : '\n';
+  const trailing = text.endsWith(eol);
+  const lines = (trailing ? text.slice(0, -eol.length) : text).split(eol);
+  const needle = at.trim();
+  const hits: number[] = [];
+  lines.forEach((line, i) => {
+    if (line.trim() === needle) hits.push(i);
+  });
+  if (hits.length === 0) return { ok: false, reason: 'missing' };
+  if (hits.length > 1) return { ok: false, reason: 'ambiguous' };
+  const start = hits[0]!;
+  let end = start + 1;
+  if (needle.startsWith('#')) {
+    const level = (needle.match(/^#+/) ?? ['#'])[0]!.length;
+    while (end < lines.length) {
+      const m = (lines[end] ?? '').match(/^(#{1,6})\s/);
+      if (m && m[1]!.length <= level) break;
+      end += 1;
+    }
+  }
+  const block = replacement === null ? [] : splitBlock(replacement, eol);
+  if (where === 'before') lines.splice(start, 0, ...block);
+  else if (where === 'after') lines.splice(end, 0, ...block);
+  else lines.splice(start, end - start, ...block);
+  return { ok: true, text: lines.join(eol) + (trailing ? eol : '') };
+}
+
+/** 替换内容自带结尾换行时，按行切开不要多出空行。 */
+function splitBlock(text: string, eol: string): string[] {
+  const body = text.endsWith(eol) ? text.slice(0, -eol.length) : text;
+  return body.split(eol);
 }
 
 /** 给宿主的指路块：这个包提供了什么、文件在哪。不描述步骤。 */

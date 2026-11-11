@@ -110,7 +110,7 @@
         }
       }
     },
-    "overrides": { "$ref": "#/definitions/overrides" },
+    "modify": { "$ref": "#/definitions/modify" },
     "signatures": {
       "type": "array",
       "description": "对 {pack, planHash} 的 ed25519 签名；key 是 32 字节公钥 base64",
@@ -124,11 +124,6 @@
           "at": { "type": "string" }
         }
       }
-    },
-    "overlays": {
-      "type": "array",
-      "description": "装完之后按路径覆盖目标文件：mod 的 mod，用来改上游组件而不动它本身",
-      "items": { "$ref": "#/definitions/overlay" }
     },
     "install": { "$ref": "#/definitions/install" },
     "verify": {
@@ -195,27 +190,22 @@
       },
       "uniqueItems": true
     },
-    "overlay": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["from"],
-      "properties": {
-        "from": { "type": "string", "pattern": "^\\./.*" },
-        "to": { "type": "string", "default": "." },
-        "include": { "type": "array", "items": { "type": "string" } },
-        "note": { "type": "string", "maxLength": 200, "description": "保留字段：给作者写说明，安装器不读取" }
-      }
-    },
-    "overrides": {
+    "modify": {
       "type": "array",
+      "description": "按资源做二次修改：整份文件、一段、删掉、并参数。with 是路径则盖文件，是文本则内联，是 null 则删，是对象则并参数",
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["resource"],
+        "required": ["resource", "with"],
         "properties": {
-          "resource": { "type": "string" },
-          "source": { "type": "string" },
-          "config": { "type": "object" }
+          "resource": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "file": { "type": "string", "minLength": 1, "description": "资源内的相对路径；单文件资源可省略" },
+          "at": { "type": "string", "minLength": 1, "description": "锚点：`#` 开头是整节，否则按整行匹配；必须唯一命中" },
+          "where": { "enum": ["replace", "before", "after"], "default": "replace" },
+          "with": {
+            "oneOf": [{ "type": "string" }, { "type": "null" }, { "type": "object" }]
+          },
+          "note": { "type": "string", "maxLength": 200, "description": "保留字段：给作者写说明，安装器不读取" }
         }
       }
     },
