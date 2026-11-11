@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { assertApiVersion } from './apiVersion.ts';
 
 export interface TrustedKey {
   key: string;
@@ -25,16 +26,18 @@ export function trustPath(): string {
 export function readTrust(): TrustFile {
   const file = trustPath();
   if (!existsSync(file)) return { apiVersion: API, keys: [] };
+  let parsed: Partial<TrustFile>;
   try {
-    const parsed = JSON.parse(readFileSync(file, 'utf8')) as Partial<TrustFile>;
-    return {
-      apiVersion: API,
-      keys: Array.isArray(parsed.keys) ? parsed.keys.filter((k) => k?.key) : [],
-      ...(parsed.requireSignature === undefined ? {} : { requireSignature: parsed.requireSignature }),
-    };
+    parsed = JSON.parse(readFileSync(file, 'utf8')) as Partial<TrustFile>;
   } catch {
     return { apiVersion: API, keys: [] };
   }
+  assertApiVersion(file, parsed, API);
+  return {
+    apiVersion: API,
+    keys: Array.isArray(parsed.keys) ? parsed.keys.filter((k) => k?.key) : [],
+    ...(parsed.requireSignature === undefined ? {} : { requireSignature: parsed.requireSignature }),
+  };
 }
 
 function writeTrust(data: TrustFile): void {

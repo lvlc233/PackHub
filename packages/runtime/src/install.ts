@@ -26,6 +26,7 @@ import { download, resolvePypiSdist } from './download.ts';
 import { isSafeArchiveEntry } from './pack.ts';
 import { generateOpenaiYaml, readSkillFrontmatter } from './skill-meta.ts';
 import { resolveToken } from './credentials.ts';
+import { assertApiVersion } from './apiVersion.ts';
 import { removeClaudeMcp } from './host-mcp.ts';
 
 export interface ApplyOptions {
@@ -427,12 +428,14 @@ function versionDirOf(root: string, pack: string, version: string): string {
 function readActive(root: string): ActiveFile {
   const file = join(root, ACTIVE_FILE);
   if (!existsSync(file)) return { apiVersion: 'packhub.dev/active/v0', packs: {} };
+  let parsed: Partial<ActiveFile>;
   try {
-    const parsed = JSON.parse(readFileSync(file, 'utf8')) as Partial<ActiveFile>;
-    return { apiVersion: 'packhub.dev/active/v0', packs: parsed.packs ?? {} };
+    parsed = JSON.parse(readFileSync(file, 'utf8')) as Partial<ActiveFile>;
   } catch {
     return { apiVersion: 'packhub.dev/active/v0', packs: {} };
   }
+  assertApiVersion(file, parsed, 'packhub.dev/active/v0');
+  return { apiVersion: 'packhub.dev/active/v0', packs: parsed.packs ?? {} };
 }
 
 function writeActive(root: string, next: ActiveFile): void {
@@ -546,7 +549,9 @@ function versionSlug(version: string): string {
 export function readVersionRecord(root: string, pack: string, version: string): VersionRecord {
   const file = join(versionDirOf(root, pack, version), 'record.json');
   if (!existsSync(file)) throw new Error(`没有这个版本：${pack}@${version}（用 packhub versions ${pack} 查看）`);
-  return JSON.parse(readFileSync(file, 'utf8')) as VersionRecord;
+  const record = JSON.parse(readFileSync(file, 'utf8')) as VersionRecord;
+  assertApiVersion(file, record, 'packhub.dev/version/v0');
+  return record;
 }
 
 /** 列出所有可切换的版本，active 标记当前挂载的那个。 */
@@ -1401,12 +1406,7 @@ export function loadState(root: string): State {
   }
   // 早期 state 没有 apiVersion：补上而不是拒绝——它是本机缓存，不是发布契约
   // 但写了别的主版本就是另一份格式：拒绝，按契约不猜字段
-  const api = (parsed as { apiVersion?: unknown }).apiVersion;
-  if (api !== undefined && api !== STATE_API) {
-    throw new Error(
-      `state 的格式版本不认识：${String(api)}（只认 ${STATE_API}）；它可能是更高版本的 PackHub 写的，先备份再处理`,
-    );
-  }
+  assertApiVersion(file, parsed, STATE_API);
   return {
     apiVersion: STATE_API,
     ...(parsed.generations ? { generations: parsed.generations } : {}),

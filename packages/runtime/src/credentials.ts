@@ -1,6 +1,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { assertApiVersion } from './apiVersion.ts';
 
 export interface CredentialEntry {
   value: string;
@@ -23,12 +24,14 @@ export function credentialsPath(): string {
 export function readCredentials(): CredentialFile {
   const file = credentialsPath();
   if (!existsSync(file)) return { apiVersion: API, tokens: {} };
+  let parsed: Partial<CredentialFile>;
   try {
-    const parsed = JSON.parse(readFileSync(file, 'utf8')) as Partial<CredentialFile>;
-    return { apiVersion: API, tokens: parsed.tokens ?? {} };
+    parsed = JSON.parse(readFileSync(file, 'utf8')) as Partial<CredentialFile>;
   } catch {
     return { apiVersion: API, tokens: {} };
   }
+  assertApiVersion(file, parsed, API);
+  return { apiVersion: API, tokens: parsed.tokens ?? {} };
 }
 
 function writeCredentials(data: CredentialFile): void {

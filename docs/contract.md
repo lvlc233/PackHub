@@ -32,7 +32,7 @@ review: 格式升版、字段增删、apiVersion 变化时
 
 **v0 期间没有兼容承诺**：字段可以增、可以改语义、可以删。读方遇到不认识的主版本（`v1`、`v2`）必须拒绝，不得猜测；遇到不认识的字段同样报错，不做静默忽略。
 
-当前强制程度不一样：manifest 由 `schema/packhub.v0.schema.json` 强制；`state` 与 `lock` 读到别的主版本会直接拒绝（`loadState` / `loadLock`）。其余带版本的文件——`active.json`、版本记录、credentials、trust、signatures——读取时还没做版本闸门，记在 [features](features.md) 的 X 域。
+强制方式：manifest 由 `schema/packhub.v0.schema.json` 强制；`state`、`lock`、`active.json`、版本记录、credentials、trust、签名文件读到别的主版本一律拒绝（`apiVersion.ts` 的 `assertApiVersion`），缺 `apiVersion` 的早期文件仍按 v0 读。
 
 **升 v1 的判据**（三条都满足才升，届时提供 `packhub migrate`，内核同时读 v0 / v1 一段时间）：
 

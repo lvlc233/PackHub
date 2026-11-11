@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { assertApiVersion } from './apiVersion.ts';
 
 export interface SignatureEntry {
   key: string;
@@ -18,12 +19,14 @@ export const SIGNATURE_FILE = 'packhub.signatures.json';
 export function readSignatures(dir: string): SignatureEntry[] {
   const file = join(dir, SIGNATURE_FILE);
   if (existsSync(file)) {
+    let data: Partial<SignatureFile>;
     try {
-      const data = JSON.parse(readFileSync(file, 'utf8')) as Partial<SignatureFile>;
-      return Array.isArray(data.signatures) ? data.signatures : [];
+      data = JSON.parse(readFileSync(file, 'utf8')) as Partial<SignatureFile>;
     } catch {
       return [];
     }
+    assertApiVersion(file, data, 'packhub.dev/signatures/v0');
+    return Array.isArray(data.signatures) ? data.signatures : [];
   }
   return [];
 }
