@@ -31,6 +31,9 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - name: 锁文件完整性（每条 resolution 都要带 integrity）
+        run: pnpm verify:lockfile
+
       - name: 内核测试
         run: pnpm check
 

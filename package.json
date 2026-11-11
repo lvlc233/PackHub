@@ -33,6 +33,7 @@
     "registry:verify-all:offline": "node --experimental-strip-types scripts/registry/verify-all.mjs --skip-network",
     "verify:examples": "node --experimental-strip-types scripts/verify-examples.mjs",
     "verify:examples:offline": "node --experimental-strip-types scripts/verify-examples.mjs --skip-network",
+    "verify:lockfile": "node scripts/verify-lockfile.mjs",
     "check": "pnpm typecheck && pnpm test",
     "docs:audit": "node scripts/docs-audit.mjs",
     "bench": "node --experimental-strip-types scripts/bench.ts",
