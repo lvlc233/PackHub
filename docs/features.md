@@ -117,7 +117,7 @@ review: 任何行为变更的提交
 | INS-14 | 跨包目录内部冲突 | 所有权按前缀判：包拥有目录时，别人往里写也算冲突 | [done] | `findOwnershipConflicts`、`guards.test.ts` |
 | INS-15 | 状态目录生命周期 | 卸载默认 `kept`；`retain: remove` 才删；升级换版本数据不动；`doctor` 报 `stateMissing` | [done] | `state.test.ts`、`doctor.ts` |
 | INS-16 | 覆盖前备份 | 合并配置前把旧内容备份进 `.packhub/backups/`；正常路径靠 undo，不读备份，备份也不自动清理 | [done] | `install.ts` |
-| INS-17 | activate 的边界 | 切换在安装锁里执行，文件失败按快照恢复；但 state 与 `active.json` 不会自动回退，旧 `fetch` 产物也不清 | [part] | `install.ts` 的 `activate` |
+| INS-17 | activate 的边界 | 切换在安装锁里执行；失败时文件按快照恢复，state 与 `active.json` 也退回原内容（回退失败会连原错误一起报出来）；旧版本产物由 `deactivatePlan` 清掉，仍被新计划产出的保留；`fetch` 落点的清理没有单独用例 | [done] | `install.ts` 的 `activatePack` / `restoreText`、`deactivatePlan`、`versions.test.ts` |
 
 ## 5 VER ｜校验与门禁
 

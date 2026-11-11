@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -89,6 +89,35 @@ describe('staged 版本与激活指针', () => {
     expect(existsSync(join(project, '.packhub/active.json'))).toBe(false);
     rmSync(project, { recursive: true, force: true });
     rmSync(v1, { recursive: true, force: true });
+  });
+
+  it('切换失败时 state 与 active 跟文件一起退回', async () => {
+    const project = mkdtempSync(join(tmpdir(), 'packhub-vers-fail-'));
+    const v1 = makePack('0.1.0', 'one');
+    const v2 = makePack('0.2.0', 'two');
+    for (const dir of [v1, v2]) {
+      const ctx = loadPack(dir);
+      await installPack(ctx, planFor(ctx).plan!, { root: project, packRoot: dir });
+    }
+
+    // 把 active.json 设成只读：state 写完之后 setActive 的 rename 会失败（本机实测 EPERM）
+    const activeFile = join(project, '.packhub/active.json');
+    const activeBefore = readFileSync(activeFile, 'utf8');
+    chmodSync(activeFile, 0o444);
+
+    await expect(activatePack(project, 'demo/ver', '0.1.0')).rejects.toThrow();
+
+    // 文件回到 0.2.0，state 也没留在 0.1.0，激活指针还是原来那份
+    expect(readFileSync(join(project, '.packhub/knowledge/rules.md'), 'utf8')).toBe('two\n');
+    const state = JSON.parse(readFileSync(join(project, '.packhub/state.json'), 'utf8'));
+    expect(state.packs['demo/ver@0.2.0']).toBeTruthy();
+    expect(state.packs['demo/ver@0.1.0']).toBeUndefined();
+    expect(readFileSync(activeFile, 'utf8')).toBe(activeBefore);
+
+    chmodSync(activeFile, 0o666);
+    rmSync(project, { recursive: true, force: true });
+    rmSync(v1, { recursive: true, force: true });
+    rmSync(v2, { recursive: true, force: true });
   });
 
   it('激活不存在的版本会报错并列出可用版本', async () => {

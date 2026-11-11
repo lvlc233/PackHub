@@ -596,6 +596,34 @@ export interface ActivateResult {
   written: string[];
 }
 
+/** 读一份文本文件；不存在、或不是普通文件（比如被占成了目录）就当原本没有。 */
+function readTextIfFile(file: string): string | undefined {
+  try {
+    return lstatSync(file).isFile() ? readFileSync(file, 'utf8') : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** 把一份文本恢复原样；原本没有就删掉自己写出来的那个文件，不动别的。 */
+function restoreText(file: string, before: string | undefined): void {
+  if (before !== undefined) {
+    // 已经和原来一样就不碰它：省一次写，也免得撞上只读文件
+    try {
+      if (readFileSync(file, 'utf8') === before) return;
+    } catch {
+      /* 读不了就照写 */
+    }
+    writeFileSync(file, before, 'utf8');
+    return;
+  }
+  try {
+    if (lstatSync(file).isFile()) rmSync(file, { force: true });
+  } catch {
+    /* 原本就没有 */
+  }
+}
+
 /**
  * 把某个已装版本挂到项目上：拆掉当前版本的产物，铺开目标版本的镜像，
  * 再重放配置与会话指令。整次切换在锁里做，失败按快照恢复。
@@ -612,6 +640,11 @@ export async function activatePack(root: string, pack: string, version: string):
     const snapshotPlan: Plan = {
       ...record.plan,
       actions: [...(previous?.plan?.actions ?? []), ...record.plan.actions],
+    };
+    // 失败时这两份也要退回去：只恢复文件会留下「文件是旧的、记录说新的」
+    const before = {
+      state: readTextIfFile(join(root, STATE_FILE)),
+      active: readTextIfFile(join(root, ACTIVE_FILE)),
     };
     const gen = prepareGeneration(root, snapshotPlan);
     const keep = touchedPaths(record.plan);
@@ -639,7 +672,23 @@ export async function activatePack(root: string, pack: string, version: string):
       setActive(root, record.pack, record.version, record.planHash, record.target);
     } catch (err) {
       restoreGeneration(root, gen);
+      const rollbackErrors: string[] = [];
+      for (const [file, text] of [
+        [join(root, STATE_FILE), before.state],
+        [join(root, ACTIVE_FILE), before.active],
+      ] as const) {
+        try {
+          restoreText(file, text);
+        } catch (restoreErr) {
+          rollbackErrors.push(`${file}：${(restoreErr as Error).message}`);
+        }
+      }
       rmSync(snapshotDir, { recursive: true, force: true });
+      if (rollbackErrors.length > 0) {
+        throw new Error(
+          `${(err as Error).message}；切换失败但记录没退回去（${rollbackErrors.join('；')}），先看 state 与 active`,
+        );
+      }
       throw err;
     }
 
