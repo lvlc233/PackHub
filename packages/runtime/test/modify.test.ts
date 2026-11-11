@@ -213,7 +213,7 @@ describe('modify：按资源改文件', () => {
 });
 
 describe('modify：改不了就报错', () => {
-  const cases: { name: string; manifest: string; files: Record<string, string>; code: string }[] = [
+  const cases: { name: string; manifest: string; files: Record<string, string>; code: string; resources?: string }[] = [
     {
       name: '锚点找不到',
       code: 'modify-anchor-missing',
@@ -290,6 +290,30 @@ describe('modify：改不了就报错', () => {
       files: {},
     },
     {
+      name: '参数补丁打到 skill 上',
+      code: 'modify-invalid',
+      manifest: `modify:
+  - resource: rule
+    with:
+      env:
+        A: 1
+`,
+      files: { 'skills/rule/SKILL.md': SKILL },
+    },
+    {
+      name: '文件补丁打到 mcp 上',
+      code: 'modify-not-file',
+      manifest: `modify:
+  - resource: fs
+    with: ./a.md
+`,
+      files: { 'a.md': 'A\n' },
+      resources: `  - id: fs
+    type: mcp
+    source: npm:@modelcontextprotocol/server-filesystem@1.0.0
+    transport: stdio`,
+    },
+    {
       name: '指向不存在的资源',
       code: 'modify-unknown-resource',
       manifest: `modify:
@@ -308,7 +332,7 @@ describe('modify：改不了就报错', () => {
     type: mcp
     source: npm:@modelcontextprotocol/server-filesystem@1.0.0
     transport: stdio`
-          : SKILL_RESOURCE;
+          : (c.resources ?? SKILL_RESOURCE);
       const dir = pack({ 'packhub.yaml': manifest(resources, c.manifest), ...c.files });
       const { issues } = planFor(loadPack(dir));
       expect(issues.map((i) => i.code)).toContain(c.code);

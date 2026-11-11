@@ -108,6 +108,18 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
         severity: 'error',
         message: `modify[${i}] 指向不存在的资源：${m.resource}`,
       });
+      continue;
+    }
+    // 参数补丁只对真有参数的东西有意义；skill / prompt / knowledge 的正文不吃这一口
+    if (isPlainObject(m.with)) {
+      const type = manifest.resources.find((r) => r.id === m.resource)?.type;
+      if (type !== 'mcp' && type !== 'tool') {
+        issues.push({
+          code: 'modify-invalid',
+          severity: 'error',
+          message: `modify[${i}]：${m.resource} 是 ${type}，没有可合并的参数；改正文请用 file / at`,
+        });
+      }
     }
   }
   const { active, excluded } = resolveSlots(manifest, issues);

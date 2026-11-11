@@ -294,7 +294,18 @@ export function buildPlan(
     const label = `modify[${i}]`;
     const resourceId = `modify#${i + 1}`;
     const info = installed.get(m.resource);
-    if (!info) continue; // 未知资源、参数类资源的参数补丁都由 graph 处理
+    if (!info) {
+      // 未知资源由 graph 报；这里只补「资源在、但没有文件可改」这一类（mcp / config / tool）
+      const res = manifest.resources.find((r) => r.id === m.resource);
+      if (res && !isPlainObject(m.with)) {
+        issues.push({
+          code: 'modify-not-file',
+          severity: 'error',
+          message: `${label}：${m.resource} 是 ${res.type}，没有可改的文件`,
+        });
+      }
+      continue; // 参数补丁由 graph 合并
+    }
     if (isPlainObject(m.with)) continue;
 
     const value = m.with;
