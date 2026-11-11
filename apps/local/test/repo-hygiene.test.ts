@@ -38,4 +38,25 @@ describe('仓库的供应链卫生', () => {
     expect(text).toContain('package-ecosystem: npm');
     expect(text).toMatch(/interval:\s*weekly/);
   });
+
+  it('pnpm 版本只有 packageManager 一个来源，workflow 不再传 version', () => {
+    // action-setup 发现 `version:` 与 package.json 的 packageManager 不一致会直接抛
+    // 「Multiple versions of pnpm specified」，CI 在 setup 阶段就挂。
+    const pm = (JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as { packageManager?: string })
+      .packageManager;
+    expect(pm).toMatch(/^pnpm@\d+\.\d+\.\d+/);
+
+    const offenders: string[] = [];
+    for (const file of readdirSync(WORKFLOWS).filter((f) => /\.ya?ml$/.test(f))) {
+      const lines = readFileSync(join(WORKFLOWS, file), 'utf8').split(/\r?\n/);
+      for (let i = 0; i < lines.length; i += 1) {
+        if (!/pnpm\/action-setup@/.test(lines[i]!)) continue;
+        // 往后三行里出现 version: 就说明又在 action 里指定了版本
+        for (let j = i + 1; j <= i + 3 && j < lines.length; j += 1) {
+          if (/^\s+version:/.test(lines[j]!)) offenders.push(`${file}:${j + 1} ${lines[j]!.trim()}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
 });
