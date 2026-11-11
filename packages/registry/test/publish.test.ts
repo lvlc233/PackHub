@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -92,6 +93,33 @@ describe('publish', () => {
     await publishPack(pack, { registry: reg });
     await expect(publishPack(pack, { registry: reg })).rejects.toThrow(/已存在/);
     await expect(publishPack(pack, { registry: reg, force: true })).resolves.toBeTruthy();
+    rmSync(pack, { recursive: true, force: true });
+    rmSync(reg, { recursive: true, force: true });
+  });
+
+  it('版本目录里的锁被改过，索引门禁会指出（只在 git 里有历史时）', async () => {
+    const pack = makePack();
+    const reg = registry();
+    const res = await publishPack(pack, { registry: reg });
+
+    const git = (...args: string[]): string =>
+      execFileSync('git', ['-c', 'user.email=ci@example.com', '-c', 'user.name=ci', ...args], {
+        cwd: reg,
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      });
+    git('init');
+    git('add', '-A');
+    git('commit', '-m', 'publish');
+    expect(buildIndex(reg).errors).toEqual([]);
+
+    const lockFile = join(res.dir, 'packhub.lock.json');
+    writeFileSync(lockFile, `${readFileSync(lockFile, 'utf8')}\n`, 'utf8');
+
+    const after = buildIndex(reg);
+    expect(after.errors.length).toBeGreaterThan(0);
+    expect(after.errors.join('\n')).toContain('packhub.lock.json 已被修改');
+
     rmSync(pack, { recursive: true, force: true });
     rmSync(reg, { recursive: true, force: true });
   });

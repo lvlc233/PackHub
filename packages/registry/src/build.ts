@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { canonicalize, loadPack, planFor, sha256, type LockFile } from '@packhub/kernel';
-import { withLockPins } from '@packhub/runtime';
+import { SIGNATURE_FILE, withLockPins } from '@packhub/runtime';
 
 export interface IndexEntry {
   version: string;
@@ -106,17 +106,17 @@ export function buildIndex(registryRoot: string): BuildResult {
           continue;
         }
 
-        const relManifest = relative(registryRoot, manifestPath).replaceAll('\\', '/');
-        const headText = gitShowHead(relManifest);
+        // 版本目录里定义「发布了什么」的文件都不许改：清单、锁、验证报告、可选签名。
+        // 没进 git（或非 git 仓库）时跳过——这项门禁只在有历史可比时才有意义。
         const norm = (s: string): string => s.replace(/\r\n/g, '\n');
-        if (headText !== null && norm(headText) !== norm(readFileSync(manifestPath, 'utf8'))) {
-          errors.push(`${packName}@${version}: 版本目录不可变，packhub.yaml 已被修改（应发新版本）`);
-        }
-        // verify.json 也是已发布内容：CI 复核应该写到临时位置，不能改版本目录的时间戳
-        const verifyRel = relative(registryRoot, join(dir, 'verify.json')).replaceAll('\\', '/');
-        const headVerify = gitShowHead(verifyRel);
-        if (headVerify !== null && norm(headVerify) !== norm(readFileSync(join(dir, 'verify.json'), 'utf8'))) {
-          errors.push(`${packName}@${version}: 版本目录不可变，verify.json 已被修改`);
+        for (const file of ['packhub.yaml', 'packhub.lock.json', 'verify.json', SIGNATURE_FILE]) {
+          const abs = join(dir, file);
+          if (!existsSync(abs)) continue;
+          const headText = gitShowHead(relative(registryRoot, abs).replaceAll('\\', '/'));
+          if (headText === null) continue;
+          if (norm(headText) !== norm(readFileSync(abs, 'utf8'))) {
+            errors.push(`${packName}@${version}: 版本目录不可变，${file} 已被修改（改动要发新版本）`);
+          }
         }
 
         const ctx = loadPack(dir);

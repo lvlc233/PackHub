@@ -149,7 +149,7 @@ review: 任何行为变更的提交
 | REG-01 | 发布版本目录 | 写清单、锁、可选签名、`PACK.md` / `CHANGELOG.md`（存在才写）、vendored 顶层条目与 `verify.json` 到 `packs/<scope>/<name>/<ver>/` | [done] | `packages/registry/src/publish.ts`、`publish.test.ts` |
 | REG-02 | `.phub` 归档 | tar.gz，默认 vendored（自包含）；`--reference` 只打清单与锁，带本地来源时拒绝 | [done] | `packages/runtime/src/pack.ts` 的 `packArchive`、`pack.test.ts` |
 | REG-03 | 索引生成 | `index.json` 由 `registry:index` 生成，`registry:check` 只校验不写 | [done] | `build.ts`、`scripts/registry/build-index.mjs` |
-| REG-04 | 版本不可变 | 发布时已存在的版本目录拒绝（`--force` 例外）；CI 侧用 `git show HEAD:` 比对 `packhub.yaml` 与 `verify.json`，非 git / 未跟踪 / 无 HEAD 静默跳过；锁、签名、归档字节不核 | [part] | `build.ts`、`publish.ts`、`publish.test.ts` |
+| REG-04 | 版本不可变 | 发布时已存在的版本目录拒绝（`--force` 例外）；索引门禁用 `git show HEAD:` 逐字节比对 `packhub.yaml`、`packhub.lock.json`、`verify.json`、`packhub.signatures.json`（缺的文件跳过），非 git / 未跟踪 / 无 HEAD 静默跳过；归档 `.phub` 的字节不核 | [part] | `build.ts`、`publish.ts`、`publish.test.ts` |
 | REG-05 | trust 两档 | `verified` 只由「`verify.json.ok` 且 planHash 对得上」决定；整包 verified 要求每个版本都 verified，其余 `community` | [done] | `build.ts`、`publish.test.ts` |
 | REG-06 | 只收 public | 索引门禁与 `publish` 都拒绝非 public；`--allow-non-public` 可让 publish 放行，但随后索引门禁拒绝并回滚 | [done] | `build.ts`、`publish.ts` |
 | REG-07 | unlisted 取包 | 索引里没有这个包、又显式给了 `--version` 时，跳过成员检查直接取归档；索引里有该包时版本仍须在 `versions` 里 | [done] | `packages/runtime/src/registry.ts` 的 `fetchPack`、`cli.ts` |
