@@ -7,13 +7,15 @@
  *   3. 把地址装进 BrowserWindow，窗口关闭 / 应用退出时收掉侧车；
  *   4. 注册 `pal:request` IPC，把页面的 /api/ 请求转给侧车（转发规则在 forward.mjs）。
  *
- * 不做打包入口（E5）。侧车异常退出必须给出可见错误，不能静默失败。
+ * 不做打包器（E5）：打包后的侧车落点已按 runtime/node + runtime/pal.cjs 定下（见 sidecar.js），
+ * 但还没接出安装包。侧车异常退出必须给出可见错误，不能静默失败。
  */
 import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { forwardRequest, sidecarOrigin } from './forward.mjs';
+import { sidecarCommand } from './sidecar.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 /** 仓库根：本文件在 apps/pal-electron/ 下，往上两级；PAL_REPO 可显式指定。 */
@@ -40,28 +42,13 @@ let stopPromise = null;
 /** before-quit 已经在等 sidecar 时为 true，避免重复拦截。 */
 let quitting = false;
 
-/** 侧车怎么起：dev 走仓库源码，打包入口 E1 先不实现。 */
+/** 侧车怎么起：dev 走仓库源码，打包走随包的 runtime/node + runtime/pal.cjs（见 sidecar.js）。 */
 function resolveSidecar() {
-  if (app.isPackaged) {
-    throw new Error(
-      '打包入口还没接：E1 只支持仓库内运行（app.isPackaged === false）。\n' +
-        '打包后应带 runtime/node + runtime/pal.cjs，等 E5 定范围后再接。',
-    );
-  }
-  return {
-    command: process.env.PAL_NODE ?? 'node',
-    args: [
-      '--experimental-strip-types',
-      path.join(repoRoot, 'packages', 'launcher', 'src', 'bin.ts'),
-      'serve',
-      '--port',
-      '0',
-      '--json',
-      // D7：关掉 stdin 时 sidecar 自己关服务并退 0，别等着被 taskkill
-      '--exit-on-stdin-close',
-    ],
-    cwd: repoRoot,
-  };
+  return sidecarCommand({
+    packaged: app.isPackaged,
+    repoRoot,
+    resourcesPath: process.resourcesPath,
+  });
 }
 
 /** 从一行 stdout 里取地址；非 JSON 或没有 url 字段就返回 null。 */

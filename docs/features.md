@@ -326,7 +326,7 @@ review: 任何行为变更的提交
 | PAL-34 | 事件流与日志读取 | `logs --events` / `--lines` / `--file`；`events.jsonl` 记 start / ready / exit / stale-pid / watch-restart 等 | [done] | `logs.ts`、`cli.ts` |
 | PAL-35 | core 运行面 | `GET /api/core`、`core.json`（含 token）/ `core.lock` / `core.log`（超 2MB 轮转）；`core run/start/status/stop/install/uninstall` | [done] | `core.ts`、`server.ts`、`cli.ts` |
 | PAL-36 | 侧车开关 | `pal serve --insecure`（`PAL_INSECURE=1`）与 `--exit-on-stdin-close`（桌面壳优雅收摊用） | [done] | `cli.ts`、`server.ts`、`apps/pal-electron/main.js` |
-| PAL-37 | Electron 打包 | 桌面壳只支持仓库内运行；`app.isPackaged` 时直接报错，打包入口未接，CI 不构建 Electron | [part] | `apps/pal-electron/main.js`、`pal.yml` |
+| PAL-37 | Electron 打包 | 打包后的侧车落点已定：`resources/runtime/node` + `runtime/pal.cjs`，缺文件时按名报错（有测试）；打包器与 CI 构建仍未接，桌面壳目前只在仓库内跑 | [part] | `apps/pal-electron/sidecar.js`、`sidecar.test.ts`、`pal.yml` |
 | PAL-38 | 坏记录处理 | `list` / `status` 把坏记录移进 `instances/.quarantine/` 并写原因，接管实例只收指针；`pal recover` 看三区 | [done] | `quarantine.ts`、`cli.ts`、`paths.ts` |
 | PAL-39 | `pal watch` 命令 | 已删除：看护归 core 内部轮询，不再有可与 `serve` 并开的命令 | [na] | `watch.ts`、`watch.test.ts` |
 
