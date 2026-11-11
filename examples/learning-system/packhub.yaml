@@ -1,0 +1,36 @@
+apiVersion: packhub.dev/v0
+kind: Pack
+
+metadata:
+  name: lvlc233/learning-system
+  version: 0.1.0
+  title: 学习系统：把材料读成下次能用的认识
+  description: 两个 skill（学习、记忆）加一份加载器说明。只打框架，不打记忆区里攒下的内容——那是本机的东西，换台机器应该是空的。
+  targets: [dir]
+  visibility: private
+
+requires:
+  packhub: ">=0.0.1 <0.1"
+
+resources:
+  - id: learn-core
+    type: skill
+    source: ./skills/learn-core
+
+  - id: memory-core
+    type: skill
+    source: ./skills/memory-core
+
+  - id: loader-notes
+    type: knowledge
+    source: ./resources/loader.md
+
+verify:
+  - type: file-exists
+    path: "${target.skillsDir}/learn-core/SKILL.md"
+
+  - type: file-exists
+    path: "${target.skillsDir}/memory-core/SKILL.md"
+
+  - type: file-exists
+    path: "${target.knowledgeDir}/loader.md"

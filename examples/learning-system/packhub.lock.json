@@ -1,0 +1,71 @@
+{
+  "apiVersion": "packhub.dev/lock/v0",
+  "pack": "lvlc233/learning-system@0.1.0",
+  "resolved": [
+    {
+      "id": "learn-core",
+      "type": "skill",
+      "source": "./skills/learn-core",
+      "integrity": null,
+      "resolvedAt": "2026-11-11T11:11:36.443Z"
+    },
+    {
+      "id": "memory-core",
+      "type": "skill",
+      "source": "./skills/memory-core",
+      "integrity": null,
+      "resolvedAt": "2026-11-11T11:11:36.443Z"
+    },
+    {
+      "id": "loader-notes",
+      "type": "knowledge",
+      "source": "./resources/loader.md",
+      "integrity": null,
+      "resolvedAt": "2026-11-11T11:11:36.443Z"
+    }
+  ],
+  "planHash": "sha256-XEGfhDNrTOLYtCK8XzNP72PM2xVDomH2+b1FE5iAQyE=",
+  "generatedBy": "packhub/0.0.1",
+  "plan": {
+    "target": "dir",
+    "planHash": "sha256-XEGfhDNrTOLYtCK8XzNP72PM2xVDomH2+b1FE5iAQyE=",
+    "actions": [
+      {
+        "op": "link.skill",
+        "from": "./skills/learn-core",
+        "to": ".packhub/skills/learn-core",
+        "resource": "learn-core",
+        "actionId": "link.skill#1"
+      },
+      {
+        "op": "link.skill",
+        "from": "./skills/memory-core",
+        "to": ".packhub/skills/memory-core",
+        "resource": "memory-core",
+        "actionId": "link.skill#2"
+      },
+      {
+        "op": "write",
+        "from": "./resources/loader.md",
+        "to": ".packhub/knowledge/loader.md",
+        "resource": "loader-notes",
+        "actionId": "write#1"
+      }
+    ],
+    "verify": [
+      {
+        "type": "file-exists",
+        "path": ".packhub/skills/learn-core/SKILL.md"
+      },
+      {
+        "type": "file-exists",
+        "path": ".packhub/skills/memory-core/SKILL.md"
+      },
+      {
+        "type": "file-exists",
+        "path": ".packhub/knowledge/loader.md"
+      }
+    ],
+    "excluded": []
+  }
+}
