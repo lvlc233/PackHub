@@ -437,16 +437,23 @@ resources:
     expect(rows.find((row) => row.id === rec.id)?.pid).toBeUndefined();
   });
 
-  it('linux/win 的垫片都认得：.cmd 走 cmd，普通可执行文件直起', () => {
+  it('垫片按平台认：.cmd 只在 Windows 走 cmd，普通可执行文件直起', () => {
     const direct = spawnPlanFor('/usr/local/bin/dsh', ['--profile', 'web']);
     expect(direct.file).toBe('/usr/local/bin/dsh');
     expect(direct.args).toEqual(['--profile', 'web']);
     expect(direct.verbatim).toBe(false);
 
     const shim = spawnPlanFor('C:\\Users\\me\\AppData\\Roaming\\npm\\dsh.cmd', ['--profile', 'web', '--port', '5123']);
-    expect(shim.verbatim).toBe(true);
-    expect(shim.args.slice(0, 3)).toEqual(['/d', '/s', '/c']);
-    expect(shim.args[3]).toContain('--port');
+    if (process.platform === 'win32') {
+      expect(shim.verbatim).toBe(true);
+      expect(shim.args.slice(0, 3)).toEqual(['/d', '/s', '/c']);
+      expect(shim.args[3]).toContain('--port');
+    } else {
+      // 非 Windows 上没有 cmd 垫片：`.cmd` 只是一个普通路径，原样直起
+      expect(shim.file).toBe('C:\\Users\\me\\AppData\\Roaming\\npm\\dsh.cmd');
+      expect(shim.args).toEqual(['--profile', 'web', '--port', '5123']);
+      expect(shim.verbatim).toBe(false);
+    }
   });
 });
 
