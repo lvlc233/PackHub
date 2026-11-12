@@ -1,0 +1,39 @@
+apiVersion: packhub.dev/v0
+kind: Pack
+
+metadata:
+  name: lvlc233/tool-kit
+  version: 0.1.0
+  title: 工具契约：目录 + 两条命令
+  description: 一个工具目录，暴露两条命令；一条直接转发，一条经 route shim 按函数调度。
+  targets: [dir]
+  visibility: private
+
+requires:
+  packhub: ">=0.0.1 <0.1"
+
+resources:
+  - id: kit
+    type: tool
+    source: ./tools/kit
+    commands:
+      - name: kit-scan
+        exec: index.mjs
+        runtime: node
+        shim: route
+        call: scan
+        usage: |
+          kit-scan <dir>      扫目录里的链接
+
+      - name: kit-run
+        exec: index.mjs
+        runtime: node
+        usage: |
+          kit-run <dir>       直接跑执行体
+
+verify:
+  - type: file-exists
+    path: "${target.binDir}/kit-scan"
+
+  - type: file-exists
+    path: "${target.binDir}/kit-run"

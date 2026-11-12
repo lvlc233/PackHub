@@ -32,6 +32,31 @@ export function isTargetId(value: unknown): value is TargetId {
   return typeof value === 'string' && (TARGET_IDS as readonly string[]).includes(value);
 }
 
+/** 执行一条工具用的解释器；binary 表示直接执行，不加前缀。 */
+export const TOOL_RUNTIMES = ['node', 'python', 'shell', 'binary'] as const;
+export type ToolRuntime = (typeof TOOL_RUNTIMES)[number];
+
+/**
+ * 工具的一条可调度命令（暴露单位）。
+ * 只有列进 commands 的才建入口、写进说明；目录里其余文件照样打包，只是不暴露。
+ */
+export interface ToolCommand {
+  name: string;
+  /** source 目录内的执行体；source 是单个文件时可省略 */
+  exec?: string;
+  runtime?: ToolRuntime;
+  /** shim: route 时必填——模块里要调的函数名 */
+  call?: string;
+  /** 固定前置参数，用来把一个执行体拆成多条命令 */
+  args?: string[];
+  /** true = 希望 harness 异步调度；不支持就按同步等待 */
+  async?: boolean;
+  /** 调度指令、参数、何时用、失败看什么；写进宿主说明 */
+  usage: string;
+  /** 覆盖资源级 shim */
+  shim?: 'auto' | 'wrap' | 'route';
+}
+
 export interface ResourceSpec {
   id: string;
   type: ResourceType;
@@ -41,6 +66,11 @@ export interface ResourceSpec {
   auth?: { env: string; scheme?: 'bearer' | 'token' | 'basic' };
   transport?: 'stdio' | 'http';
   config?: Record<string, unknown>;
+  /** 工具：默认入口方式与默认异步偏好；命令级可覆盖 */
+  shim?: 'auto' | 'wrap' | 'route';
+  async?: boolean;
+  /** 工具：暴露出来的命令；不写时退回 package.json 的 bin（老路径） */
+  commands?: ToolCommand[];
   /** 占用哪个可替换位（slot）；未绑定的候选不进计划 */
   slot?: string;
   provides?: string[];
@@ -170,6 +200,8 @@ export type PlanOp =
     }
   | { op: 'unpack'; from: string; to: string; strip?: number }
   | { op: 'write'; to: string; from?: string; content?: string }
+  | { op: 'copy'; from: string; to: string }
+  | { op: 'link.exec'; to: string; runtime: ToolRuntime; entry: string; module?: string; args?: string[] }
   | { op: 'delete'; to: string }
   | { op: 'link.skill'; from: string; to: string }
   | { op: 'register.mcp'; spec: Record<string, unknown>; path?: string }

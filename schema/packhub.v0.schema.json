@@ -156,6 +156,21 @@
         },
         "slot": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
         "transport": { "enum": ["stdio", "http"] },
+        "shim": {
+          "enum": ["auto", "wrap", "route"],
+          "default": "auto",
+          "description": "工具默认的入口方式；命令级可覆盖"
+        },
+        "async": {
+          "type": "boolean",
+          "default": false,
+          "description": "希望 harness 异步调度；不支持就按同步等待"
+        },
+        "commands": {
+          "type": "array",
+          "description": "工具暴露出来的命令；只有列出的才建入口、写进说明",
+          "items": { "$ref": "#/definitions/toolCommand" }
+        },
         "config": { "type": "object" },
         "provides": { "$ref": "#/definitions/capabilities" },
         "needs": { "$ref": "#/definitions/capabilities" },
@@ -181,6 +196,21 @@
           "then": { "required": ["integrity"] }
         }
       ]
+    },
+    "toolCommand": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "usage"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+        "exec": { "type": "string", "minLength": 1 },
+        "runtime": { "enum": ["node", "python", "shell", "binary"] },
+        "call": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+        "args": { "type": "array", "items": { "type": "string" } },
+        "async": { "type": "boolean" },
+        "usage": { "type": "string", "minLength": 1, "description": "调度指令、参数、何时用；写进宿主说明" },
+        "shim": { "enum": ["auto", "wrap", "route"] }
+      }
     },
     "capabilities": {
       "type": "array",

@@ -10,6 +10,7 @@ import type {
   ResourceSpec,
   ResourceType,
   TargetId,
+  ToolRuntime,
   VerifyCheck,
 } from './types.ts';
 import { interpolate, isPlainObject, canonicalize, sha256 } from './util.ts';
@@ -83,6 +84,18 @@ export function buildPlan(
   // 资源装到哪儿、本地来源在哪；文件类补丁要按这个落点算目标、按来源读上游内容
   type InstalledResource = { type: ResourceType; kind: 'dir' | 'file'; to: string; from?: string };
   const installed = new Map<string, InstalledResource>();
+
+  const packBase = resolve(opts.packDir ?? '.');
+  const shimEmitted = new Map<string, string>();
+  /** route 用的通用 shim：导入模块、按名字取函数、把后面的参数原样传过去。每种运行时一份。 */
+  const pushRouteShim = (runtime: 'node' | 'python'): string => {
+    const existing = shimEmitted.get(runtime);
+    if (existing) return existing;
+    const rel = `${targetVars.root}/shim/route.${runtime === 'node' ? 'mjs' : 'py'}`;
+    push({ op: 'write', to: rel, content: ROUTE_SHIM[runtime], resource: `shim:${runtime}` });
+    shimEmitted.set(runtime, rel);
+    return rel;
+  };
 
   // 状态目录：建目录，不写文件。放在最前面，后续动作引用 ${state.x} 时目录已经存在。
   for (const spec of manifest.state ?? []) {
@@ -210,51 +223,160 @@ export function buildPlan(
         break;
       }
       case 'tool': {
-        if (parsed.kind === 'local') {
-          issues.push({
-            code: 'tool-source-unsupported',
-            severity: 'error',
-            message: `tool 只支持 npm: / github: / .tar.gz 归档（现在是本地路径）：${res.source}`,
-            path: at,
-          });
-          break;
-        }
-        if (parsed.kind === 'http' && !looksLikeArchive(res.source)) {
-          issues.push({
-            code: 'source-not-archive',
-            severity: 'error',
-            message: `tool 的 https 来源必须是 .tar.gz（现在是单文件）：${res.source}`,
-            path: at,
-          });
-          break;
-        }
-        const fetched = push({
-          op: 'fetch',
-          uri: res.source,
-          dest: `${targetVars.cacheDir}/${id}.tar.gz`,
-          ...(res.integrity ? { integrity: res.integrity } : {}),
-          ...(res.auth ? { auth: res.auth } : {}),
-          resource: id,
-        });
-        const unpacked = push({
-          op: 'unpack',
-          from: `${targetVars.cacheDir}/${id}.tar.gz`,
-          to: `${targetVars.cacheDir}/tools/${id}`,
-          strip: 1,
-          resource: id,
-          dependsOn: [fetched.actionId],
-        });
-        // tool 的价值在“能执行”：解包完在 binDir 下生成一个能直接跑的 wrapper
-        {
-          const configured = res.config?.bin;
-          const command = typeof configured === 'string' ? configured : id;
-          push({
-            op: 'link.bin',
-            from: `${targetVars.cacheDir}/tools/${id}`,
-            to: `${targetVars.binDir}/${command}`,
-            command,
+        const commands = res.commands ?? [];
+        if (commands.length === 0) {
+          // 老路径：npm / 归档，按 package.json 的 bin 建一个入口
+          if (parsed.kind === 'local') {
+            issues.push({
+              code: 'tool-source-unsupported',
+              severity: 'error',
+              message: `tool 只支持 npm: / github: / .tar.gz 归档（现在是本地路径）：${res.source}；本地目录请写 commands`,
+              path: at,
+            });
+            break;
+          }
+          if (parsed.kind === 'http' && !looksLikeArchive(res.source)) {
+            issues.push({
+              code: 'source-not-archive',
+              severity: 'error',
+              message: `tool 的 https 来源必须是 .tar.gz（现在是单文件）：${res.source}`,
+              path: at,
+            });
+            break;
+          }
+          const fetched = push({
+            op: 'fetch',
+            uri: res.source,
+            dest: `${targetVars.cacheDir}/${id}.tar.gz`,
+            ...(res.integrity ? { integrity: res.integrity } : {}),
+            ...(res.auth ? { auth: res.auth } : {}),
             resource: id,
-            dependsOn: [unpacked.actionId],
+          });
+          const unpacked = push({
+            op: 'unpack',
+            from: `${targetVars.cacheDir}/${id}.tar.gz`,
+            to: `${targetVars.cacheDir}/tools/${id}`,
+            strip: 1,
+            resource: id,
+            dependsOn: [fetched.actionId],
+          });
+          {
+            const configured = res.config?.bin;
+            const command = typeof configured === 'string' ? configured : id;
+            push({
+              op: 'link.bin',
+              from: `${targetVars.cacheDir}/tools/${id}`,
+              to: `${targetVars.binDir}/${command}`,
+              command,
+              resource: id,
+              dependsOn: [unpacked.actionId],
+            });
+          }
+          break;
+        }
+
+        // 新路径：执行体整份落地，按 commands 逐条建入口
+        const toolRoot = `${targetVars.cacheDir}/tools/${id}`;
+        const localPath = parsed.kind === 'local' ? resolve(packBase, parsed.locator) : undefined;
+        const sourceIsFile = localPath ? existsSync(localPath) && !statSync(localPath).isDirectory() : false;
+        if (parsed.kind === 'local') {
+          push({ op: 'copy', from: parsed.locator, to: toolRoot, resource: id });
+        } else {
+          if (parsed.kind === 'http' && !looksLikeArchive(res.source)) {
+            issues.push({
+              code: 'source-not-archive',
+              severity: 'error',
+              message: `tool 的 https 来源必须是 .tar.gz（现在是单文件）：${res.source}`,
+              path: at,
+            });
+            break;
+          }
+          const fetched = push({
+            op: 'fetch',
+            uri: res.source,
+            dest: `${targetVars.cacheDir}/${id}.tar.gz`,
+            ...(res.integrity ? { integrity: res.integrity } : {}),
+            ...(res.auth ? { auth: res.auth } : {}),
+            resource: id,
+          });
+          push({
+            op: 'unpack',
+            from: `${targetVars.cacheDir}/${id}.tar.gz`,
+            to: toolRoot,
+            strip: 1,
+            resource: id,
+            dependsOn: [fetched.actionId],
+          });
+        }
+
+        const names = new Set<string>();
+        for (const [ci, cmd] of commands.entries()) {
+          const label = `${at}.commands[${ci}]`;
+          if (!cmd.name) {
+            issues.push({ code: 'tool-command-invalid', severity: 'error', message: `${label} 缺少 name`, path: label });
+            continue;
+          }
+          if (names.has(cmd.name)) {
+            issues.push({
+              code: 'duplicate-command-name',
+              severity: 'error',
+              message: `${label}：命令名重复：${cmd.name}`,
+              path: label,
+            });
+            continue;
+          }
+          names.add(cmd.name);
+
+          const exec = cmd.exec ?? (sourceIsFile ? fileNameOf(parsed.locator) : undefined);
+          if (!exec) {
+            issues.push({
+              code: 'tool-command-invalid',
+              severity: 'error',
+              message: `${label}：source 是目录，必须写 exec 指明执行体`,
+              path: label,
+            });
+            continue;
+          }
+          const runtime = cmd.runtime ?? inferRuntime(exec);
+          const shim = cmd.shim ?? res.shim ?? 'auto';
+          if (shim === 'route') {
+            if (!cmd.call) {
+              issues.push({
+                code: 'tool-route-needs-call',
+                severity: 'error',
+                message: `${label}：shim: route 要写 call（模块里的函数名）`,
+                path: label,
+              });
+              continue;
+            }
+            if (runtime !== 'node' && runtime !== 'python') {
+              issues.push({
+                code: 'tool-route-unsupported',
+                severity: 'error',
+                message: `${label}：route 只支持 node / python，现在是 ${runtime}`,
+                path: label,
+              });
+              continue;
+            }
+            const shimPath = pushRouteShim(runtime);
+            push({
+              op: 'link.exec',
+              to: `${targetVars.binDir}/${cmd.name}`,
+              runtime,
+              entry: shimPath,
+              module: `${toolRoot}/${exec}`,
+              args: [cmd.call, ...(cmd.args ?? [])],
+              resource: id,
+            });
+            continue;
+          }
+          push({
+            op: 'link.exec',
+            to: `${targetVars.binDir}/${cmd.name}`,
+            runtime,
+            entry: `${toolRoot}/${exec}`,
+            args: cmd.args ?? [],
+            resource: id,
           });
         }
         break;
@@ -287,7 +409,6 @@ export function buildPlan(
     claimed.set(path, label);
     return true;
   };
-  const packBase = resolve(opts.packDir ?? '.');
   const insidePack = (abs: string): boolean => abs === packBase || abs.startsWith(packBase + sep);
 
   for (const [i, m] of (manifest.modify ?? []).entries()) {
@@ -671,6 +792,40 @@ function looksLikeArchive(url: string): boolean {
 /** `with` 是路径还是内联文本：只有 ./ ../ 或带 scheme 的才算路径。 */
 const PACK_PATH_RE = /^(\.\.?\/|[a-z][a-z0-9+.-]*:)/i;
 
+/** 入口后缀推运行时；推不出就当二进制直接执行。 */
+function inferRuntime(exec: string): ToolRuntime {
+  if (/\.(c|m)?js$/i.test(exec)) return 'node';
+  if (/\.py$/i.test(exec)) return 'python';
+  if (/\.(sh|bash)$/i.test(exec)) return 'shell';
+  return 'binary';
+}
+
+/**
+ * route 模式的通用 shim：argv 是 `<模块> <函数> <参数…>`，
+ * 导入模块、取函数、把后面的参数原样传过去。不解析参数、不做 schema。
+ */
+const ROUTE_SHIM: Record<'node' | 'python', string> = {
+  python: `import importlib.util, json, sys
+module_path, fn = sys.argv[1], sys.argv[2]
+spec = importlib.util.spec_from_file_location("packhub_tool", module_path)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+result = getattr(mod, fn)(*sys.argv[3:])
+if result is not None:
+    sys.stdout.write(result if isinstance(result, str) else json.dumps(result, ensure_ascii=False))
+    sys.stdout.write("\\n")
+`,
+  node: `import { pathToFileURL } from 'node:url';
+const [modulePath, fn, ...rest] = process.argv.slice(2);
+const mod = await import(pathToFileURL(modulePath).href);
+const out = await mod[fn](...rest);
+if (out !== undefined) {
+  process.stdout.write(typeof out === 'string' ? out : JSON.stringify(out));
+  process.stdout.write('\\n');
+}
+`,
+};
+
 export interface AnchorCandidate {
   /** 1 起的行号 */
   line: number;
@@ -777,6 +932,15 @@ function instructionBlock(
       const caps = (r.provides ?? []).join('、');
       return `- \`${r.id}\`（${r.type}）${caps ? ` → ${caps}` : ''}`;
     }),
+    ...(() => {
+      const commands = active.flatMap((r) =>
+        (r.commands ?? []).map((c) => {
+          const first = c.usage.split('\n').find((l) => l.trim())?.trim() ?? c.usage.trim();
+          return `- \`${c.name}\`${c.async ? '（异步调度）' : ''}：${first}`;
+        }),
+      );
+      return commands.length > 0 ? ['', '可用的命令：', ...commands] : [];
+    })(),
     '',
     '文件位置：',
     `- skills：\`${targetVars.skillsDir}\``,

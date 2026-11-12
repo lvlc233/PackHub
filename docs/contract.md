@@ -65,7 +65,10 @@ review: 格式升版、字段增删、apiVersion 变化时
 3. `actions[].dependsOn` 指向的 id 必须存在于同一 plan。
 4. 动作目标路径相对安装根（state 所在目录）；来源路径相对 Pack 目录；执行层必须拒绝 `..` 逃逸。
 
-动作原语：`fetch` · `unpack` · `write` · `delete` · `link.skill` · `link.bin` · `register.mcp` · `merge.config` · `exec` · `instruction` · `state.dir`。
+动作原语：`fetch` · `unpack` · `copy` · `write` · `delete` · `link.skill` · `link.exec` · `link.bin` · `register.mcp` · `merge.config` · `exec` · `instruction` · `state.dir`。
+
+- `copy` 把包内文件或目录整份复制到安装根（工具的执行体走这条）。
+- `link.exec` 在 binDir 生成入口：`runtime entry [module] [args…] "$@"`，同样生成 `.cmd` 垫片；`route` 模式的 entry 是生成的通用 shim，module 是工具执行体。
 
 - `delete` 只删单个文件（`modify` 用它删掉上游带的文件或整段命中的文件）；目标不存在算 `noop`，不失败，也不进 `written`——卸载不会去恢复它，回滚由快照负责。
 
