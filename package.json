@@ -38,7 +38,7 @@
     "bench:large": "node --experimental-strip-types scripts/bench.ts 1000 --overlay --install"
   },
   "devDependencies": {
-    "@types/node": "^22.10.2",
+    "@types/node": "^26.6.6",
     "esbuild": "^0.25.0",
     "typescript": "^5.7.2",
     "vitest": "^5.1.0"
