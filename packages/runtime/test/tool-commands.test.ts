@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { installPack, loadPack, planFor } from '../src/index.ts';
@@ -68,7 +68,7 @@ describe('工具：目录 + 多条命令', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('装完之后执行体整份在，入口与 .cmd 都在', async () => {
+  it('装完之后执行体整份在；入口始终有，.cmd 只在 Windows 生成', async () => {
     const dir = pack({
       'packhub.yaml': manifest(`  - id: kit
     type: tool
@@ -90,7 +90,11 @@ describe('工具：目录 + 多条命令', () => {
     const root = join(dir, '.packhub');
     expect(readFileSync(join(root, 'cache/tools/kit/support.mjs'), 'utf8')).toContain('hidden');
     expect(readFileSync(join(root, 'bin/kit-run'), 'utf8')).toContain('index.mjs');
-    expect(readFileSync(join(root, 'bin/kit-run.cmd'), 'utf8')).toContain('index.mjs');
+    if (process.platform === 'win32') {
+      expect(readFileSync(join(root, 'bin/kit-run.cmd'), 'utf8')).toContain('index.mjs');
+    } else {
+      expect(existsSync(join(root, 'bin/kit-run.cmd'))).toBe(false);
+    }
     rmSync(dir, { recursive: true, force: true });
   });
 
