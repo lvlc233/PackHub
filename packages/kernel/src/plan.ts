@@ -203,23 +203,23 @@ export function buildPlan(
         break;
       }
       case 'config': {
-        if (parsed.kind !== 'local') {
-          // 远程片段没法在安装期安全读取；以前会静默合并一个空对象，看起来成功其实什么都没做
-          issues.push({
-            code: 'config-source-unsupported',
-            severity: 'error',
-            message: `config 资源只支持本地片段（./fragments/…），现在是 ${res.source}`,
-            path: at,
+        // config 就是一份配置文件，原样落进 configDir；不合并、不碰 MCP 的配置文件
+        const dir = targetVars.configDir;
+        const name = fileNameOf(parsed.locator);
+        if (parsed.kind === 'local') {
+          push({ op: 'write', from: parsed.locator, to: `${dir}/${name}`, resource: id });
+          installed.set(id, { type: res.type, kind: 'file', to: `${dir}/${name}`, from: parsed.locator });
+        } else {
+          push({
+            op: 'fetch',
+            uri: res.source,
+            dest: `${dir}/${name}`,
+            ...(res.integrity ? { integrity: res.integrity } : {}),
+            ...(res.auth ? { auth: res.auth } : {}),
+            resource: id,
           });
-          break;
+          installed.set(id, { type: res.type, kind: 'file', to: `${dir}/${name}` });
         }
-        push({
-          op: 'merge.config',
-          path: targetVars.configFile,
-          strategy: strategyFor(res.source),
-          patchFrom: parsed.locator,
-          resource: id,
-        });
         break;
       }
       case 'tool': {
@@ -665,10 +665,6 @@ export function buildMcpSpec(res: ResourceSpec, raw: Record<string, unknown>): R
   return spec;
 }
 
-function strategyFor(source: string): 'json-merge' | 'yaml-merge' {
-  return /\.json$/i.test(source) ? 'json-merge' : 'yaml-merge';
-}
-
 function slug(id: string): string {
   return id.replace(/[^a-z0-9.-]+/gi, '-');
 }
@@ -755,13 +751,6 @@ function detectConflicts(
       list.push({ id: a.actionId, modify: isModify });
       fsPaths.set(a.to, list);
     }
-    if (a.op === 'merge.config') {
-      const patch = a.patch ?? readStructured(packDir, a.patchFrom ?? '');
-      for (const key of flattenKeys(patch)) {
-        const composite = `${a.path}::${key}`;
-        configKeys.set(composite, [...(configKeys.get(composite) ?? []), a.actionId]);
-      }
-    }
     if (a.op === 'register.mcp') {
       const path = a.path ?? '.packhub/config.json';
       const composite = `${path}::mcpServers.${a.resource ?? 'mcp'}`;
@@ -792,9 +781,9 @@ function detectConflicts(
     if (ids.length > 1) {
       const [path, key] = composite.split('::');
       issues.push({
-        code: 'config-key-conflict',
+        code: 'duplicate-mcp-server',
         severity: 'error',
-        message: `${path} 的键 ${key} 被多处修改：${ids.join(', ')}（后写的会静默赢，必须显式定夺）`,
+        message: `${path} 的 ${key} 被多处登记：${ids.join(', ')}（后写的会静默赢，必须显式定夺）`,
       });
     }
   }
@@ -968,7 +957,8 @@ function instructionBlock(
     `- 知识：\`${targetVars.knowledgeDir}\``,
     `- 提示词：\`${targetVars.promptsDir}\``,
     `- 工具入口：\`${targetVars.binDir}\``,
-    `- 配置：\`${targetVars.configFile}\``,
+    `- 配置片段：\`${targetVars.configDir}\``,
+    `- MCP 配置：\`${targetVars.configFile}\``,
     ...(stateLines.length > 0 ? ['', '持久状态（数据，不是包产物）：', ...stateLines] : []),
   ];
   return lines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd();

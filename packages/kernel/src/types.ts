@@ -220,13 +220,6 @@ export type PlanOp =
   | { op: 'link.skill'; from: string; to: string }
   | { op: 'register.mcp'; spec: Record<string, unknown>; path?: string }
   | {
-      op: 'merge.config';
-      path: string;
-      strategy: 'json-merge' | 'yaml-merge';
-      patch?: unknown;
-      patchFrom?: string;
-    }
-  | {
       op: 'exec';
       command: string;
       args: string[];

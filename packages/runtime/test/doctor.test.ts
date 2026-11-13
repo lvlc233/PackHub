@@ -80,34 +80,6 @@ describe('doctor', () => {
   });
 
 
-  it('配置键被外部改掉能发现（靠安装时记录的 applied 值）', async () => {
-    const dir = mkdtempSync(join(tmpdir(), 'packhub-doctor-cfg-'));
-    writeFileSync(
-      join(dir, 'packhub.yaml'),
-      `apiVersion: packhub.dev/v0
-kind: Pack
-metadata: { name: demo/cfg-drift, version: 0.0.1, targets: [dir] }
-requires: { packhub: ">=0.0.1 <0.1" }
-resources:
-  - id: cfg
-    type: config
-    source: ./cfg.yaml
-`,
-      'utf8',
-    );
-    writeFileSync(join(dir, 'cfg.yaml'), 'app:\n  flavor: a\n', 'utf8');
-    const ctx = loadPack(dir);
-    await installPack(ctx, planFor(ctx).plan!);
-    expect(doctorPack(dir).ok).toBe(true);
-
-    const cfg = JSON.parse(readFileSync(join(dir, '.packhub/config.json'), 'utf8'));
-    cfg.app.flavor = 'b';
-    writeFileSync(join(dir, '.packhub/config.json'), JSON.stringify(cfg, null, 2), 'utf8');
-    const report = doctorPack(dir);
-    expect(report.ok).toBe(false);
-    expect(report.findings[0]?.configDrift).toContain('.packhub/config.json:app.flavor');
-    rmSync(dir, { recursive: true, force: true });
-  });
   it('块还在但内容被改过不算漂移（我们只管块的存在）', async () => {
     const dir = await installed();
     const text = readFileSync(join(dir, 'CLAUDE.md'), 'utf8');

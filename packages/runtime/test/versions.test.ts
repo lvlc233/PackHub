@@ -59,8 +59,7 @@ describe('staged 版本与激活指针', () => {
     const back = await activatePack(project, 'demo/ver', '0.1.0');
     expect(back.from).toBe('demo/ver@0.2.0');
     expect(readFileSync(knowledge, 'utf8')).toBe('one\n');
-    const config = JSON.parse(readFileSync(join(project, '.packhub/config.json'), 'utf8'));
-    expect(config.app.flavor).toBe('one');
+    expect(readFileSync(join(project, '.packhub/config/cfg.yaml'), 'utf8')).toContain('flavor: one');
     const state = JSON.parse(readFileSync(join(project, '.packhub/state.json'), 'utf8'));
     expect(state.packs['demo/ver@0.1.0']).toBeTruthy();
     expect(state.packs['demo/ver@0.2.0']).toBeUndefined();

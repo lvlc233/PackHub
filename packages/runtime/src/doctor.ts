@@ -77,18 +77,6 @@ export function doctorPack(root: string): DoctorReport {
     }
 
     for (const action of record.actions ?? []) {
-      if (action.op === 'merge.config' && action.target && action.undo?.applied?.length) {
-        const file = join(root, action.target);
-        if (existsSync(file)) {
-          const data = readConfigFile(file);
-          for (const item of action.undo.applied) {
-            const actual = getPath(data, item.path);
-            if (JSON.stringify(actual) !== JSON.stringify(item.value)) {
-              finding.configDrift.push(`${action.target}:${item.path.join('.')}`);
-            }
-          }
-        }
-      }
       if (action.op === 'register.mcp' && action.target && action.resource) {
         const file = join(root, action.target);
         if (existsSync(file)) {

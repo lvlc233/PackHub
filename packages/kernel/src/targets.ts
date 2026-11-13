@@ -13,6 +13,9 @@ export interface TargetVars {
   knowledgeDir: string;
   promptsDir: string;
   binDir: string;
+  /** config 资源落成的目录：原样放文件，不合并 */
+  configDir: string;
+  /** MCP 登记的配置文件；只有 MCP 用 */
   configFile: string;
   /** 指令文件名；dir 没有（只物化到 .packhub，不碰宿主指令面） */
   instructionFile?: string;
@@ -26,6 +29,7 @@ const BASE_TARGET_VARS: TargetVars = {
   knowledgeDir: '.packhub/knowledge',
   promptsDir: '.packhub/prompts',
   binDir: '.packhub/bin',
+  configDir: '.packhub/config',
   configFile: '.packhub/config.json',
 };
 

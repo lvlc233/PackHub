@@ -34,7 +34,6 @@ describe('示例 Pack', () => {
     const { plan } = planFor(loadPack(work));
     const ops = plan!.actions.map((a) => a.op);
     expect(ops).toContain('write');
-    expect(ops).toContain('merge.config');
   });
 });
 
@@ -74,7 +73,7 @@ describe('install + verify 闭环（本地资源，离线）', () => {
 
     const first = await installPack(ctx, plan!);
     expect(first.outcomes.filter((o) => o.status === 'failed')).toEqual([]);
-    expect(existsSync(join(work, '.packhub/config.json'))).toBe(true);
+    expect(existsSync(join(work, '.packhub/config/editorconfig.yaml'))).toBe(true);
     expect(existsSync(join(work, '.packhub/knowledge/style-guide.md'))).toBe(true);
 
     const results = await verifyPack(ctx.dir, plan!);

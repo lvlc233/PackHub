@@ -37,6 +37,7 @@ review: 任何行为变更的提交
 |---|---|---|---|---|
 | PKG-01 | manifest 严格校验 | 拼错字段、未知字段、缺必填都报 schema 错误（根 / metadata / resource 三层都 `additionalProperties: false`） | [done] | `packages/kernel/src/manifest.ts`、`schema/packhub.v0.schema.json` |
 | PKG-02 | 六类资源 | `mcp` / `skill` / `prompt` / `knowledge` / `config` / `tool` 各有示例与安装语义，示例被测试真跑 | [done] | `packages/kernel/src/types.ts`、`resource-examples.test.ts` |
+| PKG-23 | config 就是文件 | `config` 资源按普通文件落进 `${target.configDir}`，原样复制或 fetch，不合并、不碰 MCP 的配置文件；远程来源也可以。MCP 登记仍走自己的 `configFile` | [done] | `packages/kernel/src/plan.ts` 的 config 分支、`packages/kernel/src/targets.ts`、`config-source.test.ts` |
 | PKG-22 | 整合包上下文 | 清单可以写 `context`：内联文本，或 `./` 开头指向包内文件（plan 期读，缺了报 `context-file-missing`，越出包目录报 `context-outside-pack`；`pack --reference` 会把这份文件算进本地内容拒掉）。安装时写在宿主说明块最前面，排在资源清单之前——模型第一眼读的是它 | [done] | `packages/kernel/src/plan.ts` 的 `instructionBlock`、`context.test.ts` |
 | PKG-21 | 工具 2.0 契约 | `tool` 支持 `shim`(auto/wrap/route)、`async` 与 `commands[]`（name/exec/runtime/call/args/usage）；命令级覆盖资源级，缺省 auto、同步。目录来源整份复制（`copy`），暴露的每条命令建一个入口（`link.exec`）；route 生成一份通用 shim，按 `call` 取函数并把后面的 argv 原样传入；未列进 `commands` 的文件照样打包、不建入口。route 缺 `call` 报 `tool-route-needs-call`，目录来源缺 `exec` 报 `tool-command-invalid`，重名报 `duplicate-command-name`。schema 要求 `tool` 必写 `commands`，缺了报 `tool-needs-commands`。`platforms`（`platform-arch`）命令级覆盖资源级，不匹配跳过并给 `tool-command-skipped-platform`；`runtime: shell` 在 Windows 报 `tool-shell-unsupported`；`runtime: binary` 没写 `platforms` 给 `tool-binary-without-platforms` 警告。`env` 资源级与命令级合并（命令级同名覆盖），安装时写进入口；工具的对象补丁并进 `env`，不进 `config` | [done] | `packages/kernel/src/plan.ts` 的 tool 分支、`packages/runtime/src/install.ts` 的 `copy`/`link.exec`、`tool-commands.test.ts` |
 | PKG-03 | target 声明 | `metadata.targets` 声明四档；`install` / `add` 在出计划前核对，未声明退出 2。`plan` / `verify` 走 `planFor` 不核对声明，用未声明的 target 仍会出计划 | [done] | `schema/packhub.v0.schema.json`、`apps/local/src/cli.ts`、`cli.test.ts` |
@@ -82,12 +83,12 @@ review: 任何行为变更的提交
 
 | 编号 | 功能点 | 能观察到的事实 | 现状 | 证据 |
 |---|---|---|---|---|
-| PLN-01 | 动作原语 | 类型定义里的每个 `op` 都能生成：`fetch`/`unpack`/`copy`/`write`/`delete`/`link.skill`/`link.exec/`register.mcp`/`merge.config`/`exec`/`instruction`/`state.dir` | [done] | `packages/kernel/src/types.ts`、`plan.ts` |
+| PLN-01 | 动作原语 | 类型定义里的每个 `op` 都能生成：`fetch`/`unpack`/`copy`/`write`/`delete`/`link.skill`/`link.exec`/`register.mcp`/`exec`/`instruction`/`state.dir` | [done] | `packages/kernel/src/types.ts`、`plan.ts` |
 | PLN-02 | 稳定动作 id | `<op>#n` 同类按序编号；同一清单两次生成一致 | [done] | `plan.ts`、`plan.test.ts` |
 | PLN-03 | 依赖与顺序 | `dependsOn` 拓扑排序；无依赖的资源按清单顺序；成环报 `dependency-cycle` | [done] | `graph.ts` |
 | PLN-04 | 能力检查 | `needs` 没有提供方报 `unmet-need` | [done] | `graph.ts`、`graph.test.ts` |
 | PLN-05 | 槽位排除 | 未绑定的候选进 `excluded`，不进动作；只有「槽位已绑定别人」时这条才可见，完全没绑定是错误而不是排除 | [done] | `graph.ts`、`slots.test.ts` |
-| PLN-06 | 冲突检测 | 输出冲突、补丁冲突、配置键冲突都是错误；`modify-shadows`（补丁盖住资源产物）只警告 | [done] | `plan.ts`、`modify.test.ts` |
+| PLN-06 | 冲突检测 | 输出冲突、补丁冲突、同一 MCP 条目重复登记都是错误；`modify-shadows`（补丁盖住资源产物）只警告 | [done] | `plan.ts`、`modify.test.ts` |
 | PLN-07 | planHash | 规范化 JSON 的 sha256（`sha256-` + base64）；同输入两次一致有测试；跨机器只靠规范化，无专门用例 | [done] | `packages/kernel/src/util.ts`、`plan.ts`、`plan.test.ts` |
 | PLN-08 | 一 target 一计划 | `lock` 为每个声明的 target 各算一份；主快照由 `--target` 指定，多 target 时才写 `plans` | [done] | `resolve.ts`、`lock.ts`、`lock-targets.test.ts` |
 | PLN-09 | target 变量 | `${target.*}` 随 target 变化（skills / knowledge / prompts / bin / 配置与指令文件位置） | [done] | `plan.ts`、`targets.ts`、`state.test.ts` |
@@ -104,7 +105,7 @@ review: 任何行为变更的提交
 
 | 编号 | 功能点 | 能观察到的事实 | 现状 | 证据 |
 |---|---|---|---|---|
-| INS-01 | 动作执行 | `fetch`/`unpack`/`copy`/`write`/`delete`/`link.skill`/`link.exec/`register.mcp`/`merge.config`/`exec`/`instruction`/`state.dir` 都有实现；单条结果五种状态（`done`/`noop`/`failed`/`skipped`/`needs-approval`），失败即中断，后续动作不再有结果 | [done] | `packages/runtime/src/install.ts` 的 `applyAction`、`exec.test.ts` |
+| INS-01 | 动作执行 | `fetch`/`unpack`/`copy`/`write`/`delete`/`link.skill`/`link.exec`/`register.mcp`/`exec`/`instruction`/`state.dir` 都有实现；单条结果五种状态（`done`/`noop`/`failed`/`skipped`/`needs-approval`），失败即中断，后续动作不再有结果 | [done] | `packages/runtime/src/install.ts` 的 `applyAction`、`exec.test.ts` |
 | INS-02 | 项目级所有权 | 别包占用的普通文件拒绝安装并列出占用者；`--overwrite` 放行。配置文件与根目录指令文件例外 | [done] | `install.ts` 的 `findOwnershipConflicts`、`conflicts.test.ts` |
 | INS-03 | 共享文件 | 配置与根目录 `.md` 只写自己的键 / 托管块，块外内容不动 | [done] | `install.ts`、`inverse.test.ts` |
 | INS-04 | 快照与 generation | 安装前把会被改写的路径复制进 `.packhub/snapshots/<gen>/files/`，同时存 `state.json`、`active.json` 与 `meta.json`；`--dry-run` 不快照也不取锁 | [done] | `install.ts` 的 `prepareGeneration` |

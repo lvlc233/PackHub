@@ -65,7 +65,7 @@ review: 格式升版、字段增删、apiVersion 变化时
 3. `actions[].dependsOn` 指向的 id 必须存在于同一 plan。
 4. 动作目标路径相对安装根（state 所在目录）；来源路径相对 Pack 目录；执行层必须拒绝 `..` 逃逸。
 
-动作原语：`fetch` · `unpack` · `copy` · `write` · `delete` · `link.skill` · `link.exec` · `register.mcp` · `merge.config` · `exec` · `instruction` · `state.dir`。
+动作原语：`fetch` · `unpack` · `copy` · `write` · `delete` · `link.skill` · `link.exec` · `register.mcp` · `exec` · `instruction` · `state.dir`。
 
 - `copy` 把包内文件或目录整份复制到安装根（工具的执行体走这条）。
 - `link.exec` 在 binDir 生成入口：`runtime entry [module] [args…] "$@"`，posix 只有无后缀的 sh 脚本，`.cmd` 只在 Windows 生成；`route` 模式的 entry 是生成的通用 shim，module 是工具执行体。

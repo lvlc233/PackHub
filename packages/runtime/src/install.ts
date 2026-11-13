@@ -54,13 +54,6 @@ export interface ActionOutcome {
   blockId?: string;
   /** register.mcp 用了哪个资源 id，卸载时据此摘掉对应 server 条目 */
   resource?: string;
-  /** merge.config 的撤销信息：每个叶子键在合并前是否存在、值是什么 */
-  undo?: {
-    file: string;
-    ops: { path: string[]; had: boolean; value?: unknown }[];
-    /** 合并后每个叶子键的值，doctor 用它查配置漂移 */
-    applied?: { path: string[]; value: unknown }[];
-  };
 }
 
 export interface ApplyResult {
@@ -215,7 +208,6 @@ function touchedPaths(plan: Plan): string[] {
   for (const a of plan.actions) {
     if (a.op === 'write' || a.op === 'unpack' || a.op === 'link.skill' || a.op === 'copy' || a.op === 'delete') out.push(a.to);
     else if (a.op === 'link.exec') out.push(a.to, `${a.to}.cmd`);
-    else if (a.op === 'merge.config') out.push(a.path);
     else if (a.op === 'register.mcp') out.push(a.path ?? '.packhub/config.json');
     else if (a.op === 'instruction') out.push(a.file);
   }
@@ -460,21 +452,6 @@ function unsetActive(root: string, pack: string): void {
   writeActive(root, active);
 }
 
-/** 把 merge.config 的 patchFrom 内联成 patch：换版本时 Pack 目录可能已经换了。 */
-function resolvePlan(plan: Plan, packRoot: string): Plan {
-  return {
-    ...plan,
-    actions: plan.actions.map((action) => {
-      if (action.op !== 'merge.config' || action.patch !== undefined || !action.patchFrom) return action;
-      try {
-        return { ...action, patch: readStructured(resolve(packRoot, action.patchFrom)) };
-      } catch {
-        return action;
-      }
-    }),
-  };
-}
-
 /** 安装成功后把产物镜像进版本目录，并切激活指针。 */
 function stageVersion(
   root: string,
@@ -502,7 +479,7 @@ function stageVersion(
     target: plan.target,
     planHash: plan.planHash,
     installedAt: new Date().toISOString(),
-    plan: resolvePlan(plan, packRoot),
+    plan,
     actions: outcomes,
     written: [...written],
     files,
@@ -721,7 +698,7 @@ async function replayShared(root: string, record: VersionRecord): Promise<Action
   const scratch: string[] = [];
   const opts: ApplyOptions = { root, packRoot: root };
   for (const action of record.plan.actions) {
-    if (action.op === 'merge.config' || action.op === 'register.mcp' || action.op === 'instruction') {
+    if (action.op === 'register.mcp' || action.op === 'instruction') {
       outcomes.push(await applyAction(action, record.plan, opts, scratch));
       continue;
     }
@@ -781,14 +758,6 @@ function deactivatePlan(
       }
       continue;
     }
-    if (action.op === 'merge.config') {
-      const undo = byId.get(action.actionId)?.undo;
-      const ops = undo?.ops?.length
-        ? undo.ops
-        : leafPaths(action.patch ?? {}).filter((p) => p.length > 0).map((p) => ({ path: p, had: false }));
-      configs.push({ path: action.path, ops });
-      continue;
-    }
     if (action.op === 'register.mcp') {
       servers.push({ path: action.path ?? '.packhub/config.json', resource: action.resource ?? 'mcp' });
       continue;
@@ -796,19 +765,6 @@ function deactivatePlan(
     if (action.op === 'instruction') blocks.push({ file: action.file, blockId: action.blockId });
   }
 
-  for (const { path: rel, ops } of configs) {
-    const abs = within(root, rel);
-    if (!existsSync(abs)) continue;
-    const data = JSON.parse(readFileSync(abs, 'utf8')) as Record<string, unknown>;
-    for (const op of ops) {
-      if (op.had) setPath(data, op.path, op.value);
-      else deletePath(data, op.path);
-    }
-    const pruned = pruneEmpty(data);
-    if (Object.keys(pruned).length === 0) rmSync(abs, { force: true });
-    else writeFileSync(abs, JSON.stringify(pruned, null, 2) + '\n', 'utf8');
-    removed.push(rel);
-  }
 
   for (const { path: rel, resource } of servers) {
     const abs = within(root, rel);
@@ -968,7 +924,6 @@ export function removePack(root: string, packKey?: string): RemoveResult {
 
         // 配置文件是共享的：先按 merge 的 undo 还原键，再摘掉自己登记的 server 条目，不整文件删
         const regs = record.actions.filter((a) => a.op === 'register.mcp' && a.target === rel && a.resource);
-        const undos = record.actions.filter((a) => a.op === 'merge.config' && a.target === rel && a.undo);
         if (regs.length > 0 && /\.toml$/i.test(rel)) {
           let text = readFileSync(abs, 'utf8');
           for (const a of regs) text = stripMcpToml(text, a.resource as string);
@@ -977,14 +932,8 @@ export function removePack(root: string, packKey?: string): RemoveResult {
           removed.push(rel);
           continue;
         }
-        if ((regs.length > 0 || undos.length > 0) && /\.json$/i.test(rel)) {
+        if (regs.length > 0 && /\.json$/i.test(rel)) {
           const data = JSON.parse(readFileSync(abs, 'utf8')) as Record<string, unknown>;
-          for (const a of undos) {
-            for (const op of a.undo!.ops) {
-              if (op.had) setPath(data, op.path, op.value);
-              else deletePath(data, op.path);
-            }
-          }
           const servers = { ...(data.mcpServers as Record<string, unknown> | undefined) };
           for (const a of regs) delete servers[a.resource as string];
           if (Object.keys(servers).length === 0) delete data.mcpServers;
@@ -1247,40 +1196,6 @@ async function applyAction(
       return { actionId: action.actionId, op: action.op, status: 'done', target: action.to };
     }
 
-    case 'merge.config': {
-      const to = within(opts.root, action.path);
-      const patch = action.patch ?? readStructured(readable(opts.packRoot ?? opts.root, action.patchFrom ?? ''));
-      const current = existsSync(to) ? readStructured(to) : {};
-      const merged = deepMerge(current, patch);
-      const nextText = stringifyFor(to, merged);
-      const before = existsSync(to) ? readFileSync(to, 'utf8') : '';
-      const undo = {
-        file: action.path,
-        ops: leafPaths(patch).map((p) => {
-          const prev = getPath(current, p);
-          return prev === undefined ? { path: p, had: false } : { path: p, had: true, value: prev };
-        }),
-        // 合并后的值：doctor 用它判断配置有没有被宿主/别人改掉
-        applied: leafPaths(patch).map((p) => ({ path: p, value: getPath(merged, p) })),
-      };
-      if (before === nextText) {
-        return { actionId: action.actionId, op: action.op, status: 'noop', target: action.path };
-      }
-      if (!opts.dryRun) {
-        mkdirSync(dirname(to), { recursive: true });
-        if (before) backup(opts.root, action.path, before);
-        writeFileAtomic(to, nextText);
-        written.push(action.path);
-      }
-      return {
-        actionId: action.actionId,
-        op: action.op,
-        status: 'done',
-        target: action.path,
-        undo,
-      };
-    }
-
     case 'register.mcp': {
       const path = action.path ?? '.packhub/config.json';
       const to = within(opts.root, path);
@@ -1423,11 +1338,6 @@ function readStructured(file: string): unknown {
   return /\.json$/i.test(file) ? JSON.parse(text) : (parseYaml(text) ?? {});
 }
 
-function stringifyFor(file: string, value: unknown): string {
-  return /\.json$/i.test(file)
-    ? JSON.stringify(value, null, 2) + '\n'
-    : stringifyYaml(value);
-}
 
 function backup(root: string, relPath: string, content: string): void {
   const dest = within(root, join(STATE_DIR, 'backups', sha256(content).replace(/[^a-zA-Z0-9]/g, '').slice(0, 12), relPath));
@@ -1643,45 +1553,9 @@ function stripMcpToml(text: string, id: string): string {
   return text.replace(re, '\n').replace(/\n{3,}/g, '\n\n').trimEnd() + (text.trim() ? '\n' : '');
 }
 
-/** 对象的所有叶子路径；数组当一个叶子整体处理。 */
-export function leafPaths(value: unknown, base: string[] = []): string[][] {
-  if (isPlainObject(value) && Object.keys(value as object).length > 0) {
-    return Object.entries(value as Record<string, unknown>).flatMap(([k, v]) => leafPaths(v, [...base, k]));
-  }
-  return [base];
-}
 
-export function getPath(obj: unknown, path: string[]): unknown {
-  let cur: unknown = obj;
-  for (const key of path) {
-    if (!isPlainObject(cur)) return undefined;
-    cur = (cur as Record<string, unknown>)[key];
-    if (cur === undefined) return undefined;
-  }
-  return cur;
-}
 
-function setPath(obj: unknown, path: string[], value: unknown): void {
-  if (path.length === 0) return;
-  let cur = obj as Record<string, unknown>;
-  for (let i = 0; i < path.length - 1; i++) {
-    const key = path[i]!;
-    if (!isPlainObject(cur[key])) cur[key] = {};
-    cur = cur[key] as Record<string, unknown>;
-  }
-  cur[path[path.length - 1]!] = value;
-}
 
-function deletePath(obj: unknown, path: string[]): void {
-  if (path.length === 0) return;
-  let cur = obj as Record<string, unknown>;
-  for (let i = 0; i < path.length - 1; i++) {
-    const key = path[i]!;
-    if (!isPlainObject(cur[key])) return;
-    cur = cur[key] as Record<string, unknown>;
-  }
-  delete cur[path[path.length - 1]!];
-}
 
 /** 去掉空对象（撤销后留下的壳），保留数组与假值。 */
 export function pruneEmpty(value: unknown): Record<string, unknown> {
@@ -1772,30 +1646,6 @@ export function pruneRemoved(
       // 状态目录是数据，不是产物：新版本去掉声明也只提示，不删
       kept.push(action.to);
       warnings.push(`状态目录保留（数据不随升级删除）：${action.to}`);
-      continue;
-    }
-
-    if (action.op === 'merge.config') {
-      if (stillProduced(action.path)) {
-        kept.push(action.path);
-        continue;
-      }
-      const outcome = outcomes.get(action.actionId);
-      if (!outcome?.undo) {
-        warnings.push(`无法撤销配置合并：${action.path}（旧 state 没有 undo 记录）`);
-        continue;
-      }
-      const abs = within(root, action.path);
-      if (!existsSync(abs)) continue;
-      const data = JSON.parse(readFileSync(abs, 'utf8')) as Record<string, unknown>;
-      for (const op of outcome.undo.ops) {
-        if (op.had) setPath(data, op.path, op.value);
-        else deletePath(data, op.path);
-      }
-      const pruned = pruneEmpty(data);
-      if (Object.keys(pruned).length === 0) rmSync(abs, { force: true });
-      else writeFileSync(abs, JSON.stringify(pruned, null, 2) + '\n', 'utf8');
-      removed.push(action.path);
       continue;
     }
 

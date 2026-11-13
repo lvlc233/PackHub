@@ -59,8 +59,6 @@ function planTargets(plan: Plan): Set<string> {
       out.add(action.to);
     } else if (action.op === 'instruction') {
       out.add(action.file);
-    } else if (action.op === 'merge.config') {
-      out.add(action.path);
     } else if (action.op === 'register.mcp') {
       out.add(action.path ?? '.packhub/config.json');
     }
