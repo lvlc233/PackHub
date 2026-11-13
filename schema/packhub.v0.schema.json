@@ -172,6 +172,11 @@
           "items": { "type": "string", "pattern": "^[a-z0-9]+-[a-z0-9]+$" },
           "uniqueItems": true
         },
+        "env": {
+          "type": "object",
+          "description": "工具：资源级环境变量；命令级同名覆盖",
+          "additionalProperties": { "type": "string" }
+        },
         "commands": {
           "type": "array",
           "description": "工具暴露出来的命令；只有列出的才建入口、写进说明",
@@ -220,6 +225,10 @@
         "async": { "type": "boolean" },
         "usage": { "type": "string", "minLength": 1, "description": "调度指令、参数、何时用；写进宿主说明" },
         "shim": { "enum": ["auto", "wrap", "route"] },
+        "env": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
         "platforms": {
           "type": "array",
           "items": { "type": "string", "pattern": "^[a-z0-9]+-[a-z0-9]+$" },

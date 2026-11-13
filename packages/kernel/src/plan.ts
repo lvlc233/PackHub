@@ -301,6 +301,10 @@ export function buildPlan(
           }
           const runtime = cmd.runtime ?? inferRuntime(exec);
           const shim = cmd.shim ?? res.shim ?? 'auto';
+          const mergedEnv = (() => {
+            const merged = { ...(res.env ?? {}), ...(cmd.env ?? {}) };
+            return Object.keys(merged).length > 0 ? merged : undefined;
+          })();
           const platforms = cmd.platforms ?? res.platforms;
           const platformKey = `${process.platform}-${process.arch}`;
           if (platforms && platforms.length > 0 && !platforms.includes(platformKey)) {
@@ -356,6 +360,7 @@ export function buildPlan(
               entry: shimPath,
               module: `${toolRoot}/${exec}`,
               args: [cmd.call, ...(cmd.args ?? [])],
+              ...(mergedEnv ? { env: mergedEnv } : {}),
               resource: id,
             });
             continue;
@@ -366,6 +371,7 @@ export function buildPlan(
             runtime,
             entry: `${toolRoot}/${exec}`,
             args: cmd.args ?? [],
+            ...(mergedEnv ? { env: mergedEnv } : {}),
             resource: id,
           });
         }

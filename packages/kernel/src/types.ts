@@ -57,6 +57,8 @@ export interface ToolCommand {
   shim?: 'auto' | 'wrap' | 'route';
   /** 这条命令只在这些平台建入口；不写就用资源级 */
   platforms?: string[];
+  /** 命令级环境变量；与资源级合并，同名以命令级为准 */
+  env?: Record<string, string>;
 }
 
 export interface ResourceSpec {
@@ -75,6 +77,8 @@ export interface ResourceSpec {
   platforms?: string[];
   /** 工具：暴露出来的命令 */
   commands?: ToolCommand[];
+  /** 工具：资源级环境变量；命令级同名覆盖 */
+  env?: Record<string, string>;
   /** 占用哪个可替换位（slot）；未绑定的候选不进计划 */
   slot?: string;
   provides?: string[];
@@ -205,7 +209,7 @@ export type PlanOp =
   | { op: 'unpack'; from: string; to: string; strip?: number }
   | { op: 'write'; to: string; from?: string; content?: string }
   | { op: 'copy'; from: string; to: string }
-  | { op: 'link.exec'; to: string; runtime: ToolRuntime; entry: string; module?: string; args?: string[] }
+  | { op: 'link.exec'; to: string; runtime: ToolRuntime; entry: string; module?: string; args?: string[]; env?: Record<string, string> }
   | { op: 'delete'; to: string }
   | { op: 'link.skill'; from: string; to: string }
   | { op: 'register.mcp'; spec: Record<string, unknown>; path?: string }

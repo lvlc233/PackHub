@@ -176,9 +176,18 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
   manifest.resources.forEach((raw, index) => {
     const at = `resources[${index}]`;
     const patch = paramPatches.get(raw.id);
-    const res: ResourceSpec = patch
-      ? { ...raw, config: deepMerge(raw.config ?? {}, patch) as Record<string, unknown> }
-      : raw;
+    const res: ResourceSpec = !patch
+      ? raw
+      : raw.type === 'tool'
+        ? {
+            ...raw,
+            // 工具的配置面是环境变量：对象形式的补丁并进 env
+            env: {
+              ...(raw.env ?? {}),
+              ...Object.fromEntries(Object.entries(patch).map(([k, v]) => [k, String(v)])),
+            },
+          }
+        : { ...raw, config: deepMerge(raw.config ?? {}, patch) as Record<string, unknown> };
     // 未绑定槽位的候选：只做结构检查，不进依赖图、不进计划
     if (!active.has(res.id)) return;
     resources.set(res.id, res);

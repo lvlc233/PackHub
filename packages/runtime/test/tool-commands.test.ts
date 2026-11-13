@@ -158,6 +158,67 @@ modify:
   });
 });
 
+describe('工具：环境变量', () => {
+  it('资源级与命令级合并，同名以命令级为准，并写进入口', async () => {
+    const dir = pack({
+      'packhub.yaml': `apiVersion: packhub.dev/v0
+kind: Pack
+metadata: { name: demo/tool, version: 0.0.1, targets: [dir] }
+requires: { packhub: ">=0.0.1 <0.1" }
+resources:
+  - id: kit
+    type: tool
+    source: ./tools/kit
+    env: { A: "1", B: "2" }
+    commands:
+      - name: kit-run
+        exec: index.mjs
+        runtime: node
+        env: { B: "3" }
+        usage: kit-run <dir>
+`,
+      'tools/kit/index.mjs': KIT,
+    });
+    const ctx = loadPack(dir);
+    const { plan } = planFor(ctx);
+    const link = plan!.actions.find((a) => a.op === 'link.exec');
+    expect(link && link.op === 'link.exec' ? link.env : undefined).toEqual({ A: '1', B: '3' });
+
+    await installPack(ctx, plan!, {});
+    const wrapper = readFileSync(join(dir, '.packhub/bin/kit-run'), 'utf8');
+    expect(wrapper).toContain("A='1'");
+    expect(wrapper).toContain("B='3'");
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('对象补丁并进 env，而不是 config', () => {
+    const dir = pack({
+      'packhub.yaml': `apiVersion: packhub.dev/v0
+kind: Pack
+metadata: { name: demo/tool, version: 0.0.1, targets: [dir] }
+requires: { packhub: ">=0.0.1 <0.1" }
+resources:
+  - id: kit
+    type: tool
+    source: ./tools/kit
+    commands:
+      - name: kit-run
+        exec: index.mjs
+        runtime: node
+        usage: kit-run <dir>
+modify:
+  - resource: kit
+    with: { C: "x" }
+`,
+      'tools/kit/index.mjs': KIT,
+    });
+    const { plan } = planFor(loadPack(dir));
+    const link = plan!.actions.find((a) => a.op === 'link.exec');
+    expect(link && link.op === 'link.exec' ? link.env : undefined).toEqual({ C: 'x' });
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
 describe('工具：平台', () => {
   it('平台不匹配的命令跳过并警告，其余照建', () => {
     const dir = pack({
