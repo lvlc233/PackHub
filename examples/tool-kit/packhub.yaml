@@ -6,7 +6,7 @@ metadata:
   version: 0.1.0
   title: 工具契约：目录 + 两条命令
   description: 一个工具目录，暴露两条命令；一条直接转发，一条经 route shim 按函数调度。
-  targets: [dir]
+  targets: [dir, dsh]
   visibility: private
 
 requires:
