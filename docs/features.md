@@ -312,12 +312,12 @@ review: 任何行为变更的提交
 | PAL-17 | 基线 | 建实例写 `baseline.json`（每个文件 + sha256），体检报缺失 / 改动；`rebaseline` 接受本地改动 | [done] | `baseline.ts`、`health.ts`、`update.ts`、`health.test.ts` |
 | PAL-17b | 更新 | 同 Pack 换版本：装新删旧、刷新基线与记录，报出被本地改过的文件；`--force` 才覆盖 | [done] | `update.ts`、`instance.test.ts` |
 | PAL-18 | 删除时目录被占 | 重试后仍不行就改名进归档，不把半个实例留在列表（`removeTreeWithRetry` 是内部函数，靠这条路径间接覆盖） | [done] | `remove.ts`、`instance.test.ts` |
-| PAL-19 | 界面 | 列表 / 详情增量更新、轮询在有对话框或操作时暂停、更新提示、体检面板 | [done] | `web/app.js` |
+| PAL-19 | 界面 | 随本地界面一起删了；要做前端时重写规格 | [na] | 无 |
 | PAL-20 | 取包缓存 | 按来源 + 版本（或 ref 短哈希）分目录，重取先清空；只有 registry + 明确版本才命中复用 | [done] | `materialize.ts`、`materialize.test.ts` |
 | PAL-21 | 打包与 CI | `pal:bundle` 出单文件 `pal.cjs`；`pal:smoke` 端到端冒烟；CI Linux 跑 bundle + smoke，Windows 跑 smoke | [done] | `scripts/pal/*`、`pal.yml` |
-| PAL-22 | 看护 | 常驻 core 独占启停与看护，CLI 与界面都是客户端；core 被杀由用户任务计划带回（需先 `pal core install` 注册，未注册不会自己回来） | [done] | `core.ts`、`coreClient.ts`、`coreTask.ts`、`watch.ts` |
+| PAL-22 | 看护 | 常驻 core 独占启停与看护，CLI 是客户端；core 被杀由用户任务计划带回（需先 `pal core install` 注册，未注册不会自己回来） | [done] | `core.ts`、`coreClient.ts`、`coreTask.ts`、`watch.ts` |
 | PAL-23 | 运行时记录 | 记录并展示 node 版本（基线、`doctor`、`health` 的 runtime 检查），不切换；0.x 单运行时是范围决定 | [done] | `baseline.ts`、`health.ts`、`cli.ts` |
-| PAL-24 | 界面的实例流转 | 新建对话框有接管 / 导入，详情「更多」有克隆 / 改名 / 迁移 / 导出 | [done] | `web/app.js`、`server.ts` |
+| PAL-24 | 界面的实例流转 | 随界面一起删了；接管/克隆/改名/迁移仍走 CLI | [na] | 无 |
 | PAL-25 | 数据目录 | 优先级：`PACKHUB_HOME` → `pal config --home` 指针 → 便携 `data/` → 系统默认；`pal config` 显示来源，`doctor` 报当前目录 | [done] | `paths.ts`、`cli.ts`、`home.test.ts` |
 | PAL-26 | 跨盘迁移 | 同盘 rename；跨盘 `EXDEV` 复制到目标盘临时目录再落位；写记录失败或旧根删不掉都整次撤回 | [done] | `migrate.ts`、`instance.test.ts` |
 | PAL-27 | 并发账本 | `pal ps` 只读列出 running / stale / 端口冲突 / 坏记录，不写盘不隔离 | [done] | `ps.ts`、`ps.test.ts` |
