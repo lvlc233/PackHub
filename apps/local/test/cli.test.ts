@@ -528,7 +528,7 @@ resources:
         resources: [
           {
             id: 'cli/markdownlint',
-            type: 'tool',
+            type: 'tool2',
             source: 'npm:markdownlint-cli2@0.14.0',
             title: 'markdownlint-cli2',
             description: 'Markdown lint',

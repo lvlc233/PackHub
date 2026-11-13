@@ -34,7 +34,7 @@ describe('工具：目录 + 多条命令', () => {
   it('wrap 与 route 各建一个入口，未列出的文件照样复制', () => {
     const dir = pack({
       'packhub.yaml': manifest(`  - id: kit
-    type: tool
+    type: tool2
     source: ./tools/kit
     commands:
       - name: kit-scan
@@ -71,7 +71,7 @@ describe('工具：目录 + 多条命令', () => {
   it('装完之后执行体整份在；入口始终有，.cmd 只在 Windows 生成', async () => {
     const dir = pack({
       'packhub.yaml': manifest(`  - id: kit
-    type: tool
+    type: tool2
     source: ./tools/kit
     commands:
       - name: kit-run
@@ -101,7 +101,7 @@ describe('工具：目录 + 多条命令', () => {
   it('route 会生成一份通用 shim', () => {
     const dir = pack({
       'packhub.yaml': manifest(`  - id: kit
-    type: tool
+    type: tool2
     source: ./tools/kit
     shim: route
     commands:
@@ -133,7 +133,7 @@ metadata: { name: demo/tool, version: 0.0.1, targets: [dir] }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: kit
-    type: tool
+    type: tool2
     source: ./tools/kit
     commands:
       - name: kit-run
@@ -167,7 +167,7 @@ metadata: { name: demo/tool, version: 0.0.1, targets: [dir] }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: kit
-    type: tool
+    type: tool2
     source: ./tools/kit
     env: { A: "1", B: "2" }
     commands:
@@ -199,7 +199,7 @@ metadata: { name: demo/tool, version: 0.0.1, targets: [dir] }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: kit
-    type: tool
+    type: tool2
     source: ./tools/kit
     commands:
       - name: kit-run
@@ -223,7 +223,7 @@ describe('工具：平台', () => {
   it('平台不匹配的命令跳过并警告，其余照建', () => {
     const dir = pack({
       'packhub.yaml': manifest(`  - id: kit
-    type: tool
+    type: tool2
     source: ./tools/kit
     commands:
       - name: kit-scan
@@ -248,7 +248,7 @@ describe('工具：平台', () => {
   it('binary 没写 platforms 给警告', () => {
     const dir = pack({
       'packhub.yaml': manifest(`  - id: kit
-    type: tool
+    type: tool2
     source: ./tools/kit
     commands:
       - name: kit-run
@@ -266,7 +266,7 @@ describe('工具：平台', () => {
   it.skipIf(process.platform !== 'win32')('Windows 上 runtime: shell 直接拒绝', () => {
     const dir = pack({
       'packhub.yaml': manifest(`  - id: kit
-    type: tool
+    type: tool2
     source: ./tools/kit
     commands:
       - name: kit-run
@@ -288,7 +288,7 @@ describe('工具：契约错误', () => {
       name: 'route 没写 call',
       code: 'tool-route-needs-call',
       resource: `  - id: kit
-    type: tool
+    type: tool2
     source: ./tools/kit
     commands:
       - name: kit-scan
@@ -302,7 +302,7 @@ describe('工具：契约错误', () => {
       name: '目录来源没写 exec',
       code: 'tool-command-invalid',
       resource: `  - id: kit
-    type: tool
+    type: tool2
     source: ./tools/kit
     commands:
       - name: kit-scan
@@ -314,7 +314,7 @@ describe('工具：契约错误', () => {
       name: '命令名重复',
       code: 'duplicate-command-name',
       resource: `  - id: kit
-    type: tool
+    type: tool2
     source: ./tools/kit
     commands:
       - name: kit-scan

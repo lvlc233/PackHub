@@ -5,7 +5,7 @@
  */
 
 /** 资源类型的唯一来源：CLI、资源目录、面板都从这里取，不要再各写一份。 */
-export const RESOURCE_TYPES = ['mcp', 'skill', 'prompt', 'knowledge', 'config', 'tool'] as const;
+export const RESOURCE_TYPES = ['mcp', 'skill', 'prompt', 'knowledge', 'config', 'tool2'] as const;
 export type ResourceType = (typeof RESOURCE_TYPES)[number];
 
 export function isResourceType(value: unknown): value is ResourceType {
@@ -106,7 +106,7 @@ export interface StateDirSpec {
  * - 以 `./`、`../` 或 scheme 开头的字符串 = 包内路径：文件则整份替换，目录则逐文件叠上去
  * - 其他字符串 = 内联文本，直接当内容用
  * - null = 删掉目标（文件，或 `at` 指的那一段）
- * - 对象 = 并进资源参数（mcp / tool 那类），不能带 `file` / `at`
+ * - 对象 = 并进资源参数（mcp / tool2 那类），不能带 `file` / `at`
  *
  * 寻址：`resource` → `file` → `at`。给了 `file` 或 `at` 就是定位编辑，目标必须存在；
  * 只有 `with` 是目录、且没给 `file` 时，才允许目标不存在（那是新增）。

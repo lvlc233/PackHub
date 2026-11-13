@@ -222,13 +222,13 @@ export function buildPlan(
         }
         break;
       }
-      case 'tool': {
+      case 'tool2': {
         const commands = res.commands ?? [];
         if (commands.length === 0) {
           issues.push({
             code: 'tool-needs-commands',
             severity: 'error',
-            message: `tool 要用 commands 声明暴露哪些命令：${res.source}`,
+            message: `tool2 要用 commands 声明暴露哪些命令：${res.source}`,
             path: at,
           });
           break;
@@ -247,7 +247,7 @@ export function buildPlan(
             issues.push({
               code: 'source-not-archive',
               severity: 'error',
-              message: `tool 的 https 来源必须是 .tar.gz（现在是单文件）：${res.source}`,
+              message: `tool2 的 https 来源必须是 .tar.gz（现在是单文件）：${res.source}`,
               path: at,
             });
             break;

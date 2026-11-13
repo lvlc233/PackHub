@@ -143,7 +143,7 @@
       "required": ["id", "type", "source"],
       "properties": {
         "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
-        "type": { "enum": ["mcp", "skill", "prompt", "knowledge", "config", "tool"] },
+        "type": { "enum": ["mcp", "skill", "prompt", "knowledge", "config", "tool2"] },
         "source": {
           "type": "string",
           "pattern": "^(npm|pypi|github|https?):.+|^\\./.*$"
@@ -208,7 +208,7 @@
           "then": { "required": ["transport"] }
         },
         {
-          "if": { "properties": { "type": { "const": "tool" } }, "required": ["type"] },
+          "if": { "properties": { "type": { "const": "tool2" } }, "required": ["type"] },
           "then": { "required": ["commands"] }
         },
         {

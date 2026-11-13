@@ -86,12 +86,14 @@ slots:
   voice: { contract: [audio:speak] }
 resources:
   - id: tts-a
-    type: tool
+    type: mcp
+    transport: stdio
     slot: voice
     source: npm:tts-a@1.2.0
     provides: [audio:speak]
   - id: tts-b
-    type: tool
+    type: mcp
+    transport: stdio
     slot: voice
     source: npm:tts-b@0.4.0
     provides: [audio:speak]

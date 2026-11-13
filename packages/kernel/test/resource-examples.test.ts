@@ -41,9 +41,9 @@ const SNIPPETS: Record<string, string> = {
   type: config
   source: ./fragments/agent.yaml
 `,
-  tool: `
+  tool2: `
 - id: link-kit
-  type: tool
+  type: tool2
   source: ./tools/link-kit
   commands:
     - name: link-kit
@@ -76,7 +76,7 @@ function materialize(yaml: string): string {
 
 describe('资源类型示例', () => {
   it('六种类型各有一份示例', () => {
-    expect(Object.keys(SNIPPETS).sort()).toEqual(['config', 'knowledge', 'mcp', 'prompt', 'skill', 'tool']);
+    expect(Object.keys(SNIPPETS).sort()).toEqual(['config', 'knowledge', 'mcp', 'prompt', 'skill', 'tool2']);
   });
 
   for (const [type, snippet] of Object.entries(SNIPPETS)) {

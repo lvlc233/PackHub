@@ -15,7 +15,7 @@
         "required": ["id", "type", "source"],
         "properties": {
           "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9._-]*$" },
-          "type": { "enum": ["mcp", "skill", "prompt", "knowledge", "config", "tool"] },
+          "type": { "enum": ["mcp", "skill", "prompt", "knowledge", "config", "tool2"] },
           "source": { "type": "string", "minLength": 1 },
           "title": { "type": "string", "maxLength": 120 },
           "description": { "type": "string", "maxLength": 600 },

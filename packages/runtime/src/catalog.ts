@@ -80,7 +80,7 @@ export async function searchNpm(
       const pkg = item.package;
       if (!pkg?.name || !pkg.version) continue;
       const text = `${pkg.name} ${pkg.description ?? ''} ${(pkg.keywords ?? []).join(' ')}`.toLowerCase();
-      const type = /mcp|model context protocol|modelcontextprotocol/.test(text) ? 'mcp' : 'tool';
+      const type = /mcp|model context protocol|modelcontextprotocol/.test(text) ? 'mcp' : 'tool2';
       entries.push({
         id: `npm-${pkg.name.replace(/[^a-zA-Z0-9._-]+/g, '-')}`,
         type,

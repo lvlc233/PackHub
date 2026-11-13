@@ -14,7 +14,7 @@ requires:
 
 resources:
   - id: kit
-    type: tool
+    type: tool2
     source: ./tools/kit
     commands:
       - name: kit-scan

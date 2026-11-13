@@ -113,7 +113,7 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
     // 参数补丁只对真有参数的东西有意义；skill / prompt / knowledge 的正文不吃这一口
     if (isPlainObject(m.with)) {
       const type = manifest.resources.find((r) => r.id === m.resource)?.type;
-      if (type !== 'mcp' && type !== 'tool') {
+      if (type !== 'mcp' && type !== 'tool2') {
         issues.push({
           code: 'modify-invalid',
           severity: 'error',
@@ -178,7 +178,7 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
     const patch = paramPatches.get(raw.id);
     const res: ResourceSpec = !patch
       ? raw
-      : raw.type === 'tool'
+      : raw.type === 'tool2'
         ? {
             ...raw,
             // 工具的配置面是环境变量：对象形式的补丁并进 env
