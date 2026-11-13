@@ -27,13 +27,13 @@ afterEach(() => {
 });
 
 describe('带版本文件的读取闸门', () => {
-  it('credentials：写了 v1 就拒绝，缺 apiVersion 的老文件照读', () => {
+  it('credentials：写了 v1 就拒绝，缺 apiVersion 也拒绝', () => {
     const file = join(home, 'credentials.json');
     writeFileSync(file, JSON.stringify({ apiVersion: 'packhub.dev/credentials/v1', tokens: {} }), 'utf8');
     expect(() => readCredentials()).toThrow(/格式版本不认识/);
 
     writeFileSync(file, JSON.stringify({ tokens: { NPM_TOKEN: { value: 'x', updatedAt: 'now' } } }), 'utf8');
-    expect(readCredentials().tokens.NPM_TOKEN?.value).toBe('x');
+    expect(() => readCredentials()).toThrow(/没有 apiVersion/);
   });
 
   it('trust：写了 v1 就拒绝', () => {

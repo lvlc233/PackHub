@@ -280,7 +280,7 @@ review: 任何行为变更的提交
 | X-05 | tar 安全 | 解包 filter 拒绝 `..`、绝对路径（含盘符）、符号链接与硬链接条目 | [done] | `pack.ts` 的 `isSafeArchiveEntry`、`guards.test.ts` |
 | X-06 | 大仓库性能 | `bench:large` 提供大规模资源 + overlay 的计划与安装基准；不在 CI | [done] | `package.json`、`scripts/bench.ts` |
 | X-07 | 平台兼容 | CI 同时跑 Linux 与 Windows 全量测试；开发在 Windows | [done] | workflows |
-| X-08 | 格式版本 | manifest 与资源目录拒绝未知主版本；`state`、`lock`、`active.json`、版本记录、credentials、trust、签名文件读到别的主版本都直接拒绝（缺 `apiVersion` 的老文件仍按 v0 读）；`versions` 列目录时跳过读不出的版本目录 | [done] | `apiVersion.ts`、`loadState`、`loadLock`、`readActive`、`readVersionRecord`、`api-version.test.ts` |
+| X-08 | 格式版本 | manifest 与资源目录拒绝未知主版本；`state`、`lock`、`active.json`、版本记录、credentials、trust、签名文件读到别的主版本都直接拒绝（缺 `apiVersion` 的文件同样拒绝）；`versions` 列目录时跳过读不出的版本目录 | [done] | `apiVersion.ts`、`loadState`、`loadLock`、`readActive`、`readVersionRecord`、`api-version.test.ts` |
 | X-09 | 多语言 | 无 i18n 资源，文档与 CLI 文案全中文 | [na] | 全仓 grep |
 | X-11 | 沙箱 | PackHub 不是 runtime，不提供执行沙箱 | [na] | — |
 

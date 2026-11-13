@@ -77,9 +77,8 @@ interface State {
   packs: Record<
     string,
     {
-      /** 旧版 state 没有这两个字段；key 本身是 name@version */
-      pack?: string;
-      version?: string;
+      pack: string;
+      version: string;
       planHash: string;
       installedAt: string;
       actions: ActionOutcome[];
@@ -1367,13 +1366,11 @@ async function applyAction(
     }
 
     default: {
-      const unknown = action as { op: PlanAction['op']; actionId: string };
-      return {
-        actionId: unknown.actionId,
-        op: unknown.op,
-        status: 'skipped',
-        message: '未知动作',
-      };
+      // 认不出的动作说明 state 或锁是旧版本留下的：直接失败，别静默跳过
+      const unknown = action as { op: string; actionId: string };
+      throw new Error(
+        `认不出的动作：${unknown.op}（${unknown.actionId}）；很可能是旧版本留下的 state 或锁，重新安装这个包`,
+      );
     }
   }
 }

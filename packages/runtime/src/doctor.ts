@@ -52,8 +52,7 @@ export function doctorPack(root: string): DoctorReport {
       mcpMissing: [],
     };
     const name = pack.split('@')[0] ?? pack;
-    // 旧版 state 没有 version 字段：从 key 里取，避免把历史安装误报成漂移
-    const recordVersion = record.version ?? pack.split('@')[1] ?? '';
+    const recordVersion = record.version;
     activeNames.add(name);
     const pointer = active[name];
     if (!pointer) {
