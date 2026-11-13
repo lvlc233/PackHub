@@ -2,8 +2,4 @@ packages:
   - "packages/*"
   - "apps/*"
 allowBuilds:
-  # electron 的 postinstall 只下载自己的运行时；国内走 npmmirror
-  electron: true
-  # 只用 electron-builder 出 --dir 目录，不需要 Squirrel 安装器
-  electron-winstaller: false
   esbuild: true

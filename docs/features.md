@@ -300,10 +300,10 @@ review: 任何行为变更的提交
 | PAL-06 | pid 与退出码 | `spawnPid` 是唯一 kill 对象的**根**（实际收整棵子树），`listenPid` 只作证据；`pid` 兼容为 `spawnPid ?? listenPid`；退出码 / 信号进 `lastExit` | [done] | `start.ts`、`process.ts`、`start.test.ts` |
 | PAL-07 | 端口 | 自动挑空闲端口；冲突时报告占用者 pid 与进程名 | [done] | `port.ts`、`start.ts` |
 | PAL-08 | 日志 | 每次启动归档 `start.<时间>.log`，超出保留数的自动清掉（见 `logs.ts`）；读取时脱敏；`events.jsonl` 与 `start.log` 分开，`tailLog` 只留尾部 | [done] | `logs.ts`、`secrets.ts`、`logs-secrets.test.ts` |
-| PAL-09 | 凭据 | 地址里的 token 存 `secrets.json`（0600），记录与 API 只见脱敏地址；打开走 302；`splitUrl` / `withSecrets` 往返与文本脱敏有用例 | [done] | `secrets.ts`、`server.ts`、`server.test.ts`、`logs-secrets.test.ts` |
-| PAL-10 | 来源校验 | 跨源写请求、缺客户端头的写请求一律 403；静态资源与 `--insecure` 是例外 | [done] | `server.ts`、`server.test.ts` |
-| PAL-11 | 错误语义 | 未知实例 404、未知宿主 400、已运行 409，带 code / hint；`core-unavailable` 是 503 | [done] | `errors.ts`、`server.test.ts` |
-| PAL-12 | 宿主发现 | `pal doctor` / `/api/harnesses` 报可用性、版本、能不能起；起不来说明原因 | [done] | `harness.ts`、`cli.test.ts` |
+| PAL-09 | 凭据 | 地址里的 token 存 `secrets.json`（0600），记录只见脱敏地址；`splitUrl` / `withSecrets` 往返与文本脱敏有用例 | [done] | `secrets.ts`、`logs-secrets.test.ts` |
+| PAL-10 | 来源校验 | HTTP 面已删，没有浏览器入口，来源校验随之消失 | [na] | 无 |
+| PAL-11 | 错误语义 | HTTP 状态码随服务端一起删了；CLI 仍打印 `PalError` 的 code 与 hint | [na] | `errors.ts` |
+| PAL-12 | 宿主发现 | `pal doctor` 报可用性、版本、能不能起；起不来说明原因 | [done] | `harness.ts`、`cli.test.ts` |
 | PAL-13 | dsh MCP 接线 | Pack 的 mcp 资源写成 `--patch` 层，dsh 启动时真连上；没有 MCP 的 Pack 会删掉旧 patch | [done] | `mcp.ts`、`mcp.test.ts`、`layout.ts` |
 | PAL-14 | 实例流转 | `adopt` 接管、`clone` 复制、`rename` 改名、`migrate` 挪根 | [done] | `migrate.ts`、`create.ts`、`instance.test.ts` |
 | PAL-14b | 沿用已有 home | `create --from-home` 只补空缺地搬凭据与用户指令，不盖 Pack 写的文件；`sessions` 等不搬；来源记 `origin.seededFrom` | [done] | `create.ts`、`instance.test.ts` |
@@ -329,8 +329,8 @@ review: 任何行为变更的提交
 | PAL-33 | 重启策略 | `start --restart on-failure` 或 `never` 写进记录；`maxRestarts` 有默认值（见 `create.ts`），退避 1s / 2s / 4s… | [done] | `cli.ts`、`create.ts`、`start.ts`、`watch.ts` |
 | PAL-34 | 事件流与日志读取 | `logs --events` / `--lines` / `--file`；`events.jsonl` 记 start / ready / exit / stale-pid / watch-restart 等 | [done] | `logs.ts`、`cli.ts` |
 | PAL-35 | core 运行面 | `GET /api/core`、`core.json`（含 token）/ `core.lock` / `core.log`（超 2MB 轮转）；`core run/start/status/stop/install/uninstall` | [done] | `core.ts`、`server.ts`、`cli.ts` |
-| PAL-36 | 侧车开关 | `pal serve --insecure`（`PAL_INSECURE=1`）与 `--exit-on-stdin-close`（桌面壳优雅收摊用） | [done] | `cli.ts`、`server.ts`、`apps/pal-electron/main.js` |
-| PAL-37 | Electron 打包 | `pnpm pal:pack` = 摆好 `runtime/{node,pal.cjs}` + electron-builder `--dir`，产物在 `dist/pal-app/<platform>-unpacked`（asar + resources/runtime）；CI 的 package job 校验布局并真起一次侧车；安装器与代码签名不做 | [done] | `scripts/pal/stage-runtime.mjs`、`apps/pal-electron/package.json` 的 `build`、`pal.yml` |
+| PAL-36 | 侧车开关 | 随 `pal serve` 一起删了 | [na] | 无 |
+| PAL-37 | Electron 打包 | 壳与打包脚本一起删了；要桌面前端时重做 | [na] | 无 |
 | PAL-38 | 坏记录处理 | `list` / `status` 把坏记录移进 `instances/.quarantine/` 并写原因，接管实例只收指针；`pal recover` 看三区 | [done] | `quarantine.ts`、`cli.ts`、`paths.ts` |
 | PAL-39 | `pal watch` 命令 | 已删除：看护归 core 内部轮询，不再有可与 `serve` 并开的命令 | [na] | `watch.ts`、`watch.test.ts` |
 

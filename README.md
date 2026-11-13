@@ -18,7 +18,6 @@
 | `packages/launcher` | PAL 实例内核：建实例、启停与看护、体检、基线 |
 | `packages/hub` | 只读 HTTP API：索引、包/资源数据、计划预览 |
 | `apps/local` | `packhub` 命令 |
-| `apps/pal-electron` | PAL 的 Electron 壳（起 `pal serve`、加载本地界面） |
 
 ## 本地开发
 
