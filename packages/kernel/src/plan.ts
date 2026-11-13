@@ -559,15 +559,29 @@ export function buildPlan(
     }
   }
 
-  // 宿主的指令面：把"这个包提供什么、文件在哪"写进 AGENTS.md / CLAUDE.md 的托管块。
-  // 这不是行为编排，只是指路——真正怎么用由 skill 与 agent 决定。
+  // 宿主的指令面：先写整合包自己的上下文，再写“这个包提供什么、文件在哪”。
+  const contextText = (() => {
+    const raw = manifest.context?.trim();
+    if (!raw) return undefined;
+    if (!PACK_PATH_RE.test(raw)) return raw;
+    const abs = resolve(packBase, raw.replace(/^\.\//, ''));
+    if (!existsSync(abs)) {
+      issues.push({
+        code: 'context-file-missing',
+        severity: 'error',
+        message: `context 指向的文件不存在：${raw}`,
+      });
+      return undefined;
+    }
+    return readFileSync(abs, 'utf8').trim();
+  })();
   const instructionFile = targetVars.instructionFile;
   if (instructionFile) {
     push({
       op: 'instruction',
       file: instructionFile,
       blockId: manifest.metadata.name,
-      content: instructionBlock(manifest, graph, targetVars, statePaths),
+      content: instructionBlock(manifest, graph, targetVars, statePaths, contextText),
     });
   }
 
@@ -910,6 +924,7 @@ function instructionBlock(
   graph: Graph,
   targetVars: TargetVars,
   statePaths: Record<string, string>,
+  context?: string,
 ): string {
   const active = manifest.resources.filter((r) => graph.resources.has(r.id));
   const stateLines = (manifest.state ?? [])
@@ -920,6 +935,7 @@ function instructionBlock(
       return `- \`${spec.id}\` → \`${statePaths[spec.id]}\`（${keep}）${note}`;
     });
   const lines: string[] = [
+    ...(context ? [context, ''] : []),
     `这个项目装了一个整合包：**${manifest.metadata.title ?? manifest.metadata.name}**（${manifest.metadata.version}）。`,
     '',
     manifest.metadata.description ?? '',

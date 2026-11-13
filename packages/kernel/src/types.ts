@@ -180,6 +180,12 @@ export interface Manifest {
     visibility?: 'public' | 'unlisted' | 'internal' | 'private';
   };
   requires: { packhub: string; agent?: string };
+  /**
+   * 整合包自己的那段上下文：这个环境是什么、默认怎么做事、什么不做、从哪开始。
+   * 写成 `./` 开头的路径时，plan 期读那份文件；否则按内联文本用。
+   * 安装时排在宿主说明块的最前面，模型第一眼读到它，而不是资源清单。
+   */
+  context?: string;
   vars?: Record<string, string | number | boolean>;
   resources: ResourceSpec[];
   /** 可替换位：槽位名 → 契约 */

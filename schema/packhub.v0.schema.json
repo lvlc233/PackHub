@@ -65,6 +65,11 @@
         "type": ["string", "number", "boolean"]
       }
     },
+    "context": {
+      "type": "string",
+      "minLength": 1,
+      "description": "整合包自己的那段上下文：环境是什么、默认怎么做、什么不做、从哪开始；`./` 开头时当作包内文件路径"
+    },
     "resources": {
       "type": "array",
       "minItems": 1,
