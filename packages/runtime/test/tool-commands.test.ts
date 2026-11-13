@@ -125,6 +125,37 @@ describe('工具：目录 + 多条命令', () => {
     expect(content).toContain("process.argv.slice(2)");
     rmSync(dir, { recursive: true, force: true });
   });
+  it('modify 能改工具执行体（本地来源读得到正文）', async () => {
+    const dir = pack({
+      'packhub.yaml': `apiVersion: packhub.dev/v0
+kind: Pack
+metadata: { name: demo/tool, version: 0.0.1, targets: [dir] }
+requires: { packhub: ">=0.0.1 <0.1" }
+resources:
+  - id: kit
+    type: tool
+    source: ./tools/kit
+    commands:
+      - name: kit-run
+        exec: index.mjs
+        runtime: node
+        usage: kit-run <dir>
+modify:
+  - resource: kit
+    file: index.mjs
+    at: "const TIMEOUT = 10;"
+    with: "const TIMEOUT = 30;"
+`,
+      'tools/kit/index.mjs': `const TIMEOUT = 10;\n${KIT}`,
+    });
+    const ctx = loadPack(dir);
+    expect(ctx.issues.filter((i) => i.severity === 'error')).toEqual([]);
+    const { plan } = planFor(ctx);
+    await installPack(ctx, plan!, {});
+    const installed = readFileSync(join(dir, '.packhub/cache/tools/kit/index.mjs'), 'utf8');
+    expect(installed).toContain('const TIMEOUT = 30;');
+    rmSync(dir, { recursive: true, force: true });
+  });
 });
 
 describe('工具：平台', () => {

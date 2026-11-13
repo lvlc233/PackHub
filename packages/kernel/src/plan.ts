@@ -240,6 +240,8 @@ export function buildPlan(
         const sourceIsFile = localPath ? existsSync(localPath) && !statSync(localPath).isDirectory() : false;
         if (parsed.kind === 'local') {
           push({ op: 'copy', from: parsed.locator, to: toolRoot, resource: id });
+          // 本地来源能读到正文：允许 modify 按锚点改执行体
+          installed.set(id, { type: res.type, kind: 'dir', to: toolRoot, from: parsed.locator });
         } else {
           if (parsed.kind === 'http' && !looksLikeArchive(res.source)) {
             issues.push({
@@ -266,6 +268,7 @@ export function buildPlan(
             resource: id,
             dependsOn: [fetched.actionId],
           });
+          installed.set(id, { type: res.type, kind: 'dir', to: toolRoot });
         }
 
         const names = new Set<string>();
