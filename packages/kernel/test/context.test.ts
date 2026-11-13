@@ -65,4 +65,14 @@ describe('整合包的上下文', () => {
     expect(plan).toBeUndefined();
     rmSync(dir, { recursive: true, force: true });
   });
+
+  it('指向包目录之外 → context-outside-pack', () => {
+    const dir = pack({
+      'packhub.yaml': base('context: ../outside.md'),
+      'rules.md': '# 规则\n',
+    });
+    const { issues } = planFor(loadPack(dir), { target: 'dsh' });
+    expect(issues.map((i) => i.code)).toContain('context-outside-pack');
+    rmSync(dir, { recursive: true, force: true });
+  });
 });

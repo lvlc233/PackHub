@@ -565,6 +565,14 @@ export function buildPlan(
     if (!raw) return undefined;
     if (!PACK_PATH_RE.test(raw)) return raw;
     const abs = resolve(packBase, raw.replace(/^\.\//, ''));
+    if (abs !== packBase && !abs.startsWith(packBase + sep)) {
+      issues.push({
+        code: 'context-outside-pack',
+        severity: 'error',
+        message: `context 指向包目录之外：${raw}`,
+      });
+      return undefined;
+    }
     if (!existsSync(abs)) {
       issues.push({
         code: 'context-file-missing',

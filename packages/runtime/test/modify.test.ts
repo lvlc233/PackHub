@@ -472,6 +472,24 @@ describe('远程资源', () => {  it('远程资源按锚点改 → modify-remote
 });
 
 describe('打包', () => {
+  it('reference 模式也拒：context 指向包内文件时同样不在归档里', async () => {
+    const dir = pack({
+      'packhub.yaml': `apiVersion: packhub.dev/v0
+kind: Pack
+metadata: { name: demo/ctx, version: 0.0.1, targets: [dir] }
+requires: { packhub: ">=0.0.1 <0.1" }
+context: ./CONTEXT.md
+resources:
+  - id: rules
+    type: knowledge
+    source: npm:something@1.0.0
+`,
+      'CONTEXT.md': '# 开场\n',
+    });
+    await expect(packArchive(dir, { vendored: false })).rejects.toThrow(/reference 模式打出来装不上/);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
   it('reference 模式打不出去：补丁文件不在归档里', async () => {
     const dir = pack({
       'packhub.yaml': manifest(

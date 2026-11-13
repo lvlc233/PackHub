@@ -59,6 +59,13 @@ export function localPatchFiles(root: string): string[] {
     .filter((w): w is string => typeof w === 'string' && /^\.\.?\//.test(w));
 }
 
+/** `context` 指向包内文件时，那个文件也必须在归档里。 */
+export function localContextFile(root: string): string[] {
+  const ctx = loadPack(root);
+  const value = ctx.manifest?.context?.trim();
+  return value && /^\.\.?\//.test(value) ? [value] : [];
+}
+
 /**
  * 封装：把 Pack 目录打成 `.phub`（tar.gz）。只带清单、锁与要随包走的内容，不生成安装计划。
  * 默认自包含；reference 只适合全部来源都能在安装时远程取到的包。
@@ -71,7 +78,7 @@ export async function packArchive(
   if (!existsSync(manifest)) throw new Error(`没有 packhub.yaml：${root}`);
 
   const vendored = opts.vendored !== false;
-  const locals = [...localSources(root), ...localPatchFiles(root)];
+  const locals = [...localSources(root), ...localPatchFiles(root), ...localContextFile(root)];
   if (!vendored && locals.length > 0) {
     // reference 模式只可能对远程来源成立：./ 的文件（来源与补丁）不在归档里，装到 write 那步必然 ENOENT。
     throw new LocalSourceNotVendoredError(locals);
