@@ -166,6 +166,12 @@
           "default": false,
           "description": "希望 harness 异步调度；不支持就按同步等待"
         },
+        "platforms": {
+          "type": "array",
+          "description": "只在这些平台安装：`process.platform-process.arch`",
+          "items": { "type": "string", "pattern": "^[a-z0-9]+-[a-z0-9]+$" },
+          "uniqueItems": true
+        },
         "commands": {
           "type": "array",
           "description": "工具暴露出来的命令；只有列出的才建入口、写进说明",
@@ -213,7 +219,12 @@
         "args": { "type": "array", "items": { "type": "string" } },
         "async": { "type": "boolean" },
         "usage": { "type": "string", "minLength": 1, "description": "调度指令、参数、何时用；写进宿主说明" },
-        "shim": { "enum": ["auto", "wrap", "route"] }
+        "shim": { "enum": ["auto", "wrap", "route"] },
+        "platforms": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z0-9]+-[a-z0-9]+$" },
+          "uniqueItems": true
+        }
       }
     },
     "capabilities": {

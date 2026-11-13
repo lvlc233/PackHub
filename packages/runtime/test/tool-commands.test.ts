@@ -127,6 +127,69 @@ describe('工具：目录 + 多条命令', () => {
   });
 });
 
+describe('工具：平台', () => {
+  it('平台不匹配的命令跳过并警告，其余照建', () => {
+    const dir = pack({
+      'packhub.yaml': manifest(`  - id: kit
+    type: tool
+    source: ./tools/kit
+    commands:
+      - name: kit-scan
+        exec: index.mjs
+        runtime: node
+        platforms: [nowhere-x]
+        usage: kit-scan <dir>
+      - name: kit-run
+        exec: index.mjs
+        runtime: node
+        usage: kit-run <dir>
+`),
+      'tools/kit/index.mjs': KIT,
+    });
+    const { plan, issues } = planFor(loadPack(dir));
+    expect(issues.map((i) => i.code)).toContain('tool-command-skipped-platform');
+    const execs = plan!.actions.filter((a) => a.op === 'link.exec');
+    expect(execs.map((a) => (a.op === 'link.exec' ? a.to : ''))).toEqual(['.packhub/bin/kit-run']);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('binary 没写 platforms 给警告', () => {
+    const dir = pack({
+      'packhub.yaml': manifest(`  - id: kit
+    type: tool
+    source: ./tools/kit
+    commands:
+      - name: kit-run
+        exec: bin/kit
+        runtime: binary
+        usage: kit-run <dir>
+`),
+      'tools/kit/bin/kit': 'x',
+    });
+    const { issues } = planFor(loadPack(dir));
+    expect(issues.map((i) => i.code)).toContain('tool-binary-without-platforms');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it.skipIf(process.platform !== 'win32')('Windows 上 runtime: shell 直接拒绝', () => {
+    const dir = pack({
+      'packhub.yaml': manifest(`  - id: kit
+    type: tool
+    source: ./tools/kit
+    commands:
+      - name: kit-run
+        exec: run.sh
+        runtime: shell
+        usage: kit-run <dir>
+`),
+      'tools/kit/run.sh': 'echo hi\n',
+    });
+    const { issues } = planFor(loadPack(dir));
+    expect(issues.map((i) => i.code)).toContain('tool-shell-unsupported');
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
 describe('工具：契约错误', () => {
   const cases: { name: string; resource: string; code: string }[] = [
     {

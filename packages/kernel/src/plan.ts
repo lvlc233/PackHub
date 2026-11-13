@@ -298,6 +298,34 @@ export function buildPlan(
           }
           const runtime = cmd.runtime ?? inferRuntime(exec);
           const shim = cmd.shim ?? res.shim ?? 'auto';
+          const platforms = cmd.platforms ?? res.platforms;
+          const platformKey = `${process.platform}-${process.arch}`;
+          if (platforms && platforms.length > 0 && !platforms.includes(platformKey)) {
+            issues.push({
+              code: 'tool-command-skipped-platform',
+              severity: 'warning',
+              message: `${label}：${platformKey} 不在 platforms 里，跳过 ${cmd.name}`,
+              path: label,
+            });
+            continue;
+          }
+          if (runtime === 'shell' && process.platform === 'win32') {
+            issues.push({
+              code: 'tool-shell-unsupported',
+              severity: 'error',
+              message: `${label}：runtime: shell 要 sh，Windows 上没有；换 node / python，或用 platforms 限定平台`,
+              path: label,
+            });
+            continue;
+          }
+          if (runtime === 'binary' && !platforms) {
+            issues.push({
+              code: 'tool-binary-without-platforms',
+              severity: 'warning',
+              message: `${label}：binary 没写 platforms，装到别的平台要到运行时才失败`,
+              path: label,
+            });
+          }
           if (shim === 'route') {
             if (!cmd.call) {
               issues.push({

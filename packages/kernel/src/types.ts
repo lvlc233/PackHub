@@ -55,6 +55,8 @@ export interface ToolCommand {
   usage: string;
   /** 覆盖资源级 shim */
   shim?: 'auto' | 'wrap' | 'route';
+  /** 这条命令只在这些平台建入口；不写就用资源级 */
+  platforms?: string[];
 }
 
 export interface ResourceSpec {
@@ -69,7 +71,9 @@ export interface ResourceSpec {
   /** 工具：默认入口方式与默认异步偏好；命令级可覆盖 */
   shim?: 'auto' | 'wrap' | 'route';
   async?: boolean;
-  /** 工具：暴露出来的命令；不写时退回 package.json 的 bin（老路径） */
+  /** 工具：默认平台白名单（`process.platform-process.arch`）；命令级可覆盖 */
+  platforms?: string[];
+  /** 工具：暴露出来的命令 */
   commands?: ToolCommand[];
   /** 占用哪个可替换位（slot）；未绑定的候选不进计划 */
   slot?: string;
