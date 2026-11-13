@@ -770,10 +770,13 @@ function deactivatePlan(
       action.op === 'write' ||
       action.op === 'link.skill' ||
       action.op === 'unpack' ||
-      action.op === 'link.bin'
+      action.op === 'copy' ||
+      action.op === 'link.bin' ||
+      action.op === 'link.exec'
     ) {
       if (keptBy(action.to)) continue;
-      for (const rel of action.op === 'link.bin' ? [action.to, `${action.to}.cmd`] : [action.to]) {
+      const withCmd = ['link.bin', 'link.exec'].includes(action.op);
+      for (const rel of withCmd ? [action.to, `${action.to}.cmd`] : [action.to]) {
         const abs = within(root, rel);
         if (!existsSync(abs)) continue;
         rmSync(abs, { recursive: true, force: true });
@@ -1789,7 +1792,9 @@ export function pruneRemoved(
       action.op === 'write' ||
       action.op === 'link.skill' ||
       action.op === 'unpack' ||
+      action.op === 'copy' ||
       action.op === 'link.bin' ||
+      action.op === 'link.exec' ||
       action.op === 'fetch'
     ) {
       const rel = action.op === 'fetch' ? action.dest : action.to;
@@ -1797,7 +1802,8 @@ export function pruneRemoved(
         kept.push(rel);
         continue;
       }
-      for (const targetRel of action.op === 'link.bin' ? [rel, `${rel}.cmd`] : [rel]) {
+      const withCmd = action.op === 'link.bin' || action.op === 'link.exec';
+      for (const targetRel of withCmd ? [rel, `${rel}.cmd`] : [rel]) {
         const abs = within(root, targetRel);
         if (existsSync(abs)) {
           rmSync(abs, { recursive: true, force: true });

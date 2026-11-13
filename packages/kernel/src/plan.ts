@@ -727,7 +727,9 @@ function detectConflicts(
     if (
       a.op === 'write' ||
       a.op === 'delete' ||
+      a.op === 'copy' ||
       a.op === 'link.skill' ||
+      a.op === 'link.exec' ||
       a.op === 'unpack' ||
       a.op === 'link.bin' ||
       a.op === 'state.dir'

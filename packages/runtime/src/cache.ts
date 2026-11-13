@@ -28,7 +28,7 @@ function sizeOf(target: string): number {
   return total;
 }
 
-/** 计划里引用到的缓存路径：fetch 的落点、unpack 的来源/落点、skill 的来源。 */
+/** 计划里引用到的缓存路径：fetch 的落点、unpack 的来源/落点、skill 的来源、工具的执行体与入口。 */
 function referencedPaths(plans: Plan[]): string[] {
   const out = new Set<string>();
   for (const plan of plans) {
@@ -36,6 +36,11 @@ function referencedPaths(plans: Plan[]): string[] {
       if (action.op === 'fetch') out.add(action.dest);
       else if (action.op === 'unpack') out.add(action.from), out.add(action.to);
       else if (action.op === 'link.skill' || action.op === 'link.bin') out.add(action.from);
+      else if (action.op === 'copy') out.add(action.to);
+      else if (action.op === 'link.exec') {
+        out.add(action.entry);
+        if (action.module) out.add(action.module);
+      }
     }
   }
   return [...out];
