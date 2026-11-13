@@ -37,7 +37,7 @@ review: 任何行为变更的提交
 |---|---|---|---|---|
 | PKG-01 | manifest 严格校验 | 拼错字段、未知字段、缺必填都报 schema 错误（根 / metadata / resource 三层都 `additionalProperties: false`） | [done] | `packages/kernel/src/manifest.ts`、`schema/packhub.v0.schema.json` |
 | PKG-02 | 六类资源 | `mcp` / `skill` / `prompt` / `knowledge` / `config` / `tool` 各有示例与安装语义，示例被测试真跑 | [done] | `packages/kernel/src/types.ts`、`resource-examples.test.ts` |
-| PKG-21 | 工具 2.0 契约 | `tool` 支持 `shim`(auto/wrap/route)、`async` 与 `commands[]`（name/exec/runtime/call/args/usage）；命令级覆盖资源级，缺省 auto、同步。目录来源整份复制（`copy`），暴露的每条命令建一个入口（`link.exec`）；route 生成一份通用 shim，按 `call` 取函数并把后面的 argv 原样传入；未列进 `commands` 的文件照样打包、不建入口。route 缺 `call` 报 `tool-route-needs-call`，目录来源缺 `exec` 报 `tool-command-invalid`，重名报 `duplicate-command-name`。不写 `commands` 时退回 `package.json` 的 bin（老路径，仅兼容 npm/归档来源） | [done] | `packages/kernel/src/plan.ts` 的 tool 分支、`packages/runtime/src/install.ts` 的 `copy`/`link.exec`、`tool-commands.test.ts` |
+| PKG-21 | 工具 2.0 契约 | `tool` 支持 `shim`(auto/wrap/route)、`async` 与 `commands[]`（name/exec/runtime/call/args/usage）；命令级覆盖资源级，缺省 auto、同步。目录来源整份复制（`copy`），暴露的每条命令建一个入口（`link.exec`）；route 生成一份通用 shim，按 `call` 取函数并把后面的 argv 原样传入；未列进 `commands` 的文件照样打包、不建入口。route 缺 `call` 报 `tool-route-needs-call`，目录来源缺 `exec` 报 `tool-command-invalid`，重名报 `duplicate-command-name`。schema 要求 `tool` 必写 `commands`，缺了报 `tool-needs-commands` | [done] | `packages/kernel/src/plan.ts` 的 tool 分支、`packages/runtime/src/install.ts` 的 `copy`/`link.exec`、`tool-commands.test.ts` |
 | PKG-03 | target 声明 | `metadata.targets` 声明四档；`install` / `add` 在出计划前核对，未声明退出 2。`plan` / `verify` 走 `planFor` 不核对声明，用未声明的 target 仍会出计划 | [done] | `schema/packhub.v0.schema.json`、`apps/local/src/cli.ts`、`cli.test.ts` |
 | PKG-04 | 槽位与绑定 | 被 `bindings` 点名的候选进计划，其余进 `excluded`（`unbound-slot`）；绑定的实现缺契约能力报 `slot-contract-unmet`；有候选却完全没绑定报 `slot-unbound` 且不出计划。`slot swap` 只改一行并打印计划差异 | [done] | `packages/kernel/src/graph.ts`、`slots.test.ts`、`cli.ts` |
 | PKG-05 | （编号未使用） | 历史空缺，不补号 | [na] | — |
@@ -81,7 +81,7 @@ review: 任何行为变更的提交
 
 | 编号 | 功能点 | 能观察到的事实 | 现状 | 证据 |
 |---|---|---|---|---|
-| PLN-01 | 动作原语 | 类型定义里的每个 `op` 都能生成：`fetch`/`unpack`/`copy`/`write`/`delete`/`link.skill`/`link.exec`/`link.bin`/`register.mcp`/`merge.config`/`exec`/`instruction`/`state.dir` | [done] | `packages/kernel/src/types.ts`、`plan.ts` |
+| PLN-01 | 动作原语 | 类型定义里的每个 `op` 都能生成：`fetch`/`unpack`/`copy`/`write`/`delete`/`link.skill`/`link.exec/`register.mcp`/`merge.config`/`exec`/`instruction`/`state.dir` | [done] | `packages/kernel/src/types.ts`、`plan.ts` |
 | PLN-02 | 稳定动作 id | `<op>#n` 同类按序编号；同一清单两次生成一致 | [done] | `plan.ts`、`plan.test.ts` |
 | PLN-03 | 依赖与顺序 | `dependsOn` 拓扑排序；无依赖的资源按清单顺序；成环报 `dependency-cycle` | [done] | `graph.ts` |
 | PLN-04 | 能力检查 | `needs` 没有提供方报 `unmet-need` | [done] | `graph.ts`、`graph.test.ts` |
@@ -103,7 +103,7 @@ review: 任何行为变更的提交
 
 | 编号 | 功能点 | 能观察到的事实 | 现状 | 证据 |
 |---|---|---|---|---|
-| INS-01 | 动作执行 | `fetch`/`unpack`/`copy`/`write`/`delete`/`link.skill`/`link.exec`/`link.bin`/`register.mcp`/`merge.config`/`exec`/`instruction`/`state.dir` 都有实现；单条结果五种状态（`done`/`noop`/`failed`/`skipped`/`needs-approval`），失败即中断，后续动作不再有结果 | [done] | `packages/runtime/src/install.ts` 的 `applyAction`、`exec.test.ts` |
+| INS-01 | 动作执行 | `fetch`/`unpack`/`copy`/`write`/`delete`/`link.skill`/`link.exec/`register.mcp`/`merge.config`/`exec`/`instruction`/`state.dir` 都有实现；单条结果五种状态（`done`/`noop`/`failed`/`skipped`/`needs-approval`），失败即中断，后续动作不再有结果 | [done] | `packages/runtime/src/install.ts` 的 `applyAction`、`exec.test.ts` |
 | INS-02 | 项目级所有权 | 别包占用的普通文件拒绝安装并列出占用者；`--overwrite` 放行。配置文件与根目录指令文件例外 | [done] | `install.ts` 的 `findOwnershipConflicts`、`conflicts.test.ts` |
 | INS-03 | 共享文件 | 配置与根目录 `.md` 只写自己的键 / 托管块，块外内容不动 | [done] | `install.ts`、`inverse.test.ts` |
 | INS-04 | 快照与 generation | 安装前把会被改写的路径复制进 `.packhub/snapshots/<gen>/files/`，同时存 `state.json`、`active.json` 与 `meta.json`；`--dry-run` 不快照也不取锁 | [done] | `install.ts` 的 `prepareGeneration` |

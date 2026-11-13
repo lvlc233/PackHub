@@ -35,7 +35,7 @@ function referencedPaths(plans: Plan[]): string[] {
     for (const action of plan.actions) {
       if (action.op === 'fetch') out.add(action.dest);
       else if (action.op === 'unpack') out.add(action.from), out.add(action.to);
-      else if (action.op === 'link.skill' || action.op === 'link.bin') out.add(action.from);
+      else if (action.op === 'link.skill') out.add(action.from);
       else if (action.op === 'copy') out.add(action.to);
       else if (action.op === 'link.exec') {
         out.add(action.entry);

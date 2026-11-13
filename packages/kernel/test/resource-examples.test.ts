@@ -42,9 +42,14 @@ const SNIPPETS: Record<string, string> = {
   source: ./fragments/agent.yaml
 `,
   tool: `
-- id: biome
+- id: link-kit
   type: tool
-  source: npm:@biomejs/biome@1.9.4
+  source: ./tools/link-kit
+  commands:
+    - name: link-kit
+      exec: index.mjs
+      runtime: node
+      usage: link-kit <dir>
 `,
 };
 

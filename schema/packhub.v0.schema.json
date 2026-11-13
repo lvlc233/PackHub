@@ -192,6 +192,10 @@
           "then": { "required": ["transport"] }
         },
         {
+          "if": { "properties": { "type": { "const": "tool" } }, "required": ["type"] },
+          "then": { "required": ["commands"] }
+        },
+        {
           "if": { "properties": { "source": { "pattern": "^https?:" } }, "required": ["source"] },
           "then": { "required": ["integrity"] }
         }

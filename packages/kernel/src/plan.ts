@@ -225,57 +225,16 @@ export function buildPlan(
       case 'tool': {
         const commands = res.commands ?? [];
         if (commands.length === 0) {
-          // 老路径：npm / 归档，按 package.json 的 bin 建一个入口
-          if (parsed.kind === 'local') {
-            issues.push({
-              code: 'tool-source-unsupported',
-              severity: 'error',
-              message: `tool 只支持 npm: / github: / .tar.gz 归档（现在是本地路径）：${res.source}；本地目录请写 commands`,
-              path: at,
-            });
-            break;
-          }
-          if (parsed.kind === 'http' && !looksLikeArchive(res.source)) {
-            issues.push({
-              code: 'source-not-archive',
-              severity: 'error',
-              message: `tool 的 https 来源必须是 .tar.gz（现在是单文件）：${res.source}`,
-              path: at,
-            });
-            break;
-          }
-          const fetched = push({
-            op: 'fetch',
-            uri: res.source,
-            dest: `${targetVars.cacheDir}/${id}.tar.gz`,
-            ...(res.integrity ? { integrity: res.integrity } : {}),
-            ...(res.auth ? { auth: res.auth } : {}),
-            resource: id,
+          issues.push({
+            code: 'tool-needs-commands',
+            severity: 'error',
+            message: `tool 要用 commands 声明暴露哪些命令：${res.source}`,
+            path: at,
           });
-          const unpacked = push({
-            op: 'unpack',
-            from: `${targetVars.cacheDir}/${id}.tar.gz`,
-            to: `${targetVars.cacheDir}/tools/${id}`,
-            strip: 1,
-            resource: id,
-            dependsOn: [fetched.actionId],
-          });
-          {
-            const configured = res.config?.bin;
-            const command = typeof configured === 'string' ? configured : id;
-            push({
-              op: 'link.bin',
-              from: `${targetVars.cacheDir}/tools/${id}`,
-              to: `${targetVars.binDir}/${command}`,
-              command,
-              resource: id,
-              dependsOn: [unpacked.actionId],
-            });
-          }
           break;
         }
 
-        // 新路径：执行体整份落地，按 commands 逐条建入口
+        // 执行体整份落地，按 commands 逐条建入口
         const toolRoot = `${targetVars.cacheDir}/tools/${id}`;
         const localPath = parsed.kind === 'local' ? resolve(packBase, parsed.locator) : undefined;
         const sourceIsFile = localPath ? existsSync(localPath) && !statSync(localPath).isDirectory() : false;
@@ -731,7 +690,6 @@ function detectConflicts(
       a.op === 'link.skill' ||
       a.op === 'link.exec' ||
       a.op === 'unpack' ||
-      a.op === 'link.bin' ||
       a.op === 'state.dir'
     ) {
       const list = fsPaths.get(a.to) ?? [];

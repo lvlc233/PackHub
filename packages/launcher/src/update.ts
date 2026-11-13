@@ -53,7 +53,6 @@ function planTargets(plan: Plan): Set<string> {
       action.op === 'link.skill' ||
       action.op === 'unpack' ||
       action.op === 'copy' ||
-      action.op === 'link.bin' ||
       action.op === 'link.exec' ||
       action.op === 'state.dir'
     ) {

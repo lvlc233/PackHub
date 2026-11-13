@@ -225,7 +225,6 @@ export type PlanOp =
   /** 持久状态目录：只建目录，不写文件；卸载时按 retain 决定去留 */
   | { op: 'state.dir'; to: string; retain: 'keep' | 'remove' }
   /** tool 的可执行入口：读解包后的 package.json，在 binDir 下生成跨平台 wrapper */
-  | { op: 'link.bin'; from: string; to: string; command: string };
 
 /** 把元数据分配到 union 的每个成员上（交叉类型不会自动分配，会导致 Omit 丢掉变体字段）。 */
 type WithMeta<T> = T extends unknown
