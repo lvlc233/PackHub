@@ -1,9 +1,9 @@
 ---
 kind: decision
-summary: 有意为之的取舍：跨包引用、命令层薄壳、交付链门禁、macOS 与桌面壳、命令面
+summary: 有意为之的取舍：跨包引用、target 退出内容层、命令层薄壳、交付链门禁、macOS 与桌面壳、命令面
 verified: 2026-11-18
 decay: 365
-review: 任何一条的前提变了（跨包引用进格式 v0、命令层再出现例外、交付链门禁扩到发布、加 mac 门禁、命令面收缩）
+review: 任何一条的前提变了（跨包引用进格式 v0、锁形状或签名载荷变化、命令层再出现例外、交付链门禁扩到发布、加 mac 门禁、命令面收缩）
 ---
 
 # PackHub 的取舍
@@ -17,6 +17,14 @@ review: 任何一条的前提变了（跨包引用进格式 v0、命令层再出
 没选另一条：跨包引用要先定包身份、传递安装语义与锁的跨包表达——谁负责装被引用的包、两个包要不同版本怎么办、跨包的版本对齐怎么进计划。这些都得在格式 v0 的锁格式里留位置；格式没稳定之前先定，会把形状钉死。
 
 代价：包只能自包含，或所有来源都能在安装时远程取到；reference 模式打包时含本地来源直接失败（`pack` 的 `LocalSourceNotVendoredError`）。复用只能靠重新发布成资源，或让多个包引同一份远程上游。
+
+### target 退出内容层，计划改在安装期现算
+
+锁只描述内容：`resolved` + `contentHash`（清单 + resolved 的规范化哈希，`lock.ts` 的 `contentHashOf`）。安装 target 是安装期参数——`planFor(ctx, { target })` 在安装 / 校验 / diff 那一刻现算计划；签名载荷是 `{pack, contentHash}`（`signature.ts` 的 `signablePayload`）；发布只跑 dir 一个 target 的干净安装（`run.ts` 拒绝未声明 dir 的清单）。
+
+没选另一条：把每个 target 的计划快照留在锁里（`plan` / `plans` / `planHash`），签名覆盖计划哈希。target 不是内容：同一份 Pack 装到 dir 或任一宿主，装的是同一批字节，锁却会随宿主数量膨胀；每个 target 的快照都要在每次清单变化时重算、重核对，签名还要回答「签的是哪个 target 的计划」。把 target 收进安装期后，锁只有一份，内容哈希与 target 无关，`checkLockConsistency(lock, manifest)` 退化成「重算 contentHash」这一条判据。
+
+代价：签名只证明内容、不再证明某个 target 的安装结果——换 target 不会让签名失效；`diff` 没有锁里的旧计划可读，只能读 state 里安装时留下的 `PlanSnapshot`（没装过就没有旧计划，`diff` 要求先安装）；`verify` 在项目根也按 state 快照复核，包目录模式则现算；发布门禁只验 dir 一个 target，其余 target 的安装行为只有单测；旧锁（`plan` / `plans` / `planHash`）不再兼容，registry 门禁按「锁是旧口径」报 error（`build.ts` 的 `buildIndex`），必须重跑 `packhub lock`（原来有签名的还要重签）。
 
 ### 命令层是薄壳，例外只剩一处
 

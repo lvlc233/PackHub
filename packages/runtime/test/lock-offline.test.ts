@@ -51,8 +51,9 @@ describe('lock --offline', () => {
       expect(res.warnings.some((w) => w.includes(`${id}: --offline`))).toBe(true);
     }
 
-    // 锁仍为声明的 target 生成了计划
-    expect(res.lock.plan?.planHash).toBe(res.plan.planHash);
+    // 锁只记内容：没有计划快照，contentHash 与安装 target 无关
+    expect(res.lock.contentHash).toMatch(/^sha256-/);
+    expect('plan' in res.lock).toBe(false);
 
     rmSync(dir, { recursive: true, force: true });
   });

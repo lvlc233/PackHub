@@ -87,14 +87,22 @@ describe('install + verify 闭环（本地资源，离线）', () => {
     expect(second.outcomes.some((o) => o.status === 'noop')).toBe(true);
   });
 
-  it('planHash 变化会体现在锁文件里', async () => {
+  it('清单变化会体现在锁的 contentHash 里', async () => {
     const { buildLock } = await import('@packhub/kernel');
     const ctx = loadPack(work);
-    const { plan } = planFor(ctx);
-    const lock = buildLock(ctx.manifest, plan!);
+    const lock = buildLock(ctx.manifest);
     expect(lock.pack).toBe(`lvlc233/team-conventions@${ctx.manifest.metadata.version}`);
-    expect(lock.planHash).toBe(plan!.planHash);
+    expect(lock.contentHash).toMatch(/^sha256-/);
     expect(lock.resolved).toHaveLength(ctx.manifest.resources.length);
     expect(lock.resolved.every((r) => r.integrity === null)).toBe(true);
+
+    const changed = buildLock({
+      ...ctx.manifest,
+      resources: [
+        ...ctx.manifest.resources,
+        { id: 'extra-rules', type: 'knowledge', source: './resources/extra.md' },
+      ],
+    });
+    expect(changed.contentHash).not.toBe(lock.contentHash);
   });
 });

@@ -2,8 +2,8 @@
 // 全量重锁：registry 里每个已发布版本按自己的版本目录重做一遍发布内容。
 //
 // 每个版本按顺序做（任何一步失败立刻非零退出，并说清哪个包、哪个版本、哪一步）：
-//   1) lock     按版本目录重算锁（与 `packhub lock` 同一入口 lockPack，主 target 由 registry 的
-//               primaryTarget 选，与 publish 同一条规则；锁覆盖清单声明的全部 target）
+//   1) lock     按版本目录重算锁（与 `packhub lock` 同一入口 lockPack；锁只记引用与完整性，
+//              不再按 target 存计划快照）
 //   2) sign     这个版本原来有签名就重签（需要 --key 或 PACKHUB_RELOCK_KEY）；没有签名跳过
 //   3) verify   在干净目录里重跑 runner（真装 + 读校验），通过才写 verify.json
 //   4) archive  从版本目录重打 .phub（与发布同一入口 packVersionArchive，vendored）
@@ -43,11 +43,11 @@ import { canonicalize, loadPack } from '../../packages/kernel/src/index.ts';
 import {
   lockPack,
   readSignatures,
-  signPlan,
+  signContentHash,
   writeSignature,
 } from '../../packages/runtime/src/index.ts';
 import { runPack } from '../../packages/runner/src/index.ts';
-import { buildIndex, packVersionArchive, primaryTarget, writeIndex } from '../../packages/registry/src/index.ts';
+import { buildIndex, packVersionArchive, writeIndex } from '../../packages/registry/src/index.ts';
 
 const ROOT = resolve(import.meta.dirname, '../..');
 const REGISTRY = join(ROOT, 'registry');
@@ -134,11 +134,7 @@ async function computeLock(dir, label) {
   if (errors.length > 0) throw new StepError('lock', `清单有错误：${errors.map((e) => e.message).join('; ')}`);
   if (!ctx.manifest) throw new StepError('lock', '清单读不出来');
 
-  const declared = ctx.manifest.metadata.targets;
-  // 主 target 与归档来源都走 registry 的同一实现：发布（publishPack）与重锁（本脚本）
-  // 不能各定一套「主 target 是谁 / 归档从哪个目录打」的规则。
-  const target = primaryTarget(declared);
-  const res = await lockPack(ctx, { target });
+  const res = await lockPack(ctx);
   if (res.warnings.length > 0) {
     throw new StepError('lock', `有引用没解析出来（不能静默写进锁）：${res.warnings.join('; ')}`);
   }
@@ -146,12 +142,12 @@ async function computeLock(dir, label) {
 }
 
 /** 有独立签名文件就重签（写进 stage）；清单内联签名要改清单，交给人工。 */
-function resign(stageDir, realDir, label, planHash, manifest) {
+function resign(stageDir, realDir, label, contentHash, manifest) {
   const inline = manifest.signatures ?? [];
   if (inline.length > 0) {
     throw new StepError(
       'sign',
-      '这个版本把签名写在清单里；本脚本不改清单（会再改计划）。先用 packhub sign 人工重签，再重跑本脚本',
+      '这个版本把签名写在清单里；本脚本不手写 YAML，先用 packhub sign 人工重签，再重跑本脚本',
     );
   }
   const entries = readSignatures(realDir);
@@ -168,7 +164,7 @@ function resign(stageDir, realDir, label, planHash, manifest) {
   if (!existsSync(keyPath)) throw new StepError('sign', `私钥文件不存在：${keyPath}`);
   const pem = readFileSync(keyPath, 'utf8');
   const pack = `${manifest.metadata.name}@${manifest.metadata.version}`;
-  const signature = signPlan(pem, pack, planHash);
+  const signature = signContentHash(pem, pack, contentHash);
   if (!entries.some((s) => s.key === signature.key)) {
     throw new StepError(
       'sign',
@@ -194,10 +190,10 @@ async function rebuildVersion(dir, label) {
       throw new StepError(`${label} · lock`, err.message);
     });
 
-    // 新锁先只写副本：runner 看到的是重锁后的计划
+    // 新锁先只写副本：runner 看到的是重锁后的内容
     writeFileSync(join(stage, 'packhub.lock.json'), jsonText(planned.lock), 'utf8');
     try {
-      resign(stage, dir, label, planned.plan.planHash, planned.manifest);
+      resign(stage, dir, label, planned.lock.contentHash, planned.manifest);
     } catch (err) {
       throw new StepError(`${label} · sign`, err.message);
     }
@@ -229,7 +225,7 @@ async function rebuildVersion(dir, label) {
     } else {
       writeFileSync(lockPath, jsonText(planned.lock), 'utf8');
       stats.lockChanged.push(
-        `${label}：planHash ${String(previous?.planHash ?? '(无锁)').slice(0, 18)}… → ${planned.lock.planHash.slice(0, 18)}…（${rel(lockPath)}）`,
+        `${label}：contentHash ${String(previous?.contentHash ?? (previous ? '(旧口径锁)' : '(无锁)')).slice(0, 18)}… → ${planned.lock.contentHash.slice(0, 18)}…（${rel(lockPath)}）`,
       );
     }
 

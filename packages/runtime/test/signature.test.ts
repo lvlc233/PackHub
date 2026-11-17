@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import {
   generateKeyPair,
   readSignatures,
-  signPlan,
+  signContentHash,
   verifySignatures,
   writeSignature,
 } from '../src/index.ts';
@@ -14,29 +14,29 @@ import {
 describe('签名', () => {
   it('签出的签名能验过', () => {
     const { privatePem, publicKey } = generateKeyPair();
-    const sig = signPlan(privatePem, 'demo/x@0.0.1', 'sha256-abc');
+    const sig = signContentHash(privatePem, 'demo/x@0.0.1', 'sha256-abc');
     expect(sig.key).toBe(publicKey);
     expect(verifySignatures([sig], 'demo/x@0.0.1', 'sha256-abc')).toEqual([
       { key: publicKey, ok: true },
     ]);
   });
 
-  it('计划变了签名就失效', () => {
+  it('内容哈希变了签名就失效', () => {
     const { privatePem } = generateKeyPair();
-    const sig = signPlan(privatePem, 'demo/x@0.0.1', 'sha256-abc');
+    const sig = signContentHash(privatePem, 'demo/x@0.0.1', 'sha256-abc');
     expect(verifySignatures([sig], 'demo/x@0.0.1', 'sha256-other')[0]!.ok).toBe(false);
   });
 
   it('包名变了也算篡改', () => {
     const { privatePem } = generateKeyPair();
-    const sig = signPlan(privatePem, 'demo/x@0.0.1', 'sha256-abc');
+    const sig = signContentHash(privatePem, 'demo/x@0.0.1', 'sha256-abc');
     expect(verifySignatures([sig], 'demo/y@0.0.1', 'sha256-abc')[0]!.ok).toBe(false);
   });
 
   it('别人的签名验不过', () => {
     const a = generateKeyPair();
     const b = generateKeyPair();
-    const sig = signPlan(a.privatePem, 'demo/x@0.0.1', 'sha256-abc');
+    const sig = signContentHash(a.privatePem, 'demo/x@0.0.1', 'sha256-abc');
     const forged = { ...sig, key: b.publicKey };
     expect(verifySignatures([forged], 'demo/x@0.0.1', 'sha256-abc')[0]!.ok).toBe(false);
   });
@@ -50,7 +50,7 @@ describe('签名旁挂文件', () => {
   it('写进 packhub.signatures.json，不改清单', () => {
     const dir = mkdtempSync(join(tmpdir(), 'packhub-sigfile-'));
     const { privatePem } = generateKeyPair();
-    const sig = signPlan(privatePem, 'demo/x@0.0.1', 'sha256-abc');
+    const sig = signContentHash(privatePem, 'demo/x@0.0.1', 'sha256-abc');
     writeSignature(dir, sig);
     const read = readSignatures(dir);
     expect(read).toHaveLength(1);

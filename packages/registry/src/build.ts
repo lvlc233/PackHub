@@ -5,19 +5,18 @@ import { join, relative } from 'node:path';
 import {
   INDEX_API_VERSION,
   canonicalize,
+  contentHashOf,
   loadPack,
   parseCatalog,
-  planFor,
   sha256,
-  type LockFile,
+  type ResolvedRef,
   type ResourceCatalog,
 } from '@packhub/kernel';
-import { SIGNATURE_FILE, readArchiveFilesSync, withLockPins } from '@packhub/runtime';
+import { SIGNATURE_FILE, readArchiveFilesSync } from '@packhub/runtime';
 
 export interface IndexEntry {
   version: string;
   manifest: unknown;
-  planHash: string;
   trust: 'verified' | 'community';
   verifiedAt: string | null;
   signers: string[];
@@ -128,7 +127,7 @@ export function checkResourcesCatalog(text: string | undefined): ResourcesCatalo
 }
 
 /**
- * 归档 ↔ 版本目录的语义一致：锁的 planHash、报告的 ok 与 planHash 相等。
+ * 归档 ↔ 版本目录的语义一致：锁的 `contentHash`、报告的 `ok` 与 `contentHash` 相等。
  *
  * 只比语义，不比字节：归档与版本目录可能是不同工具写的（行尾、缩进不同），
  * 现有三个已发布归档的锁就与版本目录差在 CRLF 上——字节比会把它们全误报成「被改过」。
@@ -158,9 +157,9 @@ function checkArchiveConsistency(
     );
   } else {
     const archiveLock = parseJsonObject(archiveLockText);
-    if (archiveLock?.planHash !== dirLock?.planHash) {
+    if (archiveLock?.contentHash !== dirLock?.contentHash) {
       errors.push(
-        `${packName}@${version}: 归档里的锁与版本目录不一致（归档=${short(archiveLock?.planHash)}… 目录=${short(dirLock?.planHash)}…），从版本目录重打归档`,
+        `${packName}@${version}: 归档里的锁与版本目录不一致（归档=${short(archiveLock?.contentHash)}… 目录=${short(dirLock?.contentHash)}…），从版本目录重打归档`,
       );
     }
   }
@@ -174,9 +173,9 @@ function checkArchiveConsistency(
     return;
   }
   const archiveVerify = parseJsonObject(archiveVerifyText);
-  if (archiveVerify?.ok !== dirVerify?.ok || archiveVerify?.planHash !== dirVerify?.planHash) {
+  if (archiveVerify?.ok !== dirVerify?.ok || archiveVerify?.contentHash !== dirVerify?.contentHash) {
     errors.push(
-      `${packName}@${version}: 归档里的 verify.json 与版本目录不一致（归档 ok=${String(archiveVerify?.ok)} planHash=${short(archiveVerify?.planHash)}… 目录 ok=${String(dirVerify?.ok)} planHash=${short(dirVerify?.planHash)}…）`,
+      `${packName}@${version}: 归档里的 verify.json 与版本目录不一致（归档 ok=${String(archiveVerify?.ok)} contentHash=${short(archiveVerify?.contentHash)}… 目录 ok=${String(dirVerify?.ok)} contentHash=${short(dirVerify?.contentHash)}…）`,
     );
   }
 }
@@ -192,7 +191,8 @@ function inCI(): boolean {
 
 /**
  * 扫描 registry/packs，校验并生成索引。
- * 门禁：schema、锁与计划一致、visibility=public、已发布版本不可变、verify 与计划一致才算 verified。
+ * 门禁：schema、锁与内容（contentHash）一致、visibility=public、已发布版本不可变、
+ * verify 报告绑定同一份内容才算 verified。
  */
 export function buildIndex(registryRoot: string): BuildResult {
   const packsDir = join(registryRoot, 'packs');
@@ -306,47 +306,24 @@ export function buildIndex(registryRoot: string): BuildResult {
           continue;
         }
         const lock = JSON.parse(readFileSync(lockPath, 'utf8')) as {
-          planHash?: string;
-          plan?: { target?: string; planHash?: string };
-          resolved?: { id: string; source: string; integrity: string | null }[];
-          plans?: Partial<Record<string, { target?: string; planHash?: string }>>;
+          contentHash?: string;
+          resolved?: ResolvedRef[];
         };
         // 归档与版本目录必须装的是同一份发布内容：归档里的锁 / 报告与目录里的语义一致
         if (existsSync(archive)) {
           checkArchiveConsistency(packName, version, dir, archive, errors);
         }
-        // 按锁里钉死的 commit/版本算计划，否则「清单写 tag、锁写 commit」会被误判成过期
-        const pinned = withLockPins(ctx, lock as unknown as LockFile);
-        const { plan } = planFor(pinned);
-        if (!plan) {
-          errors.push(`${packName}@${version}: 生成计划失败`);
-          continue;
-        }
-        if (lock.planHash !== plan.planHash) {
+        // 锁只描述内容：重算 contentHash（清单 + 锁的 resolved），与目标无关。
+        // 旧口径的锁没有 contentHash，按过期处理，提示重锁。
+        const actual = contentHashOf(ctx.manifest, lock.resolved ?? []);
+        if (typeof lock.contentHash !== 'string') {
           errors.push(
-            `${packName}@${version}: 锁已过期（lock=${String(lock.planHash).slice(0, 16)}… plan=${plan.planHash.slice(0, 16)}…），重跑 packhub lock`,
+            `${packName}@${version}: 锁是旧口径（没有 contentHash），重跑 packhub lock 再发布`,
           );
-        }
-        // 多 target 锁：清单声明过的每个 target 都要在锁里有自己的快照，并与当前计划对得上。
-        // 快照口径同 kernel 的 checkLockConsistency：`plans?.[target] ?? plan`——单 target 的锁
-        // 不写 plans，主计划就是它自己的快照；但回落的快照必须真的属于这个 target，
-        // 否则说明多 target 清单只锁了主计划，其它 target 装的时候没有可核对的基准。
-        for (const target of ctx.manifest.metadata.targets) {
-          const snapshot = lock.plans?.[target] ?? lock.plan;
-          if (!snapshot || snapshot.target !== target) {
-            errors.push(
-              `${packName}@${version}: 锁里没有 ${target} 的计划快照（声明的 target 都要锁住），重跑 packhub lock`,
-            );
-            continue;
-          }
-          const { plan: targetPlan } = planFor(pinned, { target });
-          if (!targetPlan) {
-            errors.push(`${packName}@${version}: 生成 ${target} 计划失败`);
-          } else if (targetPlan.planHash !== snapshot.planHash) {
-            errors.push(
-              `${packName}@${version}: ${target} 的计划与锁不一致（lock=${String(snapshot.planHash).slice(0, 16)}… plan=${targetPlan.planHash.slice(0, 16)}…），重跑 packhub lock`,
-            );
-          }
+        } else if (lock.contentHash !== actual) {
+          errors.push(
+            `${packName}@${version}: 锁已过期（lock=${lock.contentHash.slice(0, 16)}… content=${actual.slice(0, 16)}…），重跑 packhub lock`,
+          );
         }
 
         let trust: 'verified' | 'community' = 'community';
@@ -356,17 +333,18 @@ export function buildIndex(registryRoot: string): BuildResult {
         if (existsSync(verifyPath)) {
           const report = JSON.parse(readFileSync(verifyPath, 'utf8')) as {
             ok?: boolean;
-            planHash?: string;
+            contentHash?: string;
             verifiedAt?: string;
             signatures?: { key: string; ok: boolean }[];
           };
           signers = (report.signatures ?? []).filter((s) => s.ok).map((s) => s.key);
-          if (report.ok === true && report.planHash === plan.planHash) {
+          // 报告绑定的是内容：只有 ok 且跑的是锁住的这份内容，才算 verified
+          if (report.ok === true && report.contentHash === actual) {
             trust = 'verified';
             verifiedAt = report.verifiedAt ?? null;
           } else {
             warnings.push(
-              `${packName}@${version}: 有 verify.json 但未通过或与当前计划不一致，按 community 处理`,
+              `${packName}@${version}: 有 verify.json 但未通过或与当前内容不一致，按 community 处理`,
             );
           }
         }
@@ -374,7 +352,6 @@ export function buildIndex(registryRoot: string): BuildResult {
         entries.push({
           version,
           manifest: ctx.manifest,
-          planHash: plan.planHash,
           trust,
           verifiedAt,
           signers,

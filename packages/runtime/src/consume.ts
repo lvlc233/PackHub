@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { LockFile, Manifest, PackContext, Plan, TargetId } from '@packhub/kernel';
-import { checkLockConsistency, validateGraph } from '@packhub/kernel';
+import type { LockFile, Manifest, PackContext } from '@packhub/kernel';
+import { buildLock, checkLockConsistency, contentHashOf, validateGraph } from '@packhub/kernel';
 import { readSignatures } from './signfile.ts';
 import { verifySignatures } from './signature.ts';
 
@@ -13,9 +13,10 @@ export interface InspectionIssue {
 
 export interface PackInspection {
   lock?: LockFile;
-  /** 锁里的 planHash 与「按锁的目标重算的计划」是否一致 */
+  /** 锁的 contentHash 与「按当前清单重算的 contentHash」是否一致 */
   lockMatches?: boolean;
-  verifyReport?: { ok?: boolean; planHash?: string } | null;
+  /** 验证报告；`contentHash` 是它跑的那份内容（旧版 runner 写的报告没有这个字段） */
+  verifyReport?: { ok?: boolean; contentHash?: string } | null;
   signatures: { key: string; ok: boolean }[];
   issues: InspectionIssue[];
 }
@@ -59,6 +60,16 @@ export function loadLock(dir: string): LockRead {
 }
 
 /**
+ * 「这份内容」的 contentHash：锁在就以锁钉死的 `resolved` 为准算，没有锁就按清单自身的引用算
+ * （与 `buildLock` 同口径）。签名覆盖的是它、验证报告绑定的也是它；安装 target 不参与。
+ *
+ * 所有消费端都从这里取，别再各算一份。
+ */
+export function contentHashFor(manifest: Manifest, lock?: LockFile): string {
+  return lock ? contentHashOf(manifest, lock.resolved) : buildLock(manifest).contentHash;
+}
+
+/**
  * 按锁里的解析结果替换清单里的引用，得到「作者锁住的那一份」。
  * 安装、校验、更新都用它，避免清单写 tag、锁写 commit 时两边各装一套。
  */
@@ -83,35 +94,32 @@ export function withLockPins(ctx: PackContext, lock?: LockFile): PackContext {
 }
 
 /**
- * 消费端核对：锁与计划是否一致、验证报告是否对得上、签名是否有效。
+ * 消费端核对：锁与清单是否一致、验证报告是否对得上、签名是否有效。
+ *
+ * 锁只描述内容（清单 + resolved），所以核对不需要计划、也不需要安装 target：判据是重算
+ * contentHash。安装 target 由调用方按需现算计划，不传进来。
  * 只读，不改任何文件；问题交给调用方决定是否放行。
  */
 export function inspectPack(
   dir: string,
   manifest: Manifest,
-  planForLockedTarget: Plan | undefined,
   opts: { trusted?: string[] } = {},
 ): PackInspection {
   const issues: InspectionIssue[] = [];
   const pack = `${manifest.metadata.name}@${manifest.metadata.version}`;
   const read = loadLock(dir);
   const lock = read.lock;
+  const contentHash = contentHashFor(manifest, lock);
   let lockMatches: boolean | undefined;
 
   if (lock) {
-    // 锁 ↔ 计划只有一份判定：kernel 的 checkLockConsistency；这里只把结论映射成 issue
-    const target: TargetId = planForLockedTarget?.target ?? lock.plan?.target ?? 'dir';
-    const check = checkLockConsistency(lock, target, planForLockedTarget);
+    // 锁 ↔ 清单只有一份判定：kernel 的 checkLockConsistency；这里只把结论映射成 issue
+    const check = checkLockConsistency(lock, manifest);
     if (check.status === 'ok') lockMatches = true;
-    else if (check.status === 'mismatch') {
+    else {
       lockMatches = false;
       issues.push({ code: 'lock-mismatch', severity: 'error', message: check.message });
-    } else if (check.status === 'no-lock-plan') {
-      issues.push({ code: 'lock-without-plan', severity: 'warning', message: check.message });
-    } else if (check.status === 'missing') {
-      issues.push({ code: 'lock-missing', severity: 'warning', message: check.message });
     }
-    // no-plan（算不出计划）交给调用方先报清单错误，这里不重复告警
     if (lock.pack !== pack) {
       issues.push({
         code: 'lock-pack-mismatch',
@@ -125,7 +133,7 @@ export function inspectPack(
     issues.push({
       code: 'lock-missing',
       severity: 'warning',
-      message: checkLockConsistency(undefined, 'dir', planForLockedTarget).message,
+      message: checkLockConsistency(undefined, manifest).message,
     });
   }
 
@@ -133,12 +141,17 @@ export function inspectPack(
   const verifyFile = join(dir, 'verify.json');
   if (existsSync(verifyFile)) {
     try {
-      verifyReport = JSON.parse(readFileSync(verifyFile, 'utf8')) as { ok?: boolean; planHash?: string };
-      if (planForLockedTarget && verifyReport?.planHash !== planForLockedTarget.planHash) {
+      verifyReport = JSON.parse(readFileSync(verifyFile, 'utf8')) as { ok?: boolean; contentHash?: string };
+      // 报告绑定的是内容：contentHash 对得上，才说明这份报告是这份内容跑出来的。
+      // 旧版 runner 写的报告只有 planHash（安装期的派生值），无法核对，提示重跑。
+      if (verifyReport?.contentHash !== contentHash) {
         issues.push({
-          code: 'verify-plan-mismatch',
+          code: 'verify-content-mismatch',
           severity: 'warning',
-          message: '验证报告与当前计划不一致（报告是旧版本跑出来的）',
+          message:
+            verifyReport?.contentHash === undefined
+              ? '验证报告是旧口径（没有 contentHash），无法核对是不是这份内容跑出来的'
+              : '验证报告与当前内容不一致（报告是别的内容跑出来的）',
         });
       }
       if (verifyReport?.ok !== true) {
@@ -154,7 +167,7 @@ export function inspectPack(
   }
 
   const all = [...readSignatures(dir), ...(manifest.signatures ?? [])];
-  const signatures = verifySignatures(all, pack, planForLockedTarget?.planHash ?? '');
+  const signatures = verifySignatures(all, pack, contentHash);
   if (signatures.length > 0 && !signatures.some((s) => s.ok)) {
     issues.push({
       code: 'signature-invalid',

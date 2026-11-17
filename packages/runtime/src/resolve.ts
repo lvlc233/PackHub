@@ -4,14 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   buildLock,
-  buildPlan,
   parseSource,
   validateGraph,
   type LockFile,
   type Manifest,
   type PackContext,
-  type Plan,
-  type TargetId,
 } from '@packhub/kernel';
 import { download, httpJson, resolvePypiSdist } from './download.ts';
 
@@ -259,29 +256,25 @@ export function pinManifest(manifest: Manifest, resolved: ResolvedReference[]): 
   };
 }
 
-export interface LockPackOptions extends ResolveOptions {
-  /** 主 target（决定 lock.plan / planHash）；默认 dir，未声明时用第一个声明的 target */
-  target?: TargetId;
-}
+export interface LockPackOptions extends ResolveOptions {}
 
 export interface LockPackResult {
   lock: LockFile;
   /** 按解析结果改过的清单 */
   manifest: Manifest;
-  plan: Plan;
-  /** 每个已声明 target 的计划；键就是 target */
-  plans: Partial<Record<TargetId, Plan>>;
   warnings: string[];
 }
 
 /**
- * 解析引用 → 生成锁。计划也基于解析后的清单算，锁里的 planHash 才能指导安装。
- * 一个包声明了几个 target，就为每个 target 各算一份计划；主计划由 opts.target 指定。
+ * 解析引用 → 生成锁。
+ *
+ * 锁只记录引用与完整性（`resolved` + `contentHash`）：装到哪个 target、计划长什么样，
+ * 由安装 / 校验 / 更新在各自那一刻用 `planFor(ctx, { target })` 现算，锁里不存计划快照。
  */
 export async function lockPack(ctx: PackContext, opts: LockPackOptions = {}): Promise<LockPackResult> {
   const report = await resolveReferences(ctx.manifest, opts);
   const manifest = pinManifest(ctx.manifest, report.resolved);
-  const { graph, issues } = validateGraph(manifest);
+  const { issues } = validateGraph(manifest);
   // 「未 pin」正是解析要解决的问题；解析不到的已经在 warnings 里，锁里记为 null。
   // 其余结构性问题仍然拒绝。
   const errors = issues.filter(
@@ -294,30 +287,9 @@ export async function lockPack(ctx: PackContext, opts: LockPackOptions = {}): Pr
     throw new Error(`解析后的清单不合法：${errors.map((e) => e.message).join('; ')}`);
   }
 
-  const declared = manifest.metadata.targets;
-  const primary = opts.target ?? (declared.includes('dir') ? 'dir' : declared[0]);
-  if (!primary || !declared.includes(primary)) {
-    throw new Error(`这个包没有声明 target ${String(primary)}；声明了：${declared.join(', ')}`);
-  }
-  const plans: Partial<Record<TargetId, Plan>> = {};
-  for (const target of declared) {
-    const { plan, issues: planIssues } = buildPlan(manifest, graph, {
-      target,
-      targetVars: {},
-      // 计划产物与平台无关；平台只影响警告，这里用宿主机即可
-      platform: `${process.platform}-${process.arch}`,
-    });
-    if (!plan) {
-      throw new Error(`生成 ${target} 计划失败：${planIssues.map((i) => i.message).join('; ')}`);
-    }
-    plans[target] = plan;
-  }
-  const plan = plans[primary]!;
   return {
-    lock: buildLock(manifest, plan, { resolved: report.resolved, plans: Object.values(plans) }),
+    lock: buildLock(manifest, { resolved: report.resolved }),
     manifest,
-    plan,
-    plans,
     warnings: report.warnings,
   };
 }

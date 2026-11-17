@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { loadPack, planFor } from '@packhub/kernel';
 import {
+  contentHashFor,
   installPack,
   loadLock,
   readSignatures,
@@ -13,6 +14,9 @@ import {
 
 export interface VerifyReport {
   apiVersion: 'packhub.dev/verify/v0';
+  /** 这份报告验证的是哪一份内容（清单 + resolved 的规范化哈希）；与安装 target 无关 */
+  contentHash: string;
+  /** 实际跑的那份计划（runner 只装 dir）的哈希；安装期的派生值，不是锁的内容 */
   planHash: string;
   ok: boolean;
   signatures: { key: string; ok: boolean }[];
@@ -68,6 +72,8 @@ export async function runPack(packDir: string, opts: RunOptions = {}): Promise<R
 
     const { plan, issues } = planFor(ctx);
     if (!plan) throw new Error(`生成不了计划：${issues.map((i) => i.message).join('; ')}`);
+    // 内容哈希：签名与报告都绑它，不绑安装期现算的计划（计划含 target，不是内容）
+    const contentHash = contentHashFor(ctx.manifest, read.lock);
 
     const result = await installPack(ctx, plan, { allowExec: opts.allowExec === true });
     for (const o of result.outcomes) {
@@ -90,12 +96,13 @@ export async function runPack(packDir: string, opts: RunOptions = {}): Promise<R
 
     const allSigs = [...readSignatures(dir), ...(ctx.manifest.signatures ?? [])];
     const signatures = allSigs.map((s) => {
-      const check = verifySignatures([s], pack, plan.planHash)[0];
+      const check = verifySignatures([s], pack, contentHash)[0];
       return { key: s.key, ok: check?.ok ?? false };
     });
 
     const report: VerifyReport = {
       apiVersion: 'packhub.dev/verify/v0',
+      contentHash,
       planHash: plan.planHash,
       ok,
       signatures,

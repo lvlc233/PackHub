@@ -7,9 +7,13 @@ import {
 } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
-/** 签名覆盖的内容：包名 + 版本 + planHash。改清单里的任何东西都会让 planHash 变。 */
-export function signablePayload(pack: string, planHash: string): Buffer {
-  return Buffer.from(JSON.stringify({ pack, planHash }), 'utf8');
+/**
+ * 签名覆盖的内容：包名 + 版本 + `contentHash`。
+ * contentHash 由 kernel 的 `contentHashOf(清单, 锁的 resolved)` 算出：改清单或改锁里的引用都会让它变。
+ * 安装 target 不在载荷里——它是安装期参数，不是内容。
+ */
+export function signablePayload(pack: string, contentHash: string): Buffer {
+  return Buffer.from(JSON.stringify({ pack, contentHash }), 'utf8');
 }
 
 export interface KeyPair {
@@ -33,10 +37,20 @@ export function keyIdFromPem(publicPem: string): string {
   return Buffer.from(der.subarray(der.length - 32)).toString('base64');
 }
 
-export function signPlan(privatePem: string, pack: string, planHash: string): { key: string; sig: string; at: string } {
+/**
+ * 用私钥签 `{pack, contentHash}`。
+ *
+ * 旧名 `signPlan`：计划不再进锁，锁只描述内容，签的就是锁的 contentHash（口径见 kernel
+ * `contentHashOf`）。调用方必须先拿到锁再签，不要把安装期现算的计划哈希签进来。
+ */
+export function signContentHash(
+  privatePem: string,
+  pack: string,
+  contentHash: string,
+): { key: string; sig: string; at: string } {
   const key = createPrivateKey(privatePem);
   const publicKey = keyIdFromPem(createPublicKey(key).export({ type: 'spki', format: 'pem' }).toString());
-  const sig = cryptoSign(null, signablePayload(pack, planHash), key).toString('base64');
+  const sig = cryptoSign(null, signablePayload(pack, contentHash), key).toString('base64');
   return { key: publicKey, sig, at: new Date().toISOString() };
 }
 
@@ -48,9 +62,9 @@ export interface SignatureCheck {
 export function verifySignatures(
   signatures: { key: string; sig: string }[],
   pack: string,
-  planHash: string,
+  contentHash: string,
 ): SignatureCheck[] {
-  const payload = signablePayload(pack, planHash);
+  const payload = signablePayload(pack, contentHash);
   return signatures.map(({ key, sig }) => {
     try {
       const der = Buffer.concat([

@@ -48,10 +48,12 @@ describe('引用解析', () => {
     expect(byId.get('repo-skill')!.integrity).toBe('sha256-nope');
     expect(byId.get('rules')!.source).toBe('./rules.md');
 
-    // 锁里的计划基于钉死后的清单：fetch 的 uri 带 commit，micro 也带版本
-    const uris = res.plan.actions.filter((a) => a.op === 'fetch').map((a) => ('uri' in a ? a.uri : ''));
+    // 锁只记内容：解析后的引用进 contentHash；计划由调用方按 target 现算
+    expect(res.lock.contentHash).toMatch(/^sha256-/);
+    const pinned = withLockPins(loadPack(dir), res.lock);
+    const { plan } = planFor(pinned);
+    const uris = plan!.actions.filter((a) => a.op === 'fetch').map((a) => ('uri' in a ? a.uri : ''));
     expect(uris).toContain(`github:demo/repo/skills/review@${SHA}`);
-    expect(res.lock.planHash).toBe(res.plan.planHash);
 
     rmSync(dir, { recursive: true, force: true });
   });
@@ -78,7 +80,7 @@ describe('引用解析', () => {
     expect(ctx.issues.map((i) => i.code)).toContain('unpinned-source');
 
     const pinned = withLockPins(ctx, {
-      ...buildLock(ctx.manifest!, planFor({ ...ctx, issues: [] }).plan!),
+      ...buildLock(ctx.manifest!),
       resolved: [
         { id: 'repo-skill', type: 'skill', source: `github:demo/repo/skills/review@${SHA}`, integrity: null, resolvedAt: '' },
         { id: 'search', type: 'mcp', source: 'npm:@scope/search@1.4.0', integrity: 'sha512-abc', resolvedAt: '' },

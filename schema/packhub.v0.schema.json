@@ -118,7 +118,7 @@
     "modify": { "$ref": "#/definitions/modify" },
     "signatures": {
       "type": "array",
-      "description": "对 {pack, planHash} 的 ed25519 签名；key 是 32 字节公钥 base64",
+      "description": "对 {pack, contentHash} 的 ed25519 签名；contentHash 是清单与锁 resolved 的规范化哈希（见 kernel lock.ts）；key 是 32 字节公钥 base64",
       "items": {
         "type": "object",
         "additionalProperties": false,

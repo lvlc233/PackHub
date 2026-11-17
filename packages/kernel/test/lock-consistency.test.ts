@@ -1,163 +1,72 @@
 import { describe, expect, it } from 'vitest';
-import type { LockFile, Plan, PlanSnapshot, TargetId } from '../src/index.ts';
-import { checkLockConsistency } from '../src/index.ts';
+import type { LockFile, Manifest, ResolvedRef } from '../src/index.ts';
+import { checkLockConsistency, contentHashOf } from '../src/index.ts';
 
-function plan(hash: string, target: TargetId = 'dir'): Plan {
-  return {
-    apiVersion: 'packhub.dev/plan/v0',
-    pack: { name: 'demo/consistency', version: '0.0.1' },
-    target,
-    actions: [],
-    verify: [],
-    excluded: [],
-    planHash: hash,
-  };
-}
+const MANIFEST: Manifest = {
+  apiVersion: 'packhub.dev/v0',
+  kind: 'Pack',
+  metadata: { name: 'demo/consistency', version: '0.0.1', targets: ['dir', 'dsh'] },
+  resources: [{ id: 'guide', type: 'knowledge', source: './guide.md' }],
+};
 
-function snapshot(hash: string, target: TargetId = 'dir'): PlanSnapshot {
-  return { target, planHash: hash, actions: [], verify: [], excluded: [] };
-}
-
-function lock(props: { plan?: PlanSnapshot; plans?: Partial<Record<TargetId, PlanSnapshot>>; mainHash?: string } = {}): LockFile {
-  return {
-    apiVersion: 'packhub.dev/lock/v0',
-    pack: 'demo/consistency@0.0.1',
-    resolved: [],
-    planHash: props.mainHash ?? props.plan?.planHash ?? 'sha256-your-own',
-    generatedBy: 'packhub/0.0.1',
-    ...(props.plan ? { plan: props.plan } : {}),
-    ...(props.plans ? { plans: props.plans } : {}),
-  };
-}
-
-const H1 = 'sha256-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa=';
-const H2 = 'sha256-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb=';
-
-interface Case {
-  name: string;
-  lock: LockFile | null | undefined;
-  target: TargetId;
-  plan: Plan | undefined;
-  status: 'ok' | 'mismatch' | 'missing' | 'no-plan' | 'no-lock-plan';
-  expected?: string;
-  actual?: string;
-  message: string;
-}
-
-const CASES: Case[] = [
+const RESOLVED: ResolvedRef[] = [
   {
-    name: '没有锁（undefined）',
-    lock: undefined,
-    target: 'dir',
-    plan: plan(H1),
-    status: 'missing',
-    actual: H1,
-    message: '这个包没有锁',
-  },
-  {
-    name: '没有锁（null 也算没有）',
-    lock: null,
-    target: 'dir',
-    plan: plan(H1),
-    status: 'missing',
-    actual: H1,
-    message: '无法核对',
-  },
-  {
-    name: '锁的计划快照与当前计划一致',
-    lock: lock({ plan: snapshot(H1) }),
-    target: 'dir',
-    plan: plan(H1),
-    status: 'ok',
-    expected: H1,
-    actual: H1,
-    message: '一致',
-  },
-  {
-    name: '清单在锁定后被改过',
-    lock: lock({ plan: snapshot(H1) }),
-    target: 'dir',
-    plan: plan(H2),
-    status: 'mismatch',
-    expected: H1,
-    actual: H2,
-    message: '清单在锁定后被改过，确认来源后加 --allow-stale-lock 才装',
-  },
-  {
-    name: '旧锁没有计划快照，无法核对',
-    lock: lock({ mainHash: H1 }),
-    target: 'dir',
-    plan: plan(H2),
-    status: 'no-lock-plan',
-    actual: H2,
-    message: '锁里没有 dir 的计划快照',
-  },
-  {
-    name: '多 target 锁优先用 plans[target]，不用主计划',
-    lock: lock({ plan: snapshot(H1, 'dir'), plans: { dir: snapshot(H1, 'dir'), dsh: snapshot(H2, 'dsh') } }),
-    target: 'dsh',
-    plan: plan(H2, 'dsh'),
-    status: 'ok',
-    expected: H2,
-    actual: H2,
-    message: '一致',
-  },
-  {
-    name: '旧锁只有 dir 主计划，核 dsh 不拿它当基准',
-    lock: lock({ plan: snapshot(H1, 'dir') }),
-    target: 'dsh',
-    plan: plan(H1, 'dsh'),
-    status: 'no-lock-plan',
-    actual: H1,
-    message: '锁里没有 dsh 的计划快照，只有 dir 的',
-  },
-  {
-    name: '锁有计划快照但当前清单算不出计划',
-    lock: lock({ plan: snapshot(H1) }),
-    target: 'dir',
-    plan: undefined,
-    status: 'no-plan',
-    expected: H1,
-    message: '算不出 dir 的计划',
-  },
-  {
-    name: 'plans[target] 命中但算不出计划',
-    lock: lock({ plans: { dsh: snapshot(H2, 'dsh') } }),
-    target: 'dsh',
-    plan: undefined,
-    status: 'no-plan',
-    expected: H2,
-    message: '算不出 dsh 的计划',
+    id: 'guide',
+    type: 'knowledge',
+    source: './guide.md',
+    integrity: null,
+    resolvedAt: '2026-01-01T00:00:00.000Z',
   },
 ];
 
-describe('锁 ↔ 计划一致性（纯判定）', () => {
-  it.each(CASES)('$name', (c) => {
-    const result = checkLockConsistency(c.lock, c.target, c.plan);
-    expect(result.status).toBe(c.status);
-    if (c.expected === undefined) expect(result.expected).toBeUndefined();
-    else expect(result.expected).toBe(c.expected);
-    if (c.actual === undefined) expect(result.actual).toBeUndefined();
-    else expect(result.actual).toBe(c.actual);
-    expect(result.message).toContain(c.message);
+function lock(over: Partial<LockFile> = {}): LockFile {
+  return {
+    apiVersion: 'packhub.dev/lock/v0',
+    pack: 'demo/consistency@0.0.1',
+    resolved: RESOLVED,
+    contentHash: contentHashOf(MANIFEST, RESOLVED),
+    generatedBy: 'packhub/0.0.1',
+    ...over,
+  };
+}
+
+describe('锁 ↔ 清单一致性（纯判定，比 contentHash）', () => {
+  it('没有锁（undefined / null）→ missing', () => {
+    expect(checkLockConsistency(undefined, MANIFEST).status).toBe('missing');
+    expect(checkLockConsistency(null, MANIFEST).status).toBe('missing');
   });
 
-  it('回落失败时只说「锁里没有这个 target 的快照」，不说清单被改过', () => {
-    const result = checkLockConsistency(
-      lock({ plan: snapshot(H1, 'dir') }),
-      'dsh',
-      plan(H1, 'dsh'),
-    );
-    expect(result.status).toBe('no-lock-plan');
-    expect(result.message).toContain('只有 dir 的');
-    expect(result.message).not.toContain('清单在锁定后被改过');
-    expect(result.message).not.toContain('--allow-stale-lock');
+  it('按清单 + 锁的 resolved 重算一致 → ok', () => {
+    const check = checkLockConsistency(lock(), MANIFEST);
+    expect(check.status).toBe('ok');
+    expect(check.expected).toBe(contentHashOf(MANIFEST, RESOLVED));
+    expect(check.actual).toBe(check.expected);
   });
 
-  it('只有同一 target 的主计划才回落，哈希对不上照样判 mismatch', () => {
-    const result = checkLockConsistency(lock({ plan: snapshot(H1, 'dir') }), 'dir', plan(H2, 'dir'));
-    expect(result.status).toBe('mismatch');
-    expect(result.expected).toBe(H1);
-    expect(result.actual).toBe(H2);
+  it('清单在锁定后被改过 → mismatch，expected 取锁里的、actual 取重算的', () => {
+    const changed: Manifest = {
+      ...MANIFEST,
+      resources: [{ id: 'guide', type: 'knowledge', source: './guide-v2.md' }],
+    };
+    const check = checkLockConsistency(lock(), changed);
+    expect(check.status).toBe('mismatch');
+    expect(check.expected).toBe(contentHashOf(MANIFEST, RESOLVED));
+    expect(check.actual).toBe(contentHashOf(changed, RESOLVED));
+    expect(check.message).toContain('清单在锁定后被改过');
+  });
+
+  it('锁里的 resolved 被改过 → mismatch（引用属于内容）', () => {
+    const tampered = lock({
+      resolved: [{ ...RESOLVED[0]!, source: 'github:demo/guide@0000000' }],
+    });
+    expect(checkLockConsistency(tampered, MANIFEST).status).toBe('mismatch');
+  });
+
+  it('旧版锁没有 contentHash → mismatch，提示重跑 lock', () => {
+    const old = { ...lock(), contentHash: undefined } as unknown as LockFile;
+    const check = checkLockConsistency(old, MANIFEST);
+    expect(check.status).toBe('mismatch');
+    expect(check.expected).toBeUndefined();
+    expect(check.message).toContain('旧格式');
   });
 });

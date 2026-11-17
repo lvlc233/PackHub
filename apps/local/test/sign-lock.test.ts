@@ -52,23 +52,23 @@ function keygen(base: string): string {
   return key;
 }
 
-describe('sign 的锁过期判断只比 dir 那份快照', () => {
-  it('多 target 锁（主 target 是 dsh，plans.dir ≠ top-level planHash）能签', () => {
+describe('sign 的锁过期判断只看内容哈希', () => {
+  it('多 target 清单照样能签（锁里没有计划快照，target 不参与）', () => {
     const base = mkdtempSync(join(tmpdir(), 'packhub-sign-lock-multi-'));
     try {
       const pack = join(base, 'pack');
       makePack(pack, 'dsh, dir');
-      expect(run(['lock', pack, '--target', 'dsh']).status).toBe(0);
+      expect(run(['lock', pack]).status).toBe(0);
 
       const lock = JSON.parse(readFileSync(join(pack, 'packhub.lock.json'), 'utf8')) as {
-        planHash: string;
-        plan?: { target?: string };
-        plans?: Record<string, { planHash: string }>;
+        contentHash?: string;
+        plan?: unknown;
+        plans?: unknown;
       };
-      // 构造的就是「主 target 不是 dir」：旧实现拿 top-level planHash 和 dir 计划比，会误拒签
-      expect(lock.plan?.target).toBe('dsh');
-      expect(lock.plans?.dir?.planHash).toBeTruthy();
-      expect(lock.plans!.dir!.planHash).not.toBe(lock.planHash);
+      // 锁只描述内容：没有 plan / plans，签的是 contentHash
+      expect(lock.contentHash).toMatch(/^sha256-/);
+      expect(lock.plan).toBeUndefined();
+      expect(lock.plans).toBeUndefined();
 
       const signed = run(['sign', pack, '--key', keygen(base)]);
       expect(signed.status).toBe(0);
@@ -79,13 +79,13 @@ describe('sign 的锁过期判断只比 dir 那份快照', () => {
     }
   });
 
-  it('锁确实过期（plans.dir 与当前 dir 计划不同）仍拒签，且不写签名文件', () => {
+  it('锁确实过期（contentHash 与当前清单不同）仍拒签，且不写签名文件', () => {
     const base = mkdtempSync(join(tmpdir(), 'packhub-sign-lock-stale-'));
     try {
       const pack = join(base, 'pack');
       makePack(pack);
       expect(run(['lock', pack]).status).toBe(0);
-      // 锁之后再改清单：dir 计划变了，锁里的 dir 快照过期
+      // 锁之后再改清单：contentHash 变了，锁过期
       writeFileSync(
         join(pack, 'packhub.yaml'),
         manifest('dir', '  - id: more\n    type: knowledge\n    source: ./more.md\n'),
@@ -94,7 +94,7 @@ describe('sign 的锁过期判断只比 dir 那份快照', () => {
 
       const denied = run(['sign', pack, '--key', keygen(base)]);
       expect(denied.status).toBe(2);
-      expect(denied.stderr).toContain('锁里的计划快照和当前清单对不上：先跑 packhub lock 再签');
+      expect(denied.stderr).toContain('锁与当前清单对不上：先跑 packhub lock 再签');
       expect(existsSync(join(pack, 'packhub.signatures.json'))).toBe(false);
     } finally {
       rmSync(base, { recursive: true, force: true });

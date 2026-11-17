@@ -2,7 +2,6 @@ export { buildIndex, writeIndex, type BuildResult, type RegistryIndex, type Inde
 export {
   publishPack,
   stageForPr,
-  primaryTarget,
   packVersionArchive,
   type PublishOptions,
   type PublishResult,

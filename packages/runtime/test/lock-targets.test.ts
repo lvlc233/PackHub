@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadPack, planFor } from '@packhub/kernel';
-import { lockPack } from '../src/index.ts';
+import { contentHashFor, lockPack } from '../src/index.ts';
 
 const MANIFEST = `apiVersion: packhub.dev/v0
 kind: Pack
@@ -15,29 +15,30 @@ resources:
     source: ./rules.md
 `;
 
-describe('多 target 锁', () => {
-  it('每个声明的 target 各锁一份计划，主计划仍是 dir', async () => {
+describe('锁与 target 无关', () => {
+  it('锁只描述内容：不存计划快照，contentHash 不随安装 target 变', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'packhub-multilock-'));
     writeFileSync(join(dir, 'packhub.yaml'), MANIFEST, 'utf8');
     writeFileSync(join(dir, 'rules.md'), '# r\n', 'utf8');
 
     const ctx = loadPack(dir);
     const res = await lockPack(ctx, { offline: true });
-    expect(res.plan.target).toBe('dir');
-    expect(res.lock.planHash).toBe(res.plan.planHash);
-    expect(res.lock.plan?.planHash).toBe(res.plan.planHash);
-    expect(Object.keys(res.lock.plans ?? {}).sort()).toEqual(['dir', 'dsh']);
-    for (const target of ['dir', 'dsh'] as const) {
-      expect(res.lock.plans?.[target]?.planHash).toBe(
-        planFor(ctx, { target }).plan!.planHash,
-      );
-    }
-    // dsh 会多写 AGENTS.md 托管块，因此哈希与 dir 不同
-    expect(res.lock.plans?.dsh?.planHash).not.toBe(res.lock.plans?.dir?.planHash);
+    expect(res.lock.contentHash).toMatch(/^sha256-/);
+    expect('plan' in res.lock).toBe(false);
+    expect('plans' in res.lock).toBe(false);
+
+    // 同一份内容重算一次：resolvedAt 不进哈希，contentHash 必须稳定
+    const again = await lockPack(loadPack(dir), { offline: true });
+    expect(again.lock.contentHash).toBe(res.lock.contentHash);
+
+    // 装到不同 target 现算的计划不同，但这些计划不进锁
+    expect(planFor(ctx, { target: 'dir' }).plan!.planHash).not.toBe(
+      planFor(ctx, { target: 'dsh' }).plan!.planHash,
+    );
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('清单在 lock 后改动时，对应 target 的计划哈希就变', async () => {
+  it('清单在 lock 后改动：按锁的 resolved 重算的 contentHash 与锁里记的不同', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'packhub-multilock-'));
     writeFileSync(join(dir, 'packhub.yaml'), MANIFEST, 'utf8');
     writeFileSync(join(dir, 'rules.md'), '# r\n', 'utf8');
@@ -52,9 +53,8 @@ describe('多 target 锁', () => {
       ),
       'utf8',
     );
-    const changed = planFor(loadPack(dir), { target: 'dsh' }).plan!;
-    expect(changed.planHash).not.toBe(locked.lock.plans?.dsh?.planHash);
-    expect(changed.planHash).not.toBe(locked.lock.plans?.dir?.planHash);
+    // 判据与 registry 门禁 / checkLockConsistency 同一口径
+    expect(contentHashFor(loadPack(dir).manifest!, locked.lock)).not.toBe(locked.lock.contentHash);
     rmSync(dir, { recursive: true, force: true });
   });
 });

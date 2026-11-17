@@ -28,22 +28,22 @@ describe('diffActions', () => {
   });
 });
 
-describe('lock 里的计划快照', () => {
-  it('包含动作、校验与被排除的候选', () => {
+describe('锁里没有计划快照', () => {
+  it('锁只记内容哈希，动作要靠安装期现算的计划', () => {
     const ctx = loadPack(EXAMPLE);
     const { plan } = planFor(ctx);
-    const lock = buildLock(ctx.manifest, plan!);
-    expect(lock.plan?.actions).toHaveLength(plan!.actions.length);
-    expect(lock.plan?.excluded).toEqual([]);
-    expect(lock.planHash).toBe(plan!.planHash);
+    const lock = buildLock(ctx.manifest);
+    expect(lock.contentHash).toMatch(/^sha256-/);
+    expect(lock.contentHash).not.toBe(plan!.planHash);
+    expect('plan' in lock).toBe(false);
+    expect('plans' in lock).toBe(false);
   });
 
   it('锁能序列化回来（写文件后读回不丢字段）', () => {
     const ctx = loadPack(EXAMPLE);
-    const { plan } = planFor(ctx);
-    const lock = buildLock(ctx.manifest, plan!);
+    const lock = buildLock(ctx.manifest);
     const roundtrip = JSON.parse(JSON.stringify(lock)) as typeof lock;
-    expect(roundtrip.plan?.actions).toHaveLength(plan!.actions.length);
-    expect(roundtrip.planHash).toBe(plan!.planHash);
+    expect(roundtrip.contentHash).toBe(lock.contentHash);
+    expect(roundtrip.resolved).toEqual(lock.resolved);
   });
 });

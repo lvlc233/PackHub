@@ -67,6 +67,7 @@ buildPlan
 canonicalize
 checkLockConsistency
 checkSource
+contentHashOf
 deepMerge
 describeAction
 diffActions

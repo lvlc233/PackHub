@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildLock, loadPack, planFor } from '@packhub/kernel';
+import { buildLock, loadPack } from '@packhub/kernel';
 import { packArchive } from '@packhub/runtime';
 
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url));
@@ -560,7 +560,7 @@ resources:
     const ctx = loadPack(src);
     writeFileSync(
       join(src, 'packhub.lock.json'),
-      JSON.stringify(buildLock(ctx.manifest!, planFor(ctx).plan!), null, 2),
+      JSON.stringify(buildLock(ctx.manifest!), null, 2),
       'utf8',
     );
     // 锁生成后再往清单里加一个资源：锁与计划就对不上了

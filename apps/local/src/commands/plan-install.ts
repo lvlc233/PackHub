@@ -24,6 +24,7 @@ import {
   verifyInstalled,
   loadLock,
   withLockPins,
+  loadState,
   lockPack,
   appendAudit,
 } from '@packhub/runtime';
@@ -170,35 +171,28 @@ export const verify = command({
 });
 
 export const lock = command({
-  meta: { name: 'lock', description: '解析引用（npm/github/https/pypi）并生成 packhub.lock.json（每个已声明 target 一份计划）' },
+  meta: { name: 'lock', description: '解析引用（npm/github/https/pypi）并生成 packhub.lock.json（只记引用与完整性）' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
-    target: { type: 'string', default: 'dir', description: `主 target（${TARGET_IDS.join(' | ')}）；其余声明过的 target 也会锁` },
     offline: { type: 'boolean', default: false, description: '不联网：只解析本地引用，其余原样写进锁并给 warning' },
-    json: { type: 'boolean', default: false, description: '输出锁与 planHash（脚本用）' },
+    json: { type: 'boolean', default: false, description: '输出锁与 contentHash（脚本用）' },
   },
   async run({ args }) {
     const dir = resolve(String(args.dir));
     const ctx = loadPack(dir);
     if (reportIssues(ctx.issues)) stop(EXIT.USAGE);
     const res = await lockPack(ctx, {
-      target: String(args.target ?? 'dir') as never,
       offline: Boolean(args.offline),
     });
     const out = join(ctx.dir, 'packhub.lock.json');
     writeFileSync(out, JSON.stringify(res.lock, null, 2) + '\n', 'utf8');
-    const hashes = Object.fromEntries(
-      Object.entries(res.plans).map(([target, plan]) => [target, plan?.planHash]),
-    );
     if (args.json) {
-      json({ out, lock: res.lock, planHash: res.plan.planHash, plans: hashes, warnings: res.warnings });
+      json({ out, lock: res.lock, contentHash: res.lock.contentHash, warnings: res.warnings });
     } else {
       for (const w of res.warnings) warn(w);
       const withHash = res.lock.resolved.filter((r) => r.integrity).length;
       say(`written ${out}`);
-      for (const [target, hash] of Object.entries(hashes)) {
-        say(`planHash ${String(hash).slice(0, 26)}…  ${target}`);
-      }
+      say(`contentHash ${res.lock.contentHash.slice(0, 26)}…`);
       say(`${res.lock.resolved.length} 个引用，${withHash} 个带 integrity`);
     }
   },
@@ -388,15 +382,14 @@ export const uninstall = command({
 });
 
 export const diff = command({
-  meta: { name: 'diff', description: '对比锁里的计划快照与当前计划' },
+  meta: { name: 'diff', description: '对比已安装的计划快照与当前清单现算的计划' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
     check: { type: 'boolean', default: false, description: '有差异就以非零码退出（CI 用）' },
-    target: { type: 'string', default: 'dir' },
+    target: { type: 'string', description: '默认沿用安装时记录的 target' },
   },
   async run({ args }) {
     const dir = resolve(String(args.dir));
-    const target = String(args.target ?? 'dir');
     const read = loadLock(dir);
     if (!read.lock) {
       if (read.problem) {
@@ -409,33 +402,44 @@ export const diff = command({
     const lock = read.lock;
     const ctx = withLockPins(loadPack(dir), lock);
     if (reportIssues(ctx.issues)) stop(EXIT.USAGE);
+    // 旧计划快照只在 state 里（锁只描述内容，不存任何 target 的计划）。
+    // 没有安装记录就直说没装——作者还没安装时想看计划应该用 packhub plan。
+    const pack = ctx.manifest.metadata.name;
+    const state = loadState(dir);
+    const key = Object.keys(state.packs).find((k) => (k.split('@')[0] ?? '') === pack);
+    const snapshot = key ? state.packs[key]?.plan : undefined;
+    if (!snapshot) {
+      problemRaw(
+        `这个包还没装：state 里没有 ${pack} 的安装计划快照（旧版安装也可能没有）；先 packhub add 装上再 diff`,
+      );
+      stop(EXIT.USAGE);
+    }
+    // 按安装时的 target 现算计划；显式 --target 可以看别的 target 会多/少什么
+    const target = String(args.target ?? snapshot.target);
     const { plan, issues } = planFor(ctx, { target: target as never });
     if (!plan) {
       reportIssues(issues, 'packhub diff');
       stop(EXIT.USAGE);
     }
-    // 多 target 锁优先用对应 target 的快照；旧锁只有一个 plan。
-    // 取快照只为拿旧动作列表（diffActions 需要它）；「锁 ↔ 清单」是否一致由 kernel 的单点判定。
-    const snapshot =
-      lock.plans?.[target as TargetId] ??
-      (lock.plan && (lock.plan.target ?? 'dir') === target ? lock.plan : undefined);
-    if (!snapshot) {
-      problemRaw(`锁里没有 ${target} 的计划快照（旧版锁，或 lock 时没声明这个 target）；重跑 packhub lock`);
-      stop(EXIT.USAGE);
-    }
-    const lockCheck = checkLockConsistency(lock, target as TargetId, plan);
-
+    // 「锁 ↔ 清单」是否一致仍走 kernel 的单点判定；它回答的是内容有没有被改过
+    const lockCheck = checkLockConsistency(lock, ctx.manifest);
     const { added, removed } = diffActions(snapshot.actions, plan.actions);
-    const unchanged = added.length === 0 && removed.length === 0 && lockCheck.status === 'ok';
-    if (unchanged) {
+    const actionsSame = added.length === 0 && removed.length === 0;
+    if (actionsSame && snapshot.planHash === plan.planHash && lockCheck.status === 'ok') {
       say('计划无变化');
       return;
     }
 
-    say(`planHash ${snapshot.planHash.slice(0, 22)}… → ${plan.planHash.slice(0, 22)}…`);
+    say(
+      `planHash ${snapshot.planHash.slice(0, 22)}… → ${plan.planHash.slice(0, 22)}…（已装 ${snapshot.target} / 现算 ${plan.target}）`,
+    );
     for (const a of removed) say(`  - ${describeAction(a)}`);
     for (const a of added) say(`  + ${describeAction(a)}`);
-    say(`\n${added.length} 条新增 / ${removed.length} 条移除；确认后重跑 packhub lock`);
+    if (actionsSame && snapshot.planHash !== plan.planHash) {
+      say('动作没变，但计划里的 verify / excluded 变了（planHash 随之变）');
+    }
+    if (lockCheck.status !== 'ok') warn(lockCheck.message);
+    say(`\n${added.length} 条新增 / ${removed.length} 条移除；锁过期就重跑 packhub lock，内容变了要重新安装`);
     if (args.check) stop(EXIT.RUNTIME);
   },
 });

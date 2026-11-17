@@ -98,7 +98,7 @@ export {
 export { auditPath, appendAudit, readAudit, type AuditEntry } from './audit.ts';
 export {
   generateKeyPair,
-  signPlan,
+  signContentHash,
   verifySignatures,
   keyIdFromPem,
   signablePayload,
@@ -167,6 +167,7 @@ export {
   inspectPack,
   loadLock,
   withLockPins,
+  contentHashFor,
   type PackInspection,
   type InspectionIssue,
 } from './consume.ts';

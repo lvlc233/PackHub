@@ -9,7 +9,6 @@ import {
   issueWarn,
   json,
   orStop,
-  problem,
   problemRaw,
   say,
   sayUnless,
@@ -25,7 +24,6 @@ import {
   validateGraph,
   checkLockConsistency,
   TARGET_IDS,
-  type TargetId,
 } from '@packhub/kernel';
 import {
   fetchPack,
@@ -137,24 +135,9 @@ export const add = command({
     // 清单里写的是 tag/范围也没关系：按锁把它换成本次要装的 commit/版本
     let ctx = withLockPins(rawCtx, lock);
     if (reportIssues(ctx.issues)) stop(EXIT.USAGE);
-    if (lock?.plan && String(lock.plan.target) !== targetEnv && !lock.plans?.[targetEnv as TargetId]) {
-      warn(`锁里只有 ${lock.plan.target} 的计划快照，本次安装 target 是 ${targetEnv}；目标计划没有被 planHash 校验`);
-    }
-    // 锁核对（消费端单点）：判据与文案都来自 kernel 的 checkLockConsistency。
-    // 安装 target 若在锁里有自己的计划快照，先按它核对，避免「锁住 A、装的是 B」；
-    // 再按锁自己的 target 重算一份计划，给 inspectPack（验证报告 / 签名）当基准。
-    const lockTarget = (lock?.plan?.target ?? 'dir') as TargetId;
-    if (lock?.plans?.[targetEnv as TargetId]) {
-      const forInstall = checkLockConsistency(lock, targetEnv as TargetId, planFor(ctx, { target: targetEnv as TargetId }).plan);
-      if (forInstall.status === 'mismatch' && !args['allow-stale-lock']) {
-        problem(
-          `锁里 ${targetEnv} 的计划与当前清单对不上（lock=${String(forInstall.expected).slice(0, 20)}… plan=${String(forInstall.actual).slice(0, 20)}…）；确认后加 --allow-stale-lock`,
-        );
-        stop(EXIT.USAGE);
-      }
-    }
-    const { plan: lockPlan } = planFor(ctx, { target: lockTarget });
-    const lockCheck = checkLockConsistency(lock, lockTarget, lockPlan);
+    // 锁核对（消费端单点）：锁只描述内容（清单 + resolved），判据与文案都来自 kernel 的
+    // checkLockConsistency。安装 target 不参与核对；装到哪个 target 由下面按 --target 现算。
+    const lockCheck = checkLockConsistency(lock, ctx.manifest);
     // 信任来源：显式 --trusted 文件 + 本机持久信任列表；有列表就只认列表内的公钥
     const fileKeys = args.trusted
       ? readFileSync(String(args.trusted), 'utf8').split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
@@ -165,7 +148,7 @@ export const add = command({
     });
     const trustedKeys = [...new Set([...(policy.trusted ?? []), ...fileKeys])];
     const trusted = trustedKeys.length > 0 ? trustedKeys : undefined;
-    const inspection = inspectPack(packDir, ctx.manifest, lockPlan, { ...(trusted ? { trusted } : {}) });
+    const inspection = inspectPack(packDir, ctx.manifest, { ...(trusted ? { trusted } : {}) });
     // 锁 ↔ 清单的结论只认 kernel 一处：inspectPack 里的同类比较不再重复采用，
     // 只把它自己的结论按旧行格式（严重级 + [code]）打出来；验证报告/签名等 issue 照旧。
     const lockIssues =

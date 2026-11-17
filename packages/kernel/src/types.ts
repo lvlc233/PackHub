@@ -197,7 +197,7 @@ export interface Manifest {
   state?: StateDirSpec[];
   /** 按资源做二次修改（整文件 / 一段 / 删掉 / 改参数），见 ModifySpec */
   modify?: ModifySpec[];
-  /** 对 {pack, planHash} 的 ed25519 签名 */
+  /** 对 {pack, contentHash} 的 ed25519 签名；contentHash 口径见 `lock.ts` 的 `contentHashOf` */
   signatures?: { key: string; sig: string; at?: string }[];
   install?: { exec?: ExecSpec[] };
   verify?: VerifyCheck[];
@@ -277,7 +277,7 @@ export interface Plan {
   planHash: string;
 }
 
-/** 一个 target 的计划快照：diff / update / 安装前核对都靠它。 */
+/** 一个 target 的计划快照：安装时写进 state，重算路径、算差异都靠它。 */
 export interface PlanSnapshot {
   target: TargetId;
   planHash: string;
@@ -286,17 +286,19 @@ export interface PlanSnapshot {
   excluded: Plan['excluded'];
 }
 
+/**
+ * 锁只描述「引用了什么、内容是否完整」。
+ *
+ * 安装 target 是安装期参数，计划由 `planFor(ctx, { target })` 在安装 / 校验时现算，
+ * 不进锁、不进内容层：同一份内容装到 dir 或任一宿主，锁是同一份。
+ */
 export interface LockFile {
   apiVersion: 'packhub.dev/lock/v0';
   pack: string;
   resolved: ResolvedRef[];
-  /** 主计划（`plan.target`）的哈希；老读方仍读这一个 */
-  planHash: string;
+  /** 清单 + resolved 的规范化哈希；口径写在 `lock.ts` 的 `contentHashOf` 上 */
+  contentHash: string;
   generatedBy: string;
-  /** 主计划快照：diff / update 靠它算「改了什么」 */
-  plan?: PlanSnapshot;
-  /** 每个已声明 target 的计划快照；跨 target 安装时按这里的哈希核对 */
-  plans?: Partial<Record<TargetId, PlanSnapshot>>;
 }
 
 export interface ResolvedRef {

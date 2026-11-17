@@ -3,7 +3,7 @@ import { fetchPack } from './registry.ts';
 import { loadPack, planFor, installPack, loadState, loadLock, withLockPins } from './index.ts';
 import { pruneRemoved } from './install.ts';
 import { checkLockConsistency, diffActions, describeAction } from '@packhub/kernel';
-import type { PlanSnapshot, TargetId } from '@packhub/kernel';
+import type { PlanSnapshot } from '@packhub/kernel';
 
 export interface UpdateOptions {
   name: string;
@@ -68,9 +68,9 @@ export async function updatePack(opts: UpdateOptions): Promise<UpdateResult> {
   const { plan, issues } = planFor(ctx, { target: target as never });
   if (!plan) throw new Error(`新版本生成不了计划：${issues.map((i) => i.message).join('; ')}`);
 
-  // 锁 ↔ 清单只有一个判定（kernel 的 checkLockConsistency，与 add / diff 共用）；
-  // --allow-stale-lock 仍然只在调用方显式传 true 时放行
-  const lockCheck = checkLockConsistency(read.lock, target as TargetId, plan);
+  // 锁 ↔ 清单只有一个判定（kernel 的 checkLockConsistency，与 add / diff 共用）；判据是
+  // 内容哈希，与本次安装 target 无关。--allow-stale-lock 仍然只在调用方显式传 true 时放行
+  const lockCheck = checkLockConsistency(read.lock, ctx.manifest);
   if (lockCheck.status === 'mismatch' && !opts.allowStaleLock) {
     throw new Error('新版本的锁与清单对不上（清单在锁定后被改过）；确认后用 --allow-stale-lock 继续');
   }

@@ -1,17 +1,18 @@
 // 由 cli.ts 拆分：trustAdd / trustRemove / trustList / trustRequire / trust / authSet / authList / authRemove / authRotate / auth / keygen / sign / verifySig
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { EXIT, command, json, problem, problemRaw, say, stop, warn } from '../emit.ts';
+import { EXIT, command, json, problemRaw, say, stop, warn } from '../emit.ts';
 import { credentialsPath, listTokens, removeToken, setToken } from '@packhub/runtime';
-import { loadPack, planFor, checkLockConsistency } from '@packhub/kernel';
+import { loadPack, checkLockConsistency } from '@packhub/kernel';
 import {
   readSignatures,
   writeSignature,
   generateKeyPair,
-  signPlan,
+  signContentHash,
   verifySignatures,
   loadLock,
   withLockPins,
+  contentHashFor,
   trustPath,
   readTrust,
   addTrustedKey,
@@ -161,7 +162,7 @@ export const keygen = command({
 });
 
 export const sign = command({
-  meta: { name: 'sign', description: '用私钥签这个包的计划哈希' },
+  meta: { name: 'sign', description: '用私钥签这个包的内容哈希（先有锁）' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
     key: { type: 'string', required: true, description: '私钥 PEM 路径' },
@@ -173,7 +174,7 @@ export const sign = command({
       reportIssues(loaded.issues);
       stop(EXIT.USAGE);
     }
-    // 和 install / verify 看同一份：有锁就按锁钉死的引用算计划，否则签的哈希和装的对不上
+    // 和 install / verify 看同一份：有锁就按锁钉死的引用算内容哈希，否则签的哈希和装的对不上
     const lockRead = loadLock(dir);
     if (lockRead.problem) {
       reportIssues([lockRead.problem]);
@@ -181,26 +182,25 @@ export const sign = command({
     }
     const ctx = withLockPins(loaded, lockRead.lock);
     if (reportIssues(ctx.issues)) stop(EXIT.USAGE);
-    const { plan, issues } = planFor(ctx, { target: 'dir' });
-    if (!plan) {
-      reportIssues(issues, 'packhub sign');
+    // 签名载荷是 {pack, contentHash}：必须先有锁才签得了——没有锁或锁过期时，
+    // 这里算出的内容哈希和安装时用到的不是同一份，签了也验不过。
+    const lockCheck = checkLockConsistency(lockRead.lock, ctx.manifest);
+    if (lockCheck.status === 'missing') {
+      problemRaw('这个包没有锁：先跑 packhub lock 再签，否则签的内容和安装时用的对不上');
       stop(EXIT.USAGE);
     }
-    // 签的是 dir 计划的哈希，所以「锁是否过期」要比的是 dir 那份快照：多 target 锁的
-    // top-level planHash 是主 target 的计划，拿它比会把主 target 不是 dir 的锁误判成过期。
-    // 判定走 kernel 单点；missing / no-lock-plan 不拦（没有可比的快照就按当前清单签）。
-    const lockCheck = checkLockConsistency(lockRead.lock, 'dir', plan);
     if (lockCheck.status === 'mismatch') {
-      problemRaw('锁里的计划快照和当前清单对不上：先跑 packhub lock 再签，否则签的是一个装不上去的哈希');
+      problemRaw('锁与当前清单对不上：先跑 packhub lock 再签，否则签的是一个装不上去的内容哈希');
       stop(EXIT.USAGE);
     }
+    const contentHash = lockCheck.actual!;
     const pack = `${ctx.manifest.metadata.name}@${ctx.manifest.metadata.version}`;
     const pem = readFileSync(String(args.key), 'utf8');
-    const signature = signPlan(pem, pack, plan.planHash);
+    const signature = signContentHash(pem, pack, contentHash);
     writeSignature(dir, signature);
     say(`✓ 已签名 ${pack}`);
     say(`  公钥 id：${signature.key}`);
-    say(`  planHash：${plan.planHash.slice(0, 22)}…`);
+    say(`  contentHash：${contentHash.slice(0, 22)}…`);
   },
 });
 
@@ -226,11 +226,8 @@ export const verifySig = command({
       }
       const ctx = withLockPins(loaded, lockRead.lock);
       if (reportIssues(ctx.issues)) stop(EXIT.USAGE);
-      const { plan, issues } = planFor(ctx, { target: 'dir' });
-      if (!plan) {
-        reportIssues(issues, 'packhub verify-sig');
-        stop(EXIT.USAGE);
-      }
+      // 签名覆盖的是内容哈希：有锁按锁的 resolved 归一清单算，没锁按清单自身引用算
+      const contentHash = contentHashFor(ctx.manifest, lockRead.lock);
       const sigs = [...readSignatures(dir), ...(ctx.manifest.signatures ?? [])];
       if (sigs.length === 0) {
         if (args.json) json({ ok: false, error: '这个包没有签名', signatures: [] });
@@ -238,7 +235,7 @@ export const verifySig = command({
         stop(EXIT.RUNTIME);
       }
       const pack = `${ctx.manifest.metadata.name}@${ctx.manifest.metadata.version}`;
-      const results = verifySignatures(sigs, pack, plan.planHash);
+      const results = verifySignatures(sigs, pack, contentHash);
 
       const trustedFile = args.trusted ? String(args.trusted) : undefined;
       const trusted = trustedFile
@@ -251,7 +248,7 @@ export const verifySig = command({
       });
       const good = rows.filter((r) => r.accepted).length;
       if (args.json) {
-        json({ ok: good > 0, planHash: plan.planHash, signatures: rows });
+        json({ ok: good > 0, contentHash, signatures: rows });
       } else {
         for (const r of rows) {
           say(

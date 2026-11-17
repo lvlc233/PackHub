@@ -137,14 +137,13 @@ ${extra}`;
     writeFileSync(join(dir, 'rules.md'), '# rules\n', 'utf8');
 
     const ctx = loadPack(dir);
-    const { plan } = planFor(ctx);
     writeFileSync(
       join(dir, 'packhub.lock.json'),
-      JSON.stringify(buildLock(ctx.manifest!, plan!), null, 2),
+      JSON.stringify(buildLock(ctx.manifest!), null, 2),
       'utf8',
     );
 
-    // 锁定之后再加一个资源：锁里的 planHash 与当前清单对不上
+    // 锁定之后再加一个资源：锁的 contentHash 与当前清单对不上
     writeFileSync(
       join(dir, 'packhub.yaml'),
       manifest('  - id: extra\n    type: knowledge\n    source: ./extra.md\n'),

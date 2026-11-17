@@ -1,25 +1,52 @@
 import pkg from '../../../package.json' with { type: 'json' };
-import type { LockFile, Manifest, Plan, PlanSnapshot, ResolvedRef } from './types.ts';
+import type { LockFile, Manifest, ResolvedRef } from './types.ts';
+import { canonicalize, sha256 } from './util.ts';
 
 export interface LockOptions {
   resolvedAt?: string;
   /** 解析后的引用（pin 到 commit / 版本 / sha256）；缺省时按清单原样记录 */
   resolved?: { id: string; source: string; integrity: string | null }[];
-  /** 已声明 target 的计划；不传就只锁主计划 */
-  plans?: Plan[];
 }
 
-function snapshot(plan: Plan): PlanSnapshot {
-  return {
-    target: plan.target,
-    planHash: plan.planHash,
-    actions: plan.actions,
-    verify: plan.verify,
-    excluded: plan.excluded,
-  };
+/**
+ * contentHash 的规范化口径（唯一来源：lock 写端与所有校验端都调它，别各算一份）。
+ *
+ * - 只哈希两样东西：**清单 + `resolved` 引用**。安装 target、计划、平台一律不进哈希：
+ *   同一份内容装到 dir / dsh / claude-code / codex 上算出的 contentHash 相同——
+ *   装哪个 target 是安装期参数，不是内容。
+ * - 清单先去掉 `signatures`：签名本身不是内容，而且签名载荷就是这个哈希，含进来会自指。
+ * - 清单里的资源来源先按 `resolved` 归一（有解析结果就用 pin 过的 source / integrity，
+ *   与 `withLockPins` 同口径）：于是「作者清单 + 锁」和「pin 过的清单 + 锁」算出同一个哈希，
+ *   校验端传哪一份都对；被 pin 覆盖掉的声明来源（tag / range）本身不算内容，真正的引用在 resolved 里。
+ * - `resolved` 每项只取 `{id, type, source, integrity}`，**丢掉 `resolvedAt`**：
+ *   那是生成时刻，不是内容；否则同一份内容重跑一次 lock 就换一个哈希。
+ * - `resolved` 按 `id` 升序排列：锁里条目的顺序不改变「钉住了什么」。
+ * - 序列化用 `canonicalize`（递归键排序、丢弃 undefined），sha256 取 utf8 明文，
+ *   写成 `sha256-<base64>`，与仓库里其它哈希同形。
+ */
+export function contentHashOf(manifest: Manifest, resolved: readonly ResolvedRef[]): string {
+  const { signatures: _signatures, ...content } = manifest;
+  const refs = resolved
+    .map(({ id, type, source, integrity }) => ({ id, type, source, integrity }))
+    .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const byId = new Map(refs.map((r) => [r.id, r]));
+  const resources = content.resources.map((res) => {
+    const hit = byId.get(res.id);
+    return hit
+      ? { ...res, source: hit.source, ...(hit.integrity ? { integrity: hit.integrity } : {}) }
+      : res;
+  });
+  return sha256(canonicalize({ manifest: { ...content, resources }, resolved: refs }));
 }
 
-export function buildLock(manifest: Manifest, plan: Plan, opts: LockOptions = {}): LockFile {
+/**
+ * 生成锁：只记录引用与完整性，不含任何 target 的计划。
+ *
+ * 装到哪个 target、计划长什么样，都由调用方在安装期用 `planFor(ctx, { target })` 现算。
+ * `manifest` 与 `resolved` 一起进 contentHash；来源是否已被 pin 过不影响结果（见 `contentHashOf`），
+ * 但 `pack` / `resolved` 的 id 与类型取自传入的这份清单。
+ */
+export function buildLock(manifest: Manifest, opts: LockOptions = {}): LockFile {
   const resolvedAt = opts.resolvedAt ?? new Date().toISOString();
   const byId = new Map((opts.resolved ?? []).map((r) => [r.id, r]));
 
@@ -36,18 +63,11 @@ export function buildLock(manifest: Manifest, plan: Plan, opts: LockOptions = {}
     };
   });
 
-  const all = [plan, ...(opts.plans ?? []).filter((p) => p.target !== plan.target)];
-  const plans: Partial<Record<Plan['target'], PlanSnapshot>> = {};
-  for (const p of all) plans[p.target] = snapshot(p);
-
   return {
     apiVersion: 'packhub.dev/lock/v0',
     pack: `${manifest.metadata.name}@${manifest.metadata.version}`,
     resolved,
-    planHash: plan.planHash,
+    contentHash: contentHashOf(manifest, resolved),
     generatedBy: `packhub/${pkg.version}`,
-    // 计划快照：没有它就算不出「改了什么」，diff / update 都靠这一份
-    plan: snapshot(plan),
-    ...(Object.keys(plans).length > 1 ? { plans } : {}),
   };
 }

@@ -192,27 +192,37 @@ describe('publish', () => {
     rmSync(reg, { recursive: true, force: true });
   });
 
-  it('多 target：锁覆盖全部声明的 target，归档从版本目录打（锁与报告同一份）', async () => {
+  it('多 target：锁只描述内容，归档从版本目录打（锁与报告同一内容）', async () => {
     const pack = makePack({ targets: ['dir', 'dsh', 'claude-code'] });
     const reg = registry();
     const res = await publishPack(pack, { registry: reg });
 
     const lock = JSON.parse(readFileSync(join(res.dir, 'packhub.lock.json'), 'utf8')) as {
-      planHash: string;
-      plans?: Record<string, { target: string; planHash: string }>;
+      contentHash: string;
+      plan?: unknown;
+      plans?: unknown;
     };
-    expect(Object.keys(lock.plans ?? {}).sort()).toEqual(['claude-code', 'dir', 'dsh']);
-    expect(lock.plans!.dir!.planHash).toBe(lock.planHash);
+    // 锁里没有 target 的计划快照：装到哪个 target 由安装期现算
+    expect('plan' in lock).toBe(false);
+    expect('plans' in lock).toBe(false);
+
+    // verify 报告与锁绑定同一份内容
+    const report = JSON.parse(readFileSync(join(res.dir, 'verify.json'), 'utf8')) as {
+      ok?: boolean;
+      contentHash?: string;
+    };
+    expect(report.ok).toBe(true);
+    expect(report.contentHash).toBe(lock.contentHash);
 
     // 归档里的锁 / 报告就是版本目录那一份（不是从包源目录打的旧锁）
     const unpacked = mkdtempSync(join(tmpdir(), 'packhub-pub-unpack-'));
     await unpackArchive(join(reg, 'packs/demo/published/0.1.0.phub'), unpacked);
     const archivedLock = JSON.parse(readFileSync(join(unpacked, 'packhub.lock.json'), 'utf8')) as {
-      planHash: string;
-      plans?: Record<string, { target: string; planHash: string }>;
+      contentHash: string;
+      plans?: unknown;
     };
-    expect(archivedLock.planHash).toBe(lock.planHash);
-    expect(Object.keys(archivedLock.plans ?? {}).sort()).toEqual(['claude-code', 'dir', 'dsh']);
+    expect(archivedLock.contentHash).toBe(lock.contentHash);
+    expect(archivedLock.plans).toBeUndefined();
     expect(existsSync(join(unpacked, 'verify.json'))).toBe(true);
 
     expect(withCI(undefined, () => buildIndex(reg)).errors).toEqual([]);
@@ -221,18 +231,18 @@ describe('publish', () => {
     rmSync(unpacked, { recursive: true, force: true });
   });
 
-  it('清单声明了 target 但锁里没有快照：索引门禁报错（不再 continue 放过）', async () => {
+  it('旧口径的锁（没有 contentHash）：索引门禁报错，提示重锁', async () => {
     const pack = makePack({ targets: ['dir', 'dsh'] });
     const reg = registry();
     const res = await publishPack(pack, { registry: reg });
 
     const lockPath = join(res.dir, 'packhub.lock.json');
-    const lock = JSON.parse(readFileSync(lockPath, 'utf8')) as { plans?: unknown };
-    delete lock.plans;
+    const lock = JSON.parse(readFileSync(lockPath, 'utf8')) as Record<string, unknown>;
+    delete lock.contentHash;
     writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
 
     const errors = buildIndex(reg).errors.join('\n');
-    expect(errors).toContain('锁里没有 dsh 的计划快照');
+    expect(errors).toContain('锁是旧口径（没有 contentHash）');
     rmSync(pack, { recursive: true, force: true });
     rmSync(reg, { recursive: true, force: true });
   });
@@ -255,7 +265,7 @@ describe('publish', () => {
     rmSync(staged, { recursive: true, force: true });
   });
 
-  it('归档里的锁与版本目录不一致：索引门禁报错（比 planHash，不比字节）', async () => {
+  it('归档里的锁与版本目录不一致：索引门禁报错（比 contentHash，不比字节）', async () => {
     const pack = makePack();
     const reg = registry();
     const res = await publishPack(pack, { registry: reg });
@@ -263,9 +273,9 @@ describe('publish', () => {
     const staged = mkdtempSync(join(tmpdir(), 'packhub-pub-stage-'));
     cpSync(res.dir, staged, { recursive: true });
     const stagedLock = JSON.parse(readFileSync(join(staged, 'packhub.lock.json'), 'utf8')) as {
-      planHash?: string;
+      contentHash?: string;
     };
-    stagedLock.planHash = 'sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
+    stagedLock.contentHash = 'sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
     writeFileSync(join(staged, 'packhub.lock.json'), `${JSON.stringify(stagedLock, null, 2)}\n`, 'utf8');
     await packArchive(staged, { vendored: true, out: join(reg, 'packs/demo/published/0.1.0.phub') });
 

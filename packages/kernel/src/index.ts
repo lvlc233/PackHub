@@ -18,7 +18,7 @@ export { loadManifest, parseManifest, PACK_NAME_PATTERN, type LoadResult } from 
 export { validateGraph, type Graph } from './graph.ts';
 export { buildPlan, buildMcpSpec, type PlanOptions } from './plan.ts';
 export { DIR_TARGET_VARS, TARGET_VARS, type TargetVars } from './targets.ts';
-export { buildLock } from './lock.ts';
+export { buildLock, contentHashOf } from './lock.ts';
 export {
   PLAN_OPS,
   CODEX_SKILL_YAML,

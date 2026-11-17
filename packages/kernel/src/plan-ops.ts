@@ -192,7 +192,7 @@ export const PLAN_OPS: Record<PlanOpName, PlanOpSpec> = {
 
 /**
  * 算路径只需要计划的两个字段：target（派生输出随宿主变化）与 actions。
- * 用它而不是整个 `Plan`，锁快照（`PlanSnapshot`）与 state 里存过的计划都能直接传进来。
+ * 用它而不是整个 `Plan`，state 里存过的计划快照（`PlanSnapshot`）能直接传进来。
  */
 export type PlanShape = Pick<Plan, 'target' | 'actions'>;
 
