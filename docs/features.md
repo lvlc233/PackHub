@@ -74,7 +74,7 @@ review: 任何行为变更的提交
 | REF-09 | `packhub://` 跨包引用 | v0 已移除：解析器遇到未知 scheme 直接报错，代码里无实现 | [na] | `ref.ts`；移除提交 `095de32` |
 | REF-10 | 缓存与 GC | `cache ls` 标引用、`cache clean` 只删没被引用项并支持 dry-run。引用只认 state 里的计划快照——没有 `plan` 的旧 state 会被当成无引用 | [done] | `packages/runtime/src/cache.ts`、`cache.test.ts` |
 | REF-11 | 代理 | 下载与索引请求走 `HTTPS_PROXY` / `https_proxy` / `HTTP_PROXY`；代理设成进程级 dispatcher，运行中改环境变量不再生效。没有代理用例 | [done] | `download.ts` 的 `ensureProxy`、`packages/runtime/src/registry.ts` |
-| REF-12 | 锁过期检测 | `add` 先比本次 target 的快照（`lock.plans[target]`），再由 `inspectPack` 用锁自己 target 的计划比顶层 `planHash`（锁里没有本次 target 的快照时只警告「目标计划没有被 planHash 校验」）；`update` 取 `lock.plans[target] ?? 锁顶层 plan` 比对；不一致都是硬错误（`--allow-stale-lock` 放行）；`diff` 比快照与当前计划，`--check` 非零退出 | [done] | `consume.ts`、`cli.ts`、`packages/runtime/src/update.ts`、`consume.test.ts` |
+| REF-12 | 锁过期检测 | kernel 侧已建单点 `checkLockConsistency`：权威快照口径 `lock.plans?.[target] ?? lock.plan`，结论分 ok / mismatch / missing / no-plan / no-lock-plan。**消费点还没接上**：`add` 仍自己比本次 target 的快照 + 由 `inspectPack` 比顶层 `planHash`（缺本次 target 快照时只警告），`update` 仍自己取 `lock.plans[target] ?? 锁顶层 plan`。不一致都是硬错误（`--allow-stale-lock` 放行）；`diff` 比快照与当前计划，`--check` 非零退出 | [done] | `packages/kernel/src/lockConsistency.ts`、`lock-consistency.test.ts`、`consume.ts`、`cli.ts`、`packages/runtime/src/update.ts`、`consume.test.ts` |
 | REF-13 | 消费端一次性核对 | `inspectPack` 一次核锁、`verify.json`、签名信任，产出 `lock-mismatch` / `lock-without-plan` / `verify-not-ok` / `signature-invalid` / `signature-untrusted` 等 issue；安装时 error 级直接拦 | [done] | `consume.ts`、`consume.test.ts` |
 | REF-14 | 未 pin 清单的自愈降级 | `lock` 不因未 pin 直接失败：解析成功就把 source + integrity 写回再生成计划；解析失败原样保留 + warning、integrity 写 `null` | [done] | `resolve.ts`、`resolve.test.ts` |
 | REF-15 | `.phub` 与 `git+https` 来源 | `add` 除 registry 名外接受本地 `.phub` 与 `git+https://` 仓库（GitHub codeload / GitLab archive 端点）。`git+https` 不带 integrity 校验 | [done] | `packages/runtime/src/source.ts`、`cli.ts` |
@@ -122,6 +122,7 @@ review: 任何行为变更的提交
 | INS-15 | 状态目录生命周期 | 卸载默认 `kept`；`retain: remove` 才删；升级换版本数据不动；`doctor` 报 `stateMissing` | [done] | `state.test.ts`、`doctor.ts` |
 | INS-16 | 覆盖前备份 | 合并配置前把旧内容备份进 `.packhub/backups/`；正常路径靠 undo，不读备份，备份也不自动清理 | [done] | `install.ts` |
 | INS-17 | activate 的边界 | 切换在安装锁里执行；失败时文件按快照恢复，state 与 `active.json` 也退回原内容（回退失败会连原错误一起报出来）；旧版本产物由 `deactivatePlan` 清掉，仍被新计划产出的保留；失败注入靠 Windows 的 rename 语义，这条用例只在 win32 跑；`fetch` 落点的清理没有单独用例 | [done] | `install.ts` 的 `activatePack` / `restoreText`、`deactivatePlan`、`versions.test.ts` |
+| INS-18 | 计划产物路径单点（含 fetch） | `planPaths(plan)` 是「一份计划会写到安装根的哪些路径」的唯一口径：`fetch` 的 `dest` 算写入（下载物进缓存），`link.exec` 的 `.cmd`、`register.mcp` 的配置落点、`instruction` 的指令文件也算；`exec` / `state.dir` 不算。快照、版本镜像、所有权冲突、升级清理、缓存回收五处共用。语义变化：fetch 的下载物现在会进失败回滚快照与版本镜像，所有权冲突也把缓存归档算进去。只有单测，端到端用例还没补 | [done] | `packages/runtime/src/install.ts` 的 `planPaths`、`packages/runtime/src/cache.ts`、`packages/runtime/test/plan-paths.test.ts` |
 
 ## 5 VER ｜校验与门禁
 
@@ -171,6 +172,7 @@ review: 任何行为变更的提交
 | REG-19 | 审核流转 | `--require-review` 时上传进 `.market/staging/`；批准才 rename 进 registry，索引失败移回；拒绝只删这一版与它的归档 | [parked] | `market/server.ts`、`market.test.ts` |
 | REG-20 | 归档重建与资源目录 | `registry:pack` 从版本目录重建 `.phub`；`resources.json` 供 `discover` 检索 | [done] | `scripts/registry/build-archives.mjs`、`catalog.ts` |
 | REG-21 | 市场读接口 | `/api/search`（带下载量 / 趋势 / 均分）、`/api/packs`（清单、锁、报告、readme、changelog）、`/download`、`/api/me`、内联 `/admin` | [parked] | `market/server.ts`、`market.test.ts` |
+| REG-22 | 0.0.x 原地重锁迁移 | e039d59 删 `merge.config` 后，已发布版本的锁与当前计划对不上：重锁前 `registry:check` 报 doc-review 的 dsh / claude-code 计划快照不一致、team-conventions 锁过期。2026-11-17 对 doc-review@0.1.0 与 team-conventions@0.0.2 做过一次**显式原地重锁迁移**（按版本目录重算锁 → 重跑 runner → 重打归档 → 重建索引），迁移后「版本目录不可变」门禁恢复生效；team-conventions 的 config 落点由 `merge.config .packhub/config.json` 变成 `write .packhub/config/editorconfig.yaml`，来自 e039d59，不是本次重构引入。remote-demo@0.0.1 本机无法重验，未动。0.0.x / 格式 v0 无兼容承诺，迁移的目的是让「已发布数据」与「能装它的代码」重新对齐 | [done] | `scripts/registry/relock-all.mjs`、`registry/packs/lvlc233/team-conventions/0.0.2/packhub.lock.json`、`registry/packs/lvlc233/doc-review/0.1.0/packhub.lock.json` |
 
 ## 7 HUB ｜只读发布端
 
@@ -189,7 +191,7 @@ review: 任何行为变更的提交
 | HUB-11 | 账号 / 组织 | 市场账号即 scope，没有组织模型（已冻结） | [na] | 并入 REG-18 |
 | HUB-12 | 搜索 / 统计 | `/api/search`、`/api/admin/queue` 都在市场进程里，不在 Hub（已冻结） | [na] | 并入 REG-21 |
 | HUB-13 | 条件请求 | JSON 带 ETag / Cache-Control，`If-None-Match` 命中回 304 | [done] | `hub/server.ts`、`server.test.ts` |
-| HUB-14 | 请求体上限 | 边读边累加，累计超过 1 MB 才抛错，由顶层 catch 把「超过 1 MB」映射成 413；不预读 `Content-Length`，所以超限前读到的分片已经进内存（上限常量在 `readBody` 里） | [done] | `packages/hub/src/server.ts` 的 `readBody` 与顶层 catch、`server.test.ts` |
+| HUB-14 | 请求体上限 | 边读边累加，累计超过 1 MB（`readBody` 里的上限常量）才中断并返回 413；不预读 `Content-Length`，所以超限前读到的分片已经进内存 | [done] | `packages/hub/src/server.ts` 的 `readBody`、`server.test.ts` 的 413 用例 |
 | HUB-15 | 两种凭据形式 | `Authorization: Bearer <token>` 与 `x-packhub-token` 都认；也可用反向代理注入的身份头 | [done] | `hub/server.ts`、`production.test.ts` |
 | HUB-16 | 资源目录响应 | `/api/registry/resources` 返回 `{meta, resources[]}`；非法 name / version 返回空 | [done] | `packages/hub/src/resources.ts`、`resources.test.ts` |
 
@@ -199,7 +201,7 @@ review: 任何行为变更的提交
 |---|---|---|---|---|
 | SYN-01 | 项目内 codex target | 安装到 `.codex/skills`，指令写进项目 `AGENTS.md` 托管块；无专门测试 | [done] | `packages/kernel/src/targets.ts`、`plan.ts` |
 | SYN-02 | 全局 skills | 三个 home 的 `skills/`：`~/.dsh`、`~/.claude`、`~/.codex` | [done] | `packages/runtime/src/harnesses.ts` |
-| SYN-03 | 只收 skill 与 mcp | 其他类型整次拒绝；dsh 不接受 mcp，理由写进落点表 | [done] | `sync.ts`、`sync.test.ts` |
+| SYN-03 | 只收 skill 与 mcp | 其他类型整次拒绝；dsh 不接受 mcp，理由写进落点表。claude-code 的全局 MCP 交给它自己的 CLI：`syncPack` 给 `planFor` 传 `skipResourceTypes: ['mcp']`，计划里不再生成 `register.mcp`（mcp 进 `excluded` 的 `host-managed`）、也不写 `.packhub/config.json`；这个选项以前被 `planFor` 丢掉，现在转发到 `buildPlan` | [done] | `sync.ts` 的 `syncPack`、`packages/kernel/src/index.ts` 的 `planFor`、`packages/kernel/test/skip-resource-types.test.ts`、`sync.test.ts` |
 | SYN-04 | 本地来源 | skill 源不是 `./` 开头就整包拒绝，且在写任何 home 之前 | [done] | `sync.ts`、`sync.test.ts` |
 | SYN-05 | frontmatter 预检 | `SKILL.md` 的 YAML 坏、`name` / `description` 缺失或非字符串都拒绝；开头 BOM 兼容 | [done] | `skill-meta.ts`、`sync.test.ts` |
 | SYN-06 | 每个 harness 一份 state | `<home>/.packhub/state.json`，快照在各自 `.packhub/snapshots/` | [done] | `sync.ts`、`install.ts` |
@@ -270,6 +272,7 @@ review: 任何行为变更的提交
 | OPS-12 | 示例包矩阵 | `verify:examples` 逐个真装 + verify（三个示例都不再依赖上游仓库与外网清单）；`--skip-network` 只跑本地引用那一个；CI 在 ubuntu job 跑 | [done] | `scripts/verify-examples.mjs`、`registry.yml`、`examples/code-review` |
 | OPS-13 | 工具链固定 | `packageManager pnpm@11.22.0`、`engines.node >=22.13`，两个 workflow 都用 node 22 + pnpm 11 | [done] | `package.json`、workflows |
 | OPS-14 | 供应链 | actions 全部钉在 commit SHA（注释写版本），dependabot 每周看 github-actions 与 npm；`pnpm verify:lockfile` 查每条 resolution 都带 integrity，CI 与用例都跑；仓库内本地 action 不钉 | [done] | `.github/workflows`、`.github/dependabot.yml`、`scripts/verify-lockfile.mjs`、`repo-hygiene.test.ts`、`lockfile.test.ts` |
+| OPS-15 | 包边界与公开面 | `@packhub/runtime` 不再 `export *` 转发 kernel 符号，只显式再导出 `loadManifest` / `loadPack` / `planFor`（launcher 与 market 的现有调用点还从 runtime 取）；新代码直接依赖 `@packhub/kernel`。`@packhub/runner` 改为显式依赖 `@packhub/kernel`，`run.ts` 从 kernel 取 `loadPack` / `planFor` | [done] | `packages/runtime/src/index.ts`、`packages/runner/package.json`、`packages/runner/src/run.ts` |
 
 ## 12 X ｜跨切面
 
