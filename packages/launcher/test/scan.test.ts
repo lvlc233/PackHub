@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
+import { loadManifest } from '@packhub/kernel';
 import { main } from '../src/cli.ts';
 import { DEFAULT_SCAN_DEPTH, readManifestIdentity, scanDirectory, type ScanEntry } from '../src/scan.ts';
 
@@ -11,13 +12,32 @@ metadata:
   name: demo/scan-pack
   version: 0.1.0
   targets: [dir, dsh]
-resources: []
+resources:
+  - id: rules
+    type: knowledge
+    source: ./rules.md
 `;
 
 const FLOW_MANIFEST = `apiVersion: packhub.dev/v0
 kind: Pack
 metadata: { name: demo/flow-pack, version: 0.2.0, targets: [dsh] }
-resources: []
+resources:
+  - id: rules
+    type: knowledge
+    source: ./rules.md
+`;
+
+/** 合法 YAML 锚点：手写正则解析不出 name/version，kernel 的 YAML 解析器认得。 */
+const ANCHOR_MANIFEST = `apiVersion: packhub.dev/v0
+kind: Pack
+metadata: &identity
+  name: demo/anchored
+  version: 0.3.0
+  targets: [dir]
+resources:
+  - id: rules
+    type: knowledge
+    source: ./rules.md
 `;
 
 const INSTANCE = {
@@ -205,7 +225,27 @@ describe('scan：三类候选', () => {
     expect(flow?.name).toBe('demo/flow-pack');
     expect(flow?.version).toBe('0.2.0');
     expect(flow?.problem).toBeUndefined();
-    expect(readManifestIdentity(FLOW_MANIFEST)).toEqual({ name: 'demo/flow-pack', version: '0.2.0' });
+    expect(readManifestIdentity(join(flowDir, 'packhub.yaml'))).toEqual({
+      name: 'demo/flow-pack',
+      version: '0.2.0',
+    });
+  });
+
+  it('清单身份与 kernel 解析一致：YAML 锚点不会把合法 Pack 标成缺字段', () => {
+    const anchorDir = join(tmp, 'anchored');
+    writeText(join(anchorDir, 'packhub.yaml'), ANCHOR_MANIFEST);
+
+    const entry = findEntry(scanDirectory(tmp).entries, 'pack', anchorDir);
+    expect(entry?.name).toBe('demo/anchored');
+    expect(entry?.version).toBe('0.3.0');
+    expect(entry?.problem).toBeUndefined();
+
+    // 与 create/update 用的那份解析逐字段对：同一个文件只能有一个答案
+    const meta = loadManifest(join(anchorDir, 'packhub.yaml')).manifest?.metadata;
+    expect(readManifestIdentity(join(anchorDir, 'packhub.yaml'))).toEqual({
+      name: meta?.name,
+      version: meta?.version,
+    });
   });
 });
 

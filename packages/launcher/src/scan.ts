@@ -1,15 +1,17 @@
 import { readdirSync, readFileSync, statSync, type Dirent } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { loadManifest } from '@packhub/kernel';
 
 /**
  * 只读目录扫描：在一个目录下按深度找三类 PAL 候选——已有实例、Pack 目录、装过 Pack 的环境。
- * 只依赖 node:fs / node:path：不写盘、不改记录、不取包、不接管（adopt 仍要人给 dir + harness）。
+ * 清单身份交给 kernel 的 loadManifest 读（与 create / update 同一套解析，见 readManifestIdentity）；
+ * 其余只依赖 node:fs / node:path：不写盘、不改记录、不取包、不接管（adopt 仍要人给 dir + harness）。
  * 路径比较统一走 pathKey：Windows 大小写不敏感；resolve 之后分隔符也已归一。
  */
 
 export const DEFAULT_SCAN_DEPTH = 2;
 
-/** 三类候选各自的标记文件；与 records.ts / runtime 的落点保持一致，这里不 import 它们（保持纯 fs/path）。 */
+/** 三类候选各自的标记文件；与 records.ts / runtime 的落点保持一致，这里不 import 它们。 */
 export const INSTANCE_FILE = 'instance.json';
 export const PACK_FILE = 'packhub.yaml';
 export const STATE_DIR = '.packhub';
@@ -90,62 +92,28 @@ function readText(file: string): { text?: string; problem?: string } {
   }
 }
 
-function unquote(value: string): string {
-  const text = value.trim();
-  if (text.length >= 2) {
-    const first = text[0];
-    const last = text[text.length - 1];
-    if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
-      return text.slice(1, -1).trim();
-    }
-  }
-  return text;
-}
-
-/** 行内写法 `metadata: { name: x, version: y, targets: [...] }`：只认 name / version 两个键。 */
-function identityFromFlow(body: string): { name?: string; version?: string } {
-  const found: { name?: string; version?: string } = {};
-  for (const part of body.split(',')) {
-    const colon = part.indexOf(':');
-    if (colon < 0) continue;
-    const key = part.slice(0, colon).trim();
-    if (key !== 'name' && key !== 'version') continue;
-    const value = unquote(part.slice(colon + 1));
-    if (!value) continue;
-    if (key === 'name') found.name = value;
-    else found.version = value;
-  }
-  return found;
-}
-
 /**
- * 从 packhub.yaml 里尽力读 metadata.name / metadata.version：块式与行内 { ... } 两种写法都认。
- * 这里不引 YAML 解析器：扫描只看一眼身份，缺字段由调用方报问题，严格校验留给 create / update。
+ * 从 packhub.yaml 读 metadata.name / metadata.version。
+ *
+ * 走 kernel 的 loadManifest：`pal scan` 与 create / update 必须对同一份 YAML 给出同一个答案
+ * （YAML 锚点、行内写法、带注释的值……这些语义只有解析器说得清，这里不再维护第二套）。
+ * 读不了或不合法时 problem 带 kernel 的报错；缺哪个字段由 readPackEntry 补成人话。
  */
-export function readManifestIdentity(text: string): { name?: string; version?: string } {
-  const lines = text.split(/\r?\n/);
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index] ?? '';
-    if (!line.trim() || line.trimStart().startsWith('#')) continue;
-    const flow = /^metadata:\s*\{(.*)\}\s*(?:#.*)?$/.exec(line);
-    if (flow) return identityFromFlow(flow[1] ?? '');
-    if (!/^metadata:\s*(?:#.*)?$/.test(line)) continue;
-    const found: { name?: string; version?: string } = {};
-    for (let inner = index + 1; inner < lines.length; inner += 1) {
-      const child = lines[inner] ?? '';
-      if (!child.trim() || child.trimStart().startsWith('#')) continue;
-      // metadata 的子项必须缩进；回到顶格说明这一段结束了
-      if (!/^\s/.test(child)) break;
-      const pair = /^\s+(name|version):\s*(.*)$/.exec(child);
-      if (!pair) continue;
-      const value = unquote((pair[2] ?? '').replace(/\s+#.*$/, ''));
-      if (!value) continue;
-      if (pair[1] === 'name') found.name = value;
-      else found.version = value;
-    }
-    return found;
-  }
-  return {};
+export function readManifestIdentity(file: string): {
+  name?: string;
+  version?: string;
+  problem?: string;
+} {
+  const loaded = loadManifest(file);
+  const meta = loaded.manifest?.metadata;
+  const errors = loaded.issues.filter((issue) => issue.severity === 'error');
+  return {
+    ...(meta?.name ? { name: meta.name } : {}),
+    ...(meta?.version ? { version: meta.version } : {}),
+    ...(errors.length > 0
+      ? { problem: `清单不合法：${errors.map((issue) => issue.message).join('；')}` }
+      : {}),
+  };
 }
 
 function readInstanceEntry(dir: string, file: string): ScanEntry {
@@ -184,12 +152,11 @@ function readInstanceEntry(dir: string, file: string): ScanEntry {
 
 function readPackEntry(dir: string, file: string): ScanEntry {
   const base: ScanEntry = { kind: 'pack', dir, file };
-  const read = readText(file);
-  if (read.text === undefined) return { ...base, problem: `packhub.yaml ${read.problem ?? '读不了'}` };
-  const identity = readManifestIdentity(read.text);
+  const identity = readManifestIdentity(file);
   const problems: string[] = [];
   if (!identity.name) problems.push('清单里没有 metadata.name');
   if (!identity.version) problems.push('清单里没有 metadata.version');
+  if (identity.problem) problems.push(identity.problem);
   return {
     ...base,
     ...(identity.name ? { name: identity.name } : {}),

@@ -1,8 +1,22 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { startHub } from '../src/index.ts';
 
 let server: Awaited<ReturnType<typeof startHub>>;
 let base = '';
+
+/** 一份最小可用清单：各个 /api/plan 用例共用，避免每处再抄一遍。 */
+const DRAFT = `apiVersion: packhub.dev/v0
+kind: Pack
+metadata: { name: demo/hub, version: 0.0.1, targets: [dir, dsh] }
+requires: { packhub: ">=0.0.1 <0.1" }
+resources:
+  - id: x
+    type: knowledge
+    source: https://example.com/a.md
+    integrity: sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+`;
 
 beforeAll(async () => {
   server = await startHub({ root: process.cwd(), port: 0 });
@@ -59,6 +73,74 @@ describe('Hub（只读发布端）', () => {
       body: JSON.stringify({ manifest: 'x'.repeat(1024 * 1024 + 10), target: 'dir' }),
     });
     expect(res.status).toBe(413);
+    const body = (await res.json()) as { error: string; code: string };
+    expect(body.code).toBe('body-too-large');
+  });
+
+  it('未知 target 直接 400，不产出枚举外的计划', async () => {
+    const res = await fetch(`${base}/api/plan`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ manifest: DRAFT, target: 'nope' }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain('未知 target');
+    // 报错里给出可选值：从 kernel 的 TARGET_IDS 来，不在路由里再手写一份
+    expect(body.error).toContain('dir');
+    expect(body.error).toContain('dsh');
+  });
+
+  it('请求体不是 JSON 返回 400（按 code 映射，不靠文案猜）', async () => {
+    const res = await fetch(`${base}/api/plan`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{ not json',
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { code: string };
+    expect(body.code).toBe('body-invalid-json');
+  });
+
+  it('清单里的 ./ 路径读不到服务器文件：context 指向 Hub 自己的文件只报 issue', async () => {
+    // 这个串只出现在 Hub 自己的 package.json 里；响应里出现它就说明越界读成功了
+    const marker = 'pack:local';
+    const pkg = readFileSync(join(process.cwd(), 'package.json'), 'utf8');
+    expect(pkg).toContain(marker);
+
+    const res = await fetch(`${base}/api/plan`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        manifest: `${DRAFT}context: ./package.json
+`,
+        target: 'dsh',
+      }),
+    });
+    const text = await res.text();
+    expect(res.status).toBe(200);
+    expect(text).not.toContain(marker);
+    const body = JSON.parse(text) as { plan: unknown; issues: { code: string }[] };
+    expect(body.plan).toBeNull();
+    expect(body.issues.map((issue) => issue.code)).toContain('context-file-missing');
+  });
+
+  it('内联 context 照常进计划（限制的是读文件的 ./ 路径，不是清单里的文本）', async () => {
+    const res = await fetch(`${base}/api/plan`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        manifest: `${DRAFT}context: |
+  这是内联上下文，不是文件路径。
+`,
+        target: 'dsh',
+      }),
+    });
+    const body = (await res.json()) as {
+      plan: { actions: { op: string; content?: string }[] } | null;
+    };
+    const instruction = body.plan?.actions.find((action) => action.op === 'instruction');
+    expect(instruction?.content).toContain('这是内联上下文，不是文件路径。');
   });
   it('计划预览照常，但没有任何执行接口', async () => {
     const planRes = await fetch(`${base}/api/plan`, {
