@@ -14,14 +14,13 @@
 | `packages/runtime` | 下载、安装、卸载、回滚、校验、签名、探针、引用解析 |
 | `packages/runner` | 干净目录 install + verify，产出报告 |
 | `packages/registry` | 发布、索引生成、门禁 |
-| `packages/market` | 市场写端：账号、上传审核、评分、下架、统计 |
 | `packages/launcher` | PAL 实例内核：建实例、启停与看护、体检、基线 |
 | `packages/hub` | 只读 HTTP API：索引、包/资源数据、计划预览 |
 | `apps/local` | `packhub` 命令 |
 
 ## 本地开发
 
-Node >= 22.13（市场用内置 `node:sqlite`），包管理器 pnpm。
+Node >= 22.13，包管理器 pnpm。
 
 ```bash
 pnpm install

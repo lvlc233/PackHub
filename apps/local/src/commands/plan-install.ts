@@ -97,7 +97,7 @@ export const install = command({
         say(`\nstate: ${result.statePath}`);
       }
       // 审计写入留在命令层，不搬进 runtime 的安装入口：
-      // 1) installPack 还被 launcher（create / update）、runner 与 market 调用，搬进
+      // 1) installPack 还被 launcher（create / update）与 runner 调用，搬进
       //    applyPlan / installPack 会让它们凭空多出审计行，属于副作用扩展；
       // 2) action 标签（install / add / update）本来就是各命令自己的事，runtime 不知道；
       // 3) 这里只在「非 dry-run、没有失败、state 已落盘」之后写，dry-run 与回滚路径不写，

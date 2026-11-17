@@ -29,9 +29,6 @@ importers:
       '@packhub/kernel':
         specifier: workspace:*
         version: link:../../packages/kernel
-      '@packhub/market':
-        specifier: workspace:*
-        version: link:../../packages/market
       '@packhub/registry':
         specifier: workspace:*
         version: link:../../packages/registry
@@ -74,18 +71,6 @@ importers:
       citty:
         specifier: ^0.1.6
         version: 0.1.6
-
-  packages/market:
-    dependencies:
-      '@packhub/kernel':
-        specifier: workspace:*
-        version: link:../kernel
-      '@packhub/registry':
-        specifier: workspace:*
-        version: link:../registry
-      '@packhub/runtime':
-        specifier: workspace:*
-        version: link:../runtime
 
   packages/registry:
     dependencies:

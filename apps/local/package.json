@@ -10,7 +10,6 @@
     "@packhub/hub": "workspace:*",
     "@packhub/runner": "workspace:*",
     "@packhub/registry": "workspace:*",
-    "@packhub/market": "workspace:*",
     "citty": "^0.1.6"
   }
 }

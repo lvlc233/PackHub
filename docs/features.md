@@ -10,7 +10,7 @@ review: 任何行为变更的提交
 
 > 一行一条：编号 ／ 功能点 ／ 能观察到的事实 ／ 现状 ／ 证据。这里只留结论，机制看证据指向的代码。
 > 证据是可打开的文件、符号或测试名；不写行号，行号会漂。
-> 状态五档：`[done]` 代码在、主路径有测试或实测；`[part]` 有但功能上有明确缺口；`[parked]` 代码在但**已冻结**，不再推进也不再维护，重开前不算完成；`[todo]` 没有；`[na]` 不属于 PackHub 或已移除。
+> 状态四档：`[done]` 代码在、主路径有测试或实测；`[part]` 有但功能上有明确缺口；`[todo]` 没有；`[na]` 不属于 PackHub 或已移除。
 
 ## 域索引
 
@@ -21,7 +21,7 @@ review: 任何行为变更的提交
 | PLN | 计划 | 清单如何变成可比较的动作清单 | `packages/kernel` |
 | INS | 安装与状态 | 执行、快照、state、回退、卸载、升级 | `packages/runtime` |
 | VER | 校验与门禁 | 装完是否可用，发布前是否可信 | `packages/runtime`、`packages/runner` |
-| REG | registry 与市场 | 版本目录、索引、发布门禁；市场写端已冻结 | `packages/registry`、`packages/market` |
+| REG | registry | 版本目录、索引、发布门禁 | `packages/registry` |
 | HUB | 只读发布端 | 只读 JSON API，不含页面、写与执行 | `packages/hub` |
 | SYN | 全局 harness 同步 | 一份 Pack 写进 DSH / Codex / Claude Code 的 skills | `packages/runtime` |
 | CLI | 命令与交互 | 人怎么用、脚本怎么调 | `apps/local` |
@@ -51,7 +51,7 @@ review: 任何行为变更的提交
 | PKG-11 | `extends` | v0 已移除：schema 无该字段，`extends.ts` 已删除；`install.ts` 里提 extends 的注释与允许 `../` 越界读的 `readable` 分支也已删除，包内来源一律走 `within` | [na] | `schema/packhub.v0.schema.json`；`f10bc49` |
 | PKG-12 | 资源级 target 裁剪 | 资源 `targets` 未命中时进 `excluded`（`target-mismatch`），不进动作 | [done] | `packages/kernel/src/plan.ts`、`target-trim.test.ts` |
 | PKG-13 | 本地覆盖 | `.packhub/local.yaml` 只支持 `modify` / `bindings` / `vars`（无 `env`）；不进 `lock.resolved`，但会改计划与 `planHash`；`add` 在锁核对之后才应用 | [done] | `packages/kernel/src/index.ts`、`lock.ts`、`local-overrides.test.ts` |
-| PKG-14 | PACK.md / CHANGELOG | 发布时复制进版本目录；Hub 与市场接口返回原文；不参与 `planHash` | [done] | `packages/registry/src/publish.ts`、`hub/src/server.ts`、`market/server.ts` |
+| PKG-14 | PACK.md / CHANGELOG | 发布时复制进版本目录；Hub 接口返回原文；不参与 `planHash` | [done] | `packages/registry/src/publish.ts`、`hub/src/server.ts` |
 | PKG-15 | 持久状态目录 | `state` 块声明目录与 `retain`；`${state.x}` 计划期插值；安装建目录（`state.dir` 排最前），升级 / 卸载默认保留 | [done] | `packages/kernel/src/plan.ts`、`packages/runtime/test/state.test.ts`、`state.test.ts` |
 | PKG-16 | optional 级联跳过 | `optional: true` 且 `needs` 没有提供方时进 `excluded`（`optional-unmet`），依赖它的也级联跳过；显式绑定到槽位的不跳过 | [done] | `graph.ts`、`optional.test.ts` |
 | PKG-17 | requires.agent 只警告 | 未知 agent 报 `unknown-agent` 警告；agent 不在 `metadata.targets` 报 `agent-target-mismatch` 警告；都不阻断 | [done] | `graph.ts`、`optional.test.ts` |
@@ -148,9 +148,8 @@ review: 任何行为变更的提交
 | VER-15 | 路径越界守卫 | 检查项的 `path` / `expectFiles` / `cwd` 解析后必须落在安装根内，越界直接 fail | [done] | `verify.ts` |
 | VER-16 | 技能选择器探针 | `probe --skill <name>` 断言 skill 名出现在宿主的可用技能列表回答里 | [done] | `harness-probe.ts`、`harness-probe.test.ts` |
 
-## 6 REG ｜registry 与市场
+## 6 REG ｜registry
 
-> 市场（`@packhub/market`）暂时冻结：代码留着，不再推进也不再维护，相关行标 `[parked]`。registry 本身（发布、索引、门禁）仍在维护。
 
 | 编号 | 功能点 | 能观察到的事实 | 现状 | 证据 |
 |---|---|---|---|---|
@@ -165,16 +164,8 @@ review: 任何行为变更的提交
 | REG-09 | vendored 入版本目录 | `resources/`、`skills/`、`glue/` 等顶层条目复制进版本目录，跳过 `.packhub`、`node_modules`、`.git`、`dist` 与旧归档 | [done] | `publish.ts`、`pack.ts` |
 | REG-10 | 静态站产物 | 静态站与 Pages 部署已移除；registry 目录直接由 CLI / Hub 读。`registry/resources.json` 资源目录仍在，供 `discover` 用 | [na] | `registry.yml`、`packages/hub/src/server.ts`、`catalog.ts` |
 | REG-11 | 多 registry | `--index` 接受本机配置里的 registry 名；`search --all` 合并 `PACKHUB_INDEX` 与配置里的 registry | [done] | `packages/runtime/src/config.ts`、`cli.ts` |
-| REG-12 | 市场元数据 | 下载量与按天累计、7 日趋势、评分与评论（一账号一票）、审核状态、下架原因 | [parked] | `packages/market/src/store.ts`、`market/server.ts`、`market.test.ts` |
-| REG-13 | 下架 | 版本与归档移入 `.market/quarantine/`，索引重建，下载 410；最后一个版本撤掉后清空空包目录 | [parked] | `market/server.ts`、`market.test.ts` |
-| REG-14 | 市场存储与管理端 | SQLite（默认 rollback journal、`busy_timeout` 5s），旧 `.market/db.json` 首次打开迁移；`/admin` 内联页 + 审核队列 + 统计 | [parked] | `store.ts`、`store.test.ts`、`market/server.ts` |
 | REG-15 | 发布开关 | `--out`（PR 模式，只出待提交文件）、`--dry-run`、`--offline`、`--allow-exec`、`--allow-non-public`；`--force` 覆盖前先备份，索引失败回滚 | [done] | `publish.ts` 的 `stageForPr`、`cli.ts`、`publish.test.ts` |
-| REG-16 | 上传门禁 | 只能发布自己 scope；拒绝 `install.exec` 与 `command` / `scenario` / `mcp-ready` 三类会执行东西的检查；上传体有大小上限（见 `market/server.ts`） | [parked] | `market/server.ts`、`market.test.ts` |
-| REG-17 | 市场的 unlisted | 上传校验接受 `unlisted`，但调 `publishPack` 时没传 `allowNonPublic`，实际返回 422 | [parked] | `market/server.ts`、`publish.ts` |
-| REG-18 | 账号与 token | 账号即 scope（小写、39 字符内、唯一）；token 只显示一次、服务端只存 sha256；管理 token 落 `.market/admin.json`，`/api/admin/rotate` 轮换后旧值立即失效 | [parked] | `store.ts`、`market/server.ts`、`client.ts` |
-| REG-19 | 审核流转 | `--require-review` 时上传进 `.market/staging/`；批准才 rename 进 registry，索引失败移回；拒绝只删这一版与它的归档 | [parked] | `market/server.ts`、`market.test.ts` |
 | REG-20 | 归档重建与资源目录 | `registry:pack` 从版本目录重建 `.phub`（与发布 / 重锁同一入口 `packVersionArchive`）；`resources.json` 供 `discover` 检索 | [done] | `scripts/registry/build-archives.mjs`、`catalog.ts` |
-| REG-21 | 市场读接口 | `/api/search`（带下载量 / 趋势 / 均分）、`/api/packs`（清单、锁、报告、readme、changelog）、`/download`、`/api/me`、内联 `/admin` | [parked] | `market/server.ts`、`market.test.ts` |
 | REG-22 | 0.0.x 原地重锁迁移 | e039d59 删 `merge.config` 后，已发布版本的锁与当前计划对不上：重锁前 `registry:check` 报 doc-review 的 dsh / claude-code 计划快照不一致、team-conventions 锁过期。2026-11-17 对 doc-review@0.1.0 与 team-conventions@0.0.2 做过一次**显式原地重锁迁移**（按版本目录重算锁 → 重跑 runner → 重打归档 → 重建索引），迁移后「版本目录不可变」门禁恢复生效；team-conventions 的 config 落点由 `merge.config .packhub/config.json` 变成 `write .packhub/config/editorconfig.yaml`，来自 e039d59，不是本次重构引入。remote-demo@0.0.1 当天本机无法重验，未动（后续见 REG-23）。0.0.x / 格式 v0 无兼容承诺，迁移的目的是让「已发布数据」与「能装它的代码」重新对齐 | [done] | `scripts/registry/relock-all.mjs`、`registry/packs/lvlc233/team-conventions/0.0.2/packhub.lock.json`、`registry/packs/lvlc233/doc-review/0.1.0/packhub.lock.json` |
 | REG-23 | 结构批后的原地重锁迁移 | 结构批（`PLAN_OPS` 单表 / `fromBase` 显式化 / 平台裁剪改执行期）改了 plan 形状：doc-review@0.1.0 的 dir / dsh / claude-code 与 remote-demo@0.0.1 的 dir 计划都变，team-conventions@0.0.2 的计划不变。2026-11-18 对前两个版本做**显式原地重锁迁移**（重算锁 → 重跑 runner → 重打归档）；team-conventions 的锁 / verify / 归档未改写。**已发布版本的行为变化**：remote-demo 的 `fetch#1` 从 `integrity: null` 变成校验 GitHub tarball 的 sha256——这是既有的 github 归档哈希能力在重锁时写进了锁；原因与 REG-22 同一条策略：让「已发布数据」与「能装它的代码」重新对齐，而不是让旧版本的锁继续指向旧代码。remote-demo 这次设 `HTTPS_PROXY` 后重验通过，index 里三个包仍都是 `verified`，没有版本掉成 `community`。迁移后不可变门禁恢复生效；0.0.x / 格式 v0 无兼容承诺 | [done] | `scripts/registry/relock-all.mjs`、`registry/packs/lvlc233/doc-review/0.1.0/packhub.lock.json`、`registry/packs/lvlc233/remote-demo/0.0.1/packhub.lock.json` |
 | REG-24 | 发布锁覆盖全部 target | `publishPack` 的主 target 由 registry 的 `primaryTarget` 选（声明了 `dir` 就取 `dir`，否则取第一个声明的），`lockPack` 为 `metadata.targets` 里**每个** target 各算一份 `plans` 快照，不是只锁主计划；`report.planHash` 仍与 `lock.planHash` 按主 target（dir）比对——runner 只跑 dir 计划的干净安装，清单没声明 dir 就拒绝发布。多 target 包发布后，归档里的锁也带全部 target 快照 | [done] | `packages/registry/src/publish.ts`、`packages/runtime/src/resolve.ts` 的 `lockPack`、`publish.test.ts` |
@@ -193,10 +184,7 @@ review: 任何行为变更的提交
 | HUB-06 | 审计 | 配了 `--audit` 时每次请求一行 JSON；401 也记；429 在审计挂钩前返回、不记 | [done] | `hub/server.ts`、`production.test.ts` |
 | HUB-07 | 健康检查 | `/api/health` 免鉴权，返回 `{ok, packs, uptimeSeconds}` | [done] | `hub/server.ts`、`production.test.ts` |
 | HUB-08 | 优雅退出 | SIGINT / SIGTERM 停监听；`hub` 的 bin 入口另有 5 秒兜底退出 | [done] | `cli.ts`、`packages/hub/src/bin.ts` |
-| HUB-09 | 镜像 | `Dockerfile` 多阶段构建，末尾 `pnpm prune --prod`；镜像跑的是 `apps/local hub`，市场不在镜像里 | [done] | `Dockerfile` |
-| HUB-10 | 写接口 | Hub 保持只读；写端在独立 `@packhub/market`（已冻结） | [na] | 并入 REG-16 |
-| HUB-11 | 账号 / 组织 | 市场账号即 scope，没有组织模型（已冻结） | [na] | 并入 REG-18 |
-| HUB-12 | 搜索 / 统计 | `/api/search`、`/api/admin/queue` 都在市场进程里，不在 Hub（已冻结） | [na] | 并入 REG-21 |
+| HUB-09 | 镜像 | `Dockerfile` 多阶段构建，末尾 `pnpm prune --prod`；镜像跑的是 `apps/local hub` | [done] | `Dockerfile` |
 | HUB-13 | 条件请求 | JSON 带 ETag / Cache-Control，`If-None-Match` 命中回 304 | [done] | `hub/server.ts`、`server.test.ts` |
 | HUB-14 | 请求体上限 | 边读边累加，累计超过 `BODY_LIMIT`（1 MiB）抛 `HttpError(413, body-too-large)`；顶层 catch 按 `HttpError` 的 status / code 回，其它异常只回 500「Hub 内部错误」；不预读 `Content-Length`，所以超限前读到的分片已经进内存 | [done] | `packages/hub/src/server.ts` 的 `readBody` / `HttpError`、`server.test.ts` 的 413 与坏 JSON 用例 |
 | HUB-15 | 两种凭据形式 | `Authorization: Bearer <token>` 与 `x-packhub-token` 都认；也可用反向代理注入的身份头 | [done] | `hub/server.ts`、`production.test.ts` |
@@ -232,7 +220,7 @@ review: 任何行为变更的提交
 | 编号 | 功能点 | 能观察到的事实 | 现状 | 证据 |
 |---|---|---|---|---|
 | CLI-01 | 单一入口 | `packhub --help` 列出全部命令；`pal` 是独立入口（`packages/launcher/src/bin.ts`），不在 packhub 下 | [done] | `apps/local/src/cli.ts`、`apps/local/src/bin.ts` |
-| CLI-02 | 命令覆盖 | `packhub --help` 列出的顶层命令覆盖安装、校验、发布、同步与运维各环节；`cache` / `resource` / `slot` / `auth` / `trust` / `market` 是命令组。完整清单以 `--help` 为准 | [done] | `apps/local/src/cli.ts`、`packhub --help` |
+| CLI-02 | 命令覆盖 | `packhub --help` 列出的顶层命令覆盖安装、校验、发布、同步与运维各环节；`cache` / `resource` / `slot` / `auth` / `trust` 是命令组。完整清单以 `--help` 为准 | [done] | `apps/local/src/cli.ts`、`packhub --help` |
 | CLI-03 | JSON 输出 | 多数顶层命令支持 `--json`；`init` / `diff` / `hub` / `keygen` / `sign` / `completion` 与命令组里的多数叶子不支持，逐个看 `--help` | [done] | `cli.ts`、`cli.test.ts` |
 | CLI-04 | 退出码 | 只有 0 / 1 / 2 三档，表在 `emit.ts` 的 `EXIT`（0 成功、1 运行失败、2 输入或前置条件错）；命令体内用 `stop(code)` 抛退出信号，由 `command()` 的 guard 统一落 `process.exitCode`（不再各自 `process.exit`），已写出的 stdout/stderr 不会被截断；未捕获异常在 bin 入口落成 `x <message>` + 1，不再是 citty 堆栈。缺清单、未声明 target、未知参数、锁与清单不一致都是 2；动作失败与校验失败是 1 | [done] | `apps/local/src/emit.ts`、`apps/local/src/bin.ts`、`exit-codes.test.ts`、`cli.test.ts` |
 | CLI-05 | 结构化编辑 | `resource add` / `slot swap` 用 YAML AST 只改一个节点、保留注释；`init` 只写固定模板 | [done] | `packages/runtime/src/authoring.ts`、`authoring.test.ts` |
@@ -281,7 +269,7 @@ review: 任何行为变更的提交
 | OPS-12 | 示例包矩阵 | `verify:examples` 逐个真装 + verify（三个示例都不再依赖上游仓库与外网清单）；`--skip-network` 只跑本地引用那一个；CI 在 ubuntu job 跑 | [done] | `scripts/verify-examples.mjs`、`registry.yml`、`examples/code-review` |
 | OPS-13 | 工具链固定 | `packageManager pnpm@11.22.0`、`engines.node >=22.13`；workflow 用 node 22 + pnpm 11 | [done] | `package.json`、workflows |
 | OPS-14 | 供应链 | actions 全部钉在 commit SHA（注释写版本），dependabot 每周看 github-actions 与 npm；`pnpm verify:lockfile` 查每条 resolution 都带 integrity，CI 与用例都跑；仓库内本地 action 不钉 | [done] | `.github/workflows`、`.github/dependabot.yml`、`scripts/verify-lockfile.mjs`、`repo-hygiene.test.ts`、`lockfile.test.ts` |
-| OPS-15 | 包边界与公开面 | `@packhub/runtime` 不再 `export *` 转发 kernel 符号，只显式再导出 `loadManifest` / `loadPack` / `planFor`（launcher 与 market 的现有调用点还从 runtime 取）；新代码直接依赖 `@packhub/kernel`。`@packhub/runner` 改为显式依赖 `@packhub/kernel`，`run.ts` 从 kernel 取 `loadPack` / `planFor` | [done] | `packages/runtime/src/index.ts`、`packages/runner/package.json`、`packages/runner/src/run.ts` |
+| OPS-15 | 包边界与公开面 | `@packhub/runtime` 不再 `export *` 转发 kernel 符号，只显式再导出 `loadManifest` / `loadPack` / `planFor`（launcher 的现有调用点还从 runtime 取）；新代码直接依赖 `@packhub/kernel`。`@packhub/runner` 改为显式依赖 `@packhub/kernel`，`run.ts` 从 kernel 取 `loadPack` / `planFor` | [done] | `packages/runtime/src/index.ts`、`packages/runner/package.json`、`packages/runner/src/run.ts` |
 | OPS-16 | 交付链门禁 | ubuntu job 在源码测试之后构建 CLI 产物（`pnpm build:local`）与 hub 镜像（`docker build -t packhub-hub .`），再 `docker run … --version` 冒烟启动，任一步失败即拦。镜像构建要 `ENV CI=true`（build 里没有 TTY，`pnpm prune` 才肯删 node_modules），运行时要 `COPY schema`（kernel 直接 import 根 `schema/`）；补门禁之前镜像从未被构建过，缺 schema 时「装得出来、起不来」 | [done] | `.github/workflows/registry.yml`、`Dockerfile` |
 
 ## 12 X ｜跨切面
@@ -366,7 +354,6 @@ review: 任何行为变更的提交
 
 | 事项 | 现状 | 未决 / 建议 |
 |---|---|---|
-| 市场整体 | 代码在，但**暂时不实现也不维护**（REG-12..21 标 `[parked]`） | 重开时要先定：是继续做成服务，还是把「上传 / 审核 / 下架 / 评分 / 统计」抽成协议再落实现。抽协议能换实现，但只有一个实现时会把形状钉死 |
 | 发布校验的位置 | 在进程内 `runPack`，已拒可执行检查 | 放进沙箱，或只收 CI 报告 |
 | 全局 MCP | Claude Code 走宿主 CLI，codex 写 TOML 托管块，dsh 无稳定契约 | 其余宿主等有稳定契约再接 |
 | 性能口径 | 只有耗时，没有内存 / 吞吐 | 需要时再加指标，并把 install / overlay 基准纳入 CI |

@@ -48,7 +48,7 @@ function waitForUrl(child: ReturnType<typeof spawn>, timeoutMs = 15_000): Promis
   });
 }
 
-describe('cli 端到端：pack / publish / hub / market', () => {
+describe('cli 端到端：pack / publish / hub', () => {
   const makePack = (dir: string, name = 'me/e2e', version = '0.1.0'): void => {
     writeFileSync(
       join(dir, 'packhub.yaml'),
@@ -162,28 +162,6 @@ verify:
     }
   });
 
-  it('market serve 起服务后，market register / whoami 能走通', async () => {
-    const registry = mkdtempSync(join(tmpdir(), 'packhub-cli-marketserve-'));
-    const home = mkdtempSync(join(tmpdir(), 'packhub-cli-markethome-'));
-    const child = spawn(
-      process.execPath,
-      ['--experimental-strip-types', BIN, 'market', 'serve', registry, '--port', '0'],
-      { cwd: ROOT, env: { ...process.env, PACKHUB_HOME: home } },
-    );
-    try {
-      const url = await waitForUrl(child);
-      const registered = run(['market', 'register', url, 'Demo CLI'], { PACKHUB_HOME: home });
-      expect(registered.status).toBe(0);
-      expect(registered.out).toContain('已注册');
-      const who = run(['market', 'whoami'], { PACKHUB_HOME: home });
-      expect(who.status).toBe(0);
-      expect(who.out).toContain('demo-cli');
-    } finally {
-      child.kill();
-      rmSync(registry, { recursive: true, force: true });
-      rmSync(home, { recursive: true, force: true });
-    }
-  });
 });
 
 describe('cli 端到端：add → verify → uninstall', () => {

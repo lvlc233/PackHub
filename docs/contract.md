@@ -24,7 +24,6 @@ review: 格式升版、字段增删、apiVersion 变化时
 | 签名旁挂 | `packhub.dev/signatures/v0` | `packhub.signatures.json` |
 | 版本记录 | `packhub.dev/version/v0` | `.packhub/versions/<pack>/<ver>/record.json` |
 | 激活指针 | `packhub.dev/active/v0` | `.packhub/active.json` |
-| 市场库 | `packhub.dev/market/v0` | 市场根的 `.market/market.db`（SQLite） |
 
 上面这些是 **Pack 格式**。PAL 的本地记录另有自己的版本并且独立演进（`packhub.dev/instance/v1`、`packhub.dev/pal/v0`、`packhub.dev/pal/core/v1`、`packhub.dev/baseline/v0`、`packhub.dev/credentials/v0`、`packhub.dev/trust/v0`），它们只在启动器与本机之间流动，不随 Pack 分发，见 `packages/launcher/src/records.ts`。
 
@@ -270,7 +269,6 @@ registry 的索引，`search` / `add` / `update` 只读它。
 | 内容 | 在哪 |
 |---|---|
 | registry 目录树、发布步骤、索引门禁 | `packages/registry/src/` |
-| 市场写端端点（已冻结） | `packages/market/src/server.ts` |
 | Hub 只读端点 | `packages/hub/src/server.ts` |
 | 安装顺序、快照、回滚、升级、卸载、所有权 | `packages/runtime/src/install.ts` |
 | 检查类型、runner、探针 | `packages/runtime/src/verify.ts`、`harness-probe.ts`、`packages/runner/src/run.ts` |

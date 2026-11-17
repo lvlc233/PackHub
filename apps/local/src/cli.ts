@@ -31,22 +31,13 @@ import {
   verifySig,
 } from './commands/trust-auth.ts';
 import {
-  marketServe,
-  marketRegisterCmd,
-  marketLoginCmd,
-  marketPublishCmd,
-  marketSearchCmd,
-  marketRateCmd,
-  marketYankCmd,
-  marketWhoami,
-  market,
   search,
   cacheLs,
   cacheClean,
   cache,
   discover,
   hub,
-} from './commands/registry-market.ts';
+} from './commands/registry-hub.ts';
 import { audit, doctor, licenses } from './commands/doctor-license.ts';
 import { resourceAdd, resource, slotSwap, slot } from './commands/misc.ts';
 
@@ -194,7 +185,6 @@ export const main: CommandDef = command({
     auth,
     trust,
     audit,
-    market,
     run,
     publish,
     probe,
