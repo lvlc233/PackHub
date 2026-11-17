@@ -7,9 +7,11 @@ import {
   installPack,
   listVersions,
   readCredentials,
+  readIndex,
   readSignatures,
   readTrust,
   readVersionRecord,
+  RegistryError,
 } from '../src/index.ts';
 
 let home: string;
@@ -81,5 +83,18 @@ resources:
     writeFileSync(recordFile, JSON.stringify({ ...record, apiVersion: 'packhub.dev/version/v1' }), 'utf8');
     expect(() => readVersionRecord(dir, 'demo/apiver', '0.0.1')).toThrow(/格式版本不认识/);
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('registry 索引：v1 与缺 apiVersion 都拒绝，v0 照常读', async () => {
+    const file = join(home, 'index.json');
+    writeFileSync(file, JSON.stringify({ apiVersion: 'packhub.dev/index/v1', packs: [] }), 'utf8');
+    await expect(readIndex(file)).rejects.toThrow(/格式版本不认识/);
+    await expect(readIndex(file)).rejects.toBeInstanceOf(RegistryError);
+
+    writeFileSync(file, JSON.stringify({ packs: [] }), 'utf8');
+    await expect(readIndex(file)).rejects.toThrow(/没有 apiVersion/);
+
+    writeFileSync(file, JSON.stringify({ apiVersion: 'packhub.dev/index/v0', packs: [] }), 'utf8');
+    await expect(readIndex(file)).resolves.toEqual({ apiVersion: 'packhub.dev/index/v0', packs: [] });
   });
 });

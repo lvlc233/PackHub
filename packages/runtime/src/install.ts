@@ -20,13 +20,14 @@ import { spawnSync } from 'node:child_process';
 import { dirname, join, resolve, sep } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import * as tar from 'tar';
-import type { Plan, PlanAction } from '@packhub/kernel';
+import type { Plan, PlanAction, PlanShape, PlanSnapshot } from '@packhub/kernel';
 import {
   actionFromBase,
   actionIsShared,
   actionPaths,
   actionRetainWarning,
   actionUndo,
+  actionUndoPayload,
   actionWritten,
   canonicalize,
   CODEX_SKILL_YAML,
@@ -84,7 +85,7 @@ export interface ApplyResult {
 }
 
 interface State {
-  apiVersion: 'packhub.dev/state/v0';
+  apiVersion: typeof STATE_API_VERSION;
   /** 每次安装一个 generation，用于退回 */
   generations?: Generation[];
   packs: Record<
@@ -100,13 +101,17 @@ interface State {
       stateDirs?: { id: string; path: string; retain: 'keep' | 'remove' }[];
       /** 由宿主 CLI 管理的全局 MCP（目前是 Claude Code user scope）；卸载时按名字摘掉 */
       hostMcp?: string[];
-      /** 上一份计划快照，update 靠它算差异 */
-      plan?: Plan;
+      /** 上一份计划快照，update 靠它算差异；旧 state 里存的是完整 Plan，是它的超集 */
+      plan?: PlanSnapshot;
     }
   >;
 }
 
-const STATE_API = 'packhub.dev/state/v0';
+/**
+ * state.json 的格式版本：写方（applyPlan / saveState）与读方（loadState、`pal scan`）
+ * 共用这一个常量，不再各写字面量。
+ */
+export const STATE_API_VERSION = 'packhub.dev/state/v0';
 
 /** 一个已装版本的落盘记录：文件内容镜像 + 可重放的共享改动。 */
 export interface VersionRecord {
@@ -238,8 +243,19 @@ function platformOf(opts: ApplyOptions): string {
  * （`planPathsOf`），快照、版本镜像、所有权冲突、升级清理、缓存回收都从这里取，
  * 不要在别处再各数一遍动作。
  */
-export function planPaths(plan: Plan): string[] {
+export function planPaths(plan: PlanShape): string[] {
   return planPathsOf(plan);
+}
+
+/** state 里存的是计划快照：target/planHash/actions/verify/excluded，够 diff、够算路径。 */
+export function planSnapshot(plan: Plan): PlanSnapshot {
+  return {
+    target: plan.target,
+    planHash: plan.planHash,
+    actions: plan.actions,
+    verify: plan.verify,
+    excluded: plan.excluded,
+  };
 }
 
 /** `from` 的解析：按表里声明的基准读 Pack 目录或安装根，不再各 op 各猜。 */
@@ -419,7 +435,7 @@ export async function applyPlan(plan: Plan, opts: ApplyOptions): Promise<ApplyRe
       // 记录「这个 Pack 拥有哪些文件」而不是「最后一次写了几个」：重复安装时后者会归零
       written: [...new Set([...previous, ...written])],
       // 计划快照：update 靠它算出「多了什么、少了什么」
-      plan,
+      plan: planSnapshot(plan),
       ...(stateDirs.size > 0 ? { stateDirs: [...stateDirs.values()] } : {}),
     };
     if (gen) {
@@ -680,7 +696,7 @@ export async function activatePack(root: string, pack: string, version: string):
         installedAt: record.installedAt,
         actions,
         written: [...record.written],
-        plan: record.plan,
+        plan: planSnapshot(record.plan),
       };
       state.generations = [...(state.generations ?? []), gen].slice(-5);
       pruneSnapshots(root, state.generations);
@@ -737,7 +753,8 @@ async function replayShared(root: string, record: VersionRecord): Promise<Action
   const outcomes: ActionOutcome[] = [];
   const opts: ApplyOptions = { root, packRoot: root };
   for (const action of record.plan.actions) {
-    if (action.op === 'register.mcp' || action.op === 'instruction') {
+    // 要重放的就是「撤销时得还原」的那些共享改动：表里给了负载的动作
+    if (actionUndoPayload(action)) {
       outcomes.push(await applyAction(action, record.plan, opts));
       continue;
     }
@@ -767,7 +784,7 @@ async function replayShared(root: string, record: VersionRecord): Promise<Action
  */
 function deactivatePlan(
   root: string,
-  plan: Plan,
+  plan: PlanShape,
   actions: ActionOutcome[],
   keep: string[],
 ): string[] {
@@ -778,8 +795,9 @@ function deactivatePlan(
   const servers: { path: string; resource: string }[] = [];
   const blocks: { file: string; blockId: string }[] = [];
 
-  // 撤销方式由 PLAN_OPS 表声明；这里只按四类各做一次
+  // 撤销方式与撤销负载都来自 PLAN_OPS 表；这里只按四类各做一次，不再按 op 猜路径/键
   for (const action of plan.actions) {
+    const payload = actionUndoPayload(action);
     switch (actionUndo(action)) {
       case 'delete': {
         for (const rel of actionPaths(action, plan)) {
@@ -792,17 +810,16 @@ function deactivatePlan(
         break;
       }
       case 'restore-shared': {
-        if (action.op === 'register.mcp') {
+        if (payload?.undo === 'restore-shared') {
           const outcome = byId.get(action.actionId);
-          servers.push({
-            path: action.path ?? '.packhub/config.json',
-            resource: outcome?.resource ?? action.resource ?? 'mcp',
-          });
+          servers.push({ path: payload.path, resource: outcome?.resource ?? payload.key });
         }
         break;
       }
       case 'strip-block': {
-        if (action.op === 'instruction') blocks.push({ file: action.file, blockId: action.blockId });
+        if (payload?.undo === 'strip-block') {
+          blocks.push({ file: payload.file, blockId: payload.blockId });
+        }
         break;
       }
       case 'none':
@@ -958,24 +975,26 @@ export function removePack(root: string, packKey?: string): RemoveResult {
         }
       }
       const files = [...record.written].sort((a, b) => b.length - a.length);
-      // 共享改动的撤销信息由 PLAN_OPS 表分类；老 state 没有计划快照时退回动作结果
+      // 共享改动的撤销信息由 PLAN_OPS 表给出；老 state 没有计划快照时退回动作结果
       const sharedServers = record.plan
-        ? record.plan.actions.flatMap((a) =>
-            actionUndo(a) === 'restore-shared' && a.op === 'register.mcp'
-              ? [{ path: a.path ?? '.packhub/config.json', resource: a.resource ?? 'mcp' }]
-              : [],
-          )
+        ? record.plan.actions.flatMap((a) => {
+            const payload = actionUndoPayload(a);
+            return payload?.undo === 'restore-shared'
+              ? [{ path: payload.path, resource: payload.key }]
+              : [];
+          })
         : record.actions.flatMap((o) =>
             o.op === 'register.mcp' && o.target
               ? [{ path: o.target, resource: o.resource ?? 'mcp' }]
               : [],
           );
       const blockRefs = record.plan
-        ? record.plan.actions.flatMap((a) =>
-            actionUndo(a) === 'strip-block' && a.op === 'instruction'
-              ? [{ file: a.file, blockId: a.blockId }]
-              : [],
-          )
+        ? record.plan.actions.flatMap((a) => {
+            const payload = actionUndoPayload(a);
+            return payload?.undo === 'strip-block'
+              ? [{ file: payload.file, blockId: payload.blockId }]
+              : [];
+          })
         : record.actions.flatMap((o) =>
             o.op === 'instruction' && o.target && o.blockId
               ? [{ file: o.target, blockId: o.blockId }]
@@ -1435,7 +1454,7 @@ function readable(root: string, relPath: string): string {
 
 export function loadState(root: string): State {
   const file = join(root, STATE_FILE);
-  if (!existsSync(file)) return { apiVersion: STATE_API, packs: {} };
+  if (!existsSync(file)) return { apiVersion: STATE_API_VERSION, packs: {} };
   let parsed: Partial<State>;
   try {
     parsed = JSON.parse(readFileSync(file, 'utf8')) as Partial<State>;
@@ -1444,9 +1463,9 @@ export function loadState(root: string): State {
   }
   // 早期 state 没有 apiVersion：补上而不是拒绝——它是本机缓存，不是发布契约
   // 但写了别的主版本就是另一份格式：拒绝，按契约不猜字段
-  assertApiVersion(file, parsed, STATE_API);
+  assertApiVersion(file, parsed, STATE_API_VERSION);
   return {
-    apiVersion: STATE_API,
+    apiVersion: STATE_API_VERSION,
     ...(parsed.generations ? { generations: parsed.generations } : {}),
     packs: parsed.packs ?? {},
   };
@@ -1659,21 +1678,23 @@ export interface PruneResult {
  */
 export function pruneRemoved(
   root: string,
-  previous: Plan,
+  previous: PlanShape,
   next: Plan,
   previousActions: ActionOutcome[] = [],
 ): PruneResult {
   const { removed: gone } = diffActions(previous.actions, next.actions);
   const produced = new Set(planPaths(next));
   const newMcp = new Set(
-    next.actions
-      .filter((a) => actionUndo(a) === 'restore-shared' && a.op === 'register.mcp')
-      .map((a) => (a.op === 'register.mcp' ? a.resource ?? 'mcp' : '')),
+    next.actions.flatMap((a) => {
+      const payload = actionUndoPayload(a);
+      return payload?.undo === 'restore-shared' ? [payload.key] : [];
+    }),
   );
   const newBlocks = new Set(
-    next.actions
-      .filter((a) => actionUndo(a) === 'strip-block' && a.op === 'instruction')
-      .map((a) => (a.op === 'instruction' ? `${a.file}::${a.blockId}` : '')),
+    next.actions.flatMap((a) => {
+      const payload = actionUndoPayload(a);
+      return payload?.undo === 'strip-block' ? [`${payload.file}::${payload.blockId}`] : [];
+    }),
   );
   const outcomes = new Map(previousActions.map((o) => [o.actionId, o]));
   const removed: string[] = [];
@@ -1684,8 +1705,9 @@ export function pruneRemoved(
   const stillProduced = (rel: string): boolean =>
     [...produced].some((p) => p === rel || rel.startsWith(`${p}/`) || p.startsWith(`${rel}/`));
 
-  // 撤销方式由 PLAN_OPS 表声明；这里只按四类各做一次
+  // 撤销方式与撤销负载都来自 PLAN_OPS 表；这里只按四类各做一次，不再按 op 猜路径/键
   for (const action of gone) {
+    const payload = actionUndoPayload(action);
     switch (actionUndo(action)) {
       case 'delete': {
         for (const rel of actionPaths(action, previous)) {
@@ -1701,10 +1723,10 @@ export function pruneRemoved(
         break;
       }
       case 'restore-shared': {
-        if (action.op !== 'register.mcp') break;
+        if (payload?.undo !== 'restore-shared') break;
         const outcome = outcomes.get(action.actionId);
-        const server = outcome?.resource ?? action.resource ?? 'mcp';
-        const path = action.path ?? '.packhub/config.json';
+        const server = outcome?.resource ?? payload.key;
+        const path = payload.path;
         if (newMcp.has(server)) {
           kept.push(path);
           break;
@@ -1730,17 +1752,17 @@ export function pruneRemoved(
         break;
       }
       case 'strip-block': {
-        if (action.op !== 'instruction') break;
-        if (newBlocks.has(`${action.file}::${action.blockId}`)) {
-          kept.push(action.file);
+        if (payload?.undo !== 'strip-block') break;
+        if (newBlocks.has(`${payload.file}::${payload.blockId}`)) {
+          kept.push(payload.file);
           break;
         }
-        const abs = within(root, action.file);
+        const abs = within(root, payload.file);
         if (!existsSync(abs)) break;
-        const text = stripBlock(readFileSync(abs, 'utf8'), action.blockId);
+        const text = stripBlock(readFileSync(abs, 'utf8'), payload.blockId);
         if (text.trim() === '') rmSync(abs, { force: true });
         else writeFileSync(abs, text, 'utf8');
-        removed.push(action.file);
+        removed.push(payload.file);
         break;
       }
       case 'none': {

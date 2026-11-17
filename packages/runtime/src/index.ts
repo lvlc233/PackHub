@@ -13,6 +13,7 @@ import type { PackContext } from '@packhub/kernel';
 export { loadManifest, loadPack, planFor } from '@packhub/kernel';
 
 export {
+  STATE_API_VERSION,
   applyPlan,
   planPaths,
   loadState,
@@ -110,6 +111,7 @@ export {
 export {
   packArchive,
   unpackArchive,
+  readArchiveFilesSync,
   isSafeArchiveEntry,
   vendoredEntries,
   localSources,

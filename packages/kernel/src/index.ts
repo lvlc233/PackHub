@@ -26,6 +26,7 @@ export {
   actionPaths,
   actionRetainWarning,
   actionUndo,
+  actionUndoPayload,
   actionWritten,
   execWrapperPath,
   isSharedInstallPath,
@@ -34,6 +35,8 @@ export {
   type PlanOpName,
   type PlanOpSpec,
   type PlanOpUndo,
+  type PlanOpUndoPayload,
+  type PlanShape,
 } from './plan-ops.ts';
 export {
   checkLockConsistency,

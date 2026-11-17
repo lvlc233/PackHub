@@ -44,8 +44,18 @@ describe('Hub（只读发布端）', () => {
   });
 
 
-  it('索引与包页带 ETag / Cache-Control，条件请求回 304', async () => {
-    const first = await fetch(`${base}/api/registry`);
+  it('包名按 kernel 的 PACK_NAME_PATTERN 判定（本地的宽松正则已删）', async () => {
+    // 旧正则（/^[a-z0-9-]+\/[a-z0-9-]+$/）会放过开头是 `-` 的包名；现在跟 kernel 的 schema 判据一致
+    for (const name of ['-demo/res', 'demo/res/extra', 'Demo/res', 'demo//res']) {
+      const res = await fetch(`${base}/api/registry/pack?name=${encodeURIComponent(name)}`);
+      expect(res.status).toBe(400);
+    }
+    // 形状合法但不是 registry 里的包：仍按 404 处理
+    const missing = await fetch(`${base}/api/registry/pack?name=${encodeURIComponent('demo-/res')}`);
+    expect(missing.status).toBe(404);
+  });
+
+  it('索引与包页带 ETag / Cache-Control，条件请求回 304', async () => {    const first = await fetch(`${base}/api/registry`);
     const etag = first.headers.get('etag');
     expect(etag).toMatch(/^"/);
     expect(first.headers.get('cache-control')).toContain('max-age');

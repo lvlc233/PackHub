@@ -57,7 +57,10 @@ describe('collectPackResources', () => {
   it('不认识的包名/版本返回 null', () => {
     const root = registryWithPack();
     expect(collectPackResources(root, '../etc/passwd')).toBeNull();
+    // 旧正则（[a-z0-9-]+ 开头不限）会放过开头是 `-` 的包名；现在跟 kernel 的 PACK_NAME_PATTERN 一致
+    expect(collectPackResources(root, '-demo/res')).toBeNull();
     expect(collectPackResources(root, 'demo/res', '9.9.9')).toBeNull();
+    expect(collectPackResources(root, 'demo/res', '0.0.1/..')).toBeNull();
     expect(collectPackResources(root, 'demo/missing')).toBeNull();
     rmSync(root, { recursive: true, force: true });
   });

@@ -3,7 +3,8 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { extname, join, resolve, sep } from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import type { Plan, VerifyCheck } from '@packhub/kernel';
+import type { PlanShape, VerifyCheck } from '@packhub/kernel';
+import pkg from '../../../package.json' with { type: 'json' };
 import { askHarness } from './harness-probe.ts';
 
 export type CheckStatus = 'pass' | 'fail' | 'skipped';
@@ -22,7 +23,7 @@ export interface VerifyOptions {
 }
 
 /** 从计划里取出 MCP 的启动规格：resource id → spec，供 mcp-ready 探活。 */
-export function serverSpecs(plan: Plan): Record<string, unknown> {
+export function serverSpecs(plan: PlanShape): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const action of plan.actions) {
     if (action.op === 'register.mcp' && action.resource) out[action.resource] = action.spec;
@@ -107,7 +108,7 @@ async function evaluate(
         params: {
           protocolVersion: '2024-11-05',
           capabilities: {},
-          clientInfo: { name: 'packhub', version: '0.0.1' },
+          clientInfo: { name: 'packhub', version: pkg.version },
         },
       });
       if (typeof server.url === 'string' && server.url) {

@@ -2,8 +2,15 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { canonicalize, loadPack, planFor, sha256, type LockFile } from '@packhub/kernel';
-import { SIGNATURE_FILE, withLockPins } from '@packhub/runtime';
+import {
+  INDEX_API_VERSION,
+  canonicalize,
+  loadPack,
+  planFor,
+  sha256,
+  type LockFile,
+} from '@packhub/kernel';
+import { SIGNATURE_FILE, readArchiveFilesSync, withLockPins } from '@packhub/runtime';
 
 export interface IndexEntry {
   version: string;
@@ -36,7 +43,8 @@ export interface IndexPack {
 }
 
 export interface RegistryIndex {
-  apiVersion: 'packhub.dev/index/v0';
+  /** 写方与读方共用 kernel 的常量，不各写一份字面量 */
+  apiVersion: typeof INDEX_API_VERSION;
   generatedAt: string;
   packs: IndexPack[];
 }
@@ -62,6 +70,72 @@ function dirs(p: string): string[] {
     .filter((d) => d.isDirectory() && !d.name.startsWith('.'))
     .map((d) => d.name)
     .sort();
+}
+
+function parseJsonObject(text: string | undefined): Record<string, unknown> | null {
+  if (text === undefined) return null;
+  try {
+    const value = JSON.parse(text) as unknown;
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 归档 ↔ 版本目录的语义一致：锁的 planHash、报告的 ok 与 planHash 相等。
+ *
+ * 只比语义，不比字节：归档与版本目录可能是不同工具写的（行尾、缩进不同），
+ * 现有三个已发布归档的锁就与版本目录差在 CRLF 上——字节比会把它们全误报成「被改过」。
+ */
+function checkArchiveConsistency(
+  packName: string,
+  version: string,
+  versionDir: string,
+  archivePath: string,
+  errors: string[],
+): void {
+  // 读归档走 runtime/pack.ts 的同步读法（node-tar 的 sync 解包），registry 不再自己解析 tar 格式
+  let files: Map<string, string>;
+  try {
+    files = readArchiveFilesSync(archivePath, ['packhub.lock.json', 'verify.json']);
+  } catch {
+    errors.push(`${packName}@${version}: 读不了 ${version}.phub，无法核对归档里的锁与报告`);
+    return;
+  }
+
+  const dirLock = parseJsonObject(readFileSync(join(versionDir, 'packhub.lock.json'), 'utf8'));
+  const short = (value: unknown): string => String(value ?? '(无)').slice(0, 16);
+  const archiveLockText = files.get('packhub.lock.json');
+  if (archiveLockText === undefined) {
+    errors.push(
+      `${packName}@${version}: 归档里缺 packhub.lock.json（发布必须带锁，归档要从版本目录打）`,
+    );
+  } else {
+    const archiveLock = parseJsonObject(archiveLockText);
+    if (archiveLock?.planHash !== dirLock?.planHash) {
+      errors.push(
+        `${packName}@${version}: 归档里的锁与版本目录不一致（归档=${short(archiveLock?.planHash)}… 目录=${short(dirLock?.planHash)}…），从版本目录重打归档`,
+      );
+    }
+  }
+
+  const dirVerifyPath = join(versionDir, 'verify.json');
+  if (!existsSync(dirVerifyPath)) return;
+  const dirVerify = parseJsonObject(readFileSync(dirVerifyPath, 'utf8'));
+  const archiveVerifyText = files.get('verify.json');
+  if (archiveVerifyText === undefined) {
+    errors.push(`${packName}@${version}: 归档里缺 verify.json（版本目录有报告，归档要带同一份）`);
+    return;
+  }
+  const archiveVerify = parseJsonObject(archiveVerifyText);
+  if (archiveVerify?.ok !== dirVerify?.ok || archiveVerify?.planHash !== dirVerify?.planHash) {
+    errors.push(
+      `${packName}@${version}: 归档里的 verify.json 与版本目录不一致（归档 ok=${String(archiveVerify?.ok)} planHash=${short(archiveVerify?.planHash)}… 目录 ok=${String(dirVerify?.ok)} planHash=${short(dirVerify?.planHash)}…）`,
+    );
+  }
 }
 
 /**
@@ -143,7 +217,6 @@ export function buildIndex(registryRoot: string): BuildResult {
             }
           }
         }
-
         const ctx = loadPack(dir);
         for (const e of ctx.issues.filter((i) => i.severity === 'error')) {
           errors.push(`${packName}@${version}: [${e.code}] ${e.message}`);
@@ -164,9 +237,14 @@ export function buildIndex(registryRoot: string): BuildResult {
         }
         const lock = JSON.parse(readFileSync(lockPath, 'utf8')) as {
           planHash?: string;
+          plan?: { target?: string; planHash?: string };
           resolved?: { id: string; source: string; integrity: string | null }[];
-          plans?: Partial<Record<string, { planHash?: string }>>;
+          plans?: Partial<Record<string, { target?: string; planHash?: string }>>;
         };
+        // 归档与版本目录必须装的是同一份发布内容：归档里的锁 / 报告与目录里的语义一致
+        if (existsSync(archive)) {
+          checkArchiveConsistency(packName, version, dir, archive, errors);
+        }
         // 按锁里钉死的 commit/版本算计划，否则「清单写 tag、锁写 commit」会被误判成过期
         const pinned = withLockPins(ctx, lock as unknown as LockFile);
         const { plan } = planFor(pinned);
@@ -179,16 +257,24 @@ export function buildIndex(registryRoot: string): BuildResult {
             `${packName}@${version}: 锁已过期（lock=${String(lock.planHash).slice(0, 16)}… plan=${plan.planHash.slice(0, 16)}…），重跑 packhub lock`,
           );
         }
-        // 多 target 锁：每个声明过的 target 都要和锁里的快照对得上
+        // 多 target 锁：清单声明过的每个 target 都要在锁里有自己的快照，并与当前计划对得上。
+        // 快照口径同 kernel 的 checkLockConsistency：`plans?.[target] ?? plan`——单 target 的锁
+        // 不写 plans，主计划就是它自己的快照；但回落的快照必须真的属于这个 target，
+        // 否则说明多 target 清单只锁了主计划，其它 target 装的时候没有可核对的基准。
         for (const target of ctx.manifest.metadata.targets) {
-          const expected = lock.plans?.[target]?.planHash;
-          if (!expected) continue;
+          const snapshot = lock.plans?.[target] ?? lock.plan;
+          if (!snapshot || snapshot.target !== target) {
+            errors.push(
+              `${packName}@${version}: 锁里没有 ${target} 的计划快照（声明的 target 都要锁住），重跑 packhub lock`,
+            );
+            continue;
+          }
           const { plan: targetPlan } = planFor(pinned, { target });
           if (!targetPlan) {
             errors.push(`${packName}@${version}: 生成 ${target} 计划失败`);
-          } else if (targetPlan.planHash !== expected) {
+          } else if (targetPlan.planHash !== snapshot.planHash) {
             errors.push(
-              `${packName}@${version}: ${target} 的计划与锁不一致（lock=${String(expected).slice(0, 16)}… plan=${targetPlan.planHash.slice(0, 16)}…），重跑 packhub lock`,
+              `${packName}@${version}: ${target} 的计划与锁不一致（lock=${String(snapshot.planHash).slice(0, 16)}… plan=${targetPlan.planHash.slice(0, 16)}…），重跑 packhub lock`,
             );
           }
         }
@@ -271,7 +357,7 @@ export function buildIndex(registryRoot: string): BuildResult {
   }
 
   return {
-    index: { apiVersion: 'packhub.dev/index/v0', generatedAt: new Date().toISOString(), packs },
+    index: { apiVersion: INDEX_API_VERSION, generatedAt: new Date().toISOString(), packs },
     errors,
     warnings,
   };

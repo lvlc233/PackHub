@@ -1,10 +1,12 @@
 import { readdirSync, readFileSync, statSync, type Dirent } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { loadManifest } from '@packhub/kernel';
+import { STATE_API_VERSION } from '@packhub/runtime';
 
 /**
  * 只读目录扫描：在一个目录下按深度找三类 PAL 候选——已有实例、Pack 目录、装过 Pack 的环境。
  * 清单身份交给 kernel 的 loadManifest 读（与 create / update 同一套解析，见 readManifestIdentity）；
+ * state 的格式版本取自 runtime 的 STATE_API_VERSION，比较不写字面量。
  * 其余只依赖 node:fs / node:path：不写盘、不改记录、不取包、不接管（adopt 仍要人给 dir + harness）。
  * 路径比较统一走 pathKey：Windows 大小写不敏感；resolve 之后分隔符也已归一。
  */
@@ -177,7 +179,18 @@ function readEnvironmentEntry(dir: string, file: string): ScanEntry {
   } catch (err) {
     return { ...base, packs: 0, problem: `.packhub/state.json 不是合法 JSON：${errorText(err)}` };
   }
-  if (!isRecord(data) || !isRecord(data.packs)) {
+  if (!isRecord(data)) {
+    return { ...base, packs: 0, problem: '.packhub/state.json 里没有 packs 对象' };
+  }
+  // 版本必须比较：别的代际的 state 不按字段猜，也不静默计数
+  if (data.apiVersion !== STATE_API_VERSION) {
+    return {
+      ...base,
+      packs: 0,
+      problem: `.packhub/state.json 的格式版本不认识：${String(data.apiVersion)}（只认 ${STATE_API_VERSION}）`,
+    };
+  }
+  if (!isRecord(data.packs)) {
     return { ...base, packs: 0, problem: '.packhub/state.json 里没有 packs 对象' };
   }
   return { ...base, packs: Object.keys(data.packs).length };

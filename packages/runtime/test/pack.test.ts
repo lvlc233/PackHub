@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { LocalSourceNotVendoredError, packArchive, unpackArchive } from '../src/index.ts';
+import { LocalSourceNotVendoredError, packArchive, readArchiveFilesSync, unpackArchive } from '../src/index.ts';
 
 function manifest(name: string, version: string, body: string): string {
   return `apiVersion: packhub.dev/v0
@@ -81,6 +81,36 @@ describe('pack 封装', () => {
     expect(res.entries).toContain('packhub.yaml');
     expect(res.entries).not.toContain('resources');
 
+    rmSync(root, { recursive: true, force: true });
+  });
+});
+
+describe('同步读归档（发布门禁核对锁与报告）', () => {
+  it('读得回请求的顶层文件原文；没请求或不存在的名字不出现', async () => {
+    const root = localPack('packhub-pack-read-');
+    const lockText = JSON.stringify({ apiVersion: 'packhub.dev/lock/v0', planHash: 'sha256-abc' }, null, 2) + '\n';
+    const verifyText = JSON.stringify({ ok: true, planHash: 'sha256-abc' }, null, 2) + '\n';
+    writeFileSync(join(root, 'packhub.lock.json'), lockText, 'utf8');
+    writeFileSync(join(root, 'verify.json'), verifyText, 'utf8');
+    const archive = join(root, 'pack.phub');
+    await packArchive(root, { out: archive });
+
+    const files = readArchiveFilesSync(archive, ['packhub.lock.json', 'verify.json', 'missing.json']);
+    expect(files.get('packhub.lock.json')).toBe(lockText);
+    expect(files.get('verify.json')).toBe(verifyText);
+    expect(files.has('missing.json')).toBe(false);
+    // 只按请求的名字返回：归档里的 packhub.yaml / resources 不出现
+    expect([...files.keys()].sort()).toEqual(['packhub.lock.json', 'verify.json']);
+
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  it('归档读不了（不是 tar.gz）时抛错，由调用方转成门禁 error', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'packhub-pack-bad-'));
+    const bad = join(root, 'bad.phub');
+    writeFileSync(bad, 'this is not a tar.gz', 'utf8');
+    expect(() => readArchiveFilesSync(bad, ['packhub.lock.json'])).toThrow();
+    expect(() => readArchiveFilesSync(join(root, 'missing.phub'), ['packhub.lock.json'])).toThrow();
     rmSync(root, { recursive: true, force: true });
   });
 });

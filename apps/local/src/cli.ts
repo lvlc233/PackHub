@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
+import pkg from '../../../package.json' with { type: 'json' };
 import type { CommandDef } from 'citty';
 import { EXIT, command, issueError, issueWarn, json, orStop, problem, problemRaw, say, sayUnless, stop, terminate, warn } from './emit.ts';
 import { parsePackRef } from './ref.ts';
@@ -2162,7 +2163,8 @@ export function unknownFlag(argv: string[]): string | undefined {
   return undefined;
 }
 export const main: CommandDef = command({
-  meta: { name: 'packhub', version: '0.0.1', description: 'Agent 能力的整合包工具' },
+  // 版本号只认仓库根 package.json 一份，别在这里手写第二份。
+  meta: { name: 'packhub', version: pkg.version, description: 'Agent 能力的整合包工具' },
   subCommands: {
     plan,
     install,

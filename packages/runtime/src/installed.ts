@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Plan, VerifyCheck } from '@packhub/kernel';
+import type { PlanSnapshot, VerifyCheck } from '@packhub/kernel';
 import { loadState } from './install.ts';
 import { runChecks, serverSpecs, type CheckResult } from './verify.ts';
 
@@ -9,7 +9,7 @@ export interface InstalledVerifyReport {
   planHash: string;
   installedAt: string;
   /** state 里存的计划快照；旧版安装没有时为 undefined */
-  plan?: Plan;
+  plan?: PlanSnapshot;
   results: CheckResult[];
   ok: boolean;
 }

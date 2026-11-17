@@ -1,7 +1,7 @@
 ---
 kind: concept
 summary: 术语与边界（Pack / 资源 / 计划 / 实例 / 隔离）
-verified: 2026-11-11
+verified: 2026-11-18
 decay: 365
 review: 实例模型或安装流程改动后
 ---
@@ -50,7 +50,7 @@ Pack 里的一条能力声明，它相对于 Agent，而不是相对于整个 ha
 
 清单是 Pack 的书面声明：有哪些资源、彼此怎么接、装到哪些目标、有哪些约束。
 
-它是打包的重要依据。字段与校验规则见 [contract.md](contract.md)。
+它是打包的重要依据。字段与校验规则见 [`schema/packhub.v0.schema.json`](../schema/packhub.v0.schema.json)（唯一权威）；跨文件的数据形状见 [contract.md](contract.md)。
 
 ### Lock（锁）
 

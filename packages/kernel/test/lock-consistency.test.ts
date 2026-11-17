@@ -103,14 +103,13 @@ const CASES: Case[] = [
     message: '一致',
   },
   {
-    name: 'plans 里没有这个 target 时回落到主计划',
+    name: '旧锁只有 dir 主计划，核 dsh 不拿它当基准',
     lock: lock({ plan: snapshot(H1, 'dir') }),
     target: 'dsh',
     plan: plan(H1, 'dsh'),
-    status: 'ok',
-    expected: H1,
+    status: 'no-lock-plan',
     actual: H1,
-    message: '一致',
+    message: '锁里没有 dsh 的计划快照，只有 dir 的',
   },
   {
     name: '锁有计划快照但当前清单算不出计划',
@@ -141,5 +140,24 @@ describe('锁 ↔ 计划一致性（纯判定）', () => {
     if (c.actual === undefined) expect(result.actual).toBeUndefined();
     else expect(result.actual).toBe(c.actual);
     expect(result.message).toContain(c.message);
+  });
+
+  it('回落失败时只说「锁里没有这个 target 的快照」，不说清单被改过', () => {
+    const result = checkLockConsistency(
+      lock({ plan: snapshot(H1, 'dir') }),
+      'dsh',
+      plan(H1, 'dsh'),
+    );
+    expect(result.status).toBe('no-lock-plan');
+    expect(result.message).toContain('只有 dir 的');
+    expect(result.message).not.toContain('清单在锁定后被改过');
+    expect(result.message).not.toContain('--allow-stale-lock');
+  });
+
+  it('只有同一 target 的主计划才回落，哈希对不上照样判 mismatch', () => {
+    const result = checkLockConsistency(lock({ plan: snapshot(H1, 'dir') }), 'dir', plan(H2, 'dir'));
+    expect(result.status).toBe('mismatch');
+    expect(result.expected).toBe(H1);
+    expect(result.actual).toBe(H2);
   });
 });

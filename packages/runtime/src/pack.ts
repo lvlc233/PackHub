@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import * as tar from 'tar';
 import { loadPack, parseSource } from '@packhub/kernel';
@@ -112,4 +113,34 @@ export async function unpackArchive(file: string, dest: string): Promise<void> {
     cwd: dest,
     filter: (path, entry) => isSafeArchiveEntry(path, entry),
   });
+}
+
+/**
+ * 同步读归档里的顶层文本文件（发布门禁核对 `packhub.lock.json` / `verify.json` 用）。
+ *
+ * 走 node-tar 自己的同步解包到临时目录，不手写 tar 格式；`filter` 只放行请求的
+ * 顶层普通文件，归档里其余条目（含链接）一概不落地。缺的条目不在返回的 Map 里；
+ * 归档读不了（不是 gzip / 不是 tar / 文件不存在）就抛错，由调用方转成门禁 error。
+ */
+export function readArchiveFilesSync(file: string, names: readonly string[]): Map<string, string> {
+  const wanted = new Set(names.map((name) => name.replace(/\\/g, '/')));
+  const dir = mkdtempSync(join(tmpdir(), 'packhub-archive-'));
+  try {
+    tar.x({
+      file,
+      cwd: dir,
+      sync: true,
+      filter: (path, entry) =>
+        wanted.has(path.replace(/\\/g, '/')) && isSafeArchiveEntry(path, entry),
+    });
+    const found = new Map<string, string>();
+    for (const name of names) {
+      const abs = join(dir, name);
+      if (!existsSync(abs) || !statSync(abs).isFile()) continue;
+      found.set(name, readFileSync(abs, 'utf8'));
+    }
+    return found;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }

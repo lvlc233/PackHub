@@ -56,6 +56,7 @@ RollbackResult
 Runner
 RunnerResult
 SIGNATURE_FILE
+STATE_API_VERSION
 SignatureCheck
 SignatureEntry
 SignatureFile
@@ -129,6 +130,7 @@ planFor
 planPaths
 probeHarness
 probeSkill
+readArchiveFilesSync
 readAudit
 readConfig
 readCredentials

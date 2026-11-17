@@ -2,10 +2,11 @@
 // 全量重锁：registry 里每个已发布版本按自己的版本目录重做一遍发布内容。
 //
 // 每个版本按顺序做（任何一步失败立刻非零退出，并说清哪个包、哪个版本、哪一步）：
-//   1) lock     按版本目录重算锁（与 `packhub lock` 同一入口 lockPack，主 target = dir）
+//   1) lock     按版本目录重算锁（与 `packhub lock` 同一入口 lockPack，主 target 由 registry 的
+//               primaryTarget 选，与 publish 同一条规则；锁覆盖清单声明的全部 target）
 //   2) sign     这个版本原来有签名就重签（需要 --key 或 PACKHUB_RELOCK_KEY）；没有签名跳过
 //   3) verify   在干净目录里重跑 runner（真装 + 读校验），通过才写 verify.json
-//   4) archive  按版本目录重打 .phub（vendored，与 registry:pack 同一入口）
+//   4) archive  从版本目录重打 .phub（与发布同一入口 packVersionArchive，vendored）
 // 全部版本做完再重建 registry/index.json（唯一入口 buildIndex/writeIndex，不手写索引）。
 //
 // 原子性：1~3 步先在临时副本上做（新锁与新签名只写进副本），runner 通过后才落盘。
@@ -41,13 +42,12 @@ import { join, relative, resolve } from 'node:path';
 import { canonicalize, loadPack } from '../../packages/kernel/src/index.ts';
 import {
   lockPack,
-  packArchive,
   readSignatures,
   signPlan,
   writeSignature,
 } from '../../packages/runtime/src/index.ts';
 import { runPack } from '../../packages/runner/src/index.ts';
-import { buildIndex, writeIndex } from '../../packages/registry/src/index.ts';
+import { buildIndex, packVersionArchive, primaryTarget, writeIndex } from '../../packages/registry/src/index.ts';
 
 const ROOT = resolve(import.meta.dirname, '../..');
 const REGISTRY = join(ROOT, 'registry');
@@ -135,8 +135,9 @@ async function computeLock(dir, label) {
   if (!ctx.manifest) throw new StepError('lock', '清单读不出来');
 
   const declared = ctx.manifest.metadata.targets;
-  const target = declared.includes('dir') ? 'dir' : declared[0];
-  if (!target) throw new StepError('lock', '清单没有声明任何 target');
+  // 主 target 与归档来源都走 registry 的同一实现：发布（publishPack）与重锁（本脚本）
+  // 不能各定一套「主 target 是谁 / 归档从哪个目录打」的规则。
+  const target = primaryTarget(declared);
   const res = await lockPack(ctx, { target });
   if (res.warnings.length > 0) {
     throw new StepError('lock', `有引用没解析出来（不能静默写进锁）：${res.warnings.join('; ')}`);
@@ -257,12 +258,12 @@ async function rebuildVersion(dir, label) {
   }
 }
 
-/** 4) 重打 .phub；逐字节没变就不覆盖。 */
+/** 4) 重打 .phub（从版本目录打，与 publish 同一入口）；逐字节没变就不覆盖。 */
 async function repack(dir, label, archiveOut) {
   const work = mkdtempSync(join(tmpdir(), 'packhub-relock-pack-'));
   const tmp = join(work, 'out.phub');
   try {
-    await packArchive(dir, { vendored: true, out: tmp });
+    await packVersionArchive(dir, tmp);
     const next = readFileSync(tmp);
     const previous = existsSync(archiveOut) ? readFileSync(archiveOut) : undefined;
     const digest = (buf) => createHash('sha256').update(buf).digest('hex');

@@ -1,11 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { packArchive, unpackArchive } from '@packhub/runtime';
 import { buildIndex, publishPack, writeIndex } from '../src/index.ts';
 
-function makePack(overrides: { version?: string; visibility?: string; verifyFail?: boolean } = {}): string {
+function makePack(
+  overrides: {
+    version?: string;
+    visibility?: string;
+    verifyFail?: boolean;
+    targets?: string[];
+  } = {},
+): string {
   const dir = mkdtempSync(join(tmpdir(), 'packhub-pub-pack-'));
   writeFileSync(join(dir, 'rules.md'), '# r\n', 'utf8');
   writeFileSync(
@@ -20,7 +36,7 @@ metadata:
   license: MIT
   homepage: https://example.com/demo
   authors: [{ name: 测试作者 }]
-  targets: [dir]
+  targets: [${(overrides.targets ?? ['dir']).join(', ')}]
   visibility: ${overrides.visibility ?? 'public'}
 requires: { packhub: ">=0.0.1 <0.1", agent: dsh }
 resources:
@@ -151,5 +167,89 @@ describe('publish', () => {
     expect(existsSync(join(reg, 'packs/demo/published/0.1.0'))).toBe(false);
     rmSync(pack, { recursive: true, force: true });
     rmSync(reg, { recursive: true, force: true });
+  });
+
+  it('多 target：锁覆盖全部声明的 target，归档从版本目录打（锁与报告同一份）', async () => {
+    const pack = makePack({ targets: ['dir', 'dsh', 'claude-code'] });
+    const reg = registry();
+    const res = await publishPack(pack, { registry: reg });
+
+    const lock = JSON.parse(readFileSync(join(res.dir, 'packhub.lock.json'), 'utf8')) as {
+      planHash: string;
+      plans?: Record<string, { target: string; planHash: string }>;
+    };
+    expect(Object.keys(lock.plans ?? {}).sort()).toEqual(['claude-code', 'dir', 'dsh']);
+    expect(lock.plans!.dir!.planHash).toBe(lock.planHash);
+
+    // 归档里的锁 / 报告就是版本目录那一份（不是从包源目录打的旧锁）
+    const unpacked = mkdtempSync(join(tmpdir(), 'packhub-pub-unpack-'));
+    await unpackArchive(join(reg, 'packs/demo/published/0.1.0.phub'), unpacked);
+    const archivedLock = JSON.parse(readFileSync(join(unpacked, 'packhub.lock.json'), 'utf8')) as {
+      planHash: string;
+      plans?: Record<string, { target: string; planHash: string }>;
+    };
+    expect(archivedLock.planHash).toBe(lock.planHash);
+    expect(Object.keys(archivedLock.plans ?? {}).sort()).toEqual(['claude-code', 'dir', 'dsh']);
+    expect(existsSync(join(unpacked, 'verify.json'))).toBe(true);
+
+    expect(buildIndex(reg).errors).toEqual([]);
+    rmSync(pack, { recursive: true, force: true });
+    rmSync(reg, { recursive: true, force: true });
+    rmSync(unpacked, { recursive: true, force: true });
+  });
+
+  it('清单声明了 target 但锁里没有快照：索引门禁报错（不再 continue 放过）', async () => {
+    const pack = makePack({ targets: ['dir', 'dsh'] });
+    const reg = registry();
+    const res = await publishPack(pack, { registry: reg });
+
+    const lockPath = join(res.dir, 'packhub.lock.json');
+    const lock = JSON.parse(readFileSync(lockPath, 'utf8')) as { plans?: unknown };
+    delete lock.plans;
+    writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
+
+    const errors = buildIndex(reg).errors.join('\n');
+    expect(errors).toContain('锁里没有 dsh 的计划快照');
+    rmSync(pack, { recursive: true, force: true });
+    rmSync(reg, { recursive: true, force: true });
+  });
+
+  it('归档里缺锁：索引门禁报错', async () => {
+    const pack = makePack();
+    const reg = registry();
+    const res = await publishPack(pack, { registry: reg });
+
+    // 从版本目录的副本重打归档，但去掉锁——模拟「归档与版本目录不同源」
+    const staged = mkdtempSync(join(tmpdir(), 'packhub-pub-stage-'));
+    cpSync(res.dir, staged, { recursive: true });
+    rmSync(join(staged, 'packhub.lock.json'));
+    await packArchive(staged, { vendored: true, out: join(reg, 'packs/demo/published/0.1.0.phub') });
+
+    const errors = buildIndex(reg).errors.join('\n');
+    expect(errors).toContain('归档里缺 packhub.lock.json');
+    rmSync(pack, { recursive: true, force: true });
+    rmSync(reg, { recursive: true, force: true });
+    rmSync(staged, { recursive: true, force: true });
+  });
+
+  it('归档里的锁与版本目录不一致：索引门禁报错（比 planHash，不比字节）', async () => {
+    const pack = makePack();
+    const reg = registry();
+    const res = await publishPack(pack, { registry: reg });
+
+    const staged = mkdtempSync(join(tmpdir(), 'packhub-pub-stage-'));
+    cpSync(res.dir, staged, { recursive: true });
+    const stagedLock = JSON.parse(readFileSync(join(staged, 'packhub.lock.json'), 'utf8')) as {
+      planHash?: string;
+    };
+    stagedLock.planHash = 'sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=';
+    writeFileSync(join(staged, 'packhub.lock.json'), `${JSON.stringify(stagedLock, null, 2)}\n`, 'utf8');
+    await packArchive(staged, { vendored: true, out: join(reg, 'packs/demo/published/0.1.0.phub') });
+
+    const errors = buildIndex(reg).errors.join('\n');
+    expect(errors).toContain('归档里的锁与版本目录不一致');
+    rmSync(pack, { recursive: true, force: true });
+    rmSync(reg, { recursive: true, force: true });
+    rmSync(staged, { recursive: true, force: true });
   });
 });

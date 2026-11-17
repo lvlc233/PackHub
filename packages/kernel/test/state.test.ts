@@ -69,7 +69,7 @@ describe('持久状态目录（state 块）', () => {
     }
   });
 
-  it('重复 id 报错；不同 id 指向同一路径也报错', () => {
+  it('重复 id 报错（同目录不同 id 见 plan-conflict.test.ts 的 duplicate-state-path）', () => {
     const dupId = pack(`state:
   - id: memory
   - id: memory
@@ -79,15 +79,5 @@ describe('持久状态目录（state 块）', () => {
     expect(first.plan).toBeUndefined();
     expect(first.issues.some((i) => i.code === 'duplicate-state-id')).toBe(true);
     rmSync(dupId, { recursive: true, force: true });
-
-    const dupPath = pack(`state:
-  - id: memory
-  - id: memory-two
-    path: .packhub/state/memory
-`);
-    const second = planFor(loadPack(dupPath));
-    expect(second.plan).toBeUndefined();
-    expect(second.issues.some((i) => i.code === 'output-conflict')).toBe(true);
-    rmSync(dupPath, { recursive: true, force: true });
   });
 });

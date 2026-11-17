@@ -7,6 +7,7 @@ ExecSpec
 Graph
 HARNESS_IDS
 HarnessId
+INDEX_API_VERSION
 Issue
 LoadResult
 LocalOverrides
@@ -28,7 +29,9 @@ PlanOpFromBase
 PlanOpName
 PlanOpSpec
 PlanOpUndo
+PlanOpUndoPayload
 PlanOptions
+PlanShape
 PlanSnapshot
 RESOURCE_TYPES
 ResolvedRef
@@ -53,6 +56,7 @@ actionIsShared
 actionPaths
 actionRetainWarning
 actionUndo
+actionUndoPayload
 actionWritten
 buildLock
 buildMcpSpec

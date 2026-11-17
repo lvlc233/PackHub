@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
-import type { Plan } from '@packhub/kernel';
+import type { PlanShape, PlanSnapshot } from '@packhub/kernel';
 import { actionInputs } from '@packhub/kernel';
 import { loadState, planPaths } from './install.ts';
 
@@ -33,7 +33,7 @@ function sizeOf(target: string): number {
  * 计划引用到的缓存路径：写入口径统一走 planPaths（含 fetch 落点与派生输出），
  * 只读来源由 PLAN_OPS 表的 inputs 派生（解包前的归档、skill 来源、工具执行体/入口）。
  */
-function referencedPaths(plans: Plan[]): string[] {
+function referencedPaths(plans: PlanShape[]): string[] {
   const out = new Set<string>();
   for (const plan of plans) {
     for (const rel of planPaths(plan)) out.add(rel);
@@ -51,7 +51,11 @@ function referencedPaths(plans: Plan[]): string[] {
 export function inspectCache(root: string): CacheReport {
   const base = join(root, '.packhub/cache');
   const state = loadState(root);
-  const refs = referencedPaths(Object.values(state.packs).map((p) => p.plan).filter((p): p is Plan => Boolean(p)));
+  const refs = referencedPaths(
+    Object.values(state.packs)
+      .map((p) => p.plan)
+      .filter((p): p is PlanSnapshot => Boolean(p)),
+  );
   const isReferenced = (rel: string): boolean =>
     refs.some((ref) => ref === rel || rel.startsWith(`${ref}/`) || ref.startsWith(`${rel}/`));
   const entries: CacheEntry[] = [];

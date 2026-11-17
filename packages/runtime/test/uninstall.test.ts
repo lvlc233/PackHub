@@ -3,6 +3,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, write
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { actionUndoPayload } from '@packhub/kernel';
 import { installPack, loadPack, planFor, removePack } from '../src/index.ts';
 
 const EXAMPLE = fileURLToPath(new URL('../../../examples/team-conventions/', import.meta.url));
@@ -87,6 +88,70 @@ resources:
       mcpServers: Record<string, unknown>;
     };
     expect(Object.keys(after.mcpServers)).toEqual(['mine']);
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe('撤销负载只在 PLAN_OPS 表里定义一次', () => {
+  it('register.mcp 与 instruction 的撤销字段与安装实际用的键/块逐字一致', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'packhub-undo-payload-'));
+    writeFileSync(
+      join(dir, 'packhub.yaml'),
+      `apiVersion: packhub.dev/v0
+kind: Pack
+metadata: { name: demo/share, version: 0.0.1, targets: [claude-code] }
+requires: { packhub: ">=0.0.1 <0.1" }
+resources:
+  - id: pack-search
+    type: mcp
+    source: npm:@scope/x@1.0.0
+    transport: stdio
+`,
+      'utf8',
+    );
+    writeFileSync(
+      join(dir, '.mcp.json'),
+      JSON.stringify({ mcpServers: { mine: { command: 'my-server' } } }, null, 2) + '\n',
+      'utf8',
+    );
+    writeFileSync(join(dir, 'CLAUDE.md'), '用户自己的说明\n', 'utf8');
+
+    const ctx = loadPack(dir);
+    const { plan } = planFor(ctx, { target: 'claude-code' });
+    await installPack(ctx, plan!);
+
+    // mcp：撤销要摘的键与安装写进配置的键是同一个
+    const mcp = plan!.actions.find((a) => a.op === 'register.mcp');
+    expect(mcp).toBeTruthy();
+    const mcpPayload = actionUndoPayload(mcp!);
+    expect(mcpPayload?.undo).toBe('restore-shared');
+    if (mcpPayload?.undo !== 'restore-shared') throw new Error('register.mcp 的撤销负载应由表给出');
+    expect(mcpPayload).toEqual({ undo: 'restore-shared', path: '.mcp.json', key: 'pack-search' });
+    const config = JSON.parse(readFileSync(join(dir, '.mcp.json'), 'utf8')) as {
+      mcpServers: Record<string, unknown>;
+    };
+    expect(config.mcpServers[mcpPayload.key]).toBeTruthy();
+
+    // instruction：撤销要摘的块与安装写进文件的块是同一个
+    const instruction = plan!.actions.find((a) => a.op === 'instruction');
+    expect(instruction).toBeTruthy();
+    const blockPayload = actionUndoPayload(instruction!);
+    expect(blockPayload?.undo).toBe('strip-block');
+    if (blockPayload?.undo !== 'strip-block') throw new Error('instruction 的撤销负载应由表给出');
+    expect(blockPayload).toEqual({ undo: 'strip-block', file: 'CLAUDE.md', blockId: 'demo/share' });
+    expect(readFileSync(join(dir, 'CLAUDE.md'), 'utf8')).toContain(
+      `<!-- packhub:begin ${blockPayload.blockId} -->`,
+    );
+
+    // 卸载按同一份负载撤销：只摘自己的键与块，用户内容留下
+    removePack(dir);
+    const servers = (JSON.parse(readFileSync(join(dir, '.mcp.json'), 'utf8')) as {
+      mcpServers?: Record<string, unknown>;
+    }).mcpServers;
+    expect(Object.keys(servers ?? {})).toEqual(['mine']);
+    const claude = readFileSync(join(dir, 'CLAUDE.md'), 'utf8');
+    expect(claude).toContain('用户自己的说明');
+    expect(claude).not.toContain('packhub:begin');
     rmSync(dir, { recursive: true, force: true });
   });
 });

@@ -4,6 +4,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
+  INDEX_API_VERSION,
   TARGET_IDS,
   isTargetId,
   parseManifest,
@@ -11,6 +12,7 @@ import {
   validateGraph,
   type PackContext,
 } from '@packhub/kernel';
+import { PACK_NAME_PATTERN, PACK_VERSION_PATTERN } from './patterns.ts';
 import { collectPackResources } from './resources.ts';
 
 export interface HubAuth {
@@ -203,13 +205,24 @@ async function handleApi(
   if (url.pathname === '/api/registry' && req.method === 'GET') {
     const file = join(root, 'registry/index.json');
     if (!existsSync(file)) return sendJson(req, res, 404, { error: '这个仓库还没有 registry/index.json' });
-    return sendJson(req, res, 200, JSON.parse(readFileSync(file, 'utf8')), 'public, max-age=30, must-revalidate');
+    const index = JSON.parse(readFileSync(file, 'utf8')) as { apiVersion?: unknown };
+    // 索引是发布流水线写下的数据，不是本服务现算的：apiVersion 不认识就说明这份索引不是
+    // 当前 Hub 能解释的格式（字段可能已经变了），宁可报错也不把半懂的索引透传给客户端。
+    // 选 500 而不是 502：index.json 是随仓库托管的本地产物，不是上游网关的响应。
+    if (index.apiVersion !== INDEX_API_VERSION) {
+      log({ event: 'hub.index-api-version', got: String(index.apiVersion), want: INDEX_API_VERSION });
+      return sendJson(req, res, 500, {
+        error: `索引的 apiVersion 不认识：${String(index.apiVersion)}（本 Hub 支持 ${INDEX_API_VERSION}）`,
+        code: 'index-api-version',
+      });
+    }
+    return sendJson(req, res, 200, index, 'public, max-age=30, must-revalidate');
   }
 
   if (url.pathname === '/api/registry/pack' && req.method === 'GET') {
     const name = url.searchParams.get('name') ?? '';
     let version = url.searchParams.get('version') ?? '';
-    if (!/^[a-z0-9-]+\/[a-z0-9-]+$/.test(name)) {
+    if (!PACK_NAME_PATTERN.test(name)) {
       return sendJson(req, res, 400, { error: 'name 不合法' });
     }
     if (!version) {
@@ -220,7 +233,7 @@ async function handleApi(
       };
       version = idx.packs?.find((x) => x.name === name)?.latest ?? '';
     }
-    if (!/^\d+\.\d+\.\d+/.test(version)) {
+    if (!PACK_VERSION_PATTERN.test(version)) {
       return sendJson(req, res, 404, { error: '没有这个版本' });
     }
     const dir = join(root, 'registry/packs', name, version);

@@ -1,6 +1,8 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
+import { INDEX_API_VERSION } from '@packhub/kernel';
+import { assertApiVersion } from './apiVersion.ts';
 import { download, httpText } from './download.ts';
 import { unpackArchive } from './pack.ts';
 
@@ -45,6 +47,12 @@ export async function readIndex(indexRef: string): Promise<RegistryIndex> {
     text = readFileSync(indexRef, 'utf8');
   }
   const data = JSON.parse(text) as RegistryIndex;
+  // 格式版本只认 kernel 的当前代际：更高版本（或没有 apiVersion）一律拒绝，不按字段猜
+  try {
+    assertApiVersion(indexRef, data, INDEX_API_VERSION);
+  } catch (err) {
+    throw new RegistryError((err as Error).message, 'bad-index');
+  }
   if (!Array.isArray(data.packs)) throw new RegistryError('索引格式不对：缺少 packs', 'bad-index');
   return data;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Plan, PlanAction } from '../src/index.ts';
+import type { Plan, PlanAction, PlanOpName } from '../src/index.ts';
 import {
   PLAN_OPS,
   actionFromBase,
@@ -8,6 +8,7 @@ import {
   actionPaths,
   actionRetainWarning,
   actionUndo,
+  actionUndoPayload,
   actionWritten,
   planPathsOf,
 } from '../src/index.ts';
@@ -36,7 +37,24 @@ const A = {
   exec: { op: 'exec', actionId: 'exec#1', command: 'npm', args: ['i'], approval: 'required' },
   instruction: { op: 'instruction', actionId: 'instruction#1', file: 'AGENTS.md', blockId: 'demo/ops', content: 'x' },
   'state.dir': { op: 'state.dir', actionId: 'state.dir#1', to: '.packhub/state/memory', retain: 'keep' },
-} satisfies Record<string, PlanAction>;
+} satisfies { [K in PlanOpName]: PlanAction };
+
+/** 编译期检查：表与样例都按 `PlanOpName` 列全，新增 op 不补样例这里就编不过。 */
+type MissingSample = Exclude<PlanOpName, keyof typeof A>;
+
+/** 取共享配置的撤销载荷；没有就当场报错，别让断言在 null 上静默通过。 */
+function restoreShared(action: PlanAction): { path: string; key: string } {
+  const payload = actionUndoPayload(action);
+  if (payload?.undo !== 'restore-shared') throw new Error(`${action.op} 没有 restore-shared 载荷`);
+  return payload;
+}
+
+/** 取托管块的撤销载荷。 */
+function stripBlock(action: PlanAction): { file: string; blockId: string } {
+  const payload = actionUndoPayload(action);
+  if (payload?.undo !== 'strip-block') throw new Error(`${action.op} 没有 strip-block 载荷`);
+  return payload;
+}
 
 describe('PLAN_OPS：动作原语单表', () => {
   it('每个 op 的写入路径（含派生输出）都从表里推导', () => {
@@ -131,5 +149,46 @@ describe('PLAN_OPS：动作原语单表', () => {
     expect(Object.keys(PLAN_OPS).sort()).toEqual(
       ['copy', 'delete', 'exec', 'fetch', 'instruction', 'link.exec', 'link.skill', 'register.mcp', 'state.dir', 'unpack', 'write'],
     );
+  });
+
+  it('撤销载荷：共享配置给路径 + 键，托管块给文件 + 块 id', () => {
+    expect(restoreShared(A['register.mcp'])).toEqual({
+      undo: 'restore-shared',
+      path: '.packhub/config.json',
+      key: 'mcp',
+    });
+    // 卸载时按 resource 当键；resource 缺省才用 mcp（与 install.ts 的 sharedServers 同口径）
+    const named = { ...A['register.mcp'], resource: 'demo' } as PlanAction;
+    expect(restoreShared(named)).toMatchObject({ path: '.packhub/config.json', key: 'demo' });
+    const customPath = { ...A['register.mcp'], path: 'mcp.json' } as PlanAction;
+    expect(restoreShared(customPath).path).toBe('mcp.json');
+
+    expect(stripBlock(A.instruction)).toEqual({
+      undo: 'strip-block',
+      file: 'AGENTS.md',
+      blockId: 'demo/ops',
+    });
+  });
+
+  it('表里每个 op 的 undo 与 undoPayload 自洽（新增 op 不补样例编不过）', () => {
+    const missing: MissingSample[] = [];
+    expect(missing).toEqual([]);
+
+    const needPayload = new Set(['restore-shared', 'strip-block']);
+    for (const op of Object.keys(PLAN_OPS) as PlanOpName[]) {
+      const action = A[op];
+      expect(action, `PLAN_OPS 里的 ${op} 在样例表里没补`).toBeDefined();
+      const undo = actionUndo(action);
+      const payload = actionUndoPayload(action);
+      if (needPayload.has(undo)) {
+        expect(payload, `${op} 的撤销需要载荷`).not.toBeNull();
+        expect(payload?.undo).toBe(undo);
+        const fields = payload?.undo === 'restore-shared' ? [payload.path, payload.key] : payload?.undo === 'strip-block' ? [payload.file, payload.blockId] : [];
+        expect(fields.length, `${op} 的载荷字段不全`).toBe(2);
+        for (const field of fields) expect(field, `${op} 的载荷字段不能为空`).not.toBe('');
+      } else {
+        expect(payload, `${op} 不需要撤销载荷`).toBeNull();
+      }
+    }
   });
 });

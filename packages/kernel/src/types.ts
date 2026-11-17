@@ -317,3 +317,11 @@ export interface Issue {
   /** 例如 `resources[2].source` */
   path?: string;
 }
+
+/* ---------- 带版本 JSON 的版本号：写方与读方的唯一来源 ---------- */
+
+/**
+ * registry 索引的格式版本。`registry/src/build.ts` 写它，`runtime/src/registry.ts`
+ * 的 readIndex 与 `hub/src/server.ts` 的透传读它——两端比同一个常量，不各写一份字面量。
+ */
+export const INDEX_API_VERSION = 'packhub.dev/index/v0';

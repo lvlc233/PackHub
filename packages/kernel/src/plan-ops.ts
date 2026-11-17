@@ -9,6 +9,16 @@ export type PlanOpFromBase = 'pack' | 'root' | 'none';
 /** 撤销方式：删文件 / 还原共享配置 / 摘托管块 / 不撤销。 */
 export type PlanOpUndo = 'delete' | 'restore-shared' | 'strip-block' | 'none';
 
+/**
+ * 撤销共享改动要动的那一处（配置里的键 / 指令文件里的块）。
+ * 载荷和执行器要做的动作同源：`undo` 与 `PlanOpUndo` 一致，执行器不用再按 op 拼路径。
+ * - `restore-shared`：`path` 是共享配置文件，`key` 是 `mcpServers` 下要摘掉的键；
+ * - `strip-block`：`file` 是指令文件，`blockId` 是要摘掉的托管块。
+ */
+export type PlanOpUndoPayload =
+  | { undo: 'restore-shared'; path: string; key: string }
+  | { undo: 'strip-block'; file: string; blockId: string };
+
 /** codex 的技能选择器要求 `agents/openai.yaml`：install 期生成，计划里没有对行动作。 */
 export const CODEX_SKILL_YAML = 'agents/openai.yaml';
 
@@ -21,8 +31,10 @@ export interface PlanOpSpec {
   fromBase(action: PlanAction): PlanOpFromBase;
   /** 撤销方式（卸载 / 升级清理 / 版本切换共用）。 */
   undo: PlanOpUndo;
+  /** 撤销共享改动要动的路径与键；不共享的 op 返回 null。 */
+  undoPayload(action: PlanAction): PlanOpUndoPayload | null;
   /** 这个动作写到安装根的路径（含派生输出）；快照、版本镜像、planPaths、冲突都用它。 */
-  paths(action: PlanAction, plan: Plan): string[];
+  paths(action: PlanAction, plan: PlanShape): string[];
   /** 动作成功时计入 state.written 的路径（平台差异在这里收口）。 */
   written(action: PlanAction, plan: Plan, platform: string): string[];
   /** 目标是否共享路径（多包合并 / 托管块）。 */
@@ -49,6 +61,7 @@ const from =
 const noFrom = (): PlanOpFromBase => 'none';
 
 const none = (): string[] => [];
+const noUndo = (): PlanOpUndoPayload | null => null;
 const only =
   (pick: (action: PlanAction) => string | undefined) =>
   (action: PlanAction): string[] => {
@@ -69,6 +82,7 @@ export const PLAN_OPS: Record<PlanOpName, PlanOpSpec> = {
   fetch: {
     fromBase: noFrom,
     undo: 'delete',
+    undoPayload: noUndo,
     paths: (a) => (a.op === 'fetch' ? [a.dest] : []),
     written: (a) => (a.op === 'fetch' ? [a.dest] : []),
     shared: sharedByTarget,
@@ -78,6 +92,7 @@ export const PLAN_OPS: Record<PlanOpName, PlanOpSpec> = {
     // 解包读的是 fetch 实际写盘的位置（安装根内），不是 Pack 目录
     fromBase: from('root'),
     undo: 'delete',
+    undoPayload: noUndo,
     paths: (a) => (a.op === 'unpack' ? [a.to] : []),
     written: (a) => (a.op === 'unpack' ? [a.to] : []),
     shared: sharedByTarget,
@@ -86,6 +101,7 @@ export const PLAN_OPS: Record<PlanOpName, PlanOpSpec> = {
   write: {
     fromBase: from('pack'),
     undo: 'delete',
+    undoPayload: noUndo,
     paths: (a) => (a.op === 'write' ? [a.to] : []),
     written: (a) => (a.op === 'write' ? [a.to] : []),
     shared: sharedByTarget,
@@ -94,6 +110,7 @@ export const PLAN_OPS: Record<PlanOpName, PlanOpSpec> = {
   copy: {
     fromBase: from('pack'),
     undo: 'delete',
+    undoPayload: noUndo,
     paths: (a) => (a.op === 'copy' ? [a.to] : []),
     written: (a) => (a.op === 'copy' ? [a.to] : []),
     shared: sharedByTarget,
@@ -102,6 +119,7 @@ export const PLAN_OPS: Record<PlanOpName, PlanOpSpec> = {
   'link.exec': {
     fromBase: noFrom,
     undo: 'delete',
+    undoPayload: noUndo,
     paths: (a) => (a.op === 'link.exec' ? [a.to, execWrapperPath(a.to)] : []),
     written: (a, _plan, platform) => {
       if (a.op !== 'link.exec') return [];
@@ -114,6 +132,7 @@ export const PLAN_OPS: Record<PlanOpName, PlanOpSpec> = {
   delete: {
     fromBase: noFrom,
     undo: 'none',
+    undoPayload: noUndo,
     paths: (a) => (a.op === 'delete' ? [a.to] : []),
     written: none,
     shared: sharedByTarget,
@@ -122,6 +141,7 @@ export const PLAN_OPS: Record<PlanOpName, PlanOpSpec> = {
   'link.skill': {
     fromBase: from('pack'),
     undo: 'delete',
+    undoPayload: noUndo,
     paths: (a, plan) =>
       a.op === 'link.skill'
         ? [a.to, ...(plan.target === 'codex' ? [`${a.to}/${CODEX_SKILL_YAML}`] : [])]
@@ -133,6 +153,15 @@ export const PLAN_OPS: Record<PlanOpName, PlanOpSpec> = {
   'register.mcp': {
     fromBase: noFrom,
     undo: 'restore-shared',
+    // 键与 runtime 卸载时登记的 server 名同源：resource 缺省时是 mcp
+    undoPayload: (a) =>
+      a.op === 'register.mcp'
+        ? {
+            undo: 'restore-shared',
+            path: a.path ?? '.packhub/config.json',
+            key: a.resource ?? 'mcp',
+          }
+        : null,
     paths: (a) => (a.op === 'register.mcp' ? [a.path ?? '.packhub/config.json'] : []),
     written: (a) => (a.op === 'register.mcp' ? [a.path ?? '.packhub/config.json'] : []),
     shared: () => true,
@@ -141,6 +170,7 @@ export const PLAN_OPS: Record<PlanOpName, PlanOpSpec> = {
   exec: {
     fromBase: noFrom,
     undo: 'none',
+    undoPayload: noUndo,
     paths: none,
     written: none,
     shared: () => false,
@@ -149,6 +179,8 @@ export const PLAN_OPS: Record<PlanOpName, PlanOpSpec> = {
   instruction: {
     fromBase: noFrom,
     undo: 'strip-block',
+    undoPayload: (a) =>
+      a.op === 'instruction' ? { undo: 'strip-block', file: a.file, blockId: a.blockId } : null,
     paths: (a) => (a.op === 'instruction' ? [a.file] : []),
     written: (a) => (a.op === 'instruction' ? [a.file] : []),
     shared: () => true,
@@ -157,6 +189,7 @@ export const PLAN_OPS: Record<PlanOpName, PlanOpSpec> = {
   'state.dir': {
     fromBase: noFrom,
     undo: 'none',
+    undoPayload: noUndo,
     paths: none,
     written: none,
     shared: () => false,
@@ -167,8 +200,14 @@ export const PLAN_OPS: Record<PlanOpName, PlanOpSpec> = {
 
 /* ---------- 派生查询：runtime 侧只调这些函数，不再自己按 op 数路径 ---------- */
 
+/**
+ * 算路径只需要计划的两个字段：target（派生输出随宿主变化）与 actions。
+ * 用它而不是整个 `Plan`，锁快照（`PlanSnapshot`）与 state 里存过的计划都能直接传进来。
+ */
+export type PlanShape = Pick<Plan, 'target' | 'actions'>;
+
 /** 一份计划写到安装根的全部路径（去重；快照、版本镜像、缓存、所有权、升级清理共用）。 */
-export function planPathsOf(plan: Plan): string[] {
+export function planPathsOf(plan: PlanShape): string[] {
   const out: string[] = [];
   for (const action of plan.actions) {
     for (const rel of actionPaths(action, plan)) out.push(rel);
@@ -177,7 +216,7 @@ export function planPathsOf(plan: Plan): string[] {
 }
 
 /** 单个动作写到安装根的路径（含派生输出）。 */
-export function actionPaths(action: PlanAction, plan: Plan): string[] {
+export function actionPaths(action: PlanAction, plan: PlanShape): string[] {
   return PLAN_OPS[action.op].paths(action, plan);
 }
 
@@ -192,6 +231,11 @@ export function actionFromBase(action: PlanAction): PlanOpFromBase {
 
 export function actionUndo(action: PlanAction): PlanOpUndo {
   return PLAN_OPS[action.op].undo;
+}
+
+/** 撤销共享改动要动的路径与键（卸载 / 升级清理共用）；不共享的 op 返回 null。 */
+export function actionUndoPayload(action: PlanAction): PlanOpUndoPayload | null {
+  return PLAN_OPS[action.op].undoPayload(action);
 }
 
 export function actionIsShared(action: PlanAction): boolean {

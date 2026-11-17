@@ -1,3 +1,4 @@
+import pkg from '../../../package.json' with { type: 'json' };
 import type { LockFile, Manifest, Plan, PlanSnapshot, ResolvedRef } from './types.ts';
 
 export interface LockOptions {
@@ -44,7 +45,7 @@ export function buildLock(manifest: Manifest, plan: Plan, opts: LockOptions = {}
     pack: `${manifest.metadata.name}@${manifest.metadata.version}`,
     resolved,
     planHash: plan.planHash,
-    generatedBy: 'packhub/0.0.1',
+    generatedBy: `packhub/${pkg.version}`,
     // 计划快照：没有它就算不出「改了什么」，diff / update 都靠这一份
     plan: snapshot(plan),
     ...(Object.keys(plans).length > 1 ? { plans } : {}),

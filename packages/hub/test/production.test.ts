@@ -88,6 +88,29 @@ describe('Hub 生产化', () => {
     expect(lines[0].path).toBe('/api/registry');
   });
 
+  it('索引 apiVersion 不认识时 500，不透传半懂的索引', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'packhub-hub-indexver-'));
+    mkdirSync(join(dir, 'registry'), { recursive: true });
+    writeFileSync(
+      join(dir, 'registry', 'index.json'),
+      JSON.stringify({ apiVersion: 'packhub.dev/index/v9', generatedAt: '', packs: [] }),
+      'utf8',
+    );
+    const server = await startHub({ root: dir, port: 0 });
+    const addr = server.address();
+    const base = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}`;
+    try {
+      const res = await fetch(`${base}/api/registry`);
+      expect(res.status).toBe(500);
+      const body = (await res.json()) as { code: string; error: string };
+      expect(body.code).toBe('index-api-version');
+      expect(body.error).toContain('packhub.dev/index/v0');
+    } finally {
+      await new Promise<void>((ok) => server.close(() => ok()));
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('内部错误原文不回给客户端：坏索引只回笼统错误', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'packhub-hub-broken-'));
     mkdirSync(join(dir, 'registry'), { recursive: true });

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseManifest } from '@packhub/kernel';
+import { PACK_NAME_PATTERN, PACK_VERSION_PATTERN } from './patterns.ts';
 
 export interface PackResourceInfo {
   id: string;
@@ -32,7 +33,8 @@ export function collectPackResources(
   name: string,
   version?: string,
 ): PackResourcesResult | null {
-  if (!/^[a-z0-9-]+\/[a-z0-9-]+$/.test(name)) return null;
+  // 包名与版本号的形状跟 kernel 同一条判据（schema 派生），不在每个读入口各写一份正则
+  if (!PACK_NAME_PATTERN.test(name)) return null;
   let v = version ?? '';
   if (!v) {
     const idxPath = join(root, 'registry/index.json');
@@ -42,7 +44,7 @@ export function collectPackResources(
     };
     v = idx.packs?.find((x) => x.name === name)?.latest ?? '';
   }
-  if (!/^\d+\.\d+\.\d+/.test(v)) return null;
+  if (!PACK_VERSION_PATTERN.test(v)) return null;
 
   const manifestPath = join(root, 'registry/packs', name, v, 'packhub.yaml');
   if (!existsSync(manifestPath)) return null;

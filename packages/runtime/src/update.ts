@@ -3,7 +3,7 @@ import { fetchPack } from './registry.ts';
 import { loadPack, planFor, installPack, loadState, loadLock, withLockPins } from './index.ts';
 import { pruneRemoved } from './install.ts';
 import { checkLockConsistency, diffActions, describeAction } from '@packhub/kernel';
-import type { Plan, TargetId } from '@packhub/kernel';
+import type { PlanSnapshot, TargetId } from '@packhub/kernel';
 
 export interface UpdateOptions {
   name: string;
@@ -55,7 +55,7 @@ export async function updatePack(opts: UpdateOptions): Promise<UpdateResult> {
 
   const state = loadState(opts.projectDir);
   const key = Object.keys(state.packs).find((k) => k.startsWith(`${opts.name}@`));
-  const previous: Plan | undefined = key ? state.packs[key]?.plan : undefined;
+  const previous: PlanSnapshot | undefined = key ? state.packs[key]?.plan : undefined;
   const previousActions = key ? state.packs[key]?.actions ?? [] : [];
   // 没显式指定 target 就沿用上次安装的，避免更新时把 claude-code 的投影换成 dir
   const target = opts.target ?? previous?.target ?? 'dir';

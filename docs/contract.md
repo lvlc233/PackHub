@@ -32,7 +32,7 @@ review: 格式升版、字段增删、apiVersion 变化时
 
 **v0 期间没有兼容承诺**：字段可以增、可以改语义、可以删。读方遇到不认识的主版本（`v1`、`v2`）必须拒绝，不得猜测；遇到不认识的字段同样报错，不做静默忽略。
 
-强制方式：manifest 由 `schema/packhub.v0.schema.json` 强制；`state`、`lock`、`active.json`、版本记录、credentials、trust、签名文件读到别的主版本一律拒绝（`apiVersion.ts` 的 `assertApiVersion`），缺 `apiVersion` 的文件同样拒绝。
+强制方式：manifest 由 `schema/packhub.v0.schema.json` 强制；`state`、`lock`、`active.json`、版本记录、credentials、trust、签名文件读到别的主版本一律拒绝（`apiVersion.ts` 的 `assertApiVersion`），缺 `apiVersion` 的文件同样拒绝。`index` 由读方比 kernel 的 `INDEX_API_VERSION`：`readIndex` 直接拒绝，Hub 的 `/api/registry` 遇到不认识的版本回 500、不透传。
 
 **升 v1 的判据**（三条都满足才升，届时提供 `packhub migrate`，内核同时读 v0 / v1 一段时间）：
 
@@ -68,21 +68,23 @@ review: 格式升版、字段增删、apiVersion 变化时
 
 动作原语：`fetch` · `unpack` · `copy` · `write` · `delete` · `link.skill` · `link.exec` · `register.mcp` · `exec` · `instruction` · `state.dir`。
 
-每个 op 的路径、来源基准、撤销方式、共享判定与派生输出都在 `packages/kernel/src/plan-ops.ts` 的 `PLAN_OPS` 表里（单点；执行器与清理侧都从它派生）：
+每个 op 的路径、来源基准、撤销方式、撤销载荷、共享判定与派生输出都在 `packages/kernel/src/plan-ops.ts` 的 `PLAN_OPS` 表里（单点；执行器与清理侧都从它派生）：
 
-| op | `from` 基准 | 写到安装根 | 撤销 | 共享 | 备注 |
-|---|---|---|---|---|---|
-| `fetch` | 无（`uri`） | `dest` | 删文件 | 否 | 下载物进缓存，进快照/版本镜像 |
-| `unpack` | 安装根（`root`） | `to` | 删文件 | 按落点 | 读 fetch 实际写盘的位置 |
-| `copy` | Pack（`pack`） | `to` | 删文件 | 按落点 | 本地工具执行体整份复制 |
-| `write` | Pack（`pack`），内联内容可省 | `to` | 删文件 | 按落点 | 二进制也走它 |
-| `delete` | 无 | `to`（被删对象） | 不撤销 | 按落点 | 目标不存在算 `noop`，不进 `written` |
-| `link.skill` | 本地 `pack` / 远程 `root` | `to` | 删文件 | 按落点 | codex 额外派生 `<to>/agents/openai.yaml` |
-| `link.exec` | 无（`entry` / `module` 相对安装根） | `to`、`to.cmd` | 删文件 | 否 | `.cmd` 只在 win32 生成；`platforms` 不匹配由执行器 `skipped` |
-| `register.mcp` | 无（`spec`） | `path`（默认 `.packhub/config.json`） | 还原共享配置 | 是 | `.toml` 用托管块 |
-| `exec` | 无 | 无 | 不撤销 | 否 | 计划里永远 `approval: required` |
-| `instruction` | 无（`content`） | `file` | 摘托管块 | 是 | 只动 `<!-- packhub:begin/end -->` 之间 |
-| `state.dir` | 无 | 无（只建目录） | 不撤销 | 否 | 数据目录，不随升级/卸载删除 |
+| op | `from` 基准 | 写到安装根 | 撤销 | 撤销载荷 | 共享 | 备注 |
+|---|---|---|---|---|---|---|
+| `fetch` | 无（`uri`） | `dest` | 删文件 | — | 否 | 下载物进缓存，进快照/版本镜像 |
+| `unpack` | 安装根（`root`） | `to` | 删文件 | — | 按落点 | 读 fetch 实际写盘的位置 |
+| `copy` | Pack（`pack`） | `to` | 删文件 | — | 按落点 | 本地工具执行体整份复制 |
+| `write` | Pack（`pack`），内联内容可省 | `to` | 删文件 | — | 按落点 | 二进制也走它 |
+| `delete` | 无 | `to`（被删对象） | 不撤销 | — | 按落点 | 目标不存在算 `noop`，不进 `written` |
+| `link.skill` | 本地 `pack` / 远程 `root` | `to` | 删文件 | — | 按落点 | codex 额外派生 `<to>/agents/openai.yaml` |
+| `link.exec` | 无（`entry` / `module` 相对安装根） | `to`、`to.cmd` | 删文件 | — | 否 | `.cmd` 只在 win32 生成；`platforms` 不匹配由执行器 `skipped` |
+| `register.mcp` | 无（`spec`） | `path`（默认 `.packhub/config.json`） | 还原共享配置 | `{path, key}` | 是 | `.toml` 用托管块 |
+| `exec` | 无 | 无 | 不撤销 | — | 否 | 计划里永远 `approval: required` |
+| `instruction` | 无（`content`） | `file` | 摘托管块 | `{file, blockId}` | 是 | 只动 `<!-- packhub:begin/end -->` 之间 |
+| `state.dir` | 无 | 无（只建目录） | 不撤销 | — | 否 | 数据目录，不随升级/卸载删除 |
+
+撤销载荷回答「撤销时要动哪一处」：`restore-shared` 给共享配置文件与 `mcpServers` 下要摘的键，`strip-block` 给指令文件与托管块 id。执行器（`deactivatePlan` / `pruneRemoved` / `removePack`）只按 `undo` 的四种方式各做一次，不再按 op 猜路径与键；`state.dir` 只建目录、不产出文件，所以不进文件冲突集合，同一目录挂两个 state id 另报 `duplicate-state-path`。
 
 派生输出是「install 期生成、计划动作里没有对行动作」的文件（codex 的 `agents/openai.yaml`、`link.exec` 的 `.cmd`）；它们由表的 `paths()` 声明，因此 `planPaths(plan)`、快照、版本镜像与升级清理都能覆盖到。
 
@@ -125,8 +127,8 @@ review: 格式升版、字段增删、apiVersion 变化时
 1. `planHash` 必须与当前 manifest 生成的 plan 一致；不一致 = 锁过期，`registry:check` 拒绝。
 2. `resolved[].source` 是**解析后**的引用：github 分支 / tag 换成 40 位 commit，npm 范围 / tag 换成具体版本，pypi 换成具体版本。
 3. `integrity` 来自清单、npm 的 `dist.integrity`、https 下载后的 sha256 或 PyPI 的 sha256；解析不出来就是 `null`，读方不得把 `null` 当「已验证」。
-4. `plan` 是主计划快照，`plans` 是每个已声明 target 的快照；快照不参与 `planHash` 计算。`lock` 为 `metadata.targets` 里的每个 target 各算一份，`plan` 取 `--target`（默认 `dir`，未声明时取第一个）。没有快照就无法做差异对比（`packhub diff` 会提示重跑 `lock`）。
-5. 安装时按 `resolved[]` 替换清单里的引用（`withLockPins`），保证「锁里写什么就装什么」；`add` 先按本次 target 找 `plans[target]` 重算并比对，只有旧锁（没有 `plans`）才退化为只核对主计划并给 warning。
+4. `plan` 是主计划快照，`plans` 是每个已声明 target 的快照；快照不参与 `planHash` 计算。`lock` 为 `metadata.targets` 里的每个 target 各算一份，`plan` 取 `--target`（CLI 默认 `dir`；没给 target 时由 `lockPack` 选：有 `dir` 取 `dir`，否则取第一个声明的）。只声明一个 target 时省略 `plans`——主计划 `plan` 就是那个 target 的快照。没有快照就无法做差异对比（`packhub diff` 会提示重跑 `lock`）。
+5. 安装时按 `resolved[]` 替换清单里的引用（`withLockPins`），保证「锁里写什么就装什么」；`add` 先按本次 target 找 `plans[target]` 重算并比对。回落只有一个合法条件：旧锁没有 `plans` **且** `lock.plan.target` 就是本次 target——这时才退化为只核对主计划并给 warning；主计划属于别的 target 时按「锁里没有该 target 的快照」处理（`no-lock-plan`），拿别的 target 的主计划比哈希会得出假的「一致 / 被改过」。
 
 ## 3 State（`.packhub/state.json`）
 
@@ -162,7 +164,7 @@ review: 格式升版、字段增删、apiVersion 变化时
 
 1. 每个包一条记录，键是 `name@version`；升级时旧版本记录并入新 key，不留旧 key。
 2. `written` 是这个包**拥有**的文件集合（跨多次安装取并集），卸载据此删除。
-3. `plan` 是该次安装的计划快照，`update` 与 `verify` 靠它工作；不参与任何哈希。
+3. `plan` 是该次安装的计划快照，形如 `PlanSnapshot`：`target` / `planHash` / `actions` / `verify` / `excluded`，**没有** `apiVersion` 与 `pack`（那两个字段只属于完整 plan）；`diff`、`update`、`planPaths` 只需要这一份。不参与任何哈希。
 4. `stateDirs` 记录清单 `state` 块声明的目录；这些目录不进 `written`、不进版本镜像、不被快照回滚删除。
 5. `generations` 每次安装追加一条，更早的会被裁掉（保留策略在 `install.ts`）；`existed` / `created` 是回退的依据。
 
@@ -186,9 +188,14 @@ registry 的索引，`search` / `add` / `update` 只读它。
       "targets": ["dir"],
       "trust": "verified",
       "verifiedAt": "2026-11-03T…",
+      "signers": [],
       "keywords": ["conventions"],
       "resourceCount": 3,
-      "install": "packhub add lvlc233/team-conventions"
+      "install": "packhub add lvlc233/team-conventions",
+      "license": "CC-BY-4.0",
+      "homepage": "https://example.com/team-conventions",
+      "authors": [{ "name": "…", "url": "https://example.com" }],
+      "requiresAgent": "dsh"
     }
   ]
 }
@@ -198,6 +205,8 @@ registry 的索引，`search` / `add` / `update` 只读它。
 
 - `verified`：这个包的**每个**版本都有 `verify.json`、`ok: true` 且 `planHash` 与锁一致（整包都 verified 才标 verified）。
 - `community`：其余；有报告但对不上会给 warning，按 community 处理。
+
+清单派生的展示字段（`title` / `description` / `license` / `homepage` / `authors` / `keywords` / `requiresAgent`）取 `latest` 那个版本的清单；`signers` 只收该版本 `verify.json` 里 `ok: true` 的 key；清单没写的字段写 `null` 或空数组，读方不用猜。
 
 不变量：
 
@@ -246,11 +255,13 @@ registry 的索引，`search` / `add` / `update` 只读它。
 
 - `vendored`（默认，自包含）：清单 + 锁 + 有签名时的签名文件 + 全部顶层条目，跳过 `.packhub`、`node_modules`、`.git`、`dist`、旧归档。
 - `reference`：只有清单 + 锁（+ 签名文件），安装时联网取制品。清单里有 `./` 来源时直接拒绝——那些字节不在归档里，装到 `write` 那步必然失败。
+- 发布、`registry:pack` 与重锁都从**版本目录**打（同一个入口 `packVersionArchive`）：归档里的清单 / 锁 / `verify.json` 就是版本目录那一份，不从包源目录直接打。
+- 索引门禁核对归档与版本目录的**语义一致**：锁的 `planHash`、报告的 `ok` 与 `planHash` 相等即可，不比字节（两边的行尾 / 缩进可以不同）；归档缺锁、版本目录有报告而归档缺报告、或哈希对不上都是 error。
 - 解包 `filter` 拒绝 `..`、绝对路径（含 Windows 盘符）、符号链接与硬链接条目。
 
 ## 7 兼容策略
 
-- `plan` / `lock` / `state` / `index` 各自独立升版本；读方遇到不认识的 `apiVersion` 主版本必须拒绝，不得猜测。
+- `plan` / `lock` / `state` / `index` 各自独立升版本；读方遇到不认识的 `apiVersion` 主版本必须拒绝，不得猜测。`index` 的版本号由 kernel 的 `INDEX_API_VERSION` 单点给出：`readIndex` 比它，Hub 的 `/api/registry` 也对它，遇到不认识的值回 500、不透传。
 - 新增可选字段不算破坏性变更；删除字段、改变语义、收紧校验算。
 - v0.0.2 起，registry 里的包**必须**有 lock；要 `verified` 还必须有对得上的 verify 报告。
 

@@ -218,6 +218,19 @@ describe('scan：三类候选', () => {
     expect(entry?.problem).toMatch(/不是合法 JSON/);
   });
 
+  it('state.json 版本不是 v0 时标 problem，不静默计数', () => {
+    const futureEnv = join(tmp, 'future-env');
+    writeJson(join(futureEnv, '.packhub', 'state.json'), {
+      apiVersion: 'packhub.dev/state/v1',
+      packs: { 'demo/scan-pack@0.1.0': { written: [] } },
+    });
+    const entry = findEntry(scanDirectory(tmp).entries, 'environment', futureEnv);
+    expect(entry).toBeTruthy();
+    expect(entry?.packs).toBe(0);
+    expect(entry?.problem).toMatch(/格式版本不认识/);
+    expect(entry?.problem).toContain('packhub.dev/state/v1');
+  });
+
   it('行内写法的 metadata 也能读 name/version', () => {
     const flowDir = join(tmp, 'flow');
     writeText(join(flowDir, 'packhub.yaml'), FLOW_MANIFEST);

@@ -15,6 +15,7 @@ import type {
 } from './types.ts';
 import { interpolate, isPlainObject, canonicalize, sha256 } from './util.ts';
 import { parseSource } from './ref.ts';
+import { actionPaths, actionUndo } from './plan-ops.ts';
 import { TARGET_VARS, type TargetVars } from './targets.ts';
 import type { Graph } from './graph.ts';
 
@@ -627,7 +628,7 @@ export function buildPlan(
     });
   }
 
-  issues.push(...detectConflicts(actions, packBase, manifest));
+  issues.push(...detectConflicts(actions, opts.target));
 
   if (issues.some((i) => i.severity === 'error')) return { issues };
 
@@ -728,36 +729,55 @@ function readStructured(packDir: string, rel: string): unknown {
   return /\.json$/i.test(rel) ? JSON.parse(text) : (parseYaml(text) ?? {});
 }
 
-/** 同一个目标被两个来源写、或者同一个配置键被两处改，都算冲突。 */
-function detectConflicts(
-  actions: PlanAction[],
-  packDir: string,
-  manifest: Manifest,
-): Issue[] {
+/**
+ * 同一个目标被两个来源写、或者同一个配置键被两处改，都算冲突。
+ * 参与冲突的路径全部由 `PLAN_OPS.paths` 派生（与快照 / 版本镜像 / 所有权同口径）：
+ * `fetch` 的落点算产出，`state.dir` 只是目录声明、不产出文件，因此不进文件冲突集合。
+ * 共享文件的改动按键合并（`register.mcp` 的 `duplicate-mcp-server`、`instruction` 的块 id），
+ * 不按整文件判；其余 op 的落点都是真文件产出，撞了就算冲突。
+ * 状态目录另判：同一目录挂两个 id 是清单错误（卸载时 retain 会打架），单独报
+ * `duplicate-state-path`，不塞回输出路径集合。
+ */
+function detectConflicts(actions: PlanAction[], target: TargetId): Issue[] {
   const issues: Issue[] = [];
   const fsPaths = new Map<string, { id: string; modify: boolean }[]>();
   const configKeys = new Map<string, string[]>();
+  const stateDirs = new Map<string, { id: string; retain: string }[]>();
+  const shape = { target, actions };
 
   for (const a of actions) {
+    if (a.op === 'state.dir') {
+      const id = (a.resource ?? a.actionId).replace(/^state:/, '');
+      stateDirs.set(a.to, [...(stateDirs.get(a.to) ?? []), { id, retain: a.retain }]);
+      continue;
+    }
+    const undo = actionUndo(a);
+    if (undo === 'restore-shared' || undo === 'strip-block') continue;
     const isModify = (a.resource ?? '').startsWith('modify#');
-    if (
-      a.op === 'write' ||
-      a.op === 'delete' ||
-      a.op === 'copy' ||
-      a.op === 'link.skill' ||
-      a.op === 'link.exec' ||
-      a.op === 'unpack' ||
-      a.op === 'state.dir'
-    ) {
-      const list = fsPaths.get(a.to) ?? [];
+    for (const rel of actionPaths(a, shape)) {
+      const list = fsPaths.get(rel) ?? [];
       list.push({ id: a.actionId, modify: isModify });
-      fsPaths.set(a.to, list);
+      fsPaths.set(rel, list);
     }
     if (a.op === 'register.mcp') {
       const path = a.path ?? '.packhub/config.json';
       const composite = `${path}::mcpServers.${a.resource ?? 'mcp'}`;
       configKeys.set(composite, [...(configKeys.get(composite) ?? []), a.actionId]);
     }
+  }
+
+  for (const [path, entries] of stateDirs) {
+    if (entries.length < 2) continue;
+    const who = entries.map((e) => `state:${e.id}（retain: ${e.retain}）`).join('、');
+    const retains = new Set(entries.map((e) => e.retain));
+    issues.push({
+      code: 'duplicate-state-path',
+      severity: 'error',
+      message:
+        retains.size > 1
+          ? `状态目录 ${path} 被多个 state 声明且 retain 不一致：${who}；卸载时删还是留没有唯一答案`
+          : `状态目录 ${path} 被多个 state 声明：${who}；同一目录只能挂一个 id`,
+    });
   }
 
   for (const [path, entries] of fsPaths) {

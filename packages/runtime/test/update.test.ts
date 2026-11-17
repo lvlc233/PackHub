@@ -5,8 +5,8 @@ import { join } from 'node:path';
 import { buildLock, loadPack, planFor } from '@packhub/kernel';
 import { packArchive, updatePack } from '../src/index.ts';
 
-/** 造一个最小 registry：index + 两个版本归档。 */
-async function registry(): Promise<string> {
+/** 造一个最小 registry：index + 两个版本归档。`extraResource` 只加在 0.2.0 上，用来让 diff 有内容。 */
+async function registry(extraResource = ''): Promise<string> {
   const root = mkdtempSync(join(tmpdir(), 'packhub-upd-reg-'));
   const mk = async (version: string, content: string): Promise<void> => {
     const dir = join(root, 'packs/demo/upd', version);
@@ -21,10 +21,11 @@ resources:
   - id: rules
     type: knowledge
     source: ./rules.md
-`,
+${version === '0.2.0' ? extraResource : ''}`,
       'utf8',
     );
     writeFileSync(join(dir, 'rules.md'), content, 'utf8');
+    if (version === '0.2.0' && extraResource) writeFileSync(join(dir, 'extra.md'), '# extra\n', 'utf8');
     await packArchive(dir, { vendored: true, out: join(root, 'packs/demo/upd', `${version}.phub`) });
   };
   await mk('0.1.0', '# v1\n');
@@ -66,6 +67,38 @@ describe('update', () => {
 
     const state = JSON.parse(readFileSync(join(project, '.packhub/state.json'), 'utf8'));
     expect(state.packs['demo/upd@0.2.0']).toBeTruthy();
+    rmSync(reg, { recursive: true, force: true });
+    rmSync(project, { recursive: true, force: true });
+  });
+
+  it('state 里存的是计划快照（无 apiVersion/pack），update 的 diff 仍正确', async () => {
+    const reg = await registry('  - id: extra\n    type: knowledge\n    source: ./extra.md\n');
+    const project = mkdtempSync(join(tmpdir(), 'packhub-upd-snap-'));
+    const index = join(reg, 'index.json');
+    const { fetchPack, installPack, loadPack, planFor } = await import('../src/index.ts');
+
+    const dest = join(project, '.packhub/packs/demo/upd');
+    await fetchPack({ name: 'demo/upd', index, version: '0.1.0', dest });
+    const oldCtx = loadPack(dest);
+    await installPack(oldCtx, planFor(oldCtx).plan!, { root: project, packRoot: dest });
+
+    const before = JSON.parse(readFileSync(join(project, '.packhub/state.json'), 'utf8')).packs[
+      'demo/upd@0.1.0'
+    ].plan;
+    expect(before).not.toHaveProperty('apiVersion');
+    expect(before).not.toHaveProperty('pack');
+    expect(Object.keys(before).sort()).toEqual(['actions', 'excluded', 'planHash', 'target', 'verify']);
+
+    const res = await updatePack({ name: 'demo/upd', index, projectDir: project });
+    expect(res.changed).toBe(true);
+    expect(res.added.some((line) => line.includes('extra.md'))).toBe(true);
+    expect(res.removed).toEqual([]);
+
+    const after = JSON.parse(readFileSync(join(project, '.packhub/state.json'), 'utf8')).packs[
+      'demo/upd@0.2.0'
+    ].plan;
+    expect(after).not.toHaveProperty('apiVersion');
+    expect(after).not.toHaveProperty('pack');
     rmSync(reg, { recursive: true, force: true });
     rmSync(project, { recursive: true, force: true });
   });

@@ -9,7 +9,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { loadPack } from '@packhub/kernel';
+import { loadPack, type TargetId } from '@packhub/kernel';
 import { lockPack, packArchive, vendoredEntries } from '@packhub/runtime';
 import { runPack, type VerifyReport } from '@packhub/runner';
 
@@ -46,6 +46,29 @@ export interface PublishResult {
 const FILES = ['packhub.yaml', 'packhub.lock.json', 'packhub.signatures.json', 'PACK.md', 'CHANGELOG.md'];
 
 /**
+ * 主 target：决定锁的主计划（`lock.plan` / `lock.planHash`）。
+ *
+ * 取 dir 优先：runner 只跑 dir 计划的 clean install（`runPack` 见清单没声明 dir 就拒绝发布），
+ * 发布时「runner 报告的计划哈希」与「锁的主计划哈希」要对得上，所以主 target 必须与它同一个。
+ * 没有 dir 的清单退回第一个声明的 target。发布与重锁共用这一条，不在两边各写一遍。
+ */
+export function primaryTarget(targets: readonly TargetId[]): TargetId {
+  const primary = targets.includes('dir') ? 'dir' : targets[0];
+  if (!primary) throw new Error('清单没有声明任何 target，无法锁定（metadata.targets 至少一个）');
+  return primary;
+}
+
+/**
+ * 从**版本目录**打 `.phub`：归档里的清单、锁、verify 与 vendored 条目就是版本目录那一份。
+ *
+ * 不要直接从包源目录打：源目录的锁可能还没刷新（或只锁了主计划），归档里的锁就会和
+ * 版本目录不一致，装的人拿到的基准和 registry 里的不是同一个。发布与重锁共用这一条。
+ */
+export async function packVersionArchive(versionDir: string, archiveOut: string): Promise<void> {
+  await packArchive(versionDir, { vendored: true, out: archiveOut });
+}
+
+/**
  * 发布一个包：先跑 runner（干净安装 + 校验），再把版本目录与 .phub 写进 registry。
  * 校验不过就不发布——这是 "发布即验证" 的唯一入口。
  */
@@ -79,9 +102,16 @@ export async function publishPack(packDir: string, opts: PublishOptions): Promis
     throw new Error('干净安装或校验未通过，已阻止发布（先修问题，别发布一个装不上的包）');
   }
 
-  // 2) 解析引用并生成/刷新锁，保证 registry 里的锁与计划一致
-  const { lock, warnings } = await lockPack(ctx, { target: 'dir', offline: opts.offline === true });
+  // 2) 解析引用并生成/刷新锁，保证 registry 里的锁与计划一致。
+  //    lockPack 会为 metadata.targets 里**每个** target 各算一份快照（plans），不是只锁主计划；
+  //    主 target 交给 primaryTarget，它与 runner 的 dir 计划同一个。
+  const { lock, warnings } = await lockPack(ctx, {
+    target: primaryTarget(ctx.manifest.metadata.targets),
+    offline: opts.offline === true,
+  });
   for (const w of warnings) log(`warn ${w}`);
+  // 口径：lock.planHash 是主 target（dir）的计划哈希，report.planHash 是 runner 按 dir 算的
+  // 那一份；两者不相等说明源目录的锁/清单和真正装出来的东西不是同一版，别发布。
   if (report.planHash !== lock.planHash) {
     throw new Error(
       'runner 装出来的计划与解析后的锁不一致：先跑 `packhub lock` 把引用钉死（或检查清单是否在锁定后又改过），再发布',
@@ -145,8 +175,8 @@ export async function publishPack(packDir: string, opts: PublishOptions): Promis
       writeFileSync(join(versionDir, 'verify.json'), JSON.stringify(report, null, 2) + '\n', 'utf8');
       wrote.push('verify.json');
 
-      // 3) 归档（vendored，离线可装）
-      await packArchive(dir, { vendored: true, out: archive });
+      // 3) 归档（vendored，离线可装）：从刚写好的版本目录打，归档里的锁 / verify 就是上面这份
+      await packVersionArchive(versionDir, archive);
       wrote.push(`${version}.phub`);
     } catch (err) {
       rollback();
