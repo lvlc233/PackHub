@@ -14,7 +14,7 @@ decay: 365
 | 文档 | 管 | 不管 |
 |---|---|---|
 | [concepts.md](concepts.md) | 概念、边界、为什么这么分 | 字段与实现细节 |
-| [contract.md](contract.md) | 数据结构与格式层不变量：plan / lock / state / index / verify / signatures | 流程、运维、端点 |
+| [contract.md](contract.md) | 实现细节数据结构与格式层不变量 | 流程、运维、端点 |
 | [decisions.md](decisions.md) | 已经能确认的取舍与代价：为什么没选另一条 | 现状计数、命令清单、实现机制 |
 | [features.md](features.md) | 功能台账：一行一条，事实 / 状态 / 证据 | 机制（看证据指向的代码） |
 
@@ -61,3 +61,5 @@ pnpm docs:audit
 - 不抄可变量：**凡一次提交就会变的计数都不写**——测试文件数、用例数、命令数、路由数、检查项数、行号、提交号。要指数量就写去哪读（`pnpm check` 的输出、`packhub --help`、对应源文件里的常量）。
 - 不写「待更新」「待消费」：做不到就不写这条，做得到就写准。需要跟随的用指针。
 - 不写散文式的实现说明：没人维护的机制说明，比多读两遍代码更贵。要展开就写进代码注释或测试名。
+## tmp
+流程与判定在代码里：`packages/runtime/src/install.ts`、`verify.ts`，`packages/registry/src/publish.ts`、`build.ts`。

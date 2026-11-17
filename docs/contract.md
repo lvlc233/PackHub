@@ -6,9 +6,7 @@ decay: 365
 review: 格式升版、字段增删、apiVersion 变化时
 ---
 
-# PackHub 契约（格式 v0）
-
-内核与所有外壳之间交换的带版本 JSON。这一份只回答两件事：**文件里长什么样、哪些不变量必须守住**。流程与判定在代码里：`packages/runtime/src/install.ts`、`verify.ts`，`packages/registry/src/publish.ts`、`build.ts`。
+# PackHub 契约
 
 ## 0 版本总表
 
