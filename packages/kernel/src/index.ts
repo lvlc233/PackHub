@@ -18,6 +18,24 @@ export { buildPlan, buildMcpSpec, type PlanOptions } from './plan.ts';
 export { DIR_TARGET_VARS, TARGET_VARS, type TargetVars } from './targets.ts';
 export { buildLock } from './lock.ts';
 export {
+  PLAN_OPS,
+  CODEX_SKILL_YAML,
+  actionFromBase,
+  actionInputs,
+  actionIsShared,
+  actionPaths,
+  actionRetainWarning,
+  actionUndo,
+  actionWritten,
+  execWrapperPath,
+  isSharedInstallPath,
+  planPathsOf,
+  type PlanOpFromBase,
+  type PlanOpName,
+  type PlanOpSpec,
+  type PlanOpUndo,
+} from './plan-ops.ts';
+export {
   checkLockConsistency,
   type LockConsistency,
   type LockConsistencyStatus,
@@ -153,6 +171,8 @@ export function planFor(
     // 默认落点由 buildPlan 按 target 选（TARGET_VARS）；这里只传显式覆盖
     targetVars: { ...(opts.targetVars ?? {}) },
     packDir: ctx.dir,
+    // 平台在这里默认成宿主机；buildPlan 自己不读 process（测试可注入别的平台）
+    platform: opts.platform ?? `${process.platform}-${process.arch}`,
     // 这个选项在 buildPlan 里支持，planFor 以前把它丢了：全局同步会多写配置并重复登记 MCP
     ...(opts.skipResourceTypes ? { skipResourceTypes: opts.skipResourceTypes } : {}),
   });

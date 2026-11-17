@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { LockFile, Manifest, PackContext, Plan } from '@packhub/kernel';
-import { validateGraph } from '@packhub/kernel';
+import type { LockFile, Manifest, PackContext, Plan, TargetId } from '@packhub/kernel';
+import { checkLockConsistency, validateGraph } from '@packhub/kernel';
 import { readSignatures } from './signfile.ts';
 import { verifySignatures } from './signature.ts';
 
@@ -99,22 +99,19 @@ export function inspectPack(
   let lockMatches: boolean | undefined;
 
   if (lock) {
-    if (!lock.plan) {
-      issues.push({
-        code: 'lock-without-plan',
-        severity: 'warning',
-        message: '锁里没有计划快照（旧版锁），无法核对清单是否被改过',
-      });
-    } else if (planForLockedTarget) {
-      lockMatches = lock.planHash === planForLockedTarget.planHash;
-      if (!lockMatches) {
-        issues.push({
-          code: 'lock-mismatch',
-          severity: 'error',
-          message: `锁与清单对不上（lock=${String(lock.planHash).slice(0, 20)}… plan=${planForLockedTarget.planHash.slice(0, 20)}…）；清单在锁定后被改过，确认来源后加 --allow-stale-lock 才装`,
-        });
-      }
+    // 锁 ↔ 计划只有一份判定：kernel 的 checkLockConsistency；这里只把结论映射成 issue
+    const target: TargetId = planForLockedTarget?.target ?? lock.plan?.target ?? 'dir';
+    const check = checkLockConsistency(lock, target, planForLockedTarget);
+    if (check.status === 'ok') lockMatches = true;
+    else if (check.status === 'mismatch') {
+      lockMatches = false;
+      issues.push({ code: 'lock-mismatch', severity: 'error', message: check.message });
+    } else if (check.status === 'no-lock-plan') {
+      issues.push({ code: 'lock-without-plan', severity: 'warning', message: check.message });
+    } else if (check.status === 'missing') {
+      issues.push({ code: 'lock-missing', severity: 'warning', message: check.message });
     }
+    // no-plan（算不出计划）交给调用方先报清单错误，这里不重复告警
     if (lock.pack !== pack) {
       issues.push({
         code: 'lock-pack-mismatch',
@@ -128,7 +125,7 @@ export function inspectPack(
     issues.push({
       code: 'lock-missing',
       severity: 'warning',
-      message: '这个包没有锁，无法核对「装到的东西」和作者锁的是不是同一份',
+      message: checkLockConsistency(undefined, 'dir', planForLockedTarget).message,
     });
   }
 

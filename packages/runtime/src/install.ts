@@ -21,7 +21,22 @@ import { dirname, join, resolve, sep } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import * as tar from 'tar';
 import type { Plan, PlanAction } from '@packhub/kernel';
-import { canonicalize, deepMerge, diffActions, isPlainObject, sha256 } from '@packhub/kernel';
+import {
+  actionFromBase,
+  actionIsShared,
+  actionPaths,
+  actionRetainWarning,
+  actionUndo,
+  actionWritten,
+  canonicalize,
+  CODEX_SKILL_YAML,
+  deepMerge,
+  diffActions,
+  isPlainObject,
+  isSharedInstallPath,
+  planPathsOf,
+  sha256,
+} from '@packhub/kernel';
 import { download, resolvePypiSdist } from './download.ts';
 import { isSafeArchiveEntry } from './pack.ts';
 import { generateOpenaiYaml, readSkillFrontmatter } from './skill-meta.ts';
@@ -32,7 +47,7 @@ import { removeClaudeMcp } from './host-mcp.ts';
 export interface ApplyOptions {
   /** 目标目录：写到哪里、state 放哪里 */
   root: string;
-  /** Pack 来源目录：`from` 读哪里；默认与 root 相同 */
+  /** Pack 来源目录：`from`（Pack 基准）读哪里；默认与 root 相同 */
   packRoot?: string;
   /** 允许执行安装期命令（默认拒绝） */
   allowExec?: boolean;
@@ -40,6 +55,11 @@ export interface ApplyOptions {
   dryRun?: boolean;
   /** 允许覆盖别的包已经写过的普通文件（默认拒绝） */
   overwrite?: boolean;
+  /**
+   * 执行期平台（`platform-arch`），默认宿主机。平台裁剪只看这里，
+   * 测试可以注入别的平台来验证「保留动作、执行期 skipped」。
+   */
+  platform?: string;
 }
 
 export type ActionStatus = 'done' | 'noop' | 'failed' | 'skipped' | 'needs-approval';
@@ -202,23 +222,33 @@ function generationId(): string {
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}${ms}-${rand}`;
 }
 
+/** 本机平台标识；执行器只从这里取默认值，注入优先。 */
+function hostPlatform(): string {
+  return `${process.platform}-${process.arch}`;
+}
+
+function platformOf(opts: ApplyOptions): string {
+  return opts.platform ?? hostPlatform();
+}
+
 /**
  * 一份计划会写到安装根的路径（相对路径，含目录）。
  *
- * 这是「计划产物」的唯一口径：快照、版本镜像、所有权冲突、升级清理、缓存回收都从这里取，
- * 不要在别处再各数一遍动作。fetch 的 dest 确实落在安装根（下载物进缓存），所以算在内；
- * 只建目录的 state.dir 不算写入，不参与快照与卸载删除。
+ * 这是「计划产物」的唯一口径：路径本身由 kernel 的 `PLAN_OPS` 表派生
+ * （`planPathsOf`），快照、版本镜像、所有权冲突、升级清理、缓存回收都从这里取，
+ * 不要在别处再各数一遍动作。
  */
 export function planPaths(plan: Plan): string[] {
-  const out: string[] = [];
-  for (const a of plan.actions) {
-    if (a.op === 'fetch') out.push(a.dest);
-    else if (a.op === 'write' || a.op === 'unpack' || a.op === 'link.skill' || a.op === 'copy' || a.op === 'delete') out.push(a.to);
-    else if (a.op === 'link.exec') out.push(a.to, `${a.to}.cmd`);
-    else if (a.op === 'register.mcp') out.push(a.path ?? '.packhub/config.json');
-    else if (a.op === 'instruction') out.push(a.file);
-  }
-  return [...new Set(out)];
+  return planPathsOf(plan);
+}
+
+/** `from` 的解析：按表里声明的基准读 Pack 目录或安装根，不再各 op 各猜。 */
+function sourcePath(action: PlanAction, opts: ApplyOptions): string {
+  const base = actionFromBase(action);
+  if (base === 'none') throw new Error(`动作没有来源：${action.actionId}`);
+  const raw = (action as { from?: string }).from;
+  if (raw === undefined) throw new Error(`动作缺少 from：${action.actionId}`);
+  return base === 'pack' ? readable(opts.packRoot ?? opts.root, raw) : within(opts.root, raw);
 }
 
 /** 计划声明的持久状态目录。 */
@@ -297,7 +327,10 @@ export async function applyPlan(plan: Plan, opts: ApplyOptions): Promise<ApplyRe
       continue;
     }
     try {
-      outcomes.push(await applyAction(action, plan, opts, written));
+      const outcome = await applyAction(action, plan, opts);
+      outcomes.push(outcome);
+      // 真正写了的路径才进 written；具体是哪些由 PLAN_OPS 表按动作与平台派生
+      if (outcome.status === 'done') written.push(...actionWritten(action, plan, platformOf(opts)));
     } catch (err) {
       outcomes.push({
         actionId: action.actionId,
@@ -472,7 +505,7 @@ function stageVersion(
   mkdirSync(join(dir, 'files'), { recursive: true });
   const files: string[] = [];
   for (const rel of planPaths(plan)) {
-    if (isSharedPath(rel)) continue;
+    if (isSharedInstallPath(rel)) continue;
     const abs = within(root, rel);
     if (!existsSync(abs)) continue;
     // 版本镜像优先用硬链接共享字节；跨盘/不支持的文件系统退回复制
@@ -702,11 +735,10 @@ function materialize(root: string, record: VersionRecord): void {
 /** 重放这个版本的共享改动；文件镜像已经在 materialize 里铺好。 */
 async function replayShared(root: string, record: VersionRecord): Promise<ActionOutcome[]> {
   const outcomes: ActionOutcome[] = [];
-  const scratch: string[] = [];
   const opts: ApplyOptions = { root, packRoot: root };
   for (const action of record.plan.actions) {
     if (action.op === 'register.mcp' || action.op === 'instruction') {
-      outcomes.push(await applyAction(action, record.plan, opts, scratch));
+      outcomes.push(await applyAction(action, record.plan, opts));
       continue;
     }
     if (action.op === 'state.dir') {
@@ -743,35 +775,40 @@ function deactivatePlan(
   const byId = new Map(actions.map((o) => [o.actionId, o]));
   const keptBy = (rel: string): boolean =>
     keep.some((p) => p === rel || rel.startsWith(`${p}/`) || p.startsWith(`${rel}/`));
-  const configs: { path: string; ops: { path: string[]; had: boolean; value?: unknown }[] }[] = [];
   const servers: { path: string; resource: string }[] = [];
   const blocks: { file: string; blockId: string }[] = [];
 
+  // 撤销方式由 PLAN_OPS 表声明；这里只按四类各做一次
   for (const action of plan.actions) {
-    if (
-      action.op === 'write' ||
-      action.op === 'link.skill' ||
-      action.op === 'unpack' ||
-      action.op === 'copy' ||
-      action.op === 'link.exec'
-    ) {
-      if (keptBy(action.to)) continue;
-      const withCmd = action.op === 'link.exec';
-      for (const rel of withCmd ? [action.to, `${action.to}.cmd`] : [action.to]) {
-        const abs = within(root, rel);
-        if (!existsSync(abs)) continue;
-        rmSync(abs, { recursive: true, force: true });
-        removed.push(rel);
+    switch (actionUndo(action)) {
+      case 'delete': {
+        for (const rel of actionPaths(action, plan)) {
+          if (keptBy(rel)) continue;
+          const abs = within(root, rel);
+          if (!existsSync(abs)) continue;
+          rmSync(abs, { recursive: true, force: true });
+          removed.push(rel);
+        }
+        break;
       }
-      continue;
+      case 'restore-shared': {
+        if (action.op === 'register.mcp') {
+          const outcome = byId.get(action.actionId);
+          servers.push({
+            path: action.path ?? '.packhub/config.json',
+            resource: outcome?.resource ?? action.resource ?? 'mcp',
+          });
+        }
+        break;
+      }
+      case 'strip-block': {
+        if (action.op === 'instruction') blocks.push({ file: action.file, blockId: action.blockId });
+        break;
+      }
+      case 'none':
+        break;
     }
-    if (action.op === 'register.mcp') {
-      servers.push({ path: action.path ?? '.packhub/config.json', resource: action.resource ?? 'mcp' });
-      continue;
-    }
-    if (action.op === 'instruction') blocks.push({ file: action.file, blockId: action.blockId });
   }
-
 
   for (const { path: rel, resource } of servers) {
     const abs = within(root, rel);
@@ -921,6 +958,29 @@ export function removePack(root: string, packKey?: string): RemoveResult {
         }
       }
       const files = [...record.written].sort((a, b) => b.length - a.length);
+      // 共享改动的撤销信息由 PLAN_OPS 表分类；老 state 没有计划快照时退回动作结果
+      const sharedServers = record.plan
+        ? record.plan.actions.flatMap((a) =>
+            actionUndo(a) === 'restore-shared' && a.op === 'register.mcp'
+              ? [{ path: a.path ?? '.packhub/config.json', resource: a.resource ?? 'mcp' }]
+              : [],
+          )
+        : record.actions.flatMap((o) =>
+            o.op === 'register.mcp' && o.target
+              ? [{ path: o.target, resource: o.resource ?? 'mcp' }]
+              : [],
+          );
+      const blockRefs = record.plan
+        ? record.plan.actions.flatMap((a) =>
+            actionUndo(a) === 'strip-block' && a.op === 'instruction'
+              ? [{ file: a.file, blockId: a.blockId }]
+              : [],
+          )
+        : record.actions.flatMap((o) =>
+            o.op === 'instruction' && o.target && o.blockId
+              ? [{ file: o.target, blockId: o.blockId }]
+              : [],
+          );
       for (const rel of files) {
         if (rel === '.packhub/config.json' && !isLast) {
           kept.push(rel);
@@ -930,10 +990,10 @@ export function removePack(root: string, packKey?: string): RemoveResult {
         if (!existsSync(abs)) continue;
 
         // 配置文件是共享的：先按 merge 的 undo 还原键，再摘掉自己登记的 server 条目，不整文件删
-        const regs = record.actions.filter((a) => a.op === 'register.mcp' && a.target === rel && a.resource);
+        const regs = sharedServers.filter((s) => s.path === rel);
         if (regs.length > 0 && /\.toml$/i.test(rel)) {
           let text = readFileSync(abs, 'utf8');
-          for (const a of regs) text = stripMcpToml(text, a.resource as string);
+          for (const a of regs) text = stripMcpToml(text, a.resource);
           if (text.trim() === '') rmSync(abs, { force: true });
           else writeFileSync(abs, text, 'utf8');
           removed.push(rel);
@@ -942,7 +1002,7 @@ export function removePack(root: string, packKey?: string): RemoveResult {
         if (regs.length > 0 && /\.json$/i.test(rel)) {
           const data = JSON.parse(readFileSync(abs, 'utf8')) as Record<string, unknown>;
           const servers = { ...(data.mcpServers as Record<string, unknown> | undefined) };
-          for (const a of regs) delete servers[a.resource as string];
+          for (const a of regs) delete servers[a.resource];
           if (Object.keys(servers).length === 0) delete data.mcpServers;
           else data.mcpServers = servers;
           const pruned = pruneEmpty(data);
@@ -953,9 +1013,7 @@ export function removePack(root: string, packKey?: string): RemoveResult {
         }
 
         // 指令文件是用户也会写的：只摘掉自己的托管块，不整文件删
-        const blockIds = record.actions
-          .filter((a) => a.op === 'instruction' && a.target === rel && a.blockId)
-          .map((a) => a.blockId as string);
+        const blockIds = blockRefs.filter((b) => b.file === rel).map((b) => b.blockId);
         if (blockIds.length > 0) {
           let text = readFileSync(abs, 'utf8');
           for (const id of blockIds) text = stripBlock(text, id);
@@ -1004,7 +1062,6 @@ async function applyAction(
   action: PlanAction,
   plan: Plan,
   opts: ApplyOptions,
-  written: string[],
 ): Promise<ActionOutcome> {
   switch (action.op) {
     case 'fetch': {
@@ -1033,7 +1090,6 @@ async function applyAction(
         ...(Object.keys(headers).length ? { headers } : {}),
         ...(auth ? { authHint: auth.env } : {}),
       });
-      written.push(action.dest);
       return {
         actionId: action.actionId,
         op: action.op,
@@ -1044,7 +1100,8 @@ async function applyAction(
     }
 
     case 'unpack': {
-      const from = readable(opts.packRoot ?? opts.root, action.from);
+      // from 是 fetch 实际写盘的位置（安装根基准），由表里声明
+      const from = sourcePath(action, opts);
       const to = within(opts.root, action.to);
       if (!existsSync(from)) throw new Error(`待解包文件不存在：${action.from}`);
       if (!opts.dryRun) {
@@ -1059,7 +1116,6 @@ async function applyAction(
           filter: (path, entry) => isSafeArchiveEntry(path, entry),
         });
       }
-      written.push(action.to);
       return { actionId: action.actionId, op: action.op, status: 'done', target: action.to };
     }
 
@@ -1096,7 +1152,7 @@ async function applyAction(
       };
     }
     case 'link.skill': {
-      const from = readable(opts.packRoot ?? opts.root, action.from);
+      const from = sourcePath(action, opts);
       const to = within(opts.root, action.to);
       if (!existsSync(from)) {
         throw new Error(`skill 源目录不存在：${action.from}`);
@@ -1106,24 +1162,38 @@ async function applyAction(
       // 覆盖安装时先移除旧的 skill 目录：文件可能是版本镜像的硬链接
       rmSync(to, { recursive: true, force: true });
       cpSync(from, to, { recursive: true, force: true });
-      written.push(action.to);
       return { actionId: action.actionId, op: action.op, status: 'done', target: action.to };
     }
 
     case 'copy': {
-      const from = readable(opts.packRoot ?? opts.root, action.from);
+      const from = sourcePath(action, opts);
       const to = within(opts.root, action.to);
       if (!existsSync(from)) throw new Error(`copy 的来源不存在：${action.from}`);
       if (!opts.dryRun) {
         mkdirSync(dirname(to), { recursive: true });
         rmSync(to, { recursive: true, force: true });
         cpSync(from, to, { recursive: true, force: true });
-        written.push(action.to);
       }
       return { actionId: action.actionId, op: action.op, status: 'done', target: action.to };
     }
 
     case 'link.exec': {
+      const platform = platformOf(opts);
+      // 平台裁剪在执行期：计划保留全部动作，不匹配的命令记 skipped 并说明原因
+      if (action.platforms && action.platforms.length > 0 && !action.platforms.includes(platform)) {
+        return {
+          actionId: action.actionId,
+          op: action.op,
+          status: 'skipped',
+          message: `平台 ${platform} 不在 platforms（${action.platforms.join(', ')}）里，跳过 ${action.to}`,
+          target: action.to,
+        };
+      }
+      if (action.runtime === 'shell' && platform.startsWith('win32')) {
+        throw new Error(
+          `runtime: shell 要 sh，Windows 上没有：${action.to}；换 node / python，或用 platforms 限定平台`,
+        );
+      }
       const entry = within(opts.root, action.entry);
       const modulePath = action.module ? within(opts.root, action.module) : undefined;
       if (!existsSync(entry)) throw new Error(`工具入口不存在：${action.entry}`);
@@ -1150,10 +1220,8 @@ async function applyAction(
       } catch {
         /* Windows 上不需要执行位 */
       }
-      written.push(action.to);
-      if (process.platform === 'win32') {
+      if (platform.startsWith('win32')) {
         writeFileAtomic(`${to}.cmd`, `@echo off\r\nrem generated by packhub\r\n${winEnv}${line} %*\r\n`);
-        written.push(`${action.to}.cmd`);
       }
       return { actionId: action.actionId, op: action.op, status: 'done', target: action.to };
     }
@@ -1174,7 +1242,7 @@ async function applyAction(
       const to = within(opts.root, action.to);
       // 覆盖层可能带二进制文件（图片、字体、脚本），不能一律按 UTF-8 读
       if (action.content === undefined && action.from) {
-        const raw = readFileSync(readable(opts.packRoot ?? opts.root, action.from));
+        const raw = readFileSync(sourcePath(action, opts));
         const binary = raw.subarray(0, 8192).includes(0);
         if (binary) {
           if (existsSync(to) && readFileSync(to).equals(raw)) {
@@ -1182,8 +1250,7 @@ async function applyAction(
           }
           if (!opts.dryRun) {
             mkdirSync(dirname(to), { recursive: true });
-            copyFileAtomic(readable(opts.packRoot ?? opts.root, action.from), to);
-            written.push(action.to);
+            copyFileAtomic(sourcePath(action, opts), to);
           }
           return { actionId: action.actionId, op: action.op, status: 'done', target: action.to };
         }
@@ -1191,14 +1258,13 @@ async function applyAction(
       const content =
         action.content !== undefined
           ? action.content
-          : readFileSync(readable(opts.packRoot ?? opts.root, action.from ?? ''), 'utf8');
+          : readFileSync(sourcePath(action, opts), 'utf8');
       if (existsSync(to) && readFileSync(to, 'utf8') === content) {
         return { actionId: action.actionId, op: action.op, status: 'noop', target: action.to };
       }
       if (!opts.dryRun) {
         mkdirSync(dirname(to), { recursive: true });
         writeFileAtomic(to, content);
-        written.push(action.to);
       }
       return { actionId: action.actionId, op: action.op, status: 'done', target: action.to };
     }
@@ -1223,7 +1289,6 @@ async function applyAction(
           mkdirSync(dirname(to), { recursive: true });
           if (before) backup(opts.root, path, before);
           writeFileAtomic(to, next);
-          if (!written.includes(path)) written.push(path);
         }
         return {
           actionId: action.actionId,
@@ -1253,7 +1318,6 @@ async function applyAction(
         mkdirSync(dirname(to), { recursive: true });
         if (before) backup(opts.root, path, before);
         writeFileAtomic(to, nextText);
-        if (!written.includes(path)) written.push(path);
       }
       return {
         actionId: action.actionId,
@@ -1275,7 +1339,6 @@ async function applyAction(
         mkdirSync(dirname(to), { recursive: true });
         if (before) backup(opts.root, action.file, before);
         writeFileAtomic(to, next);
-        if (!written.includes(action.file)) written.push(action.file);
       }
       return {
         actionId: action.actionId,
@@ -1299,10 +1362,10 @@ async function applyAction(
     }
 
     default: {
-      // 认不出的动作说明 state 或锁是旧版本留下的：直接失败，别静默跳过
-      const unknown = action as { op: string; actionId: string };
+      // 类型穷举：PlanOp 联合里加 op 时这里编译失败，逼着同时补表和执行器
+      const unhandled: never = action;
       throw new Error(
-        `认不出的动作：${unknown.op}（${unknown.actionId}）；很可能是旧版本留下的 state 或锁，重新安装这个包`,
+        `认不出的动作：${(unhandled as unknown as { op: string }).op}；很可能是旧版本留下的 state 或锁，重新安装这个包`,
       );
     }
   }
@@ -1579,11 +1642,7 @@ export function pruneEmpty(value: unknown): Record<string, unknown> {
   return out;
 }
 
-/** 共享路径：配置文件（多个包合并）与根目录的指令文件（托管块各写各的）。 */
-function isSharedPath(rel: string): boolean {
-  if (/\.(json|jsonc|toml)$/i.test(rel)) return true;
-  return !rel.includes('/') && /\.md$/i.test(rel);
-}
+
 
 export interface PruneResult {
   /** 真正从磁盘删掉/撤销的路径 */
@@ -1607,10 +1666,14 @@ export function pruneRemoved(
   const { removed: gone } = diffActions(previous.actions, next.actions);
   const produced = new Set(planPaths(next));
   const newMcp = new Set(
-    next.actions.filter((a) => a.op === 'register.mcp').map((a) => a.resource ?? 'mcp'),
+    next.actions
+      .filter((a) => actionUndo(a) === 'restore-shared' && a.op === 'register.mcp')
+      .map((a) => (a.op === 'register.mcp' ? a.resource ?? 'mcp' : '')),
   );
   const newBlocks = new Set(
-    next.actions.filter((a) => a.op === 'instruction').map((a) => `${a.file}::${a.blockId}`),
+    next.actions
+      .filter((a) => actionUndo(a) === 'strip-block' && a.op === 'instruction')
+      .map((a) => (a.op === 'instruction' ? `${a.file}::${a.blockId}` : '')),
   );
   const outcomes = new Map(previousActions.map((o) => [o.actionId, o]));
   const removed: string[] = [];
@@ -1621,79 +1684,75 @@ export function pruneRemoved(
   const stillProduced = (rel: string): boolean =>
     [...produced].some((p) => p === rel || rel.startsWith(`${p}/`) || p.startsWith(`${rel}/`));
 
+  // 撤销方式由 PLAN_OPS 表声明；这里只按四类各做一次
   for (const action of gone) {
-    if (
-      action.op === 'write' ||
-      action.op === 'link.skill' ||
-      action.op === 'unpack' ||
-      action.op === 'copy' ||
-      action.op === 'link.exec' ||
-      action.op === 'fetch'
-    ) {
-      const rel = action.op === 'fetch' ? action.dest : action.to;
-      if (isSharedPath(rel) || stillProduced(rel)) {
-        kept.push(rel);
-        continue;
-      }
-      const withCmd = action.op === 'link.exec';
-      for (const targetRel of withCmd ? [rel, `${rel}.cmd`] : [rel]) {
-        const abs = within(root, targetRel);
-        if (existsSync(abs)) {
+    switch (actionUndo(action)) {
+      case 'delete': {
+        for (const rel of actionPaths(action, previous)) {
+          if (actionIsShared(action) || stillProduced(rel)) {
+            kept.push(rel);
+            continue;
+          }
+          const abs = within(root, rel);
+          if (!existsSync(abs)) continue;
           rmSync(abs, { recursive: true, force: true });
-          removed.push(targetRel);
+          removed.push(rel);
         }
+        break;
       }
-      continue;
-    }
-
-    if (action.op === 'state.dir') {
-      // 状态目录是数据，不是产物：新版本去掉声明也只提示，不删
-      kept.push(action.to);
-      warnings.push(`状态目录保留（数据不随升级删除）：${action.to}`);
-      continue;
-    }
-
-    if (action.op === 'register.mcp') {
-      const outcome = outcomes.get(action.actionId);
-      const server = outcome?.resource ?? action.resource ?? 'mcp';
-      if (newMcp.has(server)) {
-        kept.push(action.path ?? '.packhub/config.json');
-        continue;
+      case 'restore-shared': {
+        if (action.op !== 'register.mcp') break;
+        const outcome = outcomes.get(action.actionId);
+        const server = outcome?.resource ?? action.resource ?? 'mcp';
+        const path = action.path ?? '.packhub/config.json';
+        if (newMcp.has(server)) {
+          kept.push(path);
+          break;
+        }
+        const abs = within(root, path);
+        if (!existsSync(abs)) break;
+        if (/\.toml$/i.test(path)) {
+          const text = stripMcpToml(readFileSync(abs, 'utf8'), server);
+          if (text.trim() === '') rmSync(abs, { force: true });
+          else writeFileSync(abs, text, 'utf8');
+          removed.push(path);
+          break;
+        }
+        const data = JSON.parse(readFileSync(abs, 'utf8')) as Record<string, unknown>;
+        const servers = { ...(data.mcpServers as Record<string, unknown> | undefined) };
+        delete servers[server];
+        if (Object.keys(servers).length === 0) delete data.mcpServers;
+        else data.mcpServers = servers;
+        const pruned = pruneEmpty(data);
+        if (Object.keys(pruned).length === 0) rmSync(abs, { force: true });
+        else writeFileSync(abs, JSON.stringify(pruned, null, 2) + '\n', 'utf8');
+        removed.push(path);
+        break;
       }
-      const path = action.path ?? '.packhub/config.json';
-      const abs = within(root, path);
-      if (!existsSync(abs)) continue;
-      if (/\.toml$/i.test(path)) {
-        let text = readFileSync(abs, 'utf8');
-        text = stripMcpToml(text, server);
+      case 'strip-block': {
+        if (action.op !== 'instruction') break;
+        if (newBlocks.has(`${action.file}::${action.blockId}`)) {
+          kept.push(action.file);
+          break;
+        }
+        const abs = within(root, action.file);
+        if (!existsSync(abs)) break;
+        const text = stripBlock(readFileSync(abs, 'utf8'), action.blockId);
         if (text.trim() === '') rmSync(abs, { force: true });
         else writeFileSync(abs, text, 'utf8');
-        removed.push(path);
-        continue;
+        removed.push(action.file);
+        break;
       }
-      const data = JSON.parse(readFileSync(abs, 'utf8')) as Record<string, unknown>;
-      const servers = { ...(data.mcpServers as Record<string, unknown> | undefined) };
-      delete servers[server];
-      if (Object.keys(servers).length === 0) delete data.mcpServers;
-      else data.mcpServers = servers;
-      const pruned = pruneEmpty(data);
-      if (Object.keys(pruned).length === 0) rmSync(abs, { force: true });
-      else writeFileSync(abs, JSON.stringify(pruned, null, 2) + '\n', 'utf8');
-      removed.push(path);
-      continue;
-    }
-
-    if (action.op === 'instruction') {
-      if (newBlocks.has(`${action.file}::${action.blockId}`)) {
-        kept.push(action.file);
-        continue;
+      case 'none': {
+        // 数据目录不随升级删除，但要说清为什么留着
+        const warning = actionRetainWarning(action);
+        const rel = 'to' in action ? action.to : undefined;
+        if (warning && rel) {
+          kept.push(rel);
+          warnings.push(`${warning}：${rel}`);
+        }
+        break;
       }
-      const abs = within(root, action.file);
-      if (!existsSync(abs)) continue;
-      const text = stripBlock(readFileSync(abs, 'utf8'), action.blockId);
-      if (text.trim() === '') rmSync(abs, { force: true });
-      else writeFileSync(abs, text, 'utf8');
-      removed.push(action.file);
     }
   }
 
@@ -1724,7 +1783,7 @@ function findOwnershipConflicts(plan: Plan, key: string, root: string): string[]
   const out: string[] = [];
   const targets = [...planPaths(plan), ...stateDirSpecs(plan).map((s) => s.path)];
   for (const rel of targets) {
-    if (isSharedPath(rel)) continue;
+    if (isSharedInstallPath(rel)) continue;
     // 目录整体归一个包时，另一个包往目录里写文件同样算冲突
     for (const [owned, owner] of owners) {
       if (rel === owned || rel.startsWith(`${owned}/`) || owned.startsWith(`${rel}/`)) {
@@ -1741,7 +1800,7 @@ function ensureCodexSkillYaml(root: string, plan: Plan, written: string[]): void
   for (const action of plan.actions) {
     if (action.op !== 'link.skill') continue;
     const dir = within(root, action.to);
-    const file = join(dir, 'agents', 'openai.yaml');
+    const file = join(dir, ...CODEX_SKILL_YAML.split('/'));
     if (existsSync(file)) continue;
     let front;
     try {
@@ -1751,6 +1810,6 @@ function ensureCodexSkillYaml(root: string, plan: Plan, written: string[]): void
     }
     mkdirSync(dirname(file), { recursive: true });
     writeFileAtomic(file, generateOpenaiYaml(front));
-    written.push(`${action.to}/agents/openai.yaml`);
+    written.push(`${action.to}/${CODEX_SKILL_YAML}`);
   }
 }

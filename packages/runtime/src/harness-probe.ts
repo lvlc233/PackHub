@@ -21,7 +21,12 @@ export interface RunnerResult {
   stderr: string;
 }
 
-export type Runner = (command: string, args: string[], cwd: string) => RunnerResult;
+export type Runner = (
+  command: string,
+  args: string[],
+  cwd: string,
+  opts?: { timeoutMs?: number },
+) => RunnerResult;
 
 export interface ProbeOptions {
   target: HarnessTarget;
@@ -74,7 +79,7 @@ function quoteArg(arg: string): string {
   return '"' + arg.replace(/"/g, '\\"') + '"';
 }
 
-const DEFAULT_RUNNER: Runner = (command, args, cwd) => {
+const DEFAULT_RUNNER: Runner = (command, args, cwd, opts = {}) => {
   const isWin = process.platform === 'win32';
   const [file, argv] = isWin
     ? [command + ' ' + args.map(quoteArg).join(' '), []]
@@ -82,7 +87,8 @@ const DEFAULT_RUNNER: Runner = (command, args, cwd) => {
   const res = spawnSync(file, argv, {
     cwd,
     encoding: 'utf8',
-    timeout: Number(process.env.PACKHUB_PROBE_TIMEOUT ?? 180_000),
+    // 显式注入优先；没给才看环境变量与默认值
+    timeout: opts.timeoutMs ?? Number(process.env.PACKHUB_PROBE_TIMEOUT ?? 180_000),
     shell: isWin,
   });
   return {
@@ -100,6 +106,8 @@ export interface SkillProbeOptions {
   projectDir: string;
   /** 期望出现在选择器里的 skill 名 */
   skill: string;
+  /** 跑一次 harness 的超时（毫秒）；不写就用默认值 */
+  timeoutMs?: number;
   model?: string;
   runner?: Runner;
 }
@@ -113,6 +121,7 @@ export function probeSkill(opts: SkillProbeOptions): ProbeResult {
     target: opts.target,
     projectDir: opts.projectDir,
     prompt: SKILL_QUESTION,
+    ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
     ...(opts.model ? { model: opts.model } : {}),
     ...(opts.runner ? { runner: opts.runner } : {}),
   });
@@ -150,32 +159,24 @@ export function askHarness(opts: AskOptions): AskResult {
           ? `codex exec --skip-git-repo-check --sandbox read-only -m ${model} "<prompt>"`
           : 'claude -p "<prompt>" --max-budget-usd 0.05 --no-session-persistence';
 
-  const res =
+  const argv =
     opts.target === 'dsh'
-      ? runner(
-          DSH_PROBE_COMMAND,
-          [
-            DSH_PROFILE_FLAG,
-            DSH_PROBE_PROFILE,
-            ...(opts.patchFile ? [DSH_PATCH_FLAG, opts.patchFile] : []),
-            DSH_JSON_FLAG,
-            prompt,
-          ],
-          opts.projectDir,
-        )
+      ? [
+          DSH_PROFILE_FLAG,
+          DSH_PROBE_PROFILE,
+          ...(opts.patchFile ? [DSH_PATCH_FLAG, opts.patchFile] : []),
+          DSH_JSON_FLAG,
+          prompt,
+        ]
       : opts.target === 'opencode'
-        ? runner('opencode', ['run', '--model', model, prompt], opts.projectDir)
+        ? ['run', '--model', model, prompt]
         : opts.target === 'codex'
-          ? runner(
-              'codex',
-              ['exec', '--skip-git-repo-check', '--sandbox', 'read-only', '-m', model, prompt],
-              opts.projectDir,
-            )
-          : runner(
-              'claude',
-              ['-p', prompt, '--max-budget-usd', '0.05', '--no-session-persistence'],
-              opts.projectDir,
-            );
+          ? ['exec', '--skip-git-repo-check', '--sandbox', 'read-only', '-m', model, prompt]
+          : ['-p', prompt, '--max-budget-usd', '0.05', '--no-session-persistence'];
+  const exe = opts.target === 'dsh' ? DSH_PROBE_COMMAND : opts.target === 'opencode' ? 'opencode' : opts.target === 'codex' ? 'codex' : 'claude';
+  // timeoutMs 真的生效：显式注入的毫秒数交给 runner（默认 runner 用它设 spawnSync.timeout）
+  const runOpts = opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : undefined;
+  const res = runner(exe, argv, opts.projectDir, runOpts);
 
   const stripAnsi = (s: string): string => s.replace(/\x1B\[[0-9;]*[A-Za-z]/g, '');
   const answer =

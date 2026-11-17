@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import type { Plan } from '@packhub/kernel';
+import { actionInputs } from '@packhub/kernel';
 import { loadState, planPaths } from './install.ts';
 
 export interface CacheEntry {
@@ -29,20 +30,15 @@ function sizeOf(target: string): number {
 }
 
 /**
- * 计划引用到的缓存路径：写入口径统一走 planPaths（含 fetch 落点），
- * 再加上只读的来源（解包前的归档、skill 来源、工具执行体/入口）。
+ * 计划引用到的缓存路径：写入口径统一走 planPaths（含 fetch 落点与派生输出），
+ * 只读来源由 PLAN_OPS 表的 inputs 派生（解包前的归档、skill 来源、工具执行体/入口）。
  */
 function referencedPaths(plans: Plan[]): string[] {
   const out = new Set<string>();
   for (const plan of plans) {
     for (const rel of planPaths(plan)) out.add(rel);
     for (const action of plan.actions) {
-      if (action.op === 'unpack') out.add(action.from);
-      else if (action.op === 'link.skill') out.add(action.from);
-      else if (action.op === 'link.exec') {
-        out.add(action.entry);
-        if (action.module) out.add(action.module);
-      }
+      for (const rel of actionInputs(action)) out.add(rel);
     }
   }
   return [...out];

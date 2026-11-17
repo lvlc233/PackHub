@@ -168,3 +168,51 @@ describe('codex 目标', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 });
+
+describe('timeoutMs 真的交给 runner', () => {
+  it('probeHarness 的 timeoutMs 作为第四个参数传给 runner', () => {
+    const dir = project();
+    let seen: { timeoutMs?: number } | undefined;
+    const runner: Runner = (_command, _args, _cwd, opts) => {
+      seen = opts;
+      return {
+        status: 0,
+        stdout: '这个项目装了一个整合包：**测试包标题**（0.0.1）。\n',
+        stderr: '',
+      };
+    };
+    probeHarness({ target: 'dsh', projectDir: dir, runner, timeoutMs: 4321 });
+    expect(seen?.timeoutMs).toBe(4321);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('probeSkill 也透传 timeoutMs', () => {
+    const dir = project();
+    let seen: { timeoutMs?: number } | undefined;
+    const runner: Runner = (_command, _args, _cwd, opts) => {
+      seen = opts;
+      return { status: 0, stdout: 'hello', stderr: '' };
+    };
+    const res = probeSkill({ target: 'dsh', projectDir: dir, skill: 'hello', runner, timeoutMs: 999 });
+    expect(seen?.timeoutMs).toBe(999);
+    expect(res.ok).toBe(true);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('没给 timeoutMs 时第四参数是 undefined（走默认值）', () => {
+    const dir = project();
+    let argCount = -1;
+    const runner: Runner = (...args) => {
+      argCount = args.length;
+      return {
+        status: 0,
+        stdout: '这个项目装了一个整合包：**测试包标题**（0.0.1）。\n',
+        stderr: '',
+      };
+    };
+    probeHarness({ target: 'dsh', projectDir: dir, runner });
+    expect(argCount).toBe(4);
+    // 第四项是 undefined：没有显式超时就走环境变量/默认值
+    rmSync(dir, { recursive: true, force: true });
+  });
+});

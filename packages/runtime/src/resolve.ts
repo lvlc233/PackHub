@@ -304,6 +304,8 @@ export async function lockPack(ctx: PackContext, opts: LockPackOptions = {}): Pr
     const { plan, issues: planIssues } = buildPlan(manifest, graph, {
       target,
       targetVars: {},
+      // 计划产物与平台无关；平台只影响警告，这里用宿主机即可
+      platform: `${process.platform}-${process.arch}`,
     });
     if (!plan) {
       throw new Error(`生成 ${target} 计划失败：${planIssues.map((i) => i.message).join('; ')}`);

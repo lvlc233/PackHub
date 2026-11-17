@@ -204,6 +204,15 @@ export interface Manifest {
 
 /* ---------- 计划（Plan） ---------- */
 
+/**
+ * 动作来源的基准：`from` 到底相对谁。
+ * - `pack`：Pack 目录内的相对路径（作者带来的字节）
+ * - `root`：安装根内的相对路径（fetch / unpack 的中间产物）
+ *
+ * 只出现在带 `from` 的动作上；不写就按 plan-ops 表里的 op 默认值。
+ */
+export type PlanActionFromBase = 'pack' | 'root';
+
 export type PlanOp =
   | {
       op: 'fetch';
@@ -212,12 +221,22 @@ export type PlanOp =
       integrity?: string;
       auth?: { env: string; scheme?: 'bearer' | 'token' | 'basic' };
     }
-  | { op: 'unpack'; from: string; to: string; strip?: number }
-  | { op: 'write'; to: string; from?: string; content?: string }
-  | { op: 'copy'; from: string; to: string }
-  | { op: 'link.exec'; to: string; runtime: ToolRuntime; entry: string; module?: string; args?: string[]; env?: Record<string, string> }
+  | { op: 'unpack'; from: string; to: string; strip?: number; fromBase?: PlanActionFromBase }
+  | { op: 'write'; to: string; from?: string; content?: string; fromBase?: PlanActionFromBase }
+  | { op: 'copy'; from: string; to: string; fromBase?: PlanActionFromBase }
+  | {
+      op: 'link.exec';
+      to: string;
+      runtime: ToolRuntime;
+      entry: string;
+      module?: string;
+      args?: string[];
+      env?: Record<string, string>;
+      /** 只在这些平台（`platform-arch`）建入口；不匹配由执行器记 skipped */
+      platforms?: string[];
+    }
   | { op: 'delete'; to: string }
-  | { op: 'link.skill'; from: string; to: string }
+  | { op: 'link.skill'; from: string; to: string; fromBase?: PlanActionFromBase }
   | { op: 'register.mcp'; spec: Record<string, unknown>; path?: string }
   | {
       op: 'exec';
@@ -231,7 +250,6 @@ export type PlanOp =
   | { op: 'instruction'; file: string; blockId: string; content: string }
   /** 持久状态目录：只建目录，不写文件；卸载时按 retain 决定去留 */
   | { op: 'state.dir'; to: string; retain: 'keep' | 'remove' }
-  /** tool 的可执行入口：读解包后的 package.json，在 binDir 下生成跨平台 wrapper */
 
 /** 把元数据分配到 union 的每个成员上（交叉类型不会自动分配，会导致 Omit 丢掉变体字段）。 */
 type WithMeta<T> = T extends unknown

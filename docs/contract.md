@@ -1,7 +1,7 @@
 ---
 kind: contract
 summary: v0 数据形状与格式层不变量
-verified: 2026-11-11
+verified: 2026-11-18
 decay: 365
 review: 格式升版、字段增删、apiVersion 变化时
 ---
@@ -63,12 +63,31 @@ review: 格式升版、字段增删、apiVersion 变化时
 1. `planHash` = 规范化 JSON（键排序、去 undefined）的 sha256；同输入必须同哈希，跨机器、跨时间。
 2. 动作 id 稳定：`<op>#<n>`，`n` 按生成顺序；同一 manifest 两次生成必须一致。
 3. `actions[].dependsOn` 指向的 id 必须存在于同一 plan。
-4. 动作目标路径相对安装根（state 所在目录）；来源路径相对 Pack 目录；执行层必须拒绝 `..` 逃逸。
+4. 动作目标路径相对安装根（state 所在目录）；`from` 的基准由 op 决定，见下面的 op 表。执行层必须拒绝 `..` 逃逸。
+5. 动作集合与 `planHash` 不随执行平台变化：`platforms` 只写进动作，由执行器在安装时判断（不匹配记 `skipped` 并说明原因）。
 
 动作原语：`fetch` · `unpack` · `copy` · `write` · `delete` · `link.skill` · `link.exec` · `register.mcp` · `exec` · `instruction` · `state.dir`。
 
-- `copy` 把包内文件或目录整份复制到安装根（工具的执行体走这条）。
-- `link.exec` 在 binDir 生成入口：`runtime entry [module] [args…] "$@"`，posix 只有无后缀的 sh 脚本，`.cmd` 只在 Windows 生成；`route` 模式的 entry 是生成的通用 shim，module 是工具执行体。
+每个 op 的路径、来源基准、撤销方式、共享判定与派生输出都在 `packages/kernel/src/plan-ops.ts` 的 `PLAN_OPS` 表里（单点；执行器与清理侧都从它派生）：
+
+| op | `from` 基准 | 写到安装根 | 撤销 | 共享 | 备注 |
+|---|---|---|---|---|---|
+| `fetch` | 无（`uri`） | `dest` | 删文件 | 否 | 下载物进缓存，进快照/版本镜像 |
+| `unpack` | 安装根（`root`） | `to` | 删文件 | 按落点 | 读 fetch 实际写盘的位置 |
+| `copy` | Pack（`pack`） | `to` | 删文件 | 按落点 | 本地工具执行体整份复制 |
+| `write` | Pack（`pack`），内联内容可省 | `to` | 删文件 | 按落点 | 二进制也走它 |
+| `delete` | 无 | `to`（被删对象） | 不撤销 | 按落点 | 目标不存在算 `noop`，不进 `written` |
+| `link.skill` | 本地 `pack` / 远程 `root` | `to` | 删文件 | 按落点 | codex 额外派生 `<to>/agents/openai.yaml` |
+| `link.exec` | 无（`entry` / `module` 相对安装根） | `to`、`to.cmd` | 删文件 | 否 | `.cmd` 只在 win32 生成；`platforms` 不匹配由执行器 `skipped` |
+| `register.mcp` | 无（`spec`） | `path`（默认 `.packhub/config.json`） | 还原共享配置 | 是 | `.toml` 用托管块 |
+| `exec` | 无 | 无 | 不撤销 | 否 | 计划里永远 `approval: required` |
+| `instruction` | 无（`content`） | `file` | 摘托管块 | 是 | 只动 `<!-- packhub:begin/end -->` 之间 |
+| `state.dir` | 无 | 无（只建目录） | 不撤销 | 否 | 数据目录，不随升级/卸载删除 |
+
+派生输出是「install 期生成、计划动作里没有对行动作」的文件（codex 的 `agents/openai.yaml`、`link.exec` 的 `.cmd`）；它们由表的 `paths()` 声明，因此 `planPaths(plan)`、快照、版本镜像与升级清理都能覆盖到。
+
+`copy` 把包内文件或目录整份复制到安装根（工具的执行体走这条）。
+`link.exec` 在 binDir 生成入口：`runtime entry [module] [args…] "$@"`，posix 只有无后缀的 sh 脚本，`.cmd` 只在 Windows 生成；`route` 模式的 entry 是生成的通用 shim，module 是工具执行体。`platforms`（`platform-arch`）不匹配时执行器记 `skipped`，计划里仍保留这条动作。
 
 - `delete` 只删单个文件（`modify` 用它删掉上游带的文件或整段命中的文件）；目标不存在算 `noop`，不失败，也不进 `written`——卸载不会去恢复它，回滚由快照负责。
 
