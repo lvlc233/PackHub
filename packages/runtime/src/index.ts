@@ -1,8 +1,5 @@
-import { resolve } from 'node:path';
-import type { Plan } from '@packhub/kernel';
+import type { PackContext, Plan } from '@packhub/kernel';
 import { applyPlan, type ApplyOptions, type ApplyResult } from './install.ts';
-import { runChecks, serverSpecs, type CheckResult } from './verify.ts';
-import type { PackContext } from '@packhub/kernel';
 
 /**
  * 调用方从 @packhub/runtime 拿的 kernel 符号：显式再导出，不再 `export *`。
@@ -153,7 +150,13 @@ export {
   type CredentialFile,
   type TokenInfo,
 } from './credentials.ts';
-export { runChecks, type CheckResult, type CheckStatus, type VerifyOptions } from './verify.ts';
+export { runChecks, verifyPack, type CheckResult, type CheckStatus, type VerifyOptions } from './verify.ts';
+export {
+  verifyAt,
+  type VerifyAtOptions,
+  type VerifyAtResult,
+  type VerifyMode,
+} from './verify-at.ts';
 export {
   verifyInstalled,
   hasInstalledPacks,
@@ -223,8 +226,4 @@ export function installPack(
     root: opts.root ?? ctx.dir,
     packRoot: opts.packRoot ?? ctx.dir,
   });
-}
-
-export function verifyPack(dir: string, plan: Plan): Promise<CheckResult[]> {
-  return runChecks(plan.verify, { root: resolve(dir), servers: serverSpecs(plan) });
 }

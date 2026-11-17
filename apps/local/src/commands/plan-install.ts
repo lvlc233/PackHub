@@ -20,9 +20,8 @@ import {
   listVersions,
   activatePack,
   installPack,
-  verifyPack,
+  verifyAt,
   verifyInstalled,
-  hasInstalledPacks,
   loadLock,
   withLockPins,
   lockPack,
@@ -97,6 +96,12 @@ export const install = command({
       } else {
         say(`\nstate: ${result.statePath}`);
       }
+      // 审计写入留在命令层，不搬进 runtime 的安装入口：
+      // 1) installPack 还被 launcher（create / update）、runner 与 market 调用，搬进
+      //    applyPlan / installPack 会让它们凭空多出审计行，属于副作用扩展；
+      // 2) action 标签（install / add / update）本来就是各命令自己的事，runtime 不知道；
+      // 3) 这里只在「非 dry-run、没有失败、state 已落盘」之后写，dry-run 与回滚路径不写，
+      //    写失败只 warn 不阻断（TRU-11）。
       try {
         appendAudit({
           action: 'install',
@@ -122,59 +127,45 @@ export const verify = command({
     json: { type: 'boolean', default: false, description: '输出结构化结果（脚本用）' },
   },
   async run({ args }) {
-    const dir = resolve(String(args.dir));
-    // 项目模式：add 装进来的包没有 packhub.yaml，计划和安装根都在 state 里
-    if (!existsSync(join(dir, 'packhub.yaml')) && hasInstalledPacks(dir)) {
-      const reports = await verifyInstalled(dir, {
-        ...(args.pack ? { pack: String(args.pack) } : {}),
-      });
-      let failed = 0;
-      let skipped = 0;
+    // 走项目模式还是 Pack 模式、各自调用什么、失败怎么计数，都在 runtime 的 verifyAt 里判
+    const res = await verifyAt(String(args.dir), {
+      ...(args.pack ? { pack: String(args.pack) } : {}),
+      target: String(args.target ?? 'dir') as TargetId,
+    });
+    if (res.issues.length > 0) reportIssues(res.issues);
+    // 清单坏了 / 算不出计划：前置条件错，落到退出码 2
+    if (!res.ready) stop(EXIT.USAGE);
+
+    if (res.mode === 'installed') {
       if (!args.json) {
-        for (const report of reports) {
+        for (const report of res.installed) {
           say(`\n${report.pack}`);
           say(`  planHash ${report.planHash}`);
           for (const r of report.results) {
             const mark = r.status === 'pass' ? '✓' : r.status === 'fail' ? 'x' : '-';
             say(`  ${mark} [${r.index}] ${r.type.padEnd(18)} ${r.status.padEnd(8)} ${r.detail}`);
           }
-          failed += report.results.filter((r) => r.status === 'fail').length;
-          skipped += report.results.filter((r) => r.status === 'skipped').length;
-          if (!report.ok) failed++;
         }
-        say(`\n${reports.length} 个包：${failed} 项失败 / ${skipped} 项跳过`);
+        say(`\n${res.installed.length} 个包：${res.failed} 项失败 / ${res.skipped} 项跳过`);
       } else {
-        for (const report of reports) {
-          failed += report.results.filter((r) => r.status === 'fail').length;
-          skipped += report.results.filter((r) => r.status === 'skipped').length;
-          if (!report.ok) failed++;
-        }
-        json({ installed: reports, results: reports.flatMap((r) => r.results), failed, skipped });
+        json({ installed: res.installed, results: res.results, failed: res.failed, skipped: res.skipped });
       }
-      if (failed) stop(EXIT.RUNTIME);
+      if (res.failed) stop(EXIT.RUNTIME);
       return;
     }
 
-    const ctx = loadPack(dir);
-    if (reportIssues(ctx.issues)) stop(EXIT.USAGE);
-    const { plan: p, issues } = planFor(ctx, { target: String(args.target ?? 'dir') as never });
-    if (!p) {
-      reportIssues(issues);
-      stop(EXIT.USAGE);
-    }
-    const results = await verifyPack(ctx.dir, p);
-    const failed = results.filter((r) => r.status === 'fail').length;
-    const skipped = results.filter((r) => r.status === 'skipped').length;
     if (args.json) {
-      json({ planHash: p.planHash, results, failed, skipped });
+      json({ planHash: res.planHash, results: res.results, failed: res.failed, skipped: res.skipped });
     } else {
-      for (const r of results) {
+      for (const r of res.results) {
         const mark = r.status === 'pass' ? '✓' : r.status === 'fail' ? 'x' : '-';
         say(`${mark} [${r.index}] ${r.type.padEnd(18)} ${r.status.padEnd(8)} ${r.detail}`);
       }
-      say(`\n${results.length} 项：${results.length - failed - skipped} 通过 / ${failed} 失败 / ${skipped} 跳过`);
+      say(
+        `\n${res.results.length} 项：${res.results.length - res.failed - res.skipped} 通过 / ${res.failed} 失败 / ${res.skipped} 跳过`,
+      );
     }
-    if (failed) stop(EXIT.RUNTIME);
+    if (res.failed) stop(EXIT.RUNTIME);
   },
 });
 

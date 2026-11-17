@@ -653,6 +653,78 @@ verify:
   });
 });
 
+describe('cli 端到端：verify 的两种模式', () => {
+  const parseJson = (out: string): Record<string, unknown> =>
+    JSON.parse(out.slice(out.indexOf('{'), out.lastIndexOf('}') + 1)) as Record<string, unknown>;
+
+  it('--json 字段不变：项目模式给 installed/，Pack 模式给 planHash', () => {
+    // 项目模式：add 装进来的包没有 packhub.yaml，结果按包分组
+    const project = mkdtempSync(join(tmpdir(), 'packhub-cli-verifyproj-'));
+    const env = { PACKHUB_INDEX: join(ROOT, 'registry/index.json') };
+    expect(run(['add', 'lvlc233/team-conventions', '--dir', project], env).status).toBe(0);
+    const installed = run(['verify', project, '--json']);
+    expect(installed.status).toBe(0);
+    const installedBody = parseJson(installed.out);
+    expect(Object.keys(installedBody).sort()).toEqual(['failed', 'installed', 'results', 'skipped']);
+    expect(installedBody.failed).toBe(0);
+    expect(installedBody.skipped).toBe(0);
+    expect(Array.isArray(installedBody.installed)).toBe(true);
+
+    // Pack 模式：原地装一遍再验，planHash 是计划的那一份
+    const packDir = mkdtempSync(join(tmpdir(), 'packhub-cli-verifypack-'));
+    writeFileSync(
+      join(packDir, 'packhub.yaml'),
+      `apiVersion: packhub.dev/v0
+kind: Pack
+metadata: { name: demo/verify, version: 0.0.1, targets: [dir] }
+requires: { packhub: ">=0.0.1 <0.1" }
+resources:
+  - id: rules
+    type: knowledge
+    source: ./rules.md
+verify:
+  - type: file-exists
+    path: "\${target.knowledgeDir}/rules.md"
+`,
+      'utf8',
+    );
+    writeFileSync(join(packDir, 'rules.md'), '# rules\n', 'utf8');
+    expect(run(['install', packDir]).status).toBe(0);
+    const packed = run(['verify', packDir, '--json']);
+    expect(packed.status).toBe(0);
+    const packedBody = parseJson(packed.out);
+    expect(Object.keys(packedBody).sort()).toEqual(['failed', 'planHash', 'results', 'skipped']);
+    expect(typeof packedBody.planHash).toBe('string');
+    expect(packedBody.failed).toBe(0);
+    expect(packedBody.skipped).toBe(0);
+
+    rmSync(project, { recursive: true, force: true });
+    rmSync(packDir, { recursive: true, force: true });
+  });
+
+  it('项目模式下已装文件被删：退出 1，失败计数含整包一条', () => {
+    const project = mkdtempSync(join(tmpdir(), 'packhub-cli-verifyfail-'));
+    const env = { PACKHUB_INDEX: join(ROOT, 'registry/index.json') };
+    expect(run(['add', 'lvlc233/team-conventions', '--dir', project], env).status).toBe(0);
+    rmSync(join(project, '.packhub/knowledge/style-guide.md'), { force: true });
+
+    const res = run(['verify', project]);
+    expect(res.status).toBe(1);
+    // 1 项 fail + 这个包 ok=false 的 1 条：与旧命令层的计数逐字一致
+    expect(res.out).toContain('1 个包：2 项失败 / 0 项跳过');
+
+    rmSync(project, { recursive: true, force: true });
+  });
+
+  it('既没清单也没已装包：退出 2，报 manifest-missing', () => {
+    const empty = mkdtempSync(join(tmpdir(), 'packhub-cli-verifyempty-'));
+    const res = run(['verify', empty]);
+    expect(res.status).toBe(2);
+    expect(res.out).toContain('manifest-missing');
+    rmSync(empty, { recursive: true, force: true });
+  });
+});
+
 describe('cli 端到端：签名', () => {
   const MANIFEST = (extra: string): string => `apiVersion: packhub.dev/v0
 kind: Pack

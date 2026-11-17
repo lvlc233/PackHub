@@ -37,6 +37,7 @@ pnpm verify:examples:offline        # 示例包逐个真装 + verify
 | 想知道 | 读 |
 |---|---|
 | 概念与边界 | [docs/concepts.md](docs/concepts.md) |
+| 为什么这么定（取舍与代价） | [docs/decisions.md](docs/decisions.md) |
 | 文件里每个 JSON 长什么样 | [docs/contract.md](docs/contract.md) |
 | 某条功能到底做了没 | [docs/features.md](docs/features.md) |
 | 文档怎么维护 | [docs/README.md](docs/README.md) |

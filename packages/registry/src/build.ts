@@ -182,6 +182,15 @@ function checkArchiveConsistency(
 }
 
 /**
+ * CI 判定：GitHub Actions 把 `CI` 设成 `true`；空串 / `0` / `false` 当作没设。
+ * 调用时才读环境变量（不在模块加载时固化），测试才能按场景切。
+ */
+function inCI(): boolean {
+  const flag = process.env.CI;
+  return flag !== undefined && flag !== '' && flag !== '0' && flag.toLowerCase() !== 'false';
+}
+
+/**
  * 扫描 registry/packs，校验并生成索引。
  * 门禁：schema、锁与计划一致、visibility=public、已发布版本不可变、verify 与计划一致才算 verified。
  */
@@ -217,6 +226,17 @@ export function buildIndex(registryRoot: string): BuildResult {
     }
   };
 
+  /**
+   * 取不到 HEAD 里的那份文件时，不可变性核对等于没做：本地允许（未提交的新版本、非 git 目录），
+   * 但必须留下路径。CI 里改成 error——CI 全绿必须能推出「版本没被改过」。
+   * 版本目录里不存在的文件不进来（没有的东西谈不上被改）。
+   */
+  const reportSkippedImmutability = (where: string, relPath: string): void => {
+    const detail = `取不到 git 历史，${relPath} 的不可变性核对没有做`;
+    if (inCI()) errors.push(`${where}: ${detail}（CI 里不允许跳过）`);
+    else warnings.push(`${where}: ${detail}（本地允许，未提交的新版本）`);
+  };
+
   for (const scope of dirs(packsDir)) {
     for (const name of dirs(join(packsDir, scope))) {
       const packName = `${scope}/${name}`;
@@ -237,13 +257,17 @@ export function buildIndex(registryRoot: string): BuildResult {
         }
 
         // 版本目录里定义「发布了什么」的文件都不许改：清单、锁、验证报告、可选签名。
-        // 没进 git（或非 git 仓库）时跳过——这项门禁只在有历史可比时才有意义。
+        // 没进 git（或非 git 仓库）时跳过——但跳过必须留痕：本地 warning 带路径，CI 里算错误。
         const norm = (s: string): string => s.replace(/\r\n/g, '\n');
         for (const file of ['packhub.yaml', 'packhub.lock.json', 'verify.json', SIGNATURE_FILE]) {
           const abs = join(dir, file);
           if (!existsSync(abs)) continue;
-          const headText = gitShowHead(relative(registryRoot, abs).replaceAll('\\', '/'));
-          if (headText === null) continue;
+          const relPath = relative(registryRoot, abs).replaceAll('\\', '/');
+          const headText = gitShowHead(relPath);
+          if (headText === null) {
+            reportSkippedImmutability(`${packName}@${version}`, relPath);
+            continue;
+          }
           if (norm(headText) !== norm(readFileSync(abs, 'utf8'))) {
             errors.push(`${packName}@${version}: 版本目录不可变，${file} 已被修改（改动要发新版本）`);
           }
@@ -252,8 +276,11 @@ export function buildIndex(registryRoot: string): BuildResult {
         // 归档也是发布内容：字节变了就说明版本被改过（按 utf8 读会毁掉二进制，所以单独走 buffer）
         const archive = join(versionsDir, `${version}.phub`);
         if (existsSync(archive)) {
-          const headBytes = gitShowHeadBytes(relative(registryRoot, archive).replaceAll('\\', '/'));
-          if (headBytes) {
+          const relPath = relative(registryRoot, archive).replaceAll('\\', '/');
+          const headBytes = gitShowHeadBytes(relPath);
+          if (headBytes === null) {
+            reportSkippedImmutability(`${packName}@${version}`, relPath);
+          } else {
             const digest = (buf: Buffer): string => createHash('sha256').update(buf).digest('hex');
             if (digest(headBytes) !== digest(readFileSync(archive))) {
               errors.push(`${packName}@${version}: 版本目录不可变，${version}.phub 已被修改（改动要发新版本）`);

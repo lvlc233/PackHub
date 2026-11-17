@@ -179,7 +179,8 @@ export interface Manifest {
     /** 默认 private：要进公共索引必须显式写 public */
     visibility?: 'public' | 'unlisted' | 'internal' | 'private';
   };
-  requires: { packhub: string; agent?: string };
+  /** schema 的顶层 required 里没有它；读端（graph.ts、registry 索引）也都按可选取。 */
+  requires?: { packhub: string; agent?: string };
   /**
    * 整合包自己的那段上下文：这个环境是什么、默认怎么做事、什么不做、从哪开始。
    * 写成 `./` 开头的路径时，plan 期读那份文件；否则按内联文本用。

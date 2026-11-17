@@ -157,7 +157,7 @@ review: 任何行为变更的提交
 | REG-01 | 发布版本目录 | 写清单、锁、可选签名、`PACK.md` / `CHANGELOG.md`（存在才写）、vendored 顶层条目与 `verify.json` 到 `packs/<scope>/<name>/<ver>/` | [done] | `packages/registry/src/publish.ts`、`publish.test.ts` |
 | REG-02 | `.phub` 归档 | tar.gz，默认 vendored（自包含）；`--reference` 只打清单与锁，带本地来源时拒绝。发布、`registry:pack` 与重锁都从**版本目录**打（共用 registry 的 `packVersionArchive`），归档里的清单 / 锁 / `verify.json` 就是版本目录那一份；不从包源目录直接打（源目录的锁可能还没刷新） | [done] | `packages/runtime/src/pack.ts` 的 `packArchive`、`packages/registry/src/publish.ts` 的 `packVersionArchive`、`publish.test.ts`、`pack.test.ts` |
 | REG-03 | 索引生成 | `index.json` 由 `registry:index` 生成，`registry:check` 只校验不写 | [done] | `build.ts`、`scripts/registry/build-index.mjs` |
-| REG-04 | 版本不可变 | 发布时已存在的版本目录拒绝（`--force` 例外）；索引门禁用 `git show HEAD:` 逐字节比对 `packhub.yaml`、`packhub.lock.json`、`verify.json`、`packhub.signatures.json`，归档 `.phub` 按 sha256 比字节（缺的文件跳过）；非 git / 未跟踪 / 无 HEAD 静默跳过 | [done] | `build.ts`、`publish.ts`、`publish.test.ts` |
+| REG-04 | 版本不可变 | 发布时已存在的版本目录拒绝（`--force` 例外）；索引门禁用 `git show HEAD:` 逐字节比对 `packhub.yaml`、`packhub.lock.json`、`verify.json`、`packhub.signatures.json`，归档 `.phub` 按 sha256 比字节（版本目录里不存在的文件不参与）；取不到 HEAD 的那份文件等于这项核对没做——本地只记 warning 并带路径，CI（`CI` 环境变量为真）里算 error，所以 CI 全绿能推出「版本没被改过」 | [done] | `build.ts`、`publish.ts`、`publish.test.ts` 的「未跟踪：本地只 warning 且带路径，CI 里变成 error」 |
 | REG-05 | trust 两档 | `verified` 只由「`verify.json.ok` 且 planHash 对得上」决定；整包 verified 要求每个版本都 verified，其余 `community` | [done] | `build.ts`、`publish.test.ts` |
 | REG-06 | 只收 public | 索引门禁与 `publish` 都拒绝非 public；`--allow-non-public` 可让 publish 放行，但随后索引门禁拒绝并回滚 | [done] | `build.ts`、`publish.ts` |
 | REG-07 | unlisted 取包 | 索引里没有这个包、又显式给了 `--version` 时，跳过成员检查直接取归档；索引里有该包时版本仍须在 `versions` 里 | [done] | `packages/runtime/src/registry.ts` 的 `fetchPack`、`cli.ts` |
@@ -273,15 +273,16 @@ review: 任何行为变更的提交
 | OPS-04 | 干净安装 CI | `registry:verify-all` 在 ubuntu job 跑，需网络；另有 `:offline` 变体（跳过清单里有远程引用的版本）。本机重验 `lvlc233/remote-demo@0.0.1`：不设代理时 `fetch`（raw.githubusercontent.com）报 ECONNRESET，这台机器的系统代理在 `127.0.0.1:7890`，设 `HTTPS_PROXY` 后同一版本 verify 通过——Node/undici 不读 Windows 系统代理，`download.ts` 只认环境变量 | [done] | `registry.yml`、`package.json`、`scripts/registry/relock-all.mjs`、`scripts/registry/verify-all.mjs`、`packages/runtime/src/download.ts` 的 `ensureProxy` |
 | OPS-05 | 单文件分发 | `build:local` 出 `dist/local/packhub.mjs` 与精简 package.json；`pack:local` 再 `npm pack` 出 tgz | [done] | `scripts/build-local.mjs`、`package.json` |
 | OPS-06 | Hub 镜像 | 多阶段构建，末尾 `pnpm prune --prod`；镜像直接跑 TS（`--experimental-strip-types`）；非回环强制带 token | [done] | `Dockerfile` |
-| OPS-07 | 文档治理 | 只留三份开发者文档（概念 / 契约 / 台账），入口 `docs/README.md`；每篇 front matter 标 `kind` / `verified` / `decay`，`pnpm docs:audit` 查分类、过期、断链、占位标记，CI 的 verify job 也跑；读完文档先体检的流程写在 `AGENTS.md` | [done] | `docs/README.md`、`AGENTS.md`、`scripts/docs-audit.mjs` |
+| OPS-07 | 文档治理 | 只留四份开发者文档（概念 / 契约 / 取舍 / 台账），入口 `docs/README.md`；每篇 front matter 标 `kind` / `verified` / `decay`，`pnpm docs:audit` 查分类、过期、断链、占位标记，CI 的 verify job 也跑；读完文档先体检的流程写在 `AGENTS.md` | [done] | `docs/README.md`、`docs/decisions.md`、`AGENTS.md`、`scripts/docs-audit.mjs` |
 | OPS-08 | 版本策略 | 产品 0.0.1 / 格式 v0，无兼容承诺；升 v1 的三条判据写在契约里 | [done] | `contract.md` |
 | OPS-09 | 性能基准 | `bench` 量计划与安装耗时；CI 只卡**计划**耗时（规模与预算都是脚本参数，见 `scripts/bench.ts`），install 无预算，overlay 与大规模基准不在 CI | [done] | `scripts/bench.ts`、`registry.yml` |
-| OPS-10 | Windows 矩阵 | `registry.yml` 的 `test-windows` 与 `pal.yml` 的 `windows` 都跑 `pnpm check`；后者带 paths 过滤，只在改 PAL 时触发 | [done] | `.github/workflows/*.yml` |
+| OPS-10 | Windows 矩阵 | `registry.yml` 的 `test-windows` 跑 `pnpm check`；没有第三条矩阵（macOS 不在门禁内，见 [decisions.md](decisions.md)） | [done] | `.github/workflows/registry.yml` |
 | OPS-11 | 依赖安全 | CI 跑 `pnpm audit --audit-level high`，只在 ubuntu job | [done] | `registry.yml` |
 | OPS-12 | 示例包矩阵 | `verify:examples` 逐个真装 + verify（三个示例都不再依赖上游仓库与外网清单）；`--skip-network` 只跑本地引用那一个；CI 在 ubuntu job 跑 | [done] | `scripts/verify-examples.mjs`、`registry.yml`、`examples/code-review` |
-| OPS-13 | 工具链固定 | `packageManager pnpm@11.22.0`、`engines.node >=22.13`，两个 workflow 都用 node 22 + pnpm 11 | [done] | `package.json`、workflows |
+| OPS-13 | 工具链固定 | `packageManager pnpm@11.22.0`、`engines.node >=22.13`；workflow 用 node 22 + pnpm 11 | [done] | `package.json`、workflows |
 | OPS-14 | 供应链 | actions 全部钉在 commit SHA（注释写版本），dependabot 每周看 github-actions 与 npm；`pnpm verify:lockfile` 查每条 resolution 都带 integrity，CI 与用例都跑；仓库内本地 action 不钉 | [done] | `.github/workflows`、`.github/dependabot.yml`、`scripts/verify-lockfile.mjs`、`repo-hygiene.test.ts`、`lockfile.test.ts` |
 | OPS-15 | 包边界与公开面 | `@packhub/runtime` 不再 `export *` 转发 kernel 符号，只显式再导出 `loadManifest` / `loadPack` / `planFor`（launcher 与 market 的现有调用点还从 runtime 取）；新代码直接依赖 `@packhub/kernel`。`@packhub/runner` 改为显式依赖 `@packhub/kernel`，`run.ts` 从 kernel 取 `loadPack` / `planFor` | [done] | `packages/runtime/src/index.ts`、`packages/runner/package.json`、`packages/runner/src/run.ts` |
+| OPS-16 | 交付链门禁 | ubuntu job 在源码测试之后构建 CLI 产物（`pnpm build:local`）与 hub 镜像（`docker build -t packhub-hub .`），再 `docker run … --version` 冒烟启动，任一步失败即拦。镜像构建要 `ENV CI=true`（build 里没有 TTY，`pnpm prune` 才肯删 node_modules），运行时要 `COPY schema`（kernel 直接 import 根 `schema/`）；补门禁之前镜像从未被构建过，缺 schema 时「装得出来、起不来」 | [done] | `.github/workflows/registry.yml`、`Dockerfile` |
 
 ## 12 X ｜跨切面
 
@@ -326,7 +327,7 @@ review: 任何行为变更的提交
 | PAL-18 | 删除时目录被占 | 重试后仍不行就改名进归档，不把半个实例留在列表（`removeTreeWithRetry` 是内部函数，靠这条路径间接覆盖） | [done] | `remove.ts`、`instance.test.ts` |
 | PAL-19 | 界面 | 随本地界面一起删了；要做前端时重写规格 | [na] | 无 |
 | PAL-20 | 取包缓存 | 按来源 + 版本（或 ref 短哈希）分目录，重取先清空；只有 registry + 明确版本才命中复用 | [done] | `materialize.ts`、`materialize.test.ts` |
-| PAL-21 | 打包与 CI | `pal:bundle` 出单文件 `pal.cjs`；`pal:smoke` 端到端冒烟；CI Linux 跑 bundle + smoke，Windows 跑 smoke | [done] | `scripts/pal/*`、`pal.yml` |
+| PAL-21 | 打包与 CI | 已删：`scripts/pal/*` 与 `pal.yml` 都不在了，没有 `pal:bundle` / `pal:smoke`；launcher 直接跑源码（`pnpm pal`），要单独分发时重新做打包 | [na] | 无 |
 | PAL-22 | 看护 | 常驻 core 独占启停与看护，CLI 是客户端；core 被杀由用户任务计划带回（需先 `pal core install` 注册，未注册不会自己回来） | [done] | `core.ts`、`coreClient.ts`、`coreTask.ts`、`watch.ts` |
 | PAL-23 | 运行时记录 | 记录并展示 node 版本（基线、`doctor`、`health` 的 runtime 检查），不切换；0.x 单运行时是范围决定 | [done] | `baseline.ts`、`health.ts`、`cli.ts` |
 | PAL-24 | 界面的实例流转 | 随界面一起删了；接管/克隆/改名/迁移仍走 CLI | [na] | 无 |

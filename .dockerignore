@@ -1,0 +1,10 @@
+# 构建上下文只留 Dockerfile 真正 COPY 的东西：本机的 node_modules / dist / tmp 不该进上下文。
+# Dockerfile 里 COPY 的是 package.json、pnpm-lock.yaml、pnpm-workspace.yaml、packages、apps、schema。
+node_modules
+**/node_modules
+dist
+tmp
+.git
+.vscode
+.impeccable
+*.tsbuildinfo

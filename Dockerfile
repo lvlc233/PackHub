@@ -7,8 +7,12 @@ RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages ./packages
 COPY apps ./apps
+# 运行时要从仓库根读 schema：packages/kernel 直接 import ../../../schema/*.json，漏拷镜像就起不来
+COPY schema ./schema
 RUN pnpm install --frozen-lockfile
 # 镜像只跑只读端：去掉 vitest/typescript 这类只在开发时用的依赖
+# build 里没有 TTY，pnpm 默认拒绝删 node_modules；CI=true 让它按 CI 处理
+ENV CI=true
 RUN pnpm prune --prod
 
 FROM node:22-bookworm-slim

@@ -7,6 +7,7 @@
  * - verified 是「最后一次对着代码核过」的日期，不是最后修改日期；超过 decay 天算过期。
  * - 文档之间的相对链接必须能打开。
  * - 正文不许出现「待更新」这类占位标记（代码块里的示例不算）。
+ * - docs/README.md 必须指向每篇 docs；孤儿文档算错误，索引漂移要让 CI 失败。
  *
  * 用途：CI 里跑，防止文档悄悄过期；本地改完文档也跑一次。
  */
@@ -22,14 +23,9 @@ const DEFAULT_DECAY = 180;
 const PLACEHOLDERS = [/\[待更新\]/, /\[待消费\]/, /\bTBD\b/, /待补充/];
 
 const errors = [];
-const warnings = [];
 
 function err(file, msg) {
   errors.push(`${relative(ROOT, file)}: ${msg}`);
-}
-
-function warn(file, msg) {
-  warnings.push(`${relative(ROOT, file)}: ${msg}`);
 }
 
 function read(file) {
@@ -133,19 +129,18 @@ for (const file of [join(ROOT, 'README.md'), ...docs]) {
   }
 }
 
-// 4. 孤儿文档（docs/README.md 里没提到）
+// 4. 孤儿文档（docs/README.md 里没提到）：索引漂移必须让 CI 失败，不能只警告
 const index = join(DOCS, 'README.md');
 if (existsSync(index)) {
   const indexText = read(index);
   for (const file of docs) {
     if (file === index) continue;
     if (!indexText.includes(relative(DOCS, file).replaceAll('\\', '/'))) {
-      warn(file, 'docs/README.md 没有指向它：要么加进索引，要么删掉');
+      err(file, 'docs/README.md 没有指向它：要么加进索引，要么删掉');
     }
   }
 }
 
-for (const line of warnings) console.log(`warn ${line}`);
 if (errors.length > 0) {
   console.log('');
   for (const line of errors) console.log(`x    ${line}`);

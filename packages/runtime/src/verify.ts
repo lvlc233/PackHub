@@ -1,9 +1,9 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { extname, join } from 'node:path';
+import { extname, join, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import type { PlanShape, VerifyCheck } from '@packhub/kernel';
+import type { Plan, PlanShape, VerifyCheck } from '@packhub/kernel';
 import pkg from '../../../package.json' with { type: 'json' };
 import { askHarness } from './harness-probe.ts';
 import { resolveWithin } from './pathSafety.ts';
@@ -30,6 +30,11 @@ export function serverSpecs(plan: PlanShape): Record<string, unknown> {
     if (action.op === 'register.mcp' && action.resource) out[action.resource] = action.spec;
   }
   return out;
+}
+
+/** 按计划里的 verify 跑一遍检查：根是这个 Pack 的目录，MCP 启动规格也从计划里取。 */
+export function verifyPack(dir: string, plan: Plan): Promise<CheckResult[]> {
+  return runChecks(plan.verify, { root: resolve(dir), servers: serverSpecs(plan) });
 }
 
 export async function runChecks(checks: VerifyCheck[], opts: VerifyOptions): Promise<CheckResult[]> {

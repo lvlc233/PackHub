@@ -37,6 +37,17 @@ jobs:
       - name: 文档体检（分类 · 保质期 · 链接 · 占位标记）
         run: pnpm docs:audit
 
+      # 交付链只在这里验：源码测试跑的是 apps/local 的源码，构建产物与镜像是另一条路
+      - name: 构建 CLI 交付物（单文件 bundle）
+        run: pnpm build:local
+
+      - name: 构建 hub 镜像（runner 自带 docker）
+        run: docker build -t packhub-hub .
+
+      # 只构建不启动会漏掉「镜像里缺文件」这类缺陷（镜像曾经装得出来、起不来）
+      - name: hub 镜像启动冒烟（--version 必须返回 0）
+        run: docker run --rm packhub-hub node --experimental-strip-types apps/local/src/bin.ts --version
+
       - name: 计划与安装性能（200 资源）
         run: |
           pnpm bench:check

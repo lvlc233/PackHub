@@ -90,7 +90,11 @@ export async function verifyInstalled(
   return out;
 }
 
-/** 目录里是否有安装记录（用于决定 verify 走「项目」还是「Pack」模式）。 */
+/**
+ * 目录里是否有安装记录。
+ *
+ * 只在 `verifyAt` 判「项目模式 / Pack 模式」时用它；命令层不要再自己判一次。
+ */
 export function hasInstalledPacks(root: string): boolean {
   const statePath = join(root, '.packhub/state.json');
   if (!existsSync(statePath)) return false;

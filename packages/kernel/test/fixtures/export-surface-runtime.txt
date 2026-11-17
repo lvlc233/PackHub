@@ -71,6 +71,9 @@ TrustFile
 TrustedKey
 UpdateOptions
 UpdateResult
+VerifyAtOptions
+VerifyAtResult
+VerifyMode
 VerifyOptions
 VersionInfo
 VersionRecord
@@ -169,6 +172,7 @@ trustedKeyIds
 unpackArchive
 updatePack
 vendoredEntries
+verifyAt
 verifyInstalled
 verifyPack
 verifySignatures

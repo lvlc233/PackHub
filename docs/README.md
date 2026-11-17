@@ -1,13 +1,13 @@
 ---
 kind: pointer
 summary: 文档索引与维护规则
-verified: 2026-11-11
+verified: 2026-11-18
 decay: 365
 ---
 
 # PackHub 文档
 
-> 只留三份，都对着代码：概念、契约、台账。
+> 只留四份，都对着代码：概念、契约、取舍、台账。
 > 面向使用者的说明（怎么装、参数什么意思、怎么写包）在行为稳定之前不写——错的说明比没有说明更贵。命令看 `packhub <命令> --help`。
 > 历史不进 `docs/`，`git log -- docs/` 里查。
 
@@ -15,6 +15,7 @@ decay: 365
 |---|---|---|
 | [concepts.md](concepts.md) | 概念、边界、为什么这么分 | 字段与实现细节 |
 | [contract.md](contract.md) | 数据结构与格式层不变量：plan / lock / state / index / verify / signatures | 流程、运维、端点 |
+| [decisions.md](decisions.md) | 已经能确认的取舍与代价：为什么没选另一条 | 现状计数、命令清单、实现机制 |
 | [features.md](features.md) | 功能台账：一行一条，事实 / 状态 / 证据 | 机制（看证据指向的代码） |
 
 ## 每篇都要带的头
@@ -42,7 +43,7 @@ pnpm docs:audit
 1. 每篇有没有 `kind` + `verified`，`kind` 是否合法；
 2. 有没有过期（`verified + decay`，或显式 `expires`）；
 3. 正文里的相对链接能不能打开；
-4. 有没有占位标记（`[待更新]`、`[待消费]`、`TBD`、`待补充`），以及 `docs/README` 没指向的孤儿文档（warning）。
+4. 有没有占位标记（`[待更新]`、`[待消费]`、`TBD`、`待补充`），以及 `docs/README` 没指向的孤儿文档（error：索引必须指向每一篇）。
 
 
 ## 台账规则
