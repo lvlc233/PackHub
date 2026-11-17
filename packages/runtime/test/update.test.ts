@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { buildLock, loadPack, planFor } from '@packhub/kernel';
 import { packArchive, updatePack } from '../src/index.ts';
 
 /** 造一个最小 registry：index + 两个版本归档。 */
@@ -84,6 +85,79 @@ describe('update', () => {
     rmSync(project, { recursive: true, force: true });
   });
 });
+describe('update 的锁核对', () => {
+  /** 先按清单 lock 一份，再改清单：归档里的锁就过期了。 */
+  async function staleLockRegistry(): Promise<string> {
+    const root = mkdtempSync(join(tmpdir(), 'packhub-upd-stale-'));
+    const dir = join(root, 'packs/demo/stale/0.2.0');
+    mkdirSync(dir, { recursive: true });
+    const manifest = (extra: string): string => `apiVersion: packhub.dev/v0
+kind: Pack
+metadata: { name: demo/stale, version: 0.2.0, targets: [dir] }
+requires: { packhub: ">=0.0.1 <0.1" }
+resources:
+  - id: rules
+    type: knowledge
+    source: ./rules.md
+${extra}`;
+    writeFileSync(join(dir, 'packhub.yaml'), manifest(''), 'utf8');
+    writeFileSync(join(dir, 'rules.md'), '# rules\n', 'utf8');
+
+    const ctx = loadPack(dir);
+    const { plan } = planFor(ctx);
+    writeFileSync(
+      join(dir, 'packhub.lock.json'),
+      JSON.stringify(buildLock(ctx.manifest!, plan!), null, 2),
+      'utf8',
+    );
+
+    // 锁定之后再加一个资源：锁里的 planHash 与当前清单对不上
+    writeFileSync(
+      join(dir, 'packhub.yaml'),
+      manifest('  - id: extra\n    type: knowledge\n    source: ./extra.md\n'),
+      'utf8',
+    );
+    writeFileSync(join(dir, 'extra.md'), '# extra\n', 'utf8');
+    await packArchive(dir, { vendored: true, out: join(root, 'packs/demo/stale/0.2.0.phub') });
+
+    writeFileSync(
+      join(root, 'index.json'),
+      JSON.stringify(
+        {
+          apiVersion: 'packhub.dev/index/v0',
+          packs: [{ name: 'demo/stale', latest: '0.2.0', versions: ['0.2.0'] }],
+        },
+        null,
+        2,
+      ),
+      'utf8',
+    );
+    return root;
+  }
+
+  it('锁过期时默认拒绝（文案不变），传 allowStaleLock 才继续', async () => {
+    const reg = await staleLockRegistry();
+    const project = mkdtempSync(join(tmpdir(), 'packhub-upd-stale-proj-'));
+    const opts = { name: 'demo/stale', index: join(reg, 'index.json'), projectDir: project };
+
+    await expect(updatePack(opts)).rejects.toThrow(
+      '新版本的锁与清单对不上（清单在锁定后被改过）；确认后用 --allow-stale-lock 继续',
+    );
+    // 拒绝发生在安装之前：一个文件都不该写
+    expect(existsSync(join(project, '.packhub/state.json'))).toBe(false);
+    expect(existsSync(join(project, '.packhub/knowledge/rules.md'))).toBe(false);
+
+    const res = await updatePack({ ...opts, allowStaleLock: true });
+    expect(res.changed).toBe(true);
+    expect(res.to).toBe('demo/stale@0.2.0');
+    expect(readFileSync(join(project, '.packhub/knowledge/rules.md'), 'utf8')).toBe('# rules\n');
+    expect(existsSync(join(project, '.packhub/knowledge/extra.md'))).toBe(true);
+
+    rmSync(reg, { recursive: true, force: true });
+    rmSync(project, { recursive: true, force: true });
+  });
+});
+
 describe('unlisted', () => {
   it('索引里没有这个包，但给了版本就能装（unlisted）', async () => {
     const reg = await registry();

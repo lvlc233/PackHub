@@ -1796,19 +1796,19 @@ const diff = command({
       reportIssues(issues, 'packhub diff');
       stop(EXIT.USAGE);
     }
-    // 多 target 锁优先用对应 target 的快照；旧锁只有一个 plan
+    // 多 target 锁优先用对应 target 的快照；旧锁只有一个 plan。
+    // 取快照只为拿旧动作列表（diffActions 需要它）；「锁 ↔ 清单」是否一致由 kernel 的单点判定。
     const snapshot =
       lock.plans?.[target as TargetId] ??
-      (lock.plan && (lock.plan.target ?? 'dir') === target
-        ? { planHash: lock.planHash, actions: lock.plan.actions }
-        : undefined);
+      (lock.plan && (lock.plan.target ?? 'dir') === target ? lock.plan : undefined);
     if (!snapshot) {
       problemRaw(`锁里没有 ${target} 的计划快照（旧版锁，或 lock 时没声明这个 target）；重跑 packhub lock`);
       stop(EXIT.USAGE);
     }
+    const lockCheck = checkLockConsistency(lock, target as TargetId, plan);
 
     const { added, removed } = diffActions(snapshot.actions, plan.actions);
-    const unchanged = added.length === 0 && removed.length === 0 && snapshot.planHash === plan.planHash;
+    const unchanged = added.length === 0 && removed.length === 0 && lockCheck.status === 'ok';
     if (unchanged) {
       say('计划无变化');
       return;
