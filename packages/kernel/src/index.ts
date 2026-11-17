@@ -18,6 +18,11 @@ export { buildPlan, buildMcpSpec, type PlanOptions } from './plan.ts';
 export { DIR_TARGET_VARS, TARGET_VARS, type TargetVars } from './targets.ts';
 export { buildLock } from './lock.ts';
 export {
+  checkLockConsistency,
+  type LockConsistency,
+  type LockConsistencyStatus,
+} from './lockConsistency.ts';
+export {
   parseCatalog,
   searchResources,
   type CatalogEntry,
@@ -148,5 +153,7 @@ export function planFor(
     // 默认落点由 buildPlan 按 target 选（TARGET_VARS）；这里只传显式覆盖
     targetVars: { ...(opts.targetVars ?? {}) },
     packDir: ctx.dir,
+    // 这个选项在 buildPlan 里支持，planFor 以前把它丢了：全局同步会多写配置并重复登记 MCP
+    ...(opts.skipResourceTypes ? { skipResourceTypes: opts.skipResourceTypes } : {}),
   });
 }

@@ -202,11 +202,18 @@ function generationId(): string {
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}${ms}-${rand}`;
 }
 
-/** 计划会写到哪些相对路径（含目录）；状态目录不算写入，不参与快照与卸载删除。 */
-function touchedPaths(plan: Plan): string[] {
+/**
+ * 一份计划会写到安装根的路径（相对路径，含目录）。
+ *
+ * 这是「计划产物」的唯一口径：快照、版本镜像、所有权冲突、升级清理、缓存回收都从这里取，
+ * 不要在别处再各数一遍动作。fetch 的 dest 确实落在安装根（下载物进缓存），所以算在内；
+ * 只建目录的 state.dir 不算写入，不参与快照与卸载删除。
+ */
+export function planPaths(plan: Plan): string[] {
   const out: string[] = [];
   for (const a of plan.actions) {
-    if (a.op === 'write' || a.op === 'unpack' || a.op === 'link.skill' || a.op === 'copy' || a.op === 'delete') out.push(a.to);
+    if (a.op === 'fetch') out.push(a.dest);
+    else if (a.op === 'write' || a.op === 'unpack' || a.op === 'link.skill' || a.op === 'copy' || a.op === 'delete') out.push(a.to);
     else if (a.op === 'link.exec') out.push(a.to, `${a.to}.cmd`);
     else if (a.op === 'register.mcp') out.push(a.path ?? '.packhub/config.json');
     else if (a.op === 'instruction') out.push(a.file);
@@ -230,7 +237,7 @@ function prepareGeneration(root: string, plan: Plan): Generation {
   const dir = join(root, STATE_DIR, 'snapshots', id);
   const existed: string[] = [];
   const created: string[] = [];
-  for (const rel of touchedPaths(plan)) {
+  for (const rel of planPaths(plan)) {
     const abs = within(root, rel);
     if (existsSync(abs)) {
       const dest = join(dir, 'files', rel);
@@ -464,7 +471,7 @@ function stageVersion(
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(join(dir, 'files'), { recursive: true });
   const files: string[] = [];
-  for (const rel of touchedPaths(plan)) {
+  for (const rel of planPaths(plan)) {
     if (isSharedPath(rel)) continue;
     const abs = within(root, rel);
     if (!existsSync(abs)) continue;
@@ -623,7 +630,7 @@ export async function activatePack(root: string, pack: string, version: string):
       active: readTextIfFile(join(root, ACTIVE_FILE)),
     };
     const gen = prepareGeneration(root, snapshotPlan);
-    const keep = touchedPaths(record.plan);
+    const keep = planPaths(record.plan);
     const removed = previous?.plan
       ? deactivatePlan(root, previous.plan, previous.actions, keep)
       : [];
@@ -1598,10 +1605,7 @@ export function pruneRemoved(
   previousActions: ActionOutcome[] = [],
 ): PruneResult {
   const { removed: gone } = diffActions(previous.actions, next.actions);
-  const produced = new Set(touchedPaths(next));
-  for (const action of next.actions) {
-    if (action.op === 'fetch') produced.add(action.dest);
-  }
+  const produced = new Set(planPaths(next));
   const newMcp = new Set(
     next.actions.filter((a) => a.op === 'register.mcp').map((a) => a.resource ?? 'mcp'),
   );
@@ -1718,7 +1722,7 @@ function findOwnershipConflicts(plan: Plan, key: string, root: string): string[]
     for (const spec of record.stateDirs ?? []) owners.set(spec.path, packKey);
   }
   const out: string[] = [];
-  const targets = [...touchedPaths(plan), ...stateDirSpecs(plan).map((s) => s.path)];
+  const targets = [...planPaths(plan), ...stateDirSpecs(plan).map((s) => s.path)];
   for (const rel of targets) {
     if (isSharedPath(rel)) continue;
     // 目录整体归一个包时，另一个包往目录里写文件同样算冲突
