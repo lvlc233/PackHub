@@ -58,7 +58,11 @@ resources:
     source: github:o/r/skills/code-review@9f2c1ab7d4e5f60718293a4b5c6d7e8f90123456
 `).manifest!;
     const { graph } = validateGraph(manifest);
-    const { plan } = buildPlan(manifest, graph, { target: 'dir', targetVars: DIR_TARGET_VARS });
+    const { plan } = buildPlan(manifest, graph, {
+      target: 'dir',
+      targetVars: DIR_TARGET_VARS,
+      platform: 'linux-x64',
+    });
     const link = plan!.actions.find((a) => a.op === 'link.skill');
     expect(link && 'from' in link ? link.from : '').toBe('.packhub/cache/skills/rules/skills/code-review');
   });

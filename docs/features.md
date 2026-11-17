@@ -39,7 +39,7 @@ review: 任何行为变更的提交
 | PKG-02 | 六类资源 | `mcp` / `skill` / `prompt` / `knowledge` / `config` / `tool2` 各有示例与安装语义，示例被测试真跑 | [done] | `packages/kernel/src/types.ts`、`resource-examples.test.ts` |
 | PKG-23 | config 就是文件 | `config` 资源按普通文件落进 `${target.configDir}`，原样复制或 fetch，不合并、不碰 MCP 的配置文件；远程来源也可以。MCP 登记仍走自己的 `configFile` | [done] | `packages/kernel/src/plan.ts` 的 config 分支、`packages/kernel/src/targets.ts`、`config-source.test.ts` |
 | PKG-22 | 整合包上下文 | 清单可以写 `context`：内联文本，或 `./` 开头指向包内文件（plan 期读，缺了报 `context-file-missing`，越出包目录报 `context-outside-pack`；`pack --reference` 会把这份文件算进本地内容拒掉）。安装时写在宿主说明块最前面，排在资源清单之前——模型第一眼读的是它 | [done] | `packages/kernel/src/plan.ts` 的 `instructionBlock`、`context.test.ts` |
-| PKG-21 | 工具 2.0 契约 | 资源类型叫 `tool2`（2.0 形态；旧 `tool` 已删），支持 `shim`(auto/wrap/route)、`async` 与 `commands[]`（name/exec/runtime/call/args/usage）；命令级覆盖资源级，缺省 auto、同步。目录来源整份复制（`copy`），暴露的每条命令建一个入口（`link.exec`）；route 生成一份通用 shim，按 `call` 取函数并把后面的 argv 原样传入；未列进 `commands` 的文件照样打包、不建入口。route 缺 `call` 报 `tool-route-needs-call`，目录来源缺 `exec` 报 `tool-command-invalid`，重名报 `duplicate-command-name`。schema 要求 `tool2` 必写 `commands`，缺了报 `tool-needs-commands`。`platforms`（`platform-arch`）命令级覆盖资源级，不匹配跳过并给 `tool-command-skipped-platform`；`runtime: shell` 在 Windows 报 `tool-shell-unsupported`；`runtime: binary` 没写 `platforms` 给 `tool-binary-without-platforms` 警告。`env` 资源级与命令级合并（命令级同名覆盖），安装时写进入口；工具的对象补丁并进 `env`，不进 `config` | [done] | `packages/kernel/src/plan.ts` 的 tool 分支、`packages/runtime/src/install.ts` 的 `copy`/`link.exec`、`tool-commands.test.ts` |
+| PKG-21 | 工具 2.0 契约 | 资源类型叫 `tool2`（2.0 形态；旧 `tool` 已删），支持 `shim`(auto/wrap/route)、`async` 与 `commands[]`（name/exec/runtime/call/args/usage）；命令级覆盖资源级，缺省 auto、同步。目录来源整份复制（`copy`），暴露的每条命令建一个入口（`link.exec`）；route 生成一份通用 shim，按 `call` 取函数并把后面的 argv 原样传入；未列进 `commands` 的文件照样打包、不建入口。route 缺 `call` 报 `tool-route-needs-call`，目录来源缺 `exec` 报 `tool-command-invalid`，重名报 `duplicate-command-name`。schema 要求 `tool2` 必写 `commands`，缺了报 `tool-needs-commands`。`platforms`（`platform-arch`）命令级覆盖资源级，写进 `link.exec` 动作；计划不按平台删动作（两个注入平台算出的 planHash 相等），执行期不匹配记 `skipped` 并说明原因，`tool-command-skipped-platform` 已不存在。`runtime: shell` 在 Windows 计划期只给 `tool-shell-unsupported` 警告、执行期按失败处理（整次安装回滚）；`runtime: binary` 没写 `platforms` 给 `tool-binary-without-platforms` 警告。`env` 资源级与命令级合并（命令级同名覆盖），安装时写进入口；工具的对象补丁并进 `env`，不进 `config` | [done] | `packages/kernel/src/plan.ts` 的 tool 分支、`packages/runtime/src/install.ts` 的 `copy`/`link.exec`、`tool-commands.test.ts` |
 | PKG-03 | target 声明 | `metadata.targets` 声明四档；`install` / `add` 在出计划前核对，未声明退出 2。`plan` / `verify` 走 `planFor` 不核对声明，用未声明的 target 仍会出计划 | [done] | `schema/packhub.v0.schema.json`、`apps/local/src/cli.ts`、`cli.test.ts` |
 | PKG-04 | 槽位与绑定 | 被 `bindings` 点名的候选进计划，其余进 `excluded`（`unbound-slot`）；绑定的实现缺契约能力报 `slot-contract-unmet`；有候选却完全没绑定报 `slot-unbound` 且不出计划。`slot swap` 只改一行并打印计划差异 | [done] | `packages/kernel/src/graph.ts`、`slots.test.ts`、`cli.ts` |
 | PKG-05 | （编号未使用） | 历史空缺，不补号 | [na] | — |
@@ -74,8 +74,8 @@ review: 任何行为变更的提交
 | REF-09 | `packhub://` 跨包引用 | v0 已移除：解析器遇到未知 scheme 直接报错，代码里无实现 | [na] | `ref.ts`；移除提交 `095de32` |
 | REF-10 | 缓存与 GC | `cache ls` 标引用、`cache clean` 只删没被引用项并支持 dry-run。引用只认 state 里的计划快照——没有 `plan` 的旧 state 会被当成无引用 | [done] | `packages/runtime/src/cache.ts`、`cache.test.ts` |
 | REF-11 | 代理 | 下载与索引请求走 `HTTPS_PROXY` / `https_proxy` / `HTTP_PROXY`；代理设成进程级 dispatcher，运行中改环境变量不再生效。没有代理用例 | [done] | `download.ts` 的 `ensureProxy`、`packages/runtime/src/registry.ts` |
-| REF-12 | 锁过期检测 | `add` 先比目标 target 的快照、缺失时回落顶层 `planHash`；不一致是硬错误（`--allow-stale-lock` 放行）；`diff` 比快照与当前计划，`--check` 非零退出 | [done] | `consume.ts`、`cli.ts`、`consume.test.ts` |
-| REF-13 | 消费端一次性核对 | `inspectPack` 一次核锁、`verify.json`、签名信任，产出 `lock-mismatch` / `lock-without-plan` / `verify-not-ok` / `signature-invalid` / `signature-untrusted` 等 issue；安装时 error 级直接拦 | [done] | `consume.ts`、`consume.test.ts` |
+| REF-12 | 锁过期检测 | kernel 的 `checkLockConsistency` 是唯一判据（权威快照 `lock.plans?.[target] ?? lock.plan`，结论 ok / mismatch / missing / no-plan / no-lock-plan）。消费点六处：`add` 安装 target 预检（锁里有该 target 快照才比，mismatch 且没给 `--allow-stale-lock` → 退出 2）、`add` 消费端核对（按锁自己的 target 比，mismatch → 退出 2）、`inspectPack`（mismatch → error issue，安装时直接拦；`no-lock-plan` / 缺锁只给 warning，算不出计划的 `no-plan` 不重复告警）、`update`（按本次 / 上次 target 比，mismatch 且没给 `allowStaleLock` → 抛错退出 1）、`diff`（按 `--target` 比，一致性只用来判断「计划无变化」，旧快照仍用来取动作列表；不一致时 `--check` 退出 1）、`sign`（按 `dir` 快照判过期，mismatch 拒签退出 2，`missing` / `no-lock-plan` 不拦）。**行为变化**：`sign` / `verify-sig` 算的是 dir 计划的哈希，旧实现拿顶层 `planHash` 比，主 target 不是 dir 的多 target 锁会被误拒签；现在按 `plans['dir']` 判，这类锁能签。`--allow-stale-lock` 只放行 `add` / `update`，不放行 `sign` | [done] | `packages/kernel/src/lockConsistency.ts`、`lock-consistency.test.ts`、`consume.ts`、`cli.ts` 的 `add` / `diff` / `sign`、`packages/runtime/src/update.ts`、`consume.test.ts`、`update.test.ts`、`sign-lock.test.ts` |
+| REF-13 | 消费端一次性核对 | `inspectPack` 一次核锁、`verify.json`、签名信任，产出 `lock-mismatch` / `lock-without-plan` / `lock-missing` / `verify-not-ok` / `verify-plan-mismatch` / `signature-invalid` / `signature-untrusted` 等 issue；锁的判定改由 kernel 的 `checkLockConsistency` 出结论，这里只映射成 issue（算不出计划的 `no-plan` 不重复告警）；安装时 error 级直接拦 | [done] | `consume.ts`、`consume.test.ts`、`packages/kernel/src/lockConsistency.ts` |
 | REF-14 | 未 pin 清单的自愈降级 | `lock` 不因未 pin 直接失败：解析成功就把 source + integrity 写回再生成计划；解析失败原样保留 + warning、integrity 写 `null` | [done] | `resolve.ts`、`resolve.test.ts` |
 | REF-15 | `.phub` 与 `git+https` 来源 | `add` 除 registry 名外接受本地 `.phub` 与 `git+https://` 仓库（GitHub codeload / GitLab archive 端点）。`git+https` 不带 integrity 校验 | [done] | `packages/runtime/src/source.ts`、`cli.ts` |
 
@@ -100,6 +100,9 @@ review: 任何行为变更的提交
 | PLN-15 | 检查回填 integrity | 计划里的 `knowledge-integrity` 会带上资源的 `integrity`，校验按期望哈希核对 | [done] | `plan.ts`、`verify.ts` |
 | PLN-16 | 有 error 不出计划 | `planFor` 先看 `ctx.issues`，有 error 直接返回，不生成动作 | [done] | `packages/kernel/src/index.ts` |
 | PLN-17 | 指令动作 | `instruction` 的 blockId 是包名，内容列出资源 / 落点 / state 目录；只在 harness target 上生成 | [done] | `plan.ts`、`projection.test.ts` |
+| PLN-18 | 动作原语单表 | `packages/kernel/src/plan-ops.ts` 的 `PLAN_OPS` 是唯一扩展点：每个 op 声明 `fromBase` / `undo` / `paths` / `written` / `shared` / `inputs` / `retainWarning`；执行器、快照、版本镜像、升级清理、缓存回收、所有权冲突都从它派生（per-op 路径分支已清零）。`PlanOp` 联合、`PLAN_OPS` 表与 `contract.md` 的动作表三方一致有测试；加 op 时 typecheck 逼着同时补表和执行器 | [done] | `packages/kernel/src/plan-ops.ts`、`op-registry-consistency.test.ts`、`plan-ops.test.ts` |
+| PLN-19 | from 基准 | 动作可带 `fromBase`（`pack` / `root`）：远程资源（`unpack`、远程来源的 `link.skill`）为 `root`，本地来源为 `pack`；只有偏离默认时才写这个字段：本地 write/copy 的动作形状不变，远程动作因此改 planHash（结构批的跨包核对就是比这一项） | [done] | `plan-ops.ts` 的 `from`、`plan.ts`、`remote-install.test.ts`、`plan-ops.test.ts` |
+| PLN-20 | 派生输出与执行期平台裁剪 | `link.exec` 的 `.cmd` 与 codex 的 `agents/openai.yaml` 作为派生输出写进 `PLAN_OPS.paths`，所以 `planPaths`、快照、版本镜像、升级清理都算得到（`.cmd` 只在 win32 进 `state.written`）。`platforms` 写进 `link.exec` 动作、平台裁剪放到执行期：不匹配记 `skipped` 并说明平台与允许列表，计划与 planHash 跨平台一致；按 VER-06，`skipped` 算未完成，所以在不匹配平台上跑 runner/发布门禁不会 `ok` | [done] | `plan-ops.ts`、`packages/runtime/src/install.ts` 的 `link.exec`、`derived-outputs.test.ts`、`platform-injection.test.ts`、`tool-commands.test.ts` |
 
 ## 4 INS ｜安装与状态
 
@@ -122,6 +125,7 @@ review: 任何行为变更的提交
 | INS-15 | 状态目录生命周期 | 卸载默认 `kept`；`retain: remove` 才删；升级换版本数据不动；`doctor` 报 `stateMissing` | [done] | `state.test.ts`、`doctor.ts` |
 | INS-16 | 覆盖前备份 | 合并配置前把旧内容备份进 `.packhub/backups/`；正常路径靠 undo，不读备份，备份也不自动清理 | [done] | `install.ts` |
 | INS-17 | activate 的边界 | 切换在安装锁里执行；失败时文件按快照恢复，state 与 `active.json` 也退回原内容（回退失败会连原错误一起报出来）；旧版本产物由 `deactivatePlan` 清掉，仍被新计划产出的保留；失败注入靠 Windows 的 rename 语义，这条用例只在 win32 跑；`fetch` 落点的清理没有单独用例 | [done] | `install.ts` 的 `activatePack` / `restoreText`、`deactivatePlan`、`versions.test.ts` |
+| INS-18 | 计划产物路径单点（含 fetch） | runtime 的 `planPaths(plan)` 只是薄封装，路径本身由 kernel 的 `PLAN_OPS` 表派生（`actionPaths` / `planPathsOf`）：`fetch` 的 `dest` 算写入（下载物进缓存），`link.exec` 的 `.cmd`、`register.mcp` 的配置落点、`instruction` 的指令文件、codex 的 `agents/openai.yaml` 也算；`exec` / `state.dir` 不算。快照、版本镜像、所有权冲突、升级清理、缓存回收五处共用。语义变化：fetch 的下载物现在会进失败回滚快照与版本镜像，所有权冲突也把缓存归档算进去。只有单测（`plan-paths.test.ts`、`derived-outputs.test.ts`），端到端用例还没补 | [done] | `packages/kernel/src/plan-ops.ts`、`packages/runtime/src/install.ts` 的 `planPaths`、`packages/runtime/src/cache.ts`、`packages/runtime/test/plan-paths.test.ts` |
 
 ## 5 VER ｜校验与门禁
 
@@ -171,6 +175,8 @@ review: 任何行为变更的提交
 | REG-19 | 审核流转 | `--require-review` 时上传进 `.market/staging/`；批准才 rename 进 registry，索引失败移回；拒绝只删这一版与它的归档 | [parked] | `market/server.ts`、`market.test.ts` |
 | REG-20 | 归档重建与资源目录 | `registry:pack` 从版本目录重建 `.phub`；`resources.json` 供 `discover` 检索 | [done] | `scripts/registry/build-archives.mjs`、`catalog.ts` |
 | REG-21 | 市场读接口 | `/api/search`（带下载量 / 趋势 / 均分）、`/api/packs`（清单、锁、报告、readme、changelog）、`/download`、`/api/me`、内联 `/admin` | [parked] | `market/server.ts`、`market.test.ts` |
+| REG-22 | 0.0.x 原地重锁迁移 | e039d59 删 `merge.config` 后，已发布版本的锁与当前计划对不上：重锁前 `registry:check` 报 doc-review 的 dsh / claude-code 计划快照不一致、team-conventions 锁过期。2026-11-17 对 doc-review@0.1.0 与 team-conventions@0.0.2 做过一次**显式原地重锁迁移**（按版本目录重算锁 → 重跑 runner → 重打归档 → 重建索引），迁移后「版本目录不可变」门禁恢复生效；team-conventions 的 config 落点由 `merge.config .packhub/config.json` 变成 `write .packhub/config/editorconfig.yaml`，来自 e039d59，不是本次重构引入。remote-demo@0.0.1 当天本机无法重验，未动（后续见 REG-23）。0.0.x / 格式 v0 无兼容承诺，迁移的目的是让「已发布数据」与「能装它的代码」重新对齐 | [done] | `scripts/registry/relock-all.mjs`、`registry/packs/lvlc233/team-conventions/0.0.2/packhub.lock.json`、`registry/packs/lvlc233/doc-review/0.1.0/packhub.lock.json` |
+| REG-23 | 结构批后的原地重锁迁移 | 结构批（`PLAN_OPS` 单表 / `fromBase` 显式化 / 平台裁剪改执行期）改了 plan 形状：doc-review@0.1.0 的 dir / dsh / claude-code 与 remote-demo@0.0.1 的 dir 计划都变，team-conventions@0.0.2 的计划不变。2026-11-18 对前两个版本做**显式原地重锁迁移**（重算锁 → 重跑 runner → 重打归档）；team-conventions 的锁 / verify / 归档未改写。**已发布版本的行为变化**：remote-demo 的 `fetch#1` 从 `integrity: null` 变成校验 GitHub tarball 的 sha256——这是既有的 github 归档哈希能力在重锁时写进了锁；原因与 REG-22 同一条策略：让「已发布数据」与「能装它的代码」重新对齐，而不是让旧版本的锁继续指向旧代码。remote-demo 这次设 `HTTPS_PROXY` 后重验通过，index 里三个包仍都是 `verified`，没有版本掉成 `community`。迁移后不可变门禁恢复生效；0.0.x / 格式 v0 无兼容承诺 | [done] | `scripts/registry/relock-all.mjs`、`registry/packs/lvlc233/doc-review/0.1.0/packhub.lock.json`、`registry/packs/lvlc233/remote-demo/0.0.1/packhub.lock.json` |
 
 ## 7 HUB ｜只读发布端
 
@@ -178,7 +184,7 @@ review: 任何行为变更的提交
 |---|---|---|---|---|
 | HUB-01 | 只读接口 | `/api/registry`、`/api/registry/pack`、`/api/registry/resources`、`POST /api/plan`、`/api/health`；非 `/api` 路径一律 404 并列出可用接口 | [done] | `packages/hub/src/server.ts`、`server.test.ts` |
 | HUB-02 | 包页（HTML） | 页面已移除；包数据改由 `/api/registry/pack` 提供 | [na] | `packages/hub/src/server.ts` |
-| HUB-03 | 计划预览 | `POST /api/plan` 现算、不落盘；请求体超 1MB 返回 413 | [done] | `packages/hub/src/server.ts`、`server.test.ts` |
+| HUB-03 | 计划预览 | `POST /api/plan` 现算、不落盘；manifest 里的 `target` 必须是枚举值，否则 400；出计划走 kernel 的 `planFor`，`packDir` 是一个不存在的临时路径，所以 `context` / `modify` 的 `./` 路径只报 kernel 的 issue、读不到服务器文件；请求体坏 JSON 400、超 1 MB 413；未预期异常只回「Hub 内部错误」 | [done] | `packages/hub/src/server.ts`、`server.test.ts`、`production.test.ts` |
 | HUB-04 | fail-closed 鉴权 | 非回环监听且没有 token / user-header 时拒绝启动；`PACKHUB_HUB_TOKEN` 也算配了 token | [done] | `hub/server.ts`、`production.test.ts` |
 | HUB-05 | 限流 | 按 IP 限流，超了 429 并给 `retry-after`；`--rpm 0` 关闭；健康检查也计数（默认值见 `packhub hub --help`） | [done] | `hub/server.ts`、`production.test.ts` |
 | HUB-06 | 审计 | 配了 `--audit` 时每次请求一行 JSON；401 也记；429 在审计挂钩前返回、不记 | [done] | `hub/server.ts`、`production.test.ts` |
@@ -189,7 +195,7 @@ review: 任何行为变更的提交
 | HUB-11 | 账号 / 组织 | 市场账号即 scope，没有组织模型（已冻结） | [na] | 并入 REG-18 |
 | HUB-12 | 搜索 / 统计 | `/api/search`、`/api/admin/queue` 都在市场进程里，不在 Hub（已冻结） | [na] | 并入 REG-21 |
 | HUB-13 | 条件请求 | JSON 带 ETag / Cache-Control，`If-None-Match` 命中回 304 | [done] | `hub/server.ts`、`server.test.ts` |
-| HUB-14 | 请求体上限 | 读体前判长度，超上限直接 413，不把剩余字节读进内存（上限见 `hub/server.ts`） | [done] | `hub/server.ts`、`server.test.ts` |
+| HUB-14 | 请求体上限 | 边读边累加，累计超过 `BODY_LIMIT`（1 MiB）抛 `HttpError(413, body-too-large)`；顶层 catch 按 `HttpError` 的 status / code 回，其它异常只回 500「Hub 内部错误」；不预读 `Content-Length`，所以超限前读到的分片已经进内存 | [done] | `packages/hub/src/server.ts` 的 `readBody` / `HttpError`、`server.test.ts` 的 413 与坏 JSON 用例 |
 | HUB-15 | 两种凭据形式 | `Authorization: Bearer <token>` 与 `x-packhub-token` 都认；也可用反向代理注入的身份头 | [done] | `hub/server.ts`、`production.test.ts` |
 | HUB-16 | 资源目录响应 | `/api/registry/resources` 返回 `{meta, resources[]}`；非法 name / version 返回空 | [done] | `packages/hub/src/resources.ts`、`resources.test.ts` |
 
@@ -199,7 +205,7 @@ review: 任何行为变更的提交
 |---|---|---|---|---|
 | SYN-01 | 项目内 codex target | 安装到 `.codex/skills`，指令写进项目 `AGENTS.md` 托管块；无专门测试 | [done] | `packages/kernel/src/targets.ts`、`plan.ts` |
 | SYN-02 | 全局 skills | 三个 home 的 `skills/`：`~/.dsh`、`~/.claude`、`~/.codex` | [done] | `packages/runtime/src/harnesses.ts` |
-| SYN-03 | 只收 skill 与 mcp | 其他类型整次拒绝；dsh 不接受 mcp，理由写进落点表 | [done] | `sync.ts`、`sync.test.ts` |
+| SYN-03 | 只收 skill 与 mcp | 其他类型整次拒绝；dsh 不接受 mcp，理由写进落点表。claude-code 的全局 MCP 交给它自己的 CLI：`syncPack` 给 `planFor` 传 `skipResourceTypes: ['mcp']`，计划里不再生成 `register.mcp`（mcp 进 `excluded` 的 `host-managed`）、也不写 `.packhub/config.json`；这个选项以前被 `planFor` 丢掉，现在转发到 `buildPlan` | [done] | `sync.ts` 的 `syncPack`、`packages/kernel/src/index.ts` 的 `planFor`、`packages/kernel/test/skip-resource-types.test.ts`、`sync.test.ts` |
 | SYN-04 | 本地来源 | skill 源不是 `./` 开头就整包拒绝，且在写任何 home 之前 | [done] | `sync.ts`、`sync.test.ts` |
 | SYN-05 | frontmatter 预检 | `SKILL.md` 的 YAML 坏、`name` / `description` 缺失或非字符串都拒绝；开头 BOM 兼容 | [done] | `skill-meta.ts`、`sync.test.ts` |
 | SYN-06 | 每个 harness 一份 state | `<home>/.packhub/state.json`，快照在各自 `.packhub/snapshots/` | [done] | `sync.ts`、`install.ts` |
@@ -209,7 +215,7 @@ review: 任何行为变更的提交
 | SYN-10 | 手放 skill 保护 | 非本包拥有的同名 skill 目录拒绝，`--overwrite` 才覆盖；同样的保护也罩住 codex 的 `[mcp_servers.*]` 与 claude user scope 里的同名 MCP | [done] | `sync.ts`、`sync.test.ts` |
 | SYN-11 | 全目标预检 | 一个目标的 home 不存在或名字被占，另一个目标也不写 | [done] | `sync.ts`、`sync.test.ts` |
 | SYN-12 | 全局指令与 MCP | `AGENTS.md` / `CLAUDE.md` 托管块；codex 写 `config.toml` 托管块；claude-code 调宿主 CLI 的 user scope | [done] | `sync.ts`、`host-mcp.ts`、`sync-claude.test.ts` |
-| SYN-13 | codex `agents/openai.yaml` | 源里没有时按 frontmatter 生成（`display_name` / `short_description` / `default_prompt`）；项目级 codex 安装也生成 | [done] | `skill-meta.ts`、`install.ts`、`sync.test.ts` |
+| SYN-13 | codex `agents/openai.yaml` | 源里没有时按 frontmatter 生成（`display_name` / `short_description` / `default_prompt`）；项目级 codex 安装也生成。它是 `link.skill` 的派生输出，路径写进 `PLAN_OPS` 表，所以 `planPaths` / 快照 / 版本镜像 / 升级清理都算得到 | [done] | `skill-meta.ts`、`install.ts`、`sync.test.ts`、`derived-outputs.test.ts` |
 | SYN-14 | 目录加载探活 | `probe --skill <name>` 问一次宿主并断言名字出现；支持 dsh / claude-code / opencode / codex | [done] | `harness-probe.ts`、`harness-probe.test.ts` |
 | SYN-15 | claude 全局 | `sync --to claude-code` 写 `~/.claude/skills` 与 `CLAUDE.md` 托管块；`CLAUDE.md` 块本身没有直接测试 | [done] | `sync.ts`、`sync-claude.test.ts` |
 | SYN-16 | 面板入口 | 页面已移除，同步只用 `packhub sync` | [na] | — |
@@ -224,7 +230,7 @@ review: 任何行为变更的提交
 | CLI-01 | 单一入口 | `packhub --help` 列出全部命令；`pal` 是独立入口（`packages/launcher/src/bin.ts`），不在 packhub 下 | [done] | `apps/local/src/cli.ts`、`apps/local/src/bin.ts` |
 | CLI-02 | 命令覆盖 | `packhub --help` 列出的顶层命令覆盖安装、校验、发布、同步与运维各环节；`cache` / `resource` / `slot` / `auth` / `trust` / `market` 是命令组。完整清单以 `--help` 为准 | [done] | `apps/local/src/cli.ts`、`packhub --help` |
 | CLI-03 | JSON 输出 | 多数顶层命令支持 `--json`；`init` / `diff` / `hub` / `keygen` / `sign` / `completion` 与命令组里的多数叶子不支持，逐个看 `--help` | [done] | `cli.ts`、`cli.test.ts` |
-| CLI-04 | 退出码 | 全仓只有 0 / 1 / 2；缺清单、未声明 target、未知参数、锁与清单不一致都是 2；动作失败与校验失败是 1 | [done] | `cli.ts`、`cli.test.ts` |
+| CLI-04 | 退出码 | 只有 0 / 1 / 2 三档，表在 `emit.ts` 的 `EXIT`（0 成功、1 运行失败、2 输入或前置条件错）；命令体内用 `stop(code)` 抛退出信号，由 `command()` 的 guard 统一落 `process.exitCode`（不再各自 `process.exit`），已写出的 stdout/stderr 不会被截断；未捕获异常在 bin 入口落成 `x <message>` + 1，不再是 citty 堆栈。缺清单、未声明 target、未知参数、锁与清单不一致都是 2；动作失败与校验失败是 1 | [done] | `apps/local/src/emit.ts`、`apps/local/src/bin.ts`、`exit-codes.test.ts`、`cli.test.ts` |
 | CLI-05 | 结构化编辑 | `resource add` / `slot swap` 用 YAML AST 只改一个节点、保留注释；`init` 只写固定模板 | [done] | `packages/runtime/src/authoring.ts`、`authoring.test.ts` |
 | CLI-06 | 搜索与发现 | `search --all` 跨 registry；`discover` 读资源目录、可选查 npm，`--add` 直接写进清单 | [done] | `cli.ts`、`catalog.ts`、`cli.test.ts` |
 | CLI-07 | 凭据管理 | `auth set/list/remove/rotate`；列表只给掩码 | [done] | `cli.ts`、`credentials.test.ts` |
@@ -234,6 +240,7 @@ review: 任何行为变更的提交
 | CLI-11 | shell 补全 | `completion` 支持 bash / zsh / pwsh，从活的子命令表生成，含每个命令的参数 | [done] | `cli.ts` |
 | CLI-12 | 版本与分发 | `--version` 输出 `package.json` 里的版本；CLI 未发布到 npm（workspace 包私有），分发走 `build:local` + `pack:local` 出的 tgz；没有自更新 | [done] | `cli.ts`、`scripts/build-local.mjs`、`package.json` |
 | CLI-13 | init 的名字闸 | `init --name` 只收 `owner/name`，pattern 取自 schema；裸名字退出 2，一个文件都不写；产出清单随即能 `plan` | [done] | `cli.ts` 的 `init`、`manifest.ts` 的 `PACK_NAME_PATTERN`、`cli.test.ts` |
+| CLI-14 | `name@version` 解析单点 | `ref.ts` 的 `parsePackRef` 按最后一个 `@` 切、`formatPackRef` 拼回；`activate` 与 `update` 的审计都走它，命令里不再自己 `lastIndexOf('@')`；解析失败返回 `undefined`，提示文案与退出码由各命令决定 | [done] | `apps/local/src/ref.ts`、`ref.test.ts`、`cli.ts` |
 
 ## 10 TRU ｜安全与信任
 
@@ -258,8 +265,8 @@ review: 任何行为变更的提交
 |---|---|---|---|---|
 | OPS-01 | 测试套件 | `pnpm check` = `tsc --noEmit` + 全量 vitest，本地全绿；另有只在 Windows 上跑的用例 | [done] | `package.json`、`pnpm check`、`vitest.config.ts` |
 | OPS-02 | 类型检查 | `tsc --noEmit` 通过 | [done] | `package.json`、`pnpm typecheck` |
-| OPS-03 | registry 门禁 | `registry:check` 通过（本地实测）；CI 里同一个脚本再跑一遍 | [done] | `scripts/registry/build-index.mjs`、CI |
-| OPS-04 | 干净安装 CI | `registry:verify-all` 在 ubuntu job 跑，需网络；另有 `:offline` 变体 | [done] | `registry.yml`、`package.json` |
+| OPS-03 | registry 门禁 | `registry:check` 在已提交的树上退出 0（relock 后实测 3 个包）；relock 前它在这个分支的 HEAD 上是红的：doc-review 的 dsh / claude-code 计划快照与锁不一致、team-conventions 锁过期。`registry:relock` 逐版本「按版本目录重算锁 → 重签（原来有签名才签）→ 重跑 runner → 重打 `.phub`」，最后重建索引；版本目录相对 HEAD 有改动时索引那一步会被「版本目录不可变」门禁拦下，得先把版本目录提交再跑 `registry:index` | [done] | `scripts/registry/relock-all.mjs`、`scripts/registry/build-index.mjs`、`.github/workflows/registry.yml` |
+| OPS-04 | 干净安装 CI | `registry:verify-all` 在 ubuntu job 跑，需网络；另有 `:offline` 变体（跳过清单里有远程引用的版本）。本机重验 `lvlc233/remote-demo@0.0.1`：不设代理时 `fetch`（raw.githubusercontent.com）报 ECONNRESET，这台机器的系统代理在 `127.0.0.1:7890`，设 `HTTPS_PROXY` 后同一版本 verify 通过——Node/undici 不读 Windows 系统代理，`download.ts` 只认环境变量 | [done] | `registry.yml`、`package.json`、`scripts/registry/relock-all.mjs`、`scripts/registry/verify-all.mjs`、`packages/runtime/src/download.ts` 的 `ensureProxy` |
 | OPS-05 | 单文件分发 | `build:local` 出 `dist/local/packhub.mjs` 与精简 package.json；`pack:local` 再 `npm pack` 出 tgz | [done] | `scripts/build-local.mjs`、`package.json` |
 | OPS-06 | Hub 镜像 | 多阶段构建，末尾 `pnpm prune --prod`；镜像直接跑 TS（`--experimental-strip-types`）；非回环强制带 token | [done] | `Dockerfile` |
 | OPS-07 | 文档治理 | 只留三份开发者文档（概念 / 契约 / 台账），入口 `docs/README.md`；每篇 front matter 标 `kind` / `verified` / `decay`，`pnpm docs:audit` 查分类、过期、断链、占位标记，CI 的 verify job 也跑；读完文档先体检的流程写在 `AGENTS.md` | [done] | `docs/README.md`、`AGENTS.md`、`scripts/docs-audit.mjs` |
@@ -270,6 +277,7 @@ review: 任何行为变更的提交
 | OPS-12 | 示例包矩阵 | `verify:examples` 逐个真装 + verify（三个示例都不再依赖上游仓库与外网清单）；`--skip-network` 只跑本地引用那一个；CI 在 ubuntu job 跑 | [done] | `scripts/verify-examples.mjs`、`registry.yml`、`examples/code-review` |
 | OPS-13 | 工具链固定 | `packageManager pnpm@11.22.0`、`engines.node >=22.13`，两个 workflow 都用 node 22 + pnpm 11 | [done] | `package.json`、workflows |
 | OPS-14 | 供应链 | actions 全部钉在 commit SHA（注释写版本），dependabot 每周看 github-actions 与 npm；`pnpm verify:lockfile` 查每条 resolution 都带 integrity，CI 与用例都跑；仓库内本地 action 不钉 | [done] | `.github/workflows`、`.github/dependabot.yml`、`scripts/verify-lockfile.mjs`、`repo-hygiene.test.ts`、`lockfile.test.ts` |
+| OPS-15 | 包边界与公开面 | `@packhub/runtime` 不再 `export *` 转发 kernel 符号，只显式再导出 `loadManifest` / `loadPack` / `planFor`（launcher 与 market 的现有调用点还从 runtime 取）；新代码直接依赖 `@packhub/kernel`。`@packhub/runner` 改为显式依赖 `@packhub/kernel`，`run.ts` 从 kernel 取 `loadPack` / `planFor` | [done] | `packages/runtime/src/index.ts`、`packages/runner/package.json`、`packages/runner/src/run.ts` |
 
 ## 12 X ｜跨切面
 
@@ -310,7 +318,7 @@ review: 任何行为变更的提交
 | PAL-15 | 模板 | `export` 出可复现模板，`import` 按引用重建；不可复现的明确拒绝 | [done] | `template.ts` |
 | PAL-16 | 健康检查 | 检查覆盖记录、锁、进程、端口、listen-pid、home、基线、运行时、MCP；其中几类条件出现（home / 基线 / MCP） | [done] | `health.ts`、`health.test.ts` |
 | PAL-17 | 基线 | 建实例写 `baseline.json`（每个文件 + sha256），体检报缺失 / 改动；`rebaseline` 接受本地改动 | [done] | `baseline.ts`、`health.ts`、`update.ts`、`health.test.ts` |
-| PAL-17b | 更新 | 同 Pack 换版本：装新删旧、刷新基线与记录，报出被本地改过的文件；`--force` 才覆盖 | [done] | `update.ts`、`instance.test.ts` |
+| PAL-17b | 更新 | 同 Pack 换版本：装新删旧、刷新基线与记录，报出被本地改过的文件；`--force` 才覆盖。「新计划还产出什么」只问 runtime 的 `planPaths`（含 fetch 落点与 `link.exec` 的 `.cmd`），所以 `removedFiles` 不会再误删缓存归档/入口垫片；`state.dir` 不在 planPaths 也不在 written，升级不删状态数据 | [done] | `update.ts`、`instance.test.ts`、`update-cache.test.ts`、`packages/runtime/src/install.ts` 的 `planPaths` |
 | PAL-18 | 删除时目录被占 | 重试后仍不行就改名进归档，不把半个实例留在列表（`removeTreeWithRetry` 是内部函数，靠这条路径间接覆盖） | [done] | `remove.ts`、`instance.test.ts` |
 | PAL-19 | 界面 | 随本地界面一起删了；要做前端时重写规格 | [na] | 无 |
 | PAL-20 | 取包缓存 | 按来源 + 版本（或 ref 短哈希）分目录，重取先清空；只有 registry + 明确版本才命中复用 | [done] | `materialize.ts`、`materialize.test.ts` |
@@ -321,8 +329,8 @@ review: 任何行为变更的提交
 | PAL-25 | 数据目录 | 优先级：`PACKHUB_HOME` → `pal config --home` 指针 → 便携 `data/` → 系统默认；`pal config` 显示来源，`doctor` 报当前目录 | [done] | `paths.ts`、`cli.ts`、`home.test.ts` |
 | PAL-26 | 跨盘迁移 | 同盘 rename；跨盘 `EXDEV` 复制到目标盘临时目录再落位；写记录失败或旧根删不掉都整次撤回 | [done] | `migrate.ts`、`instance.test.ts` |
 | PAL-27 | 并发账本 | `pal ps` 只读列出 running / stale / 端口冲突 / 坏记录，不写盘不隔离 | [done] | `ps.ts`、`ps.test.ts` |
-| PAL-28 | 发现 | `pal scan <dir> [--depth]` 只读识别 `instance.json` / `packhub.yaml` / `.packhub/state.json` 三类候选，扫描前后目录不变 | [done] | `scan.ts`、`scan.test.ts` |
-| PAL-29 | 缓存管理 | `pal cache` 看 / 清取包缓存，支持 `--all` / `--ref` / `--older-than`；每份缓存带 `.pal-cache.json` | [done] | `cache.ts`、`cache.test.ts`、`materialize.ts` |
+| PAL-28 | 发现 | `pal scan <dir> [--depth]` 只读识别 `instance.json` / `packhub.yaml` / `.packhub/state.json` 三类候选，扫描前后目录不变；清单身份改调 kernel 的 `loadManifest`（与 create / update 同一套解析），坏 YAML 记 problem 但不改目录 | [done] | `scan.ts`、`scan.test.ts`、`packages/kernel/src/manifest.ts` |
+| PAL-29 | 缓存管理 | `pal cache` 看 / 清取包缓存，支持 `--all` / `--ref` / `--older-than`；每份缓存带 `.pal-cache.json`。条目类型叫 `PackCacheEntry`（带 Pack 前缀，避免与 runtime 的 `CacheEntry`——安装根里未被引用的缓存项——同名不同义） | [done] | `cache.ts`、`cache.test.ts`、`materialize.ts` |
 | PAL-30 | 备份与恢复 | `pal backup` 出目录快照（默认排除凭据 / 运行态 / 日志 / 锁），`--include-secrets` 才带；`restore` 生成新 id 与新根，不覆盖已有 | [done] | `backup.ts`、`backup.test.ts` |
 | PAL-31 | 当前实例 | `pal use` / `pal current` 与 `instances/.active.json`（每宿主一个），对应 `GET /api/active` 与 `POST :id/active` | [done] | `active.ts`、`catalog.ts`、`server.ts` |
 | PAL-32 | 实例根可选 | `create` / `clone` / `import` / `restore` 可给外部根；只收绝对路径，拒盘符根、文件系统根与实例根内 | [done] | `validators.ts`、`cli.ts`、`instance.test.ts` |

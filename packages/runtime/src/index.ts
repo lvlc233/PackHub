@@ -4,11 +4,17 @@ import { applyPlan, type ApplyOptions, type ApplyResult } from './install.ts';
 import { runChecks, serverSpecs, type CheckResult } from './verify.ts';
 import type { PackContext } from '@packhub/kernel';
 
-/** 内核的契约与判定在这里再导出一遍：调用方只依赖 runtime 也不会缺东西。 */
-export * from '@packhub/kernel';
+/**
+ * 调用方从 @packhub/runtime 拿的 kernel 符号：显式再导出，不再 `export *`。
+ *
+ * 新代码请直接从 `@packhub/kernel` 导入；这三项保留是因为 launcher 与 market 的
+ * 现有调用点从 runtime 取（改它们不在本任务的写入范围内）。
+ */
+export { loadManifest, loadPack, planFor } from '@packhub/kernel';
 
 export {
   applyPlan,
+  planPaths,
   loadState,
   saveState,
   removePack,

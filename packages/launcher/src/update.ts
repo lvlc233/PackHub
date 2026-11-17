@@ -1,7 +1,7 @@
 import { existsSync, rmSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { planFor, type PackContext, type Plan } from '@packhub/kernel';
-import { installPack, loadLock, loadPack, loadState, saveState, withLockPins } from '@packhub/runtime';
+import { planFor, type PackContext } from '@packhub/kernel';
+import { installPack, loadLock, loadPack, loadState, planPaths, saveState, withLockPins } from '@packhub/runtime';
 import { baselineFromState, hashFile, readBaseline, writeBaseline, type Baseline } from './baseline.ts';
 import { withInstanceLock } from './lock.ts';
 import { readRecord, type InstanceRecord } from './records.ts';
@@ -33,37 +33,6 @@ export interface UpdateInstanceResult {
    * 每条只带实例内相对路径与原因，不带绝对路径；文件会留在实例里。
    */
   warnings: string[];
-}
-
-function writtenOf(root: string, names: string[]): string[] {
-  const state = loadState(root);
-  const out = new Set<string>();
-  for (const key of names) {
-    for (const rel of state.packs[key]?.written ?? []) out.add(rel);
-  }
-  return [...out];
-}
-
-/** 计划会写到的路径：更新后据此判断上一版的哪些文件已经没人要了。 */
-function planTargets(plan: Plan): Set<string> {
-  const out = new Set<string>();
-  for (const action of plan.actions) {
-    if (
-      action.op === 'write' ||
-      action.op === 'link.skill' ||
-      action.op === 'unpack' ||
-      action.op === 'copy' ||
-      action.op === 'link.exec' ||
-      action.op === 'state.dir'
-    ) {
-      out.add(action.to);
-    } else if (action.op === 'instruction') {
-      out.add(action.file);
-    } else if (action.op === 'register.mcp') {
-      out.add(action.path ?? '.packhub/config.json');
-    }
-  }
-  return out;
 }
 
 /**
@@ -134,7 +103,8 @@ export async function updateInstance(
 
   const before = loadState(record.root);
   const oldKeys = Object.keys(before.packs).filter((key) => key.startsWith(`${record.pack.name}@`));
-  const oldWritten = writtenOf(record.root, oldKeys);
+  // 上一版写过哪些文件：同名各代 key 取并集（install 升级时也把同名旧 key 并进新 key）
+  const oldWritten = [...new Set(oldKeys.flatMap((key) => before.packs[key]?.written ?? []))];
   const baseline = readBaseline(record.root);
   // 更新会覆盖 Pack 装过的文件，所以先看哪些已经被本地改过：改过的要提前告诉人
   const localChanges = localChangesOf(record.root, baseline);
@@ -162,10 +132,14 @@ export async function updateInstance(
     // 同一 Pack 的新版本要能覆盖旧版本写过的文件；overwrite 只放开"自己的包"
     await installPack(ctx, plan, { root: record.root, packRoot: resolve(opts.packDir), overwrite: true });
 
-    // install 已经把同名的旧 key 并进新 key、written 取并集；这里清掉新计划不再要的文件
-    const targets = planTargets(plan);
-    removedFiles = oldWritten.filter((rel) => !targets.has(rel));
-    addedFiles = [...targets].filter((rel) => !oldWritten.includes(rel));
+    // install 已经把同名的旧 key 并进新 key、written 取并集；这里清掉新计划不再要的文件。
+    // 「新计划还产出哪些路径」只问 runtime 的 planPaths（含 fetch 落点、link.exec 的 .cmd）：
+    // 加一个 op 时不用在这里再数一遍。怎么删、删不掉怎么报仍留在本模块（逐文件 warnings）。
+    const produced = planPaths(plan);
+    const stillProduced = (rel: string): boolean =>
+      produced.some((p) => p === rel || rel.startsWith(`${p}/`) || p.startsWith(`${rel}/`));
+    removedFiles = oldWritten.filter((rel) => !stillProduced(rel));
+    addedFiles = produced.filter((rel) => !oldWritten.includes(rel));
     for (const rel of removedFiles) {
       const abs = resolve(record.root, rel);
       if (!abs.startsWith(resolve(record.root))) continue;

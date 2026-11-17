@@ -101,6 +101,9 @@ importers:
 
   packages/runner:
     dependencies:
+      '@packhub/kernel':
+        specifier: workspace:*
+        version: link:../kernel
       '@packhub/runtime':
         specifier: workspace:*
         version: link:../runtime

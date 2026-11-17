@@ -1,7 +1,9 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
-import { defineCommand, type CommandDef } from 'citty';
+import type { CommandDef } from 'citty';
+import { EXIT, command, issueError, issueWarn, json, orStop, problem, problemRaw, say, sayUnless, stop, terminate, warn } from './emit.ts';
+import { parsePackRef } from './ref.ts';
 import { startHub } from '@packhub/hub';
 import {
   startMarket,
@@ -26,6 +28,7 @@ import {
   mergeLocalOverrides,
   readLocalOverrides,
   validateGraph,
+  checkLockConsistency,
   PACK_NAME_PATTERN,
   RESOURCE_TYPES,
   TARGET_IDS,
@@ -88,34 +91,32 @@ import {
   type SyncTarget,
 } from '@packhub/runtime';
 
-const errorCount = (issues: Issue[]): number => issues.filter((i) => i.severity === 'error').length;
-
 /** 安装后自动复核只跑只读检查；command / mcp-ready 会执行包里的命令，必须显式 --deep-verify。 */
 const SAFE_CHECKS = ['file-exists', 'config-key', 'knowledge-integrity'] as const;
 
 function reportIssues(issues: Issue[], ctx = 'packhub'): boolean {
   const errors = issues.filter((i) => i.severity === 'error');
   const warnings = issues.filter((i) => i.severity === 'warning');
-  for (const w of warnings) console.warn(`warn  [${w.code}] ${w.message}`);
-  for (const e of errors) console.error(`error [${e.code}] ${e.message}`);
+  for (const w of warnings) issueWarn(w.code, w.message);
+  for (const e of errors) issueError(e.code, e.message);
   if (errors.length) {
-    console.error(`\n${ctx}: ${errors.length} 个错误，未继续。`);
+    problemRaw(`\n${ctx}: ${errors.length} 个错误，未继续。`);
     return true;
   }
   return false;
 }
 
 function printPlan(plan: Plan): void {
-  console.log(`${plan.pack.name}@${plan.pack.version} → target=${plan.target}`);
-  console.log(`planHash ${plan.planHash}\n`);
+  say(`${plan.pack.name}@${plan.pack.version} → target=${plan.target}`);
+  say(`planHash ${plan.planHash}\n`);
   for (const a of plan.actions) {
     const target = 'to' in a ? a.to : 'dest' in a ? a.dest : 'path' in a ? a.path : a.resource ?? '';
-    console.log(`  ${a.actionId.padEnd(16)} ${a.op.padEnd(14)} ${target}`);
+    say(`  ${a.actionId.padEnd(16)} ${a.op.padEnd(14)} ${target}`);
   }
-  console.log(`\nverify: ${plan.verify.length} 项`);
+  say(`\nverify: ${plan.verify.length} 项`);
 }
 
-const plan = defineCommand({
+const plan = command({
   meta: { name: 'plan', description: '解析 Pack 并打印安装计划（不落盘）' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
@@ -124,18 +125,18 @@ const plan = defineCommand({
   },
   run({ args }) {
     const ctx = loadPack(String(args.dir));
-    if (reportIssues(ctx.issues)) process.exit(2);
+    if (reportIssues(ctx.issues)) stop(EXIT.USAGE);
     const { plan: p, issues } = planFor(ctx, { target: String(args.target ?? 'dir') as never });
     if (!p) {
       reportIssues(issues);
-      process.exit(2);
+      stop(EXIT.USAGE);
     }
-    if (args.json) console.log(JSON.stringify(p, null, 2));
+    if (args.json) json(p);
     else printPlan(p);
   },
 });
 
-const install = defineCommand({
+const install = command({
   meta: {
     name: 'install',
     description: `执行计划（--target：${TARGET_IDS.join(' / ')}）`,
@@ -150,16 +151,16 @@ const install = defineCommand({
   },
   async run({ args }) {
     const ctx = loadPack(String(args.dir));
-    if (reportIssues(ctx.issues)) process.exit(2);
+    if (reportIssues(ctx.issues)) stop(EXIT.USAGE);
     const target = String(args.target ?? 'dir');
     if (!ctx.manifest.metadata.targets.includes(target as never)) {
-      console.error(`这个包没有声明 target ${target}；声明了：${ctx.manifest.metadata.targets.join(', ')}`);
-      process.exit(2);
+      problemRaw(`这个包没有声明 target ${target}；声明了：${ctx.manifest.metadata.targets.join(', ')}`);
+      stop(EXIT.USAGE);
     }
     const { plan: p, issues } = planFor(ctx, { target: target as never });
     if (!p) {
       reportIssues(issues);
-      process.exit(2);
+      stop(EXIT.USAGE);
     }
     const result = await installPack(ctx, p, {
       dryRun: Boolean(args['dry-run']),
@@ -169,30 +170,22 @@ const install = defineCommand({
     if (!args.json) {
       for (const o of result.outcomes) {
         const mark = o.status === 'failed' ? 'x' : o.status === 'skipped' ? '-' : '✓';
-        console.log(`${mark} ${o.actionId.padEnd(16)} ${o.status.padEnd(14)} ${o.message ?? o.target ?? ''}`);
+        say(`${mark} ${o.actionId.padEnd(16)} ${o.status.padEnd(14)} ${o.message ?? o.target ?? ''}`);
       }
     }
     if (result.outcomes.some((o) => o.status === 'failed')) {
       if (args.json) {
-        console.log(
-          JSON.stringify(
-            { planHash: p.planHash, outcomes: result.outcomes, rolledBack: result.rolledBack ?? false },
-            null,
-            2,
-          ),
-        );
+        json({ planHash: p.planHash, outcomes: result.outcomes, rolledBack: result.rolledBack ?? false });
       } else if (result.rolledBack) {
-        console.error('\n有动作失败，已按快照回滚：磁盘回到安装前，state 未写入。');
+        problemRaw('\n有动作失败，已按快照回滚：磁盘回到安装前，state 未写入。');
       }
-      process.exit(1);
+      stop(EXIT.RUNTIME);
     }
     if (!args['dry-run']) {
       if (args.json) {
-        console.log(
-          JSON.stringify({ planHash: p.planHash, outcomes: result.outcomes, statePath: result.statePath }, null, 2),
-        );
+        json({ planHash: p.planHash, outcomes: result.outcomes, statePath: result.statePath });
       } else {
-        console.log(`\nstate: ${result.statePath}`);
+        say(`\nstate: ${result.statePath}`);
       }
       try {
         appendAudit({
@@ -204,13 +197,13 @@ const install = defineCommand({
           root: resolve(String(args.dir)),
         });
       } catch (err) {
-        console.warn(`warn  审计写入失败：${(err as Error).message}`);
+        warn(`审计写入失败：${(err as Error).message}`);
       }
     }
   },
 });
 
-const verify = defineCommand({
+const verify = command({
   meta: { name: 'verify', description: '跑 manifest 的检查；在项目根跑时用 state 里的计划快照' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
@@ -229,59 +222,53 @@ const verify = defineCommand({
       let skipped = 0;
       if (!args.json) {
         for (const report of reports) {
-          console.log(`\n${report.pack}`);
-          console.log(`  planHash ${report.planHash}`);
+          say(`\n${report.pack}`);
+          say(`  planHash ${report.planHash}`);
           for (const r of report.results) {
             const mark = r.status === 'pass' ? '✓' : r.status === 'fail' ? 'x' : '-';
-            console.log(`  ${mark} [${r.index}] ${r.type.padEnd(18)} ${r.status.padEnd(8)} ${r.detail}`);
+            say(`  ${mark} [${r.index}] ${r.type.padEnd(18)} ${r.status.padEnd(8)} ${r.detail}`);
           }
           failed += report.results.filter((r) => r.status === 'fail').length;
           skipped += report.results.filter((r) => r.status === 'skipped').length;
           if (!report.ok) failed++;
         }
-        console.log(`\n${reports.length} 个包：${failed} 项失败 / ${skipped} 项跳过`);
+        say(`\n${reports.length} 个包：${failed} 项失败 / ${skipped} 项跳过`);
       } else {
         for (const report of reports) {
           failed += report.results.filter((r) => r.status === 'fail').length;
           skipped += report.results.filter((r) => r.status === 'skipped').length;
           if (!report.ok) failed++;
         }
-        console.log(
-          JSON.stringify(
-            { installed: reports, results: reports.flatMap((r) => r.results), failed, skipped },
-            null,
-            2,
-          ),
-        );
+        json({ installed: reports, results: reports.flatMap((r) => r.results), failed, skipped });
       }
-      if (failed) process.exit(1);
+      if (failed) stop(EXIT.RUNTIME);
       return;
     }
 
     const ctx = loadPack(dir);
-    if (reportIssues(ctx.issues)) process.exit(2);
+    if (reportIssues(ctx.issues)) stop(EXIT.USAGE);
     const { plan: p, issues } = planFor(ctx, { target: String(args.target ?? 'dir') as never });
     if (!p) {
       reportIssues(issues);
-      process.exit(2);
+      stop(EXIT.USAGE);
     }
     const results = await verifyPack(ctx.dir, p);
     const failed = results.filter((r) => r.status === 'fail').length;
     const skipped = results.filter((r) => r.status === 'skipped').length;
     if (args.json) {
-      console.log(JSON.stringify({ planHash: p.planHash, results, failed, skipped }, null, 2));
+      json({ planHash: p.planHash, results, failed, skipped });
     } else {
       for (const r of results) {
         const mark = r.status === 'pass' ? '✓' : r.status === 'fail' ? 'x' : '-';
-        console.log(`${mark} [${r.index}] ${r.type.padEnd(18)} ${r.status.padEnd(8)} ${r.detail}`);
+        say(`${mark} [${r.index}] ${r.type.padEnd(18)} ${r.status.padEnd(8)} ${r.detail}`);
       }
-      console.log(`\n${results.length} 项：${results.length - failed - skipped} 通过 / ${failed} 失败 / ${skipped} 跳过`);
+      say(`\n${results.length} 项：${results.length - failed - skipped} 通过 / ${failed} 失败 / ${skipped} 跳过`);
     }
-    if (failed) process.exit(1);
+    if (failed) stop(EXIT.RUNTIME);
   },
 });
 
-const lock = defineCommand({
+const lock = command({
   meta: { name: 'lock', description: '解析引用（npm/github/https/pypi）并生成 packhub.lock.json（每个已声明 target 一份计划）' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
@@ -292,42 +279,31 @@ const lock = defineCommand({
   async run({ args }) {
     const dir = resolve(String(args.dir));
     const ctx = loadPack(dir);
-    if (reportIssues(ctx.issues)) process.exit(2);
-    try {
-      const res = await lockPack(ctx, {
-        target: String(args.target ?? 'dir') as never,
-        offline: Boolean(args.offline),
-      });
-      const out = join(ctx.dir, 'packhub.lock.json');
-      writeFileSync(out, JSON.stringify(res.lock, null, 2) + '\n', 'utf8');
-      const hashes = Object.fromEntries(
-        Object.entries(res.plans).map(([target, plan]) => [target, plan?.planHash]),
-      );
-      if (args.json) {
-        console.log(
-          JSON.stringify(
-            { out, lock: res.lock, planHash: res.plan.planHash, plans: hashes, warnings: res.warnings },
-            null,
-            2,
-          ),
-        );
-      } else {
-        for (const w of res.warnings) console.warn(`warn  ${w}`);
-        const withHash = res.lock.resolved.filter((r) => r.integrity).length;
-        console.log(`written ${out}`);
-        for (const [target, hash] of Object.entries(hashes)) {
-          console.log(`planHash ${String(hash).slice(0, 26)}…  ${target}`);
-        }
-        console.log(`${res.lock.resolved.length} 个引用，${withHash} 个带 integrity`);
+    if (reportIssues(ctx.issues)) stop(EXIT.USAGE);
+    const res = await lockPack(ctx, {
+      target: String(args.target ?? 'dir') as never,
+      offline: Boolean(args.offline),
+    });
+    const out = join(ctx.dir, 'packhub.lock.json');
+    writeFileSync(out, JSON.stringify(res.lock, null, 2) + '\n', 'utf8');
+    const hashes = Object.fromEntries(
+      Object.entries(res.plans).map(([target, plan]) => [target, plan?.planHash]),
+    );
+    if (args.json) {
+      json({ out, lock: res.lock, planHash: res.plan.planHash, plans: hashes, warnings: res.warnings });
+    } else {
+      for (const w of res.warnings) warn(w);
+      const withHash = res.lock.resolved.filter((r) => r.integrity).length;
+      say(`written ${out}`);
+      for (const [target, hash] of Object.entries(hashes)) {
+        say(`planHash ${String(hash).slice(0, 26)}…  ${target}`);
       }
-    } catch (err) {
-      console.error(`x ${(err as Error).message}`);
-      process.exit(2);
+      say(`${res.lock.resolved.length} 个引用，${withHash} 个带 integrity`);
     }
   },
-});
+}, { code: EXIT.USAGE });
 
-const init = defineCommand({
+const init = command({
   meta: { name: 'init', description: '脚手架一个空 Pack' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
@@ -338,12 +314,12 @@ const init = defineCommand({
     const file = join(dir, 'packhub.yaml');
     const name = String(args.name);
     if (!PACK_NAME_PATTERN.test(name)) {
-      console.error(`--name 要写成 owner/name（小写字母、数字、连字符，两段各至少一个字符）：收到 ${name}`);
-      process.exit(2);
+      problemRaw(`--name 要写成 owner/name（小写字母、数字、连字符，两段各至少一个字符）：收到 ${name}`);
+      stop(EXIT.USAGE);
     }
     if (existsSync(file)) {
-      console.error(`已存在：${file}`);
-      process.exit(1);
+      problemRaw(`已存在：${file}`);
+      stop(EXIT.RUNTIME);
     }
     mkdirSync(join(dir, 'resources'), { recursive: true });
     const template = `# yaml-language-server: $schema=https://raw.githubusercontent.com/lvlc233/PackHub/main/schema/packhub.v0.schema.json
@@ -378,13 +354,13 @@ verify:
     if (!existsSync(gitignore)) {
       writeFileSync(gitignore, '.packhub/\npack.phub\npackhub.key\n*.tar.gz\n', 'utf8');
     }
-    console.log(`created ${file}`);
-    console.log('下一步：packhub resource add <type> <source> 追加资源，然后 packhub plan 看动作');
-    console.log('要发布到公共 registry 时，把 metadata.visibility 改成 public（或 unlisted 直链分发）');
+    say(`created ${file}`);
+    say('下一步：packhub resource add <type> <source> 追加资源，然后 packhub plan 看动作');
+    say('要发布到公共 registry 时，把 metadata.visibility 改成 public（或 unlisted 直链分发）');
   },
 });
 
-const resourceAdd = defineCommand({
+const resourceAdd = command({
   meta: { name: 'add', description: '往 packhub.yaml 追加一个资源（结构化编辑，保留注释）' },
   args: {
     type: {
@@ -404,14 +380,14 @@ const resourceAdd = defineCommand({
   async run({ args }) {
     const type = String(args.type) as (typeof RESOURCE_TYPES)[number];
     if (!RESOURCE_TYPES.includes(type)) {
-      console.error(`未知类型：${type}（可选：${RESOURCE_TYPES.join(' / ')}）`);
-      process.exit(2);
+      problemRaw(`未知类型：${type}（可选：${RESOURCE_TYPES.join(' / ')}）`);
+      stop(EXIT.USAGE);
     }
     const dir = resolve(String(args.dir));
     const file = join(dir, 'packhub.yaml');
     if (!existsSync(file)) {
-      console.error(`没有 packhub.yaml：${file}（先跑 packhub init）`);
-      process.exit(2);
+      problemRaw(`没有 packhub.yaml：${file}（先跑 packhub init）`);
+      stop(EXIT.USAGE);
     }
 
     const { id } = addResource(file, {
@@ -419,28 +395,28 @@ const resourceAdd = defineCommand({
       source: String(args.source),
       ...(args.id ? { id: String(args.id) } : {}),
     });
-    console.log(`✓ 已追加资源 ${id}（${type}）→ ${file}`);
+    say(`✓ 已追加资源 ${id}（${type}）→ ${file}`);
 
     // 加完立刻重算：格式对不对、能力图缺不缺，当场能看到
     const ctx = loadPack(dir);
     const errors = ctx.issues.filter((i) => i.severity === 'error');
     if (errors.length) {
-      for (const e of errors) console.error(`error [${e.code}] ${e.message}`);
-      console.error('\n资源已写入，但清单还有错误，先修完再安装。');
-      process.exit(1);
+      for (const e of errors) issueError(e.code, e.message);
+      problemRaw('\n资源已写入，但清单还有错误，先修完再安装。');
+      stop(EXIT.RUNTIME);
     }
     const { plan } = planFor(ctx, { target: String(args.target ?? 'dir') as never });
-    console.log(`计划：${plan?.actions.length ?? 0} 个动作 · planHash ${plan?.planHash.slice(0, 22)}…`);
-    console.log('下一步：packhub install . --dry-run 看会发生什么');
+    say(`计划：${plan?.actions.length ?? 0} 个动作 · planHash ${plan?.planHash.slice(0, 22)}…`);
+    say('下一步：packhub install . --dry-run 看会发生什么');
   },
 });
 
-const resource = defineCommand({
+const resource = command({
   meta: { name: 'resource', description: '资源编辑' },
   subCommands: { add: resourceAdd },
 });
 
-const slotSwap = defineCommand({
+const slotSwap = command({
   meta: { name: 'swap', description: '换某个槽位的实现（只改 bindings 一行）' },
   args: {
     slot: { type: 'positional', required: true },
@@ -452,24 +428,24 @@ const slotSwap = defineCommand({
     const dir = resolve(String(args.dir));
     const file = join(dir, 'packhub.yaml');
     if (!existsSync(file)) {
-      console.error(`没有 packhub.yaml：${file}`);
-      process.exit(2);
+      problemRaw(`没有 packhub.yaml：${file}`);
+      stop(EXIT.USAGE);
     }
     const before = planFor(loadPack(dir)).plan;
 
     setBinding(file, String(args.slot), String(args.resource));
-    console.log(`✓ bindings.${String(args.slot)} → ${String(args.resource)}`);
+    say(`✓ bindings.${String(args.slot)} → ${String(args.resource)}`);
 
     const ctx = loadPack(dir);
     const errors = ctx.issues.filter((i) => i.severity === 'error');
     if (errors.length) {
-      for (const e of errors) console.error(`error [${e.code}] ${e.message}`);
-      process.exit(1);
+      for (const e of errors) issueError(e.code, e.message);
+      stop(EXIT.RUNTIME);
     }
     const { plan, issues } = planFor(ctx, { target: String(args.target ?? 'dir') as never });
     if (!plan) {
       reportIssues(issues, 'packhub slot swap');
-      process.exit(1);
+      stop(EXIT.RUNTIME);
     }
     const after = plan;
     // 换绑时 actionId（fetch#1）不变，必须按内容比，否则看不出换了什么
@@ -483,20 +459,20 @@ const slotSwap = defineCommand({
     };
     const removed = (before?.actions ?? []).filter((a) => !afterSet.has(fp(a as never)));
     const added = (after?.actions ?? []).filter((a) => !beforeSet.has(fp(a as never)));
-    console.log(`计划：${after?.actions.length ?? 0} 个动作（+${added.length} / -${removed.length}）`);
-    for (const a of removed) console.log(`  - ${describe(a as never)}`);
-    for (const a of added) console.log(`  + ${describe(a as never)}`);
-    for (const e of after?.excluded ?? []) console.log(`  · 跳过 ${e.resource}（槽位 ${e.slot} 未绑定）`);
-    console.log(`planHash ${after?.planHash.slice(0, 22) ?? '—'}…`);
+    say(`计划：${after?.actions.length ?? 0} 个动作（+${added.length} / -${removed.length}）`);
+    for (const a of removed) say(`  - ${describe(a as never)}`);
+    for (const a of added) say(`  + ${describe(a as never)}`);
+    for (const e of after?.excluded ?? []) say(`  · 跳过 ${e.resource}（槽位 ${e.slot} 未绑定）`);
+    say(`planHash ${after?.planHash.slice(0, 22) ?? '—'}…`);
   },
 });
 
-const slot = defineCommand({
+const slot = command({
   meta: { name: 'slot', description: '槽位操作（可替换的实现）' },
   subCommands: { swap: slotSwap },
 });
 
-const add = defineCommand({
+const add = command({
   meta: { name: 'add', description: '装一个包：registry 名称、.phub 归档，或 git+https 仓库' },
   args: {
     source: {
@@ -532,7 +508,7 @@ const add = defineCommand({
   },
   async run({ args }) {
     const projectDir = resolve(String(args.dir));
-    const say = args.json ? (_line: string): void => {} : (line: string): void => console.log(line);
+    const say = sayUnless(args.json);
     const target = String(args.source);
     const targetEnv = String(args.target);
     const registryName = target;
@@ -558,10 +534,10 @@ const add = defineCommand({
     } else {
       const indexRef = resolveRegistry(args.index ? String(args.index) : undefined);
       if (!indexRef) {
-        console.error(
+        problemRaw(
           '用 registry 名称安装需要一个索引：加 --index <路径|URL>，或设 PACKHUB_INDEX，或在 ~/.packhub/config.json 里配 defaultRegistry',
         );
-        process.exit(2);
+        stop(EXIT.USAGE);
       }
       packDir = join(workBase, '.packhub/packs', registryName);
       say(`→ 取 ${registryName}${registryVersion ? `@${registryVersion}` : ''} …`);
@@ -577,41 +553,39 @@ const add = defineCommand({
     const rawCtx = loadPack(packDir);
     if (!rawCtx.manifest) {
       reportIssues(rawCtx.issues);
-      process.exit(2);
+      stop(EXIT.USAGE);
     }
     const read = loadLock(packDir);
     if (read.problem) {
       reportIssues([read.problem]);
-      process.exit(2);
+      stop(EXIT.USAGE);
     }
     const lock = read.lock;
     // 清单里写的是 tag/范围也没关系：按锁把它换成本次要装的 commit/版本
     let ctx = withLockPins(rawCtx, lock);
-    if (reportIssues(ctx.issues)) process.exit(2);
+    if (reportIssues(ctx.issues)) stop(EXIT.USAGE);
     if (!ctx.manifest.metadata.targets.includes(targetEnv as never)) {
-      console.error(`这个包没有声明 target ${targetEnv}；声明了：${ctx.manifest.metadata.targets.join(', ')}`);
-      process.exit(2);
+      problemRaw(`这个包没有声明 target ${targetEnv}；声明了：${ctx.manifest.metadata.targets.join(', ')}`);
+      stop(EXIT.USAGE);
     }
     if (lock?.plan && String(lock.plan.target) !== targetEnv && !lock.plans?.[targetEnv as TargetId]) {
-      console.warn(
-        `warn  锁里只有 ${lock.plan.target} 的计划快照，本次安装 target 是 ${targetEnv}；目标计划没有被 planHash 校验`,
-      );
+      warn(`锁里只有 ${lock.plan.target} 的计划快照，本次安装 target 是 ${targetEnv}；目标计划没有被 planHash 校验`);
     }
-    // 锁里带了这个 target 的计划：按锁的哈希先核对一遍，避免「锁住的是 A、装的是 B」
+    // 锁核对（消费端单点）：判据与文案都来自 kernel 的 checkLockConsistency。
+    // 安装 target 若在锁里有自己的计划快照，先按它核对，避免「锁住 A、装的是 B」；
+    // 再按锁自己的 target 重算一份计划，给 inspectPack（验证报告 / 签名）当基准。
+    const lockTarget = (lock?.plan?.target ?? 'dir') as TargetId;
     if (lock?.plans?.[targetEnv as TargetId]) {
-      const expected = lock.plans[targetEnv as TargetId]!.planHash;
-      const preflight = planFor(ctx, { target: targetEnv as TargetId });
-      if (preflight.plan && preflight.plan.planHash !== expected && !args['allow-stale-lock']) {
-        console.error(
-          `锁里 ${targetEnv} 的计划与当前清单对不上（lock=${expected.slice(0, 20)}… plan=${preflight.plan.planHash.slice(0, 20)}…）；确认后加 --allow-stale-lock`,
+      const forInstall = checkLockConsistency(lock, targetEnv as TargetId, planFor(ctx, { target: targetEnv as TargetId }).plan);
+      if (forInstall.status === 'mismatch' && !args['allow-stale-lock']) {
+        problem(
+          `锁里 ${targetEnv} 的计划与当前清单对不上（lock=${String(forInstall.expected).slice(0, 20)}… plan=${String(forInstall.actual).slice(0, 20)}…）；确认后加 --allow-stale-lock`,
         );
-        process.exit(2);
+        stop(EXIT.USAGE);
       }
     }
-
-    // 消费端核对：锁 / 验证报告 / 签名。锁按它自己的 target 重算，避免安装 target 不同被误判。
-    const lockTarget = String(lock?.plan?.target ?? 'dir');
-    const { plan: lockPlan } = planFor(ctx, { target: lockTarget as never });
+    const { plan: lockPlan } = planFor(ctx, { target: lockTarget });
+    const lockCheck = checkLockConsistency(lock, lockTarget, lockPlan);
     // 信任来源：显式 --trusted 文件 + 本机持久信任列表；有列表就只认列表内的公钥
     const fileKeys = args.trusted
       ? readFileSync(String(args.trusted), 'utf8').split(/\r?\n/).map((s) => s.trim()).filter(Boolean)
@@ -623,26 +597,34 @@ const add = defineCommand({
     const trustedKeys = [...new Set([...(policy.trusted ?? []), ...fileKeys])];
     const trusted = trustedKeys.length > 0 ? trustedKeys : undefined;
     const inspection = inspectPack(packDir, ctx.manifest, lockPlan, { ...(trusted ? { trusted } : {}) });
-    for (const issue of inspection.issues) {
-      const line = `[${issue.code}] ${issue.message}`;
-      if (issue.severity === 'error') console.error(`error ${line}`);
-      else console.warn(`warn  ${line}`);
+    // 锁 ↔ 清单的结论只认 kernel 一处：inspectPack 里的同类比较不再重复采用，
+    // 只把它自己的结论按旧行格式（严重级 + [code]）打出来；验证报告/签名等 issue 照旧。
+    const lockIssues =
+      lockCheck.status === 'mismatch'
+        ? [
+            { code: 'lock-mismatch', severity: 'error' as const, message: lockCheck.message },
+            ...inspection.issues.filter((i) => i.code !== 'lock-mismatch'),
+          ]
+        : inspection.issues;
+    for (const issue of lockIssues) {
+      if (issue.severity === 'error') issueError(issue.code, issue.message);
+      else issueWarn(issue.code, issue.message);
     }
-    const lockErrors = inspection.issues.filter((i) => i.severity === 'error');
+    const lockErrors = lockIssues.filter((i) => i.severity === 'error');
     if (lockErrors.length > 0 && !args['allow-stale-lock']) {
-      console.error('\n锁核对未通过，已停止安装（确认来源后加 --allow-stale-lock）。');
-      process.exit(2);
+      problemRaw('\n锁核对未通过，已停止安装（确认来源后加 --allow-stale-lock）。');
+      stop(EXIT.USAGE);
     }
     const goodSignatures = inspection.signatures.filter((s) => s.ok).length;
     const trustedSignatures = trusted
       ? inspection.signatures.filter((s) => s.ok && trusted.includes(s.key)).length
       : goodSignatures;
     if (policy.require && trustedSignatures === 0) {
-      console.error(
+      problemRaw(
         `这个包没有${policy.trusted ? '被信任列表认可' : '有效'}的签名（默认策略/signature 要求）。` +
           `\n  先确认发布者，再用 packhub trust add <公钥 id> 加入信任列表；确实不用签名时加 --allow-unsigned。`,
       );
-      process.exit(2);
+      stop(EXIT.USAGE);
     }
     if (inspection.signatures.length > 0) {
       say(`签名 ${goodSignatures}/${inspection.signatures.length} 有效${trusted ? `，信任列表内 ${trustedSignatures} 个` : ''}`);
@@ -658,7 +640,7 @@ const add = defineCommand({
       const localIssues = [...local.issues, ...merged.issues, ...validated.issues];
       if (localIssues.some((i) => i.severity === 'error')) {
         reportIssues(localIssues, 'packhub add（local.yaml）');
-        process.exit(2);
+        stop(EXIT.USAGE);
       }
       ctx = {
         ...ctx,
@@ -672,11 +654,11 @@ const add = defineCommand({
     const { plan, issues } = planFor(ctx, { target: targetEnv as never });
     if (!plan) {
       reportIssues(issues, 'packhub add');
-      process.exit(2);
+      stop(EXIT.USAGE);
     }
 
     if (args['dry-run']) {
-      if (args.json) console.log(JSON.stringify({ label, dryRun: true, plan }, null, 2));
+      if (args.json) json({ label, dryRun: true, plan });
       else printPlan(plan);
       rmSync(workBase, { recursive: true, force: true });
       return;
@@ -693,17 +675,11 @@ const add = defineCommand({
     }
     if (result.outcomes.some((o) => o.status === 'failed')) {
       if (args.json) {
-        console.log(
-          JSON.stringify(
-            { label, planHash: plan.planHash, outcomes: result.outcomes, rolledBack: result.rolledBack ?? false },
-            null,
-            2,
-          ),
-        );
+        json({ label, planHash: plan.planHash, outcomes: result.outcomes, rolledBack: result.rolledBack ?? false });
       } else if (result.rolledBack) {
-        console.error('\n有动作失败，已按快照回滚：磁盘回到安装前，state 未写入。');
+        problemRaw('\n有动作失败，已按快照回滚：磁盘回到安装前，state 未写入。');
       }
-      process.exit(1);
+      stop(EXIT.RUNTIME);
     }
     say(`\n装上 ${label} → ${projectDir}`);
     try {
@@ -716,7 +692,7 @@ const add = defineCommand({
         root: projectDir,
       });
     } catch (err) {
-      console.warn(`warn  审计写入失败：${(err as Error).message}`);
+      warn(`审计写入失败：${(err as Error).message}`);
     }
 
     // 装完立刻复核：否则「装上了」和「能用」之间又断了一层
@@ -736,39 +712,27 @@ const add = defineCommand({
       }
       if (!reports.every((r) => r.ok)) {
         if (args.json) {
-          console.log(
-            JSON.stringify(
-              { label, planHash: plan.planHash, outcomes: result.outcomes, installed: false, verification: reports },
-              null,
-              2,
-            ),
-          );
+          json({ label, planHash: plan.planHash, outcomes: result.outcomes, installed: false, verification: reports });
         } else {
-          console.error('装上了，但有校验没过；先修清单里的 verify 或确认环境。');
+          problemRaw('装上了，但有校验没过；先修清单里的 verify 或确认环境。');
         }
-        process.exit(1);
+        stop(EXIT.RUNTIME);
       }
     }
     if (args.json) {
-      console.log(
-        JSON.stringify(
-          {
+      json({
             label,
             pack: `${ctx.manifest.metadata.name}@${ctx.manifest.metadata.version}`,
             planHash: plan.planHash,
             outcomes: result.outcomes,
             installed: true,
             ...(reports ? { verification: reports } : {}),
-          },
-          null,
-          2,
-        ),
-      );
+          });
     }
   },
 });
 
-const update = defineCommand({
+const update = command({
   meta: { name: 'update', description: '把已装的包升级到 registry 上的新版本' },
   args: {
     name: { type: 'positional', required: true },
@@ -785,10 +749,10 @@ const update = defineCommand({
   async run({ args }) {
     const indexRef = resolveRegistry(args.index ? String(args.index) : undefined);
     if (!indexRef) {
-      console.error('没有索引：加 --index <路径|URL|registry 名>，或设 PACKHUB_INDEX');
-      process.exit(2);
+      problemRaw('没有索引：加 --index <路径|URL|registry 名>，或设 PACKHUB_INDEX');
+      stop(EXIT.USAGE);
     }
-    const say = args.json ? (_line: string): void => {} : (line: string): void => console.log(line);
+    const say = sayUnless(args.json);
     const res = await updatePack({
       name: String(args.name),
       index: indexRef,
@@ -799,27 +763,27 @@ const update = defineCommand({
       ...(args.version ? { version: String(args.version) } : {}),
     });
     if (!res.changed) {
-      if (args.json) console.log(JSON.stringify(res, null, 2));
-      else console.log(`${res.name} 已是最新（planHash ${res.planHash.slice(0, 22)}…）`);
+      if (args.json) json(res);
+      else say(`${res.name} 已是最新（planHash ${res.planHash.slice(0, 22)}…）`);
       return;
     }
     say(`更新 ${res.from ?? '(未装)'} → ${res.to}`);
     for (const a of res.removed) say(`  - ${a}（计划里移除）`);
     for (const a of res.added) say(`  + ${a}`);
     for (const p of res.pruned) say(`  × ${p}（已从磁盘清掉）`);
-    for (const w of res.warnings) console.warn(`warn  ${w}`);
+    for (const w of res.warnings) warn(w);
     say(`\nplanHash ${res.planHash.slice(0, 22)}…（可用 packhub rollback 退回）`);
     try {
       appendAudit({
         action: 'update',
         pack: res.name,
-        version: res.to.split('@').pop(),
+        version: parsePackRef(res.to)?.version ?? res.to,
         planHash: res.planHash,
         ok: true,
         root: resolve(String(args.dir)),
       });
     } catch (err) {
-      console.warn(`warn  审计写入失败：${(err as Error).message}`);
+      warn(`审计写入失败：${(err as Error).message}`);
     }
 
     let reports: Awaited<ReturnType<typeof verifyInstalled>> | undefined;
@@ -836,16 +800,16 @@ const update = defineCommand({
         }
       }
       if (!reports.every((r) => r.ok)) {
-        if (args.json) console.log(JSON.stringify({ ...res, verify: reports }, null, 2));
-        console.error('更新完成，但有校验没过；可用 rollback 退回上一版。');
-        process.exit(1);
+        if (args.json) json({ ...res, verify: reports });
+        problemRaw('更新完成，但有校验没过；可用 rollback 退回上一版。');
+        stop(EXIT.RUNTIME);
       }
     }
-    if (args.json) console.log(JSON.stringify({ ...res, ...(reports ? { verify: reports } : {}) }, null, 2));
+    if (args.json) json({ ...res, ...(reports ? { verify: reports } : {}) });
   },
 });
 
-const rollback = defineCommand({
+const rollback = command({
   meta: { name: 'rollback', description: '退回上一次安装之前的状态' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
@@ -856,17 +820,17 @@ const rollback = defineCommand({
     const dir = resolve(String(args.dir));
     const res = rollbackPack(dir, args.generation ? String(args.generation) : undefined);
     if (args.json) {
-      console.log(JSON.stringify(res, null, 2));
+      json(res);
       return;
     }
-    console.log(`回退 ${res.generation}`);
-    for (const r of res.restored) console.log(`  ↩ ${r}`);
-    for (const r of res.removed) console.log(`  × ${r}`);
-    console.log(`\n恢复 ${res.restored.length} 个文件，删除 ${res.removed.length} 个新建文件`);
+    say(`回退 ${res.generation}`);
+    for (const r of res.restored) say(`  ↩ ${r}`);
+    for (const r of res.removed) say(`  × ${r}`);
+    say(`\n恢复 ${res.restored.length} 个文件，删除 ${res.removed.length} 个新建文件`);
   },
 });
 
-const versions = defineCommand({
+const versions = command({
   meta: { name: 'versions', description: '列出已装版本目录与当前激活版本' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
@@ -876,25 +840,25 @@ const versions = defineCommand({
   run({ args }) {
     const list = listVersions(resolve(String(args.dir)), args.pack ? String(args.pack) : undefined);
     if (args.json) {
-      console.log(JSON.stringify(list, null, 2));
+      json(list);
       return;
     }
     if (list.length === 0) {
-      console.log('没有已暂存的版本');
+      say('没有已暂存的版本');
       return;
     }
     for (const v of list) {
       const mark = v.active ? '●' : '○';
       const health = v.failed > 0 ? ` · ${v.failed} 个失败动作` : '';
-      console.log(
+      say(
         `${mark} ${`${v.pack}@${v.version}`.padEnd(40)} ${v.target.padEnd(12)} ${String(v.files).padStart(3)} 文件 · ${v.actions} 动作${health}  ${v.installedAt.slice(0, 19)}`,
       );
     }
-    console.log('\n● 表示当前激活；用 packhub activate <name>@<version> 切换');
+    say('\n● 表示当前激活；用 packhub activate <name>@<version> 切换');
   },
 });
 
-const activate = defineCommand({
+const activate = command({
   meta: { name: 'activate', description: '把同一个包已暂存的某个版本挂到项目上' },
   args: {
     ref: { type: 'positional', required: true, description: 'name@version' },
@@ -903,59 +867,50 @@ const activate = defineCommand({
     'no-verify': { type: 'boolean', default: false, description: '切换后不跑 doctor / verify' },
   },
   async run({ args }) {
-    const ref = String(args.ref);
-    const at = ref.lastIndexOf('@');
-    if (at <= 0 || at === ref.length - 1) {
-      console.error('用法：packhub activate <name>@<version>');
-      process.exit(2);
+    const parsed = parsePackRef(String(args.ref));
+    if (!parsed) {
+      problemRaw('用法：packhub activate <name>@<version>');
+      stop(EXIT.USAGE);
     }
-    const pack = ref.slice(0, at);
-    const version = ref.slice(at + 1);
+    const { name: pack, version } = parsed;
     const dir = resolve(String(args.dir));
-    try {
-      const res = await activatePack(dir, pack, version);
-      if (!args.json) {
-        console.log(`激活 ${res.to}${res.from ? `（原 ${res.from}）` : ''}`);
-        for (const r of res.removed) console.log(`  × ${r}`);
-        console.log(`\n铺开 ${res.written.length} 个路径；配置与指令块已按这个版本重放`);
-      }
+    const res = await activatePack(dir, pack, version);
+    if (!args.json) {
+      say(`激活 ${res.to}${res.from ? `（原 ${res.from}）` : ''}`);
+      for (const r of res.removed) say(`  × ${r}`);
+      say(`\n铺开 ${res.written.length} 个路径；配置与指令块已按这个版本重放`);
+    }
 
-      // 切换完立刻复核：state/active/文件是否一致，只读校验有没有失败
-      let doctor: ReturnType<typeof doctorPack> | undefined;
-      let reports: Awaited<ReturnType<typeof verifyInstalled>> = [];
-      if (!args['no-verify']) {
-        doctor = doctorPack(dir);
-        reports = await verifyInstalled(dir, {
-          pack: `${pack}@${version}`,
-          types: [...SAFE_CHECKS],
-        });
-        const bad = reports.filter((r) => !r.ok);
-        if (!args.json) {
-          console.log(`\n检查：${doctor.ok ? '✓ 文件与激活指针一致' : `x ${doctor.findings.length} 个漂移`}`);
-          for (const r of reports) {
-            const fails = r.results.filter((x) => x.status === 'fail').length;
-            console.log(`校验 ${r.pack}：${r.ok ? '通过' : `${fails} 项失败`}`);
-          }
-        }
-        if (!doctor.ok || bad.length > 0) {
-          if (args.json) console.log(JSON.stringify({ ...res, doctor, verify: reports }, null, 2));
-          console.error('切换完成，但检查没过；可用 packhub rollback 退回，或修完再试。');
-          process.exit(1);
+    // 切换完立刻复核：state/active/文件是否一致，只读校验有没有失败
+    let doctor: ReturnType<typeof doctorPack> | undefined;
+    let reports: Awaited<ReturnType<typeof verifyInstalled>> = [];
+    if (!args['no-verify']) {
+      doctor = doctorPack(dir);
+      reports = await verifyInstalled(dir, {
+        pack: `${pack}@${version}`,
+        types: [...SAFE_CHECKS],
+      });
+      const bad = reports.filter((r) => !r.ok);
+      if (!args.json) {
+        say(`\n检查：${doctor.ok ? '✓ 文件与激活指针一致' : `x ${doctor.findings.length} 个漂移`}`);
+        for (const r of reports) {
+          const fails = r.results.filter((x) => x.status === 'fail').length;
+          say(`校验 ${r.pack}：${r.ok ? '通过' : `${fails} 项失败`}`);
         }
       }
-      if (args.json) {
-        console.log(
-          JSON.stringify(doctor ? { ...res, doctor, verify: reports } : res, null, 2),
-        );
+      if (!doctor.ok || bad.length > 0) {
+        if (args.json) json({ ...res, doctor, verify: reports });
+        problemRaw('切换完成，但检查没过；可用 packhub rollback 退回，或修完再试。');
+        stop(EXIT.RUNTIME);
       }
-    } catch (err) {
-      console.error(`x ${(err as Error).message}`);
-      process.exit(1);
+    }
+    if (args.json) {
+      json(doctor ? { ...res, doctor, verify: reports } : res);
     }
   },
 });
 
-const run = defineCommand({
+const run = command({
   meta: { name: 'run', description: '在干净目录里装一遍并校验（发布门禁的同一个执行者）' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
@@ -965,22 +920,17 @@ const run = defineCommand({
   },
   async run({ args }) {
     const dir = resolve(String(args.dir));
-    try {
-      const { report } = await runPack(dir, {
-        out: args.out ? resolve(String(args.out)) : join(dir, 'verify.json'),
-        allowExec: Boolean(args['allow-exec']),
-        log: (line) => console.log(line),
-      });
-      if (args.json) console.log(JSON.stringify(report, null, 2));
-      process.exit(report.ok ? 0 : 1);
-    } catch (err) {
-      console.error(`x ${(err as Error).message}`);
-      process.exit(1);
-    }
+    const { report } = await runPack(dir, {
+      out: args.out ? resolve(String(args.out)) : join(dir, 'verify.json'),
+      allowExec: Boolean(args['allow-exec']),
+      log: (line) => say(line),
+    });
+    if (args.json) json(report);
+    stop(report.ok ? EXIT.OK : EXIT.RUNTIME);
   },
 });
 
-const publish = defineCommand({
+const publish = command({
   meta: { name: 'publish', description: '发布一个包：先干净安装+校验，再写进 registry' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
@@ -995,57 +945,52 @@ const publish = defineCommand({
   },
   async run({ args }) {
     const registry = resolve(String(args.registry));
-    try {
-      const res = await publishPack(resolve(String(args.dir)), {
-        registry,
-        ...(args.out ? { out: resolve(String(args.out)) } : {}),
-        dryRun: Boolean(args['dry-run']),
-        force: Boolean(args.force),
-        offline: Boolean(args.offline),
-        allowExec: Boolean(args['allow-exec']),
-        allowNonPublic: Boolean(args['allow-non-public']),
-        log: args.json ? () => {} : (line) => console.log(line),
-      });
-      if (args['dry-run']) {
-        if (args.json) console.log(JSON.stringify({ ...res, dryRun: true }, null, 2));
-        else console.log(`\n[dry-run] 将发布 ${res.name}@${res.version}，未写盘`);
-        return;
-      }
-      if (!args.out) {
-        const idx = writeIndex(registry);
-        if (!idx.ok) {
-          // 索引门禁失败：把刚写的版本目录/归档撤掉，别留下「版本在、索引没有」的半套
-          res.rollback();
-          if (args.json) {
-            console.log(JSON.stringify({ ok: false, name: res.name, version: res.version, error: '索引门禁没过，已撤回版本目录' }, null, 2));
-          } else {
-            console.error('\n索引有错误，未写入；本次版本目录与归档已撤回。');
-          }
-          process.exit(1);
-        }
-        res.finalize();
+    const res = await publishPack(resolve(String(args.dir)), {
+      registry,
+      ...(args.out ? { out: resolve(String(args.out)) } : {}),
+      dryRun: Boolean(args['dry-run']),
+      force: Boolean(args.force),
+      offline: Boolean(args.offline),
+      allowExec: Boolean(args['allow-exec']),
+      allowNonPublic: Boolean(args['allow-non-public']),
+      log: args.json ? () => {} : (line) => say(line),
+    });
+    if (args['dry-run']) {
+      if (args.json) json({ ...res, dryRun: true });
+      else say(`\n[dry-run] 将发布 ${res.name}@${res.version}，未写盘`);
+      return;
+    }
+    if (!args.out) {
+      const idx = writeIndex(registry);
+      if (!idx.ok) {
+        // 索引门禁失败：把刚写的版本目录/归档撤掉，别留下「版本在、索引没有」的半套
+        res.rollback();
         if (args.json) {
-          console.log(JSON.stringify({ ok: true, ...res, indexed: true, packs: idx.packs }, null, 2));
+          json({ ok: false, name: res.name, version: res.version, error: '索引门禁没过，已撤回版本目录' });
         } else {
-          console.log(`\n索引已更新：${idx.packs} 个包`);
-          console.log(`发布完成：${res.name}@${res.version}`);
+          problemRaw('\n索引有错误，未写入；本次版本目录与归档已撤回。');
         }
-      } else {
-        res.finalize();
-        if (args.json) console.log(JSON.stringify({ ok: true, ...res, indexed: false }, null, 2));
-        else {
-          console.log(`\n已写到 ${res.dir}；把${args.out} 下改动提交成 PR 即可`);
-          console.log(`发布完成：${res.name}@${res.version}`);
-        }
+        stop(EXIT.RUNTIME);
       }
-    } catch (err) {
-      console.error(`x ${(err as Error).message}`);
-      process.exit(1);
+      res.finalize();
+      if (args.json) {
+        json({ ok: true, ...res, indexed: true, packs: idx.packs });
+      } else {
+        say(`\n索引已更新：${idx.packs} 个包`);
+        say(`发布完成：${res.name}@${res.version}`);
+      }
+    } else {
+      res.finalize();
+      if (args.json) json({ ok: true, ...res, indexed: false });
+      else {
+        say(`\n已写到 ${res.dir}；把${args.out} 下改动提交成 PR 即可`);
+        say(`发布完成：${res.name}@${res.version}`);
+      }
     }
   },
 });
 
-const sync = defineCommand({
+const sync = command({
   meta: { name: 'sync', description: '把本地 skill / mcp 同步到各宿主 home 的全局落点（--to 支持 .）' },
   args: {
     dir: { type: 'positional', required: true, description: 'Pack 目录' },
@@ -1057,57 +1002,46 @@ const sync = defineCommand({
   },
   async run({ args }) {
     const dir = resolve(String(args.dir));
-    let targets: SyncTarget[];
-    try {
-      // `.` 按包声明的 targets 展开；移除时不看声明，避免包改了清单就删不掉
-      const declared = args.remove ? [] : (loadPack(dir).manifest?.metadata.targets ?? []);
-      targets = resolveSyncTargets(String(args.to), declared);
-    } catch (err) {
-      console.error(`x ${(err as Error).message}`);
-      process.exit(2);
-    }
-    try {
-      if (args.remove) {
-        const results = removeSynced(dir, targets);
-        if (args.json) {
-          console.log(JSON.stringify({ removed: results }, null, 2));
-          return;
-        }
-        for (const res of results) {
-          console.log(`${res.target} ${res.root}：移除 ${res.packs.length} 个包，${res.removed.length} 个路径`);
-          for (const p of res.removed) console.log(`  - ${p}`);
-        }
-        return;
-      }
-      const { pack, results } = await syncPack(dir, {
-        targets,
-        dryRun: Boolean(args['dry-run']),
-        overwrite: Boolean(args.overwrite),
-      });
+    // `.` 按包声明的 targets 展开；移除时不看声明，避免包改了清单就删不掉
+    const declared = args.remove ? [] : (loadPack(dir).manifest?.metadata.targets ?? []);
+    const targets = orStop(() => resolveSyncTargets(String(args.to), declared));
+    if (args.remove) {
+      const results = removeSynced(dir, targets);
       if (args.json) {
-        console.log(JSON.stringify({ pack, dryRun: Boolean(args['dry-run']), results }, null, 2));
+        json({ removed: results });
         return;
       }
-      console.log(`${pack}（${args['dry-run'] ? 'dry-run' : '同步'}）`);
       for (const res of results) {
-        console.log(`  ${res.target} → ${res.root}`);
-        if (res.planHash) console.log(`    planHash ${res.planHash.slice(0, 22)}…`);
-        for (const o of res.outcomes ?? []) {
-          const mark = o.status === 'done' || o.status === 'noop' ? '✓' : 'x';
-          console.log(`    ${mark} ${o.actionId.padEnd(16)} ${o.status.padEnd(8)} ${o.target ?? ''}`);
-        }
-        for (const m of res.mcp ?? []) {
-          console.log(`    ${m.status === 'planned' ? '·' : '✓'} mcp ${m.id.padEnd(14)} ${m.status}`);
-        }
+        say(`${res.target} ${res.root}：移除 ${res.packs.length} 个包，${res.removed.length} 个路径`);
+        for (const p of res.removed) say(`  - ${p}`);
       }
-    } catch (err) {
-      console.error(`x ${(err as Error).message}`);
-      process.exit(1);
+      return;
+    }
+    const { pack, results } = await syncPack(dir, {
+      targets,
+      dryRun: Boolean(args['dry-run']),
+      overwrite: Boolean(args.overwrite),
+    });
+    if (args.json) {
+      json({ pack, dryRun: Boolean(args['dry-run']), results });
+      return;
+    }
+    say(`${pack}（${args['dry-run'] ? 'dry-run' : '同步'}）`);
+    for (const res of results) {
+      say(`  ${res.target} → ${res.root}`);
+      if (res.planHash) say(`    planHash ${res.planHash.slice(0, 22)}…`);
+      for (const o of res.outcomes ?? []) {
+        const mark = o.status === 'done' || o.status === 'noop' ? '✓' : 'x';
+        say(`    ${mark} ${o.actionId.padEnd(16)} ${o.status.padEnd(8)} ${o.target ?? ''}`);
+      }
+      for (const m of res.mcp ?? []) {
+        say(`    ${m.status === 'planned' ? '·' : '✓'} mcp ${m.id.padEnd(14)} ${m.status}`);
+      }
     }
   },
 });
 
-const marketServe = defineCommand({
+const marketServe = command({
   meta: { name: 'serve', description: '起市场写端（账号、上传、下架、统计；包内容仍按版本不可变）' },
   args: {
     dir: { type: 'positional', required: false, default: '.', description: 'registry 根目录' },
@@ -1124,55 +1058,45 @@ const marketServe = defineCommand({
       requireReview: Boolean(args['require-review']),
       ...(args['admin-token'] ? { adminToken: String(args['admin-token']) } : {}),
     });
-    console.log(`PackHub 市场（写端）→ ${market.url}`);
-    console.log('上传走 POST /api/publish；包仍由 Hub 只读分发');
+    say(`PackHub 市场（写端）→ ${market.url}`);
+    say('上传走 POST /api/publish；包仍由 Hub 只读分发');
     for (const signal of ['SIGINT', 'SIGTERM'] as const) {
       process.on(signal, () => {
-        console.log(`${signal} → 关闭`);
-        void market.close().then(() => process.exit(0));
+        say(`${signal} → 关闭`);
+        void market.close().then(() => terminate(EXIT.OK));
       });
     }
     await new Promise(() => {});
   },
 });
 
-const marketRegisterCmd = defineCommand({
+const marketRegisterCmd = command({
   meta: { name: 'register', description: '在市场注册账号，拿到只能发布自己 scope 的 token' },
   args: {
     url: { type: 'positional', required: true, description: '市场地址，例如 http://127.0.0.1:8789' },
     name: { type: 'positional', required: true, description: '账号名（同时成为 scope）' },
   },
   async run({ args }) {
-    try {
-      const session = await marketRegister(String(args.url), String(args.name));
-      console.log(`✓ 已注册 ${session.name}（scope ${session.scope}）`);
-      console.log(`  token 已保存到 ${marketSessionPath()}（0600）`);
-      console.log(`  发布：packhub market publish <pack 目录> --url ${session.url}`);
-    } catch (err) {
-      console.error(`x ${(err as Error).message}`);
-      process.exit(1);
-    }
+    const session = await marketRegister(String(args.url), String(args.name));
+    say(`✓ 已注册 ${session.name}（scope ${session.scope}）`);
+    say(`  token 已保存到 ${marketSessionPath()}（0600）`);
+    say(`  发布：packhub market publish <pack 目录> --url ${session.url}`);
   },
 });
 
-const marketLoginCmd = defineCommand({
+const marketLoginCmd = command({
   meta: { name: 'login', description: '用已有 token 登录市场（token 存本机，不进清单）' },
   args: {
     url: { type: 'positional', required: true },
     token: { type: 'positional', required: true },
   },
   async run({ args }) {
-    try {
-      const session = await marketLogin(String(args.url), String(args.token));
-      console.log(`✓ 已登录 ${session.url}（${session.name} / ${session.scope}）`);
-    } catch (err) {
-      console.error(`x ${(err as Error).message}`);
-      process.exit(1);
-    }
+    const session = await marketLogin(String(args.url), String(args.token));
+    say(`✓ 已登录 ${session.url}（${session.name} / ${session.scope}）`);
   },
 });
 
-const marketPublishCmd = defineCommand({
+const marketPublishCmd = command({
   meta: { name: 'publish', description: '把 Pack 打成 .phub 上传到市场（服务端跑干净安装+只读校验）' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
@@ -1180,21 +1104,16 @@ const marketPublishCmd = defineCommand({
     token: { type: 'string', description: '临时 token（默认用已保存的登录）' },
   },
   async run({ args }) {
-    try {
-      const res = await publishToMarket(resolve(String(args.dir)), {
-        ...(args.url ? { url: String(args.url) } : {}),
-        ...(args.token ? { token: String(args.token) } : {}),
-      });
-      console.log(`✓ 已发布 ${res.name}@${res.version}（${res.trust ?? 'community'}）`);
-      if (res.planHash) console.log(`  planHash ${res.planHash.slice(0, 22)}…`);
-    } catch (err) {
-      console.error(`x ${(err as Error).message}`);
-      process.exit(1);
-    }
+    const res = await publishToMarket(resolve(String(args.dir)), {
+      ...(args.url ? { url: String(args.url) } : {}),
+      ...(args.token ? { token: String(args.token) } : {}),
+    });
+    say(`✓ 已发布 ${res.name}@${res.version}（${res.trust ?? 'community'}）`);
+    if (res.planHash) say(`  planHash ${res.planHash.slice(0, 22)}…`);
   },
 });
 
-const marketSearchCmd = defineCommand({
+const marketSearchCmd = command({
   meta: { name: 'search', description: '在市场里按关键词找包（带下载量）' },
   args: {
     keyword: { type: 'positional', required: false },
@@ -1202,31 +1121,26 @@ const marketSearchCmd = defineCommand({
     json: { type: 'boolean', default: false },
   },
   async run({ args }) {
-    try {
-      const sessions = Object.keys(readSessions().sessions);
-      const url = args.url ? String(args.url) : sessions.length === 1 ? sessions[0]! : undefined;
-      if (!url) {
-        console.error('要指定 --url，或先 packhub market login 保存一个地址');
-        process.exit(2);
-      }
-      const packs = await searchMarket(url, String(args.keyword ?? ''));
-      if (args.json) {
-        console.log(JSON.stringify(packs, null, 2));
-        return;
-      }
-      for (const p of packs) {
-        console.log(`${p.name}@${p.latest}  ${p.trust ?? 'community'}  ${p.downloads ?? 0} 次下载`);
-        if (p.title) console.log(`  ${p.title}`);
-      }
-      if (packs.length === 0) console.log('没有匹配的包');
-    } catch (err) {
-      console.error(`x ${(err as Error).message}`);
-      process.exit(1);
+    const sessions = Object.keys(readSessions().sessions);
+    const url = args.url ? String(args.url) : sessions.length === 1 ? sessions[0]! : undefined;
+    if (!url) {
+      problemRaw('要指定 --url，或先 packhub market login 保存一个地址');
+      stop(EXIT.USAGE);
     }
+    const packs = await searchMarket(url, String(args.keyword ?? ''));
+    if (args.json) {
+      json(packs);
+      return;
+    }
+    for (const p of packs) {
+      say(`${p.name}@${p.latest}  ${p.trust ?? 'community'}  ${p.downloads ?? 0} 次下载`);
+      if (p.title) say(`  ${p.title}`);
+    }
+    if (packs.length === 0) say('没有匹配的包');
   },
 });
 
-const marketRateCmd = defineCommand({
+const marketRateCmd = command({
   meta: { name: 'rate', description: '给市场里的一个版本评分（1..5，一个账号一票）' },
   args: {
     ref: { type: 'positional', required: true, description: 'name@version' },
@@ -1236,22 +1150,17 @@ const marketRateCmd = defineCommand({
     token: { type: 'string' },
   },
   async run({ args }) {
-    try {
-      const res = await rateVersion(String(args.ref), Number(args.score), {
-        ...(args.url ? { url: String(args.url) } : {}),
-        ...(args.token ? { token: String(args.token) } : {}),
-        ...(args.comment ? { comment: String(args.comment) } : {}),
-      });
-      const avg = res.rating.average === null ? '—' : res.rating.average.toFixed(1);
-      console.log(`✓ ${res.name}@${res.version} 已评分：${args.score}/5（均分 ${avg}，${res.rating.count} 人）`);
-    } catch (err) {
-      console.error(`x ${(err as Error).message}`);
-      process.exit(1);
-    }
+    const res = await rateVersion(String(args.ref), Number(args.score), {
+      ...(args.url ? { url: String(args.url) } : {}),
+      ...(args.token ? { token: String(args.token) } : {}),
+      ...(args.comment ? { comment: String(args.comment) } : {}),
+    });
+    const avg = res.rating.average === null ? '—' : res.rating.average.toFixed(1);
+    say(`✓ ${res.name}@${res.version} 已评分：${args.score}/5（均分 ${avg}，${res.rating.count} 人）`);
   },
 });
 
-const marketYankCmd = defineCommand({
+const marketYankCmd = command({
   meta: { name: 'yank', description: '下架自己发布的一个版本（移到 quarantine，索引同步移除）' },
   args: {
     ref: { type: 'positional', required: true, description: 'name@version' },
@@ -1260,33 +1169,28 @@ const marketYankCmd = defineCommand({
     reason: { type: 'string' },
   },
   async run({ args }) {
-    try {
-      const res = await yankVersion(String(args.ref), {
-        ...(args.url ? { url: String(args.url) } : {}),
-        ...(args.token ? { token: String(args.token) } : {}),
-        ...(args.reason ? { reason: String(args.reason) } : {}),
-      });
-      console.log(`✓ 已下架 ${res.name}@${res.version}`);
-    } catch (err) {
-      console.error(`x ${(err as Error).message}`);
-      process.exit(1);
-    }
+    const res = await yankVersion(String(args.ref), {
+      ...(args.url ? { url: String(args.url) } : {}),
+      ...(args.token ? { token: String(args.token) } : {}),
+      ...(args.reason ? { reason: String(args.reason) } : {}),
+    });
+    say(`✓ 已下架 ${res.name}@${res.version}`);
   },
 });
 
-const marketWhoami = defineCommand({
+const marketWhoami = command({
   meta: { name: 'whoami', description: '看本机保存了哪些市场登录' },
   run() {
     const sessions = Object.values(readSessions().sessions);
     if (sessions.length === 0) {
-      console.log(`没有登录记录：${marketSessionPath()}`);
+      say(`没有登录记录：${marketSessionPath()}`);
       return;
     }
-    for (const s of sessions) console.log(`${s.url}  ${s.name} (${s.scope})`);
+    for (const s of sessions) say(`${s.url}  ${s.name} (${s.scope})`);
   },
 });
 
-const market = defineCommand({
+const market = command({
   meta: { name: 'market', description: '市场写端：账号、发布、下架、统计（Hub 仍然只读）' },
   subCommands: {
     serve: marketServe,
@@ -1300,7 +1204,7 @@ const market = defineCommand({
   },
 });
 
-const trustAdd = defineCommand({
+const trustAdd = command({
   meta: { name: 'add', description: '把发布者的公钥 id 加入本机信任列表' },
   args: {
     key: { type: 'positional', required: true, description: '公钥 id（packhub sign 输出里的 key）' },
@@ -1308,41 +1212,41 @@ const trustAdd = defineCommand({
   },
   run({ args }) {
     const entry = addTrustedKey(String(args.key), args.label ? String(args.label) : undefined);
-    console.log(`✓ 已信任 ${entry.key.slice(0, 16)}…${entry.label ? `（${entry.label}）` : ''}`);
-    console.log(`  ${trustPath()}`);
-    console.log('  之后安装默认要求来自这个列表的有效签名；要装无签名包用 --allow-unsigned');
+    say(`✓ 已信任 ${entry.key.slice(0, 16)}…${entry.label ? `（${entry.label}）` : ''}`);
+    say(`  ${trustPath()}`);
+    say('  之后安装默认要求来自这个列表的有效签名；要装无签名包用 --allow-unsigned');
   },
 });
 
-const trustRemove = defineCommand({
+const trustRemove = command({
   meta: { name: 'remove', description: '从信任列表移除一个公钥' },
   args: { key: { type: 'positional', required: true } },
   run({ args }) {
     const ok = removeTrustedKey(String(args.key));
-    console.log(ok ? `✓ 已移除 ${String(args.key).slice(0, 16)}…` : '信任列表里没有这个公钥');
-    if (!ok) process.exit(1);
+    say(ok ? `✓ 已移除 ${String(args.key).slice(0, 16)}…` : '信任列表里没有这个公钥');
+    if (!ok) stop(EXIT.RUNTIME);
   },
 });
 
-const trustList = defineCommand({
+const trustList = command({
   meta: { name: 'list', description: '列出本机信任的公钥' },
   run() {
     const trust = readTrust();
     if (trust.keys.length === 0) {
-      console.log(`信任列表是空的：${trustPath()}`);
-      console.log('用 packhub trust add <公钥 id> 添加发布者');
+      say(`信任列表是空的：${trustPath()}`);
+      say('用 packhub trust add <公钥 id> 添加发布者');
       return;
     }
     for (const key of trust.keys) {
-      console.log(`${key.key}${key.label ? `  ${key.label}` : ''}  ${key.addedAt.slice(0, 19)}`);
+      say(`${key.key}${key.label ? `  ${key.label}` : ''}  ${key.addedAt.slice(0, 19)}`);
     }
-    console.log(
+    say(
       `\n共 ${trust.keys.length} 个；要求签名：${trust.requireSignature === true || trust.keys.length > 0 ? '是' : '否'}`,
     );
   },
 });
 
-const trustRequire = defineCommand({
+const trustRequire = command({
   meta: { name: 'require', description: '要不要强制签名（on | off）；公钥列表不动' },
   args: {
     value: { type: 'positional', required: true, description: 'on | off' },
@@ -1350,25 +1254,25 @@ const trustRequire = defineCommand({
   run({ args }) {
     const raw = String(args.value).toLowerCase();
     if (raw !== 'on' && raw !== 'off') {
-      console.error(`只认 on 或 off：收到 ${String(args.value)}`);
-      process.exit(2);
+      problemRaw(`只认 on 或 off：收到 ${String(args.value)}`);
+      stop(EXIT.USAGE);
     }
     const on = raw === 'on';
     const data = setRequireSignature(on);
-    console.log(on ? '✓ 之后安装要求签名（单次可被 --allow-unsigned 绕过）' : '✓ 不再要求签名');
-    console.log(`  ${trustPath()}`);
+    say(on ? '✓ 之后安装要求签名（单次可被 --allow-unsigned 绕过）' : '✓ 不再要求签名');
+    say(`  ${trustPath()}`);
     if (!on && data.keys.length > 0) {
-      console.warn(`warn  信任列表里还有 ${data.keys.length} 把公钥：列表非空时仍然只收列表里的签名`);
+      warn(`信任列表里还有 ${data.keys.length} 把公钥：列表非空时仍然只收列表里的签名`);
     }
   },
 });
 
-const trust = defineCommand({
+const trust = command({
   meta: { name: 'trust', description: '管理持久信任的签名公钥' },
   subCommands: { add: trustAdd, remove: trustRemove, list: trustList, require: trustRequire },
 });
 
-const audit = defineCommand({
+const audit = command({
   meta: { name: 'audit', description: '看本机的安装审计（add / install / update）' },
   args: {
     tail: { type: 'string', default: '20', description: '只看最近 N 条' },
@@ -1377,23 +1281,23 @@ const audit = defineCommand({
   run({ args }) {
     const entries = readAudit(Number(args.tail) || 20);
     if (args.json) {
-      console.log(JSON.stringify(entries, null, 2));
+      json(entries);
       return;
     }
     if (entries.length === 0) {
-      console.log(`还没有审计记录：${auditPath()}`);
+      say(`还没有审计记录：${auditPath()}`);
       return;
     }
     for (const e of entries) {
-      console.log(
+      say(
         `${e.at.slice(0, 19)}  ${e.action.padEnd(8)} ${`${e.pack ?? ''}@${e.version ?? ''}`.padEnd(34)} ${e.ok === false ? 'x' : '✓'}  ${e.planHash?.slice(0, 14) ?? ''}`,
       );
     }
-    console.log(`\n${auditPath()}`);
+    say(`\n${auditPath()}`);
   },
 });
 
-const authSet = defineCommand({
+const authSet = command({
   meta: { name: 'set', description: '把一把 token 存进凭据库（0600，不进清单、不进 registry）' },
   args: {
     name: { type: 'positional', required: true, description: '变量名，例如 GITHUB_TOKEN' },
@@ -1401,37 +1305,37 @@ const authSet = defineCommand({
   },
   run({ args }) {
     setToken(String(args.name), String(args.value));
-    console.log(`✓ 已存入 ${credentialsPath()}（${String(args.name)}）`);
-    console.log('  下载时环境变量优先，其次才是这里。');
+    say(`✓ 已存入 ${credentialsPath()}（${String(args.name)}）`);
+    say('  下载时环境变量优先，其次才是这里。');
   },
 });
 
-const authList = defineCommand({
+const authList = command({
   meta: { name: 'list', description: '列出已存的 token（只显示掩码）' },
   run() {
     const tokens = listTokens();
     if (tokens.length === 0) {
-      console.log(`凭据库是空的：${credentialsPath()}`);
-      console.log('用 packhub auth set <变量名> <token> 添加');
+      say(`凭据库是空的：${credentialsPath()}`);
+      say('用 packhub auth set <变量名> <token> 添加');
       return;
     }
     for (const t of tokens) {
-      console.log(`${t.name.padEnd(24)} ${t.masked}${t.fromEnv ? '  ← 环境变量也在起作用（优先）' : ''}`);
+      say(`${t.name.padEnd(24)} ${t.masked}${t.fromEnv ? '  ← 环境变量也在起作用（优先）' : ''}`);
     }
   },
 });
 
-const authRemove = defineCommand({
+const authRemove = command({
   meta: { name: 'remove', description: '删掉一把 token' },
   args: { name: { type: 'positional', required: true } },
   run({ args }) {
     const ok = removeToken(String(args.name));
-    console.log(ok ? `✓ 已删除 ${String(args.name)}` : `没有这个 token：${String(args.name)}`);
-    if (!ok) process.exit(1);
+    say(ok ? `✓ 已删除 ${String(args.name)}` : `没有这个 token：${String(args.name)}`);
+    if (!ok) stop(EXIT.RUNTIME);
   },
 });
 
-const authRotate = defineCommand({
+const authRotate = command({
   meta: { name: 'rotate', description: '换掉一把 token 的值（等价于 set，但会提示旧值已替换）' },
   args: {
     name: { type: 'positional', required: true },
@@ -1440,16 +1344,16 @@ const authRotate = defineCommand({
   run({ args }) {
     const before = listTokens().find((t) => t.name === String(args.name));
     setToken(String(args.name), String(args.value));
-    console.log(`✓ 已轮换 ${String(args.name)}${before ? `（旧值 ${before.masked}）` : ''}`);
+    say(`✓ 已轮换 ${String(args.name)}${before ? `（旧值 ${before.masked}）` : ''}`);
   },
 });
 
-const auth = defineCommand({
+const auth = command({
   meta: { name: 'auth', description: '管理私有来源的 token' },
   subCommands: { set: authSet, list: authList, remove: authRemove, rotate: authRotate },
 });
 
-const doctor = defineCommand({
+const doctor = command({
   meta: { name: 'doctor', description: '检查已装的包有没有被外部改写（文件被删、托管块被吃）' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
@@ -1463,82 +1367,76 @@ const doctor = defineCommand({
   },
   run({ args }) {
     if (args.global) {
-      let targets: SyncTarget[];
-      try {
-        targets = resolveSyncTargets(String(args.targets));
-      } catch (err) {
-        console.error(`x ${(err as Error).message}`);
-        process.exit(2);
-      }
+      const targets = orStop(() => resolveSyncTargets(String(args.targets)));
       const results = doctorGlobal(targets);
       // skipped 是「这个 harness 没装」，不是失败；只有真读过状态却不 ok 才算失败
       const failed = results.some((r) => !r.skipped && (r.error !== undefined || !r.report?.ok));
       if (args.json) {
-        console.log(JSON.stringify(results, null, 2));
-        if (failed) process.exit(1);
+        json(results);
+        if (failed) stop(EXIT.RUNTIME);
         return;
       }
       for (const r of results) {
-        console.log(`\n${r.target} ${r.root}`);
+        say(`\n${r.target} ${r.root}`);
         if (r.skipped) {
-          console.log('  - 跳过：没有这个 harness 的 home');
+          say('  - 跳过：没有这个 harness 的 home');
           continue;
         }
         if (r.error) {
-          console.log(`  x ${r.error}`);
+          say(`  x ${r.error}`);
           continue;
         }
         if (!r.report || r.report.packs.length === 0) {
-          console.log('  没有同步过包');
+          say('  没有同步过包');
           continue;
         }
         if (r.report.ok) {
-          console.log(`  ✓ ${r.report.packs.length} 个包全部在位`);
+          say(`  ✓ ${r.report.packs.length} 个包全部在位`);
           continue;
         }
         for (const f of r.report.findings) {
-          console.log(`  x ${f.pack}`);
-          for (const m of f.filesMissing) console.log(`      文件不见了：${m}`);
-          for (const b of f.blocksMissing) console.log(`      托管块不见了：${b}`);
-          for (const c of f.configDrift) console.log(`      配置被改：${c}`);
-          for (const a of f.activeDrift) console.log(`      激活指针不一致：${a}`);
-          for (const s of f.stateMissing) console.log(`      状态目录不见了：${s}`);
-          for (const m of f.mcpMissing) console.log(`      MCP 不见了：${m}`);
+          say(`  x ${f.pack}`);
+          for (const m of f.filesMissing) say(`      文件不见了：${m}`);
+          for (const b of f.blocksMissing) say(`      托管块不见了：${b}`);
+          for (const c of f.configDrift) say(`      配置被改：${c}`);
+          for (const a of f.activeDrift) say(`      激活指针不一致：${a}`);
+          for (const s of f.stateMissing) say(`      状态目录不见了：${s}`);
+          for (const m of f.mcpMissing) say(`      MCP 不见了：${m}`);
         }
       }
-      if (failed) process.exit(1);
+      if (failed) stop(EXIT.RUNTIME);
       return;
     }
     const report = doctorPack(resolve(String(args.dir)));
     if (args.json) {
-      console.log(JSON.stringify(report, null, 2));
-      if (!report.ok) process.exit(1);
+      json(report);
+      if (!report.ok) stop(EXIT.RUNTIME);
       return;
     }
     if (report.packs.length === 0) {
-      console.log('这个目录没有装任何包');
+      say('这个目录没有装任何包');
       return;
     }
-    console.log(`检查 ${report.packs.length} 个包`);
+    say(`检查 ${report.packs.length} 个包`);
     for (const f of report.findings) {
-      console.log(`x ${f.pack}`);
-      for (const b of f.blocksMissing) console.log(`    托管块不见了：${b}（可能被宿主工具重新生成覆盖）`);
-      for (const m of f.filesMissing) console.log(`    文件不见了：${m}`);
-      for (const c of f.configDrift) console.log(`    配置被改：${c}`);
-      for (const a of f.activeDrift) console.log(`    激活指针不一致：${a}`);
-      for (const s of f.stateMissing) console.log(`    状态目录不见了：${s}`);
-      for (const m of f.mcpMissing) console.log(`    MCP 不见了：${m}`);
+      say(`x ${f.pack}`);
+      for (const b of f.blocksMissing) say(`    托管块不见了：${b}（可能被宿主工具重新生成覆盖）`);
+      for (const m of f.filesMissing) say(`    文件不见了：${m}`);
+      for (const c of f.configDrift) say(`    配置被改：${c}`);
+      for (const a of f.activeDrift) say(`    激活指针不一致：${a}`);
+      for (const s of f.stateMissing) say(`    状态目录不见了：${s}`);
+      for (const m of f.mcpMissing) say(`    MCP 不见了：${m}`);
     }
     if (report.ok) {
-      console.log('✓ 全部在位');
+      say('✓ 全部在位');
     } else {
-      console.log('\n重新 install 可以补回缺失的块；如果宿主会自动重写指令文件，把 PackHub 的块当成"会被覆盖"的内容对待。');
-      process.exit(1);
+      say('\n重新 install 可以补回缺失的块；如果宿主会自动重写指令文件，把 PackHub 的块当成"会被覆盖"的内容对待。');
+      stop(EXIT.RUNTIME);
     }
   },
 });
 
-const probe = defineCommand({
+const probe = command({
   meta: { name: 'probe', description: '真机探针：跑一次 harness，看它有没有读到包写进去的指令' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
@@ -1557,20 +1455,20 @@ const probe = defineCommand({
           ...(args.patch ? { patchFile: resolve(String(args.patch)) } : {}),
         });
     if (args.json) {
-      console.log(JSON.stringify(result, null, 2));
-      if (!result.ok) process.exit(1);
+      json(result);
+      if (!result.ok) stop(EXIT.RUNTIME);
       return;
     }
-    console.log(result.ok ? '✓ harness 读到了托管块' : 'x 没读到');
-    console.log(`  命令：${result.command}`);
-    if (result.marker) console.log(`  期望标记：${result.marker}`);
-    if (result.answer) console.log(`  回答：${result.answer.replace(/\s+/g, ' ').slice(0, 200)}`);
-    if (result.reason) console.log(`  原因：${result.reason}`);
-    if (!result.ok) process.exit(1);
+    say(result.ok ? '✓ harness 读到了托管块' : 'x 没读到');
+    say(`  命令：${result.command}`);
+    if (result.marker) say(`  期望标记：${result.marker}`);
+    if (result.answer) say(`  回答：${result.answer.replace(/\s+/g, ' ').slice(0, 200)}`);
+    if (result.reason) say(`  原因：${result.reason}`);
+    if (!result.ok) stop(EXIT.RUNTIME);
   },
 });
 
-const licenses = defineCommand({
+const licenses = command({
   meta: { name: 'licenses', description: '列出每个资源的许可证情况，并可按策略判定' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
@@ -1583,7 +1481,7 @@ const licenses = defineCommand({
   async run({ args }) {
     const dir = resolve(String(args.dir));
     const ctx = loadPack(dir);
-    if (reportIssues(ctx.issues)) process.exit(2);
+    if (reportIssues(ctx.issues)) stop(EXIT.USAGE);
     const findings = inspectLicenses(dir, ctx.manifest);
 
     if (args.online) {
@@ -1603,12 +1501,10 @@ const licenses = defineCommand({
 
     let policy: LicensePolicy | undefined;
     if (args.policy) {
-      try {
-        policy = JSON.parse(readFileSync(resolve(String(args.policy)), 'utf8')) as LicensePolicy;
-      } catch (err) {
-        console.error(`许可策略读不了：${(err as Error).message}`);
-        process.exit(2);
-      }
+      policy = orStop(
+        () => JSON.parse(readFileSync(resolve(String(args.policy)), 'utf8')) as LicensePolicy,
+        { line: (err) => `许可策略读不了：${(err as Error).message}` },
+      );
     }
     const denied = new Set(
       String(args.deny ?? '')
@@ -1674,27 +1570,27 @@ const licenses = defineCommand({
       });
     }
     if (args.json) {
-      console.log(JSON.stringify({ findings: rows, missing, blocked, ok: blocked === 0 }, null, 2));
+      json({ findings: rows, missing, blocked, ok: blocked === 0 });
     } else {
       for (const f of rows) {
         if (!f.vendored && !f.spdx) {
-          console.log(`- ${f.resource.padEnd(20)} 远程（加 --online 可查 npm license）`);
+          say(`- ${f.resource.padEnd(20)} 远程（加 --online 可查 npm license）`);
         } else if (!f.ok) {
-          console.log(`x ${f.resource.padEnd(20)} ${f.spdx ?? '未知'} · ${f.file ?? f.source}（${f.reason ?? ''}）`);
+          say(`x ${f.resource.padEnd(20)} ${f.spdx ?? '未知'} · ${f.file ?? f.source}（${f.reason ?? ''}）`);
         } else {
-          console.log(`✓ ${f.resource.padEnd(20)} ${f.spdx ?? '未知'} · ${f.file ?? f.source}`);
+          say(`✓ ${f.resource.padEnd(20)} ${f.spdx ?? '未知'} · ${f.file ?? f.source}`);
         }
       }
       if (missing > 0) {
-        console.log(`\n${missing} 个 vendored 资源缺少许可证文件；不确定能不能再分发时先去上游确认`);
+        say(`\n${missing} 个 vendored 资源缺少许可证文件；不确定能不能再分发时先去上游确认`);
       }
-      if (blocked > 0) console.log(`\n${blocked} 个资源未通过许可策略`);
+      if (blocked > 0) say(`\n${blocked} 个资源未通过许可策略`);
     }
-    if (blocked > 0) process.exit(1);
-    if (missing > 0 && args.strict) process.exit(1);
+    if (blocked > 0) stop(EXIT.RUNTIME);
+    if (missing > 0 && args.strict) stop(EXIT.RUNTIME);
   },
 });
-const keygen = defineCommand({
+const keygen = command({
   meta: { name: 'keygen', description: '生成一对 ed25519 签名密钥' },
   args: {
     out: { type: 'string', default: 'packhub.key', description: '私钥输出路径' },
@@ -1703,13 +1599,13 @@ const keygen = defineCommand({
     const { privatePem, publicKey } = generateKeyPair();
     const out = resolve(String(args.out));
     writeFileSync(out, privatePem, { encoding: 'utf8', mode: 0o600 });
-    console.log(`✓ 私钥：${out}（别提交进版本库）`);
-    console.log(`  公钥 id：${publicKey}`);
-    console.log('  把公钥 id 发给要信任你的人；签名用 packhub sign');
+    say(`✓ 私钥：${out}（别提交进版本库）`);
+    say(`  公钥 id：${publicKey}`);
+    say('  把公钥 id 发给要信任你的人；签名用 packhub sign');
   },
 });
 
-const sign = defineCommand({
+const sign = command({
   meta: { name: 'sign', description: '用私钥签这个包的计划哈希' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
@@ -1720,36 +1616,40 @@ const sign = defineCommand({
     const loaded = loadPack(dir);
     if (!loaded.manifest) {
       reportIssues(loaded.issues);
-      process.exit(2);
+      stop(EXIT.USAGE);
     }
     // 和 install / verify 看同一份：有锁就按锁钉死的引用算计划，否则签的哈希和装的对不上
     const lockRead = loadLock(dir);
     if (lockRead.problem) {
       reportIssues([lockRead.problem]);
-      process.exit(2);
+      stop(EXIT.USAGE);
     }
     const ctx = withLockPins(loaded, lockRead.lock);
-    if (reportIssues(ctx.issues)) process.exit(2);
+    if (reportIssues(ctx.issues)) stop(EXIT.USAGE);
     const { plan, issues } = planFor(ctx, { target: 'dir' });
     if (!plan) {
       reportIssues(issues, 'packhub sign');
-      process.exit(2);
+      stop(EXIT.USAGE);
     }
-    if (lockRead.lock?.planHash && lockRead.lock.planHash !== plan.planHash) {
-      console.error('锁里的计划快照和当前清单对不上：先跑 packhub lock 再签，否则签的是一个装不上去的哈希');
-      process.exit(2);
+    // 签的是 dir 计划的哈希，所以「锁是否过期」要比的是 dir 那份快照：多 target 锁的
+    // top-level planHash 是主 target 的计划，拿它比会把主 target 不是 dir 的锁误判成过期。
+    // 判定走 kernel 单点；missing / no-lock-plan 不拦（没有可比的快照就按当前清单签）。
+    const lockCheck = checkLockConsistency(lockRead.lock, 'dir', plan);
+    if (lockCheck.status === 'mismatch') {
+      problemRaw('锁里的计划快照和当前清单对不上：先跑 packhub lock 再签，否则签的是一个装不上去的哈希');
+      stop(EXIT.USAGE);
     }
     const pack = `${ctx.manifest.metadata.name}@${ctx.manifest.metadata.version}`;
     const pem = readFileSync(String(args.key), 'utf8');
     const signature = signPlan(pem, pack, plan.planHash);
     writeSignature(dir, signature);
-    console.log(`✓ 已签名 ${pack}`);
-    console.log(`  公钥 id：${signature.key}`);
-    console.log(`  planHash：${plan.planHash.slice(0, 22)}…`);
+    say(`✓ 已签名 ${pack}`);
+    say(`  公钥 id：${signature.key}`);
+    say(`  planHash：${plan.planHash.slice(0, 22)}…`);
   },
 });
 
-const verifySig = defineCommand({
+const verifySig = command({
   meta: { name: 'verify-sig', description: '校验包上的签名' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
@@ -1762,25 +1662,25 @@ const verifySig = defineCommand({
       const loaded = loadPack(dir);
       if (!loaded.manifest) {
         reportIssues(loaded.issues);
-        process.exit(2);
+        stop(EXIT.USAGE);
       }
       const lockRead = loadLock(dir);
       if (lockRead.problem) {
         reportIssues([lockRead.problem]);
-        process.exit(2);
+        stop(EXIT.USAGE);
       }
       const ctx = withLockPins(loaded, lockRead.lock);
-      if (reportIssues(ctx.issues)) process.exit(2);
+      if (reportIssues(ctx.issues)) stop(EXIT.USAGE);
       const { plan, issues } = planFor(ctx, { target: 'dir' });
       if (!plan) {
         reportIssues(issues, 'packhub verify-sig');
-        process.exit(2);
+        stop(EXIT.USAGE);
       }
       const sigs = [...readSignatures(dir), ...(ctx.manifest.signatures ?? [])];
       if (sigs.length === 0) {
-        if (args.json) console.log(JSON.stringify({ ok: false, error: '这个包没有签名', signatures: [] }, null, 2));
-        else console.error('这个包没有签名');
-        process.exit(1);
+        if (args.json) json({ ok: false, error: '这个包没有签名', signatures: [] });
+        else problemRaw('这个包没有签名');
+        stop(EXIT.RUNTIME);
       }
       const pack = `${ctx.manifest.metadata.name}@${ctx.manifest.metadata.version}`;
       const results = verifySignatures(sigs, pack, plan.planHash);
@@ -1796,29 +1696,23 @@ const verifySig = defineCommand({
       });
       const good = rows.filter((r) => r.accepted).length;
       if (args.json) {
-        console.log(
-          JSON.stringify(
-            { ok: good > 0, planHash: plan.planHash, signatures: rows },
-            null,
-            2,
-          ),
-        );
+        json({ ok: good > 0, planHash: plan.planHash, signatures: rows });
       } else {
         for (const r of rows) {
-          console.log(
+          say(
             `${r.accepted ? '✓' : 'x'} ${r.key.slice(0, 16)}… ${r.ok ? '签名有效' : '签名不符'}${
               trusted && !r.trusted ? '（不在信任列表）' : ''
             }`,
           );
         }
-        console.log(`\n${good}/${results.length} 个签名通过`);
+        say(`\n${good}/${results.length} 个签名通过`);
       }
-      if (good === 0) process.exit(1);
+      if (good === 0) stop(EXIT.RUNTIME);
     }
   },
 });
 
-const pack = defineCommand({
+const pack = command({
   meta: {
     name: 'pack',
     description: '封装：把 Pack 目录打成 .phub 归档（不是整合，也不是发布）',
@@ -1836,32 +1730,25 @@ const pack = defineCommand({
   async run({ args }) {
     const dir = resolve(String(args.dir));
     const vendored = !args.reference;
-    try {
-      const res = await packArchive(dir, {
-        vendored,
-        ...(args.out ? { out: resolve(String(args.out)) } : {}),
-      });
-      if (args.json) {
-        console.log(
-          JSON.stringify({ ...res, mode: vendored ? 'vendored' : 'reference' }, null, 2),
-        );
-        return;
-      }
-      console.log(`✓ ${res.file}（${Math.max(1, Math.round(res.bytes / 1024))} KB）`);
-      console.log(
-        `包含：${res.entries.join('、')}${vendored ? '（自包含）' : '（reference 模式：安装时要能按 source 取到内容）'}`,
-      );
-    } catch (err) {
-      if (err instanceof LocalSourceNotVendoredError) {
-        console.error(`x ${err.message}`);
-        process.exit(2);
-      }
-      throw err;
+    const res = await packArchive(dir, {
+      vendored,
+      ...(args.out ? { out: resolve(String(args.out)) } : {}),
+    });
+    if (args.json) {
+      json({ ...res, mode: vendored ? 'vendored' : 'reference' });
+      return;
     }
+    say(`✓ ${res.file}（${Math.max(1, Math.round(res.bytes / 1024))} KB）`);
+    say(
+      `包含：${res.entries.join('、')}${vendored ? '（自包含）' : '（reference 模式：安装时要能按 source 取到内容）'}`,
+    );
   },
+}, {
+  // 本地来源没随包带上：是输入问题（2）；封装过程本身出错仍是运行失败（1）
+  code: (err) => (err instanceof LocalSourceNotVendoredError ? EXIT.USAGE : EXIT.RUNTIME),
 });
 
-const uninstall = defineCommand({
+const uninstall = command({
   meta: { name: 'uninstall', description: '按 state 反向删除已装的文件' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
@@ -1873,20 +1760,20 @@ const uninstall = defineCommand({
     const key = args.pack ? String(args.pack) : undefined;
     const res = removePack(dir, key);
     if (args.json) {
-      console.log(JSON.stringify(res, null, 2));
+      json(res);
       return;
     }
     if (res.removed.length === 0 && res.kept.length === 0) {
-      console.log('没有可卸载的记录（state 里没有这个包）');
+      say('没有可卸载的记录（state 里没有这个包）');
       return;
     }
-    for (const r of res.removed) console.log(`  - ${r}`);
-    for (const r of res.kept) console.log(`  = 保留 ${r}（还有别的包在用）`);
-    console.log(`\n移除 ${res.removed.length} 个路径，涉及 ${res.packs.length} 个包`);
+    for (const r of res.removed) say(`  - ${r}`);
+    for (const r of res.kept) say(`  = 保留 ${r}（还有别的包在用）`);
+    say(`\n移除 ${res.removed.length} 个路径，涉及 ${res.packs.length} 个包`);
   },
 });
 
-const diff = defineCommand({
+const diff = command({
   meta: { name: 'diff', description: '对比锁里的计划快照与当前计划' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
@@ -1901,45 +1788,45 @@ const diff = defineCommand({
       if (read.problem) {
         reportIssues([read.problem]);
       } else {
-        console.error('没有 packhub.lock.json：先跑 packhub lock');
+        problemRaw('没有 packhub.lock.json：先跑 packhub lock');
       }
-      process.exit(2);
+      stop(EXIT.USAGE);
     }
     const lock = read.lock;
     const ctx = withLockPins(loadPack(dir), lock);
-    if (reportIssues(ctx.issues)) process.exit(2);
+    if (reportIssues(ctx.issues)) stop(EXIT.USAGE);
     const { plan, issues } = planFor(ctx, { target: target as never });
     if (!plan) {
       reportIssues(issues, 'packhub diff');
-      process.exit(2);
+      stop(EXIT.USAGE);
     }
-    // 多 target 锁优先用对应 target 的快照；旧锁只有一个 plan
+    // 多 target 锁优先用对应 target 的快照；旧锁只有一个 plan。
+    // 取快照只为拿旧动作列表（diffActions 需要它）；「锁 ↔ 清单」是否一致由 kernel 的单点判定。
     const snapshot =
       lock.plans?.[target as TargetId] ??
-      (lock.plan && (lock.plan.target ?? 'dir') === target
-        ? { planHash: lock.planHash, actions: lock.plan.actions }
-        : undefined);
+      (lock.plan && (lock.plan.target ?? 'dir') === target ? lock.plan : undefined);
     if (!snapshot) {
-      console.error(`锁里没有 ${target} 的计划快照（旧版锁，或 lock 时没声明这个 target）；重跑 packhub lock`);
-      process.exit(2);
+      problemRaw(`锁里没有 ${target} 的计划快照（旧版锁，或 lock 时没声明这个 target）；重跑 packhub lock`);
+      stop(EXIT.USAGE);
     }
+    const lockCheck = checkLockConsistency(lock, target as TargetId, plan);
 
     const { added, removed } = diffActions(snapshot.actions, plan.actions);
-    const unchanged = added.length === 0 && removed.length === 0 && snapshot.planHash === plan.planHash;
+    const unchanged = added.length === 0 && removed.length === 0 && lockCheck.status === 'ok';
     if (unchanged) {
-      console.log('计划无变化');
+      say('计划无变化');
       return;
     }
 
-    console.log(`planHash ${snapshot.planHash.slice(0, 22)}… → ${plan.planHash.slice(0, 22)}…`);
-    for (const a of removed) console.log(`  - ${describeAction(a)}`);
-    for (const a of added) console.log(`  + ${describeAction(a)}`);
-    console.log(`\n${added.length} 条新增 / ${removed.length} 条移除；确认后重跑 packhub lock`);
-    if (args.check) process.exit(1);
+    say(`planHash ${snapshot.planHash.slice(0, 22)}… → ${plan.planHash.slice(0, 22)}…`);
+    for (const a of removed) say(`  - ${describeAction(a)}`);
+    for (const a of added) say(`  + ${describeAction(a)}`);
+    say(`\n${added.length} 条新增 / ${removed.length} 条移除；确认后重跑 packhub lock`);
+    if (args.check) stop(EXIT.RUNTIME);
   },
 });
 
-const search = defineCommand({
+const search = command({
   meta: { name: 'search', description: '在 registry 索引里按关键词找包' },
   args: {
     keyword: { type: 'positional', required: false, description: '名称 / 标题 / 描述 / 关键词' },
@@ -1952,8 +1839,8 @@ const search = defineCommand({
       ? registryIndexes()
       : [resolveRegistry(args.index ? String(args.index) : undefined)].filter((r): r is string => Boolean(r));
     if (refs.length === 0) {
-      console.error('没有索引：加 --index <路径|URL|registry 名>，或设 PACKHUB_INDEX，或在 ~/.packhub/config.json 配 registries');
-      process.exit(2);
+      problemRaw('没有索引：加 --index <路径|URL|registry 名>，或设 PACKHUB_INDEX，或在 ~/.packhub/config.json 配 registries');
+      stop(EXIT.USAGE);
     }
     const keyword = String(args.keyword ?? '').toLowerCase();
     const hits: (import('@packhub/runtime').IndexEntry & { registry?: string })[] = [];
@@ -1967,25 +1854,25 @@ const search = defineCommand({
       }
     }
     if (args.json) {
-      console.log(JSON.stringify(hits, null, 2));
+      json(hits);
       return;
     }
     if (hits.length === 0) {
-      console.log('没有匹配的包');
+      say('没有匹配的包');
       return;
     }
     for (const p of hits) {
       const trust = p.trust === 'verified' ? '✓ verified' : 'community';
-      console.log(`${p.name}@${p.latest}  ${trust}`);
-      if (p.registry) console.log(`  来源：${p.registry}`);
-      if (p.title) console.log(`  ${p.title}`);
-      if (p.description) console.log(`  ${p.description}`);
-      if (p.install) console.log(`  ${p.install}`);
+      say(`${p.name}@${p.latest}  ${trust}`);
+      if (p.registry) say(`  来源：${p.registry}`);
+      if (p.title) say(`  ${p.title}`);
+      if (p.description) say(`  ${p.description}`);
+      if (p.install) say(`  ${p.install}`);
     }
   },
 });
 
-const cacheLs = defineCommand({
+const cacheLs = command({
   meta: { name: 'ls', description: '看缓存里有什么、谁还在用' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
@@ -1994,23 +1881,23 @@ const cacheLs = defineCommand({
   run({ args }) {
     const report = inspectCache(resolve(String(args.dir)));
     if (args.json) {
-      console.log(JSON.stringify(report, null, 2));
+      json(report);
       return;
     }
     if (report.entries.length === 0) {
-      console.log('缓存是空的');
+      say('缓存是空的');
       return;
     }
     for (const entry of report.entries) {
-      console.log(
+      say(
         `${entry.referenced ? '●' : '○'} ${entry.path.padEnd(48)} ${entry.kind.padEnd(8)} ${Math.max(1, Math.round(entry.bytes / 1024))} KB`,
       );
     }
-    console.log(`\n共 ${Math.max(1, Math.round(report.totalBytes / 1024))} KB；○ 是没有任何已装版本引用的缓存`);
+    say(`\n共 ${Math.max(1, Math.round(report.totalBytes / 1024))} KB；○ 是没有任何已装版本引用的缓存`);
   },
 });
 
-const cacheClean = defineCommand({
+const cacheClean = command({
   meta: { name: 'clean', description: '删掉没有被已装版本引用的缓存（先 dry-run 看清单）' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
@@ -2019,22 +1906,22 @@ const cacheClean = defineCommand({
   run({ args }) {
     const res = cleanCache(resolve(String(args.dir)), { dryRun: Boolean(args['dry-run']) });
     if (res.removed.length === 0) {
-      console.log('没有可回收的缓存');
+      say('没有可回收的缓存');
       return;
     }
-    for (const p of res.removed) console.log(`  × ${p}`);
-    console.log(
+    for (const p of res.removed) say(`  × ${p}`);
+    say(
       `\n${res.dryRun ? '[dry-run] 将删除' : '已删除'} ${res.removed.length} 项，释放约 ${Math.max(1, Math.round(res.freedBytes / 1024))} KB`,
     );
   },
 });
 
-const cache = defineCommand({
+const cache = command({
   meta: { name: 'cache', description: '查看与回收 .packhub/cache' },
   subCommands: { ls: cacheLs, clean: cacheClean },
 });
 
-const discover = defineCommand({
+const discover = command({
   meta: { name: 'discover', description: '搜 MCP / skill / CLI 候选，并把选中的写进清单' },
   args: {
     keyword: { type: 'positional', required: false, description: '关键词；留空列出全部' },
@@ -2055,8 +1942,8 @@ const discover = defineCommand({
       ...(args.index ? { index: String(args.index) } : {}),
     });
     const npmRes = args.npm ? await searchNpm(keyword || 'mcp', limit) : { entries: [] as never[] };
-    if (local.error) console.warn(`warn  ${local.error}`);
-    if ('error' in npmRes && npmRes.error) console.warn(`warn  ${npmRes.error}`);
+    if (local.error) warn(local.error);
+    if ('error' in npmRes && npmRes.error) warn(npmRes.error);
 
     const seen = new Set<string>();
     const entries = [...local.entries, ...npmRes.entries].filter((e) => {
@@ -2069,55 +1956,49 @@ const discover = defineCommand({
     hits = hits.slice(0, limit);
 
     if (hits.length === 0) {
-      console.log('没有匹配的资源候选');
-      if (!args.npm) console.log('试试加 --npm（联网查 npm），或用 --catalog 指向一份资源目录');
+      say('没有匹配的资源候选');
+      if (!args.npm) say('试试加 --npm（联网查 npm），或用 --catalog 指向一份资源目录');
       return;
     }
 
     if (args.add !== undefined) {
       const n = Number(args.add);
       if (!Number.isInteger(n) || n < 1 || n > hits.length) {
-        console.error(`--add 超出范围：1..${hits.length}`);
-        process.exit(2);
+        problemRaw(`--add 超出范围：1..${hits.length}`);
+        stop(EXIT.USAGE);
       }
       const pick = hits[n - 1]!.entry;
       const file = join(resolve(String(args.dir)), 'packhub.yaml');
       if (!existsSync(file)) {
-        console.error(`没有 packhub.yaml：${file}（先跑 packhub init）`);
-        process.exit(2);
+        problemRaw(`没有 packhub.yaml：${file}（先跑 packhub init）`);
+        stop(EXIT.USAGE);
       }
       const added = addResource(file, { type: pick.type, source: pick.source });
-      console.log(`✓ 已追加资源 ${added.id}（${pick.type}）→ ${file}`);
-      console.log(`  source: ${pick.source}`);
-      console.log('下一步：packhub install . --dry-run 看计划');
+      say(`✓ 已追加资源 ${added.id}（${pick.type}）→ ${file}`);
+      say(`  source: ${pick.source}`);
+      say('下一步：packhub install . --dry-run 看计划');
       return;
     }
 
     if (args.json) {
-      console.log(
-        JSON.stringify(
-          {
+      json({
             catalog: local.source,
             resources: hits.map((h) => ({ ...h.entry, score: h.score, matched: h.matched })),
-          },
-          null,
-          2,
-        ),
-      );
+          });
       return;
     }
     for (const [i, hit] of hits.entries()) {
       const e = hit.entry;
-      console.log(`${String(i + 1).padStart(2)}. [${e.type.padEnd(9)}] ${e.title ?? e.id}`);
-      console.log(`    ${e.source}`);
-      if (e.description) console.log(`    ${e.description}`);
+      say(`${String(i + 1).padStart(2)}. [${e.type.padEnd(9)}] ${e.title ?? e.id}`);
+      say(`    ${e.source}`);
+      if (e.description) say(`    ${e.description}`);
     }
-    console.log(`\n目录：${local.source}${args.npm ? ' + npm search' : ''}`);
-    console.log('写进清单：packhub discover "<关键词>" ' + (args.index ? `--index ${String(args.index)} ` : '') + `--add <序号> --dir .`);
+    say(`\n目录：${local.source}${args.npm ? ' + npm search' : ''}`);
+    say('写进清单：packhub discover "<关键词>" ' + (args.index ? `--index ${String(args.index)} ` : '') + `--add <序号> --dir .`);
   },
 });
 
-const hub = defineCommand({
+const hub = command({
   meta: { name: 'hub', description: '启动只读发布端（索引、包数据、计划预览；没有执行接口）' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
@@ -2140,31 +2021,31 @@ const hub = defineCommand({
       rpm: Number(args.rpm),
     }).catch((err: NodeJS.ErrnoException) => {
       if (err.code === 'EADDRINUSE') {
-        console.error(`端口 ${wanted} 已经被占用：换一个 --port（--port 0 让系统分配），或先停掉占用它的进程`);
-        console.error(
+        problemRaw(`端口 ${wanted} 已经被占用：换一个 --port（--port 0 让系统分配），或先停掉占用它的进程`);
+        problemRaw(
           `  查占用：${process.platform === 'win32' ? `netstat -ano | findstr :${wanted}` : `lsof -iTCP:${wanted} -sTCP:LISTEN`}`,
         );
-        process.exit(2);
+        stop(EXIT.USAGE);
       }
       throw err;
     });
     const addr = server.address();
     const port = typeof addr === 'object' && addr ? addr.port : Number(args.port);
-    console.log(`Hub（只读）→ http://${String(args.host)}:${port}  ${args.token || args['user-header'] ? '（已启用鉴权）' : '（回环，无鉴权）'}`);
-    console.log('执行接口一个都没有；安装请用 packhub install / add');
+    say(`Hub（只读）→ http://${String(args.host)}:${port}  ${args.token || args['user-header'] ? '（已启用鉴权）' : '（回环，无鉴权）'}`);
+    say('执行接口一个都没有；安装请用 packhub install / add');
 
     // 优雅退出：收到信号先停监听，等在途请求写完再走
     for (const signal of ['SIGINT', 'SIGTERM'] as const) {
       process.on(signal, () => {
-        console.log(`${signal} → 停止接收新请求`);
-        server.close(() => process.exit(0));
-        setTimeout(() => process.exit(1), 5000).unref();
+        say(`${signal} → 停止接收新请求`);
+        server.close(() => terminate(EXIT.OK));
+        setTimeout(() => terminate(EXIT.RUNTIME), 5000).unref();
       });
     }
   },
 });
 
-const completion = defineCommand({
+const completion = command({
   meta: { name: 'completion', description: '输出 shell 补全脚本（bash / zsh / pwsh，含子命令与参数）' },
   args: {
     shell: { type: 'positional', required: true, description: 'bash | zsh | pwsh' },
@@ -2187,7 +2068,7 @@ const completion = defineCommand({
       const cases = commands
         .map(([n, cmd]) => `    ${n}) opts="${optionsOf(cmd).join(' ')}" ;;`)
         .join('\n');
-      console.log(`# packhub bash completion
+      say(`# packhub bash completion
 _packhub() {
   local cur opts
   cur="\${COMP_WORDS[COMP_CWORD]}"
@@ -2208,7 +2089,7 @@ complete -F _packhub packhub`);
       const cases = commands
         .map(([n, cmd]) => `    ${n}) opts=(${optionsOf(cmd).join(' ')}) ;;`)
         .join('\n');
-      console.log(`# packhub zsh completion
+      say(`# packhub zsh completion
 _packhub() {
   local -a cmds opts
   if (( CURRENT == 2 )); then
@@ -2229,7 +2110,7 @@ compdef _packhub packhub`);
       const map = commands
         .map(([n, cmd]) => `  '${n}' = @(${optionsOf(cmd).map((o) => `'${o}'`).join(', ')})`)
         .join('\n');
-      console.log(`# packhub PowerShell completion
+      say(`# packhub PowerShell completion
 Register-ArgumentCompleter -Native -CommandName packhub -ScriptBlock {
   param($wordToComplete, $commandAst, $cursorPosition)
   $opts = @{
@@ -2243,8 +2124,8 @@ ${map}
 }`);
       return;
     }
-    console.error(`不支持的 shell：${shell}（bash / zsh / pwsh）`);
-    process.exit(2);
+    problemRaw(`不支持的 shell：${shell}（bash / zsh / pwsh）`);
+    stop(EXIT.USAGE);
   },
 });
 
@@ -2280,7 +2161,7 @@ export function unknownFlag(argv: string[]): string | undefined {
   }
   return undefined;
 }
-export const main: CommandDef = defineCommand({
+export const main: CommandDef = command({
   meta: { name: 'packhub', version: '0.0.1', description: 'Agent 能力的整合包工具' },
   subCommands: {
     plan,

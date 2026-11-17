@@ -220,7 +220,7 @@ modify:
 });
 
 describe('工具：平台', () => {
-  it('平台不匹配的命令跳过并警告，其余照建', () => {
+  it('平台不匹配的命令留在计划里，执行器按注入平台记 skipped 并说明原因', async () => {
     const dir = pack({
       'packhub.yaml': manifest(`  - id: kit
     type: tool2
@@ -238,10 +238,27 @@ describe('工具：平台', () => {
 `),
       'tools/kit/index.mjs': KIT,
     });
-    const { plan, issues } = planFor(loadPack(dir));
-    expect(issues.map((i) => i.code)).toContain('tool-command-skipped-platform');
+    const ctx = loadPack(dir);
+    const { plan, issues } = planFor(ctx, { platform: 'linux-x64' });
+    // 计划期不再按平台删动作，也不再有 skipped-platform 警告
+    expect(issues.map((i) => i.code)).not.toContain('tool-command-skipped-platform');
     const execs = plan!.actions.filter((a) => a.op === 'link.exec');
-    expect(execs.map((a) => (a.op === 'link.exec' ? a.to : ''))).toEqual(['.packhub/bin/kit-run']);
+    expect(execs.map((a) => (a.op === 'link.exec' ? a.to : ''))).toEqual([
+      '.packhub/bin/kit-scan',
+      '.packhub/bin/kit-run',
+    ]);
+    const scan = execs.find((a) => a.op === 'link.exec' && a.to.endsWith('kit-scan'));
+    expect(scan && scan.op === 'link.exec' ? scan.platforms : undefined).toEqual(['nowhere-x']);
+
+    // 执行期：不匹配的那条 skipped，原因写清平台与允许列表
+    const res = await installPack(ctx, plan!, { platform: 'linux-x64' });
+    const skipped = res.outcomes.find((o) => o.actionId === scan!.actionId);
+    expect(skipped?.status).toBe('skipped');
+    expect(skipped?.message).toContain('linux-x64');
+    expect(skipped?.message).toContain('nowhere-x');
+    // 另一条照常 done
+    expect(res.outcomes.find((o) => o.op === 'link.exec' && o.status === 'done')).toBeTruthy();
+
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -263,7 +280,7 @@ describe('工具：平台', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it.skipIf(process.platform !== 'win32')('Windows 上 runtime: shell 直接拒绝', () => {
+  it.skipIf(process.platform !== 'win32')('Windows 上 runtime: shell 计划保留，执行器拒绝', async () => {
     const dir = pack({
       'packhub.yaml': manifest(`  - id: kit
     type: tool2
@@ -276,8 +293,16 @@ describe('工具：平台', () => {
 `),
       'tools/kit/run.sh': 'echo hi\n',
     });
-    const { issues } = planFor(loadPack(dir));
+    const ctx = loadPack(dir);
+    const { plan, issues } = planFor(ctx);
     expect(issues.map((i) => i.code)).toContain('tool-shell-unsupported');
+    // 计划里保留动作：平台裁剪与运行时限制都在执行期处理
+    expect(plan!.actions.some((a) => a.op === 'link.exec')).toBe(true);
+
+    const res = await installPack(ctx, plan!, {});
+    const failed = res.outcomes.find((o) => o.status === 'failed');
+    expect(failed?.message).toContain('shell');
+    expect(res.rolledBack).toBe(true);
     rmSync(dir, { recursive: true, force: true });
   });
 });

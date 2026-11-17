@@ -25,6 +25,11 @@ export interface PlanOptions {
   packDir?: string;
   /** 这些类型的资源交给宿主/外部适配器处理，不进计划（例如全局同步时的 MCP） */
   skipResourceTypes?: ResourceType[];
+  /**
+   * 目标平台（`platform-arch`），由调用方注入——计划生成不读 `process.platform`。
+   * 只用于给「这个平台跑不了」的警告；动作集合与 planHash 不随平台变化。
+   */
+  platform: string;
 }
 
 export function buildPlan(
@@ -147,7 +152,7 @@ export function buildPlan(
           break;
         }
         if (parsed.kind === 'local') {
-          push({ op: 'link.skill', from: parsed.locator, to: `${targetVars.skillsDir}/${id}`, resource: id });
+          push({ op: 'link.skill', from: parsed.locator, to: `${targetVars.skillsDir}/${id}`, fromBase: 'pack', resource: id });
           installed.set(id, { type: res.type, kind: 'dir', to: `${targetVars.skillsDir}/${id}`, from: parsed.locator });
         } else {
           const fetched = push({
@@ -163,6 +168,7 @@ export function buildPlan(
             from: `${targetVars.cacheDir}/${id}.tar.gz`,
             to: `${targetVars.cacheDir}/skills/${id}`,
             strip: 1,
+            fromBase: 'root',
             resource: id,
             dependsOn: [fetched.actionId],
           });
@@ -174,6 +180,7 @@ export function buildPlan(
             op: 'link.skill',
             from,
             to: `${targetVars.skillsDir}/${id}`,
+            fromBase: 'root',
             resource: id,
             dependsOn: [unpacked.actionId],
           });
@@ -265,6 +272,7 @@ export function buildPlan(
             from: `${targetVars.cacheDir}/${id}.tar.gz`,
             to: toolRoot,
             strip: 1,
+            fromBase: 'root',
             resource: id,
             dependsOn: [fetched.actionId],
           });
@@ -306,24 +314,15 @@ export function buildPlan(
             return Object.keys(merged).length > 0 ? merged : undefined;
           })();
           const platforms = cmd.platforms ?? res.platforms;
-          const platformKey = `${process.platform}-${process.arch}`;
-          if (platforms && platforms.length > 0 && !platforms.includes(platformKey)) {
-            issues.push({
-              code: 'tool-command-skipped-platform',
-              severity: 'warning',
-              message: `${label}：${platformKey} 不在 platforms 里，跳过 ${cmd.name}`,
-              path: label,
-            });
-            continue;
-          }
-          if (runtime === 'shell' && process.platform === 'win32') {
+          // 平台裁剪改到执行期：计划保留全部动作，不匹配由执行器记 skipped。
+          // 这里只用注入的平台给一条「跑不了」的警告，不删动作、不读 process。
+          if (runtime === 'shell' && opts.platform.startsWith('win32')) {
             issues.push({
               code: 'tool-shell-unsupported',
-              severity: 'error',
-              message: `${label}：runtime: shell 要 sh，Windows 上没有；换 node / python，或用 platforms 限定平台`,
+              severity: 'warning',
+              message: `${label}：runtime: shell 要 sh，Windows 上没有；执行器会拒绝这条命令，换 node / python 或用 platforms 限定平台`,
               path: label,
             });
-            continue;
           }
           if (runtime === 'binary' && !platforms) {
             issues.push({
@@ -333,6 +332,7 @@ export function buildPlan(
               path: label,
             });
           }
+          const platformField = platforms && platforms.length > 0 ? { platforms } : {};
           if (shim === 'route') {
             if (!cmd.call) {
               issues.push({
@@ -360,6 +360,7 @@ export function buildPlan(
               entry: shimPath,
               module: `${toolRoot}/${exec}`,
               args: [cmd.call, ...(cmd.args ?? [])],
+              ...platformField,
               ...(mergedEnv ? { env: mergedEnv } : {}),
               resource: id,
             });
@@ -371,6 +372,7 @@ export function buildPlan(
             runtime,
             entry: `${toolRoot}/${exec}`,
             args: cmd.args ?? [],
+            ...platformField,
             ...(mergedEnv ? { env: mergedEnv } : {}),
             resource: id,
           });

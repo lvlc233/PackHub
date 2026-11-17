@@ -7,35 +7,35 @@
       "type": "mcp",
       "source": "npm:@dougis/markdown-lint-mcp@1.0.5",
       "integrity": "sha512-iTgEVu7K9hu+Ovu6k13xp5XYJWAHyUl9N0428QchgWShTY7F5JeDEGZHzfzYU0/7ysNL/S1x+DxPAcnRvwzsWg==",
-      "resolvedAt": "2026-11-06T19:38:20.976Z"
+      "resolvedAt": "2026-11-17T16:22:58.539Z"
     },
     {
       "id": "review-rubric",
       "type": "knowledge",
       "source": "./resources/review-rubric.md",
       "integrity": null,
-      "resolvedAt": "2026-11-06T19:38:20.976Z"
+      "resolvedAt": "2026-11-17T16:22:58.539Z"
     },
     {
       "id": "reader-brief",
       "type": "prompt",
       "source": "./resources/reader-brief.md",
       "integrity": null,
-      "resolvedAt": "2026-11-06T19:38:20.976Z"
+      "resolvedAt": "2026-11-17T16:22:58.539Z"
     },
     {
       "id": "doc-review",
       "type": "skill",
       "source": "./skills/doc-review",
       "integrity": null,
-      "resolvedAt": "2026-11-06T19:38:20.976Z"
+      "resolvedAt": "2026-11-17T16:22:58.539Z"
     }
   ],
-  "planHash": "sha256-XNfyonXFbb58Xn7u2B4SFWtBH8HOn9aMZH3UEbDHItM=",
+  "planHash": "sha256-rLcml+xQDLWxs50KT9isnO+X3GTG3TKt+0LUhLYOWfY=",
   "generatedBy": "packhub/0.0.1",
   "plan": {
     "target": "dir",
-    "planHash": "sha256-XNfyonXFbb58Xn7u2B4SFWtBH8HOn9aMZH3UEbDHItM=",
+    "planHash": "sha256-rLcml+xQDLWxs50KT9isnO+X3GTG3TKt+0LUhLYOWfY=",
     "actions": [
       {
         "op": "register.mcp",
@@ -69,6 +69,7 @@
         "op": "link.skill",
         "from": "./skills/doc-review",
         "to": ".packhub/skills/doc-review",
+        "fromBase": "pack",
         "resource": "doc-review",
         "actionId": "link.skill#1"
       }
@@ -122,7 +123,7 @@
   "plans": {
     "dir": {
       "target": "dir",
-      "planHash": "sha256-XNfyonXFbb58Xn7u2B4SFWtBH8HOn9aMZH3UEbDHItM=",
+      "planHash": "sha256-rLcml+xQDLWxs50KT9isnO+X3GTG3TKt+0LUhLYOWfY=",
       "actions": [
         {
           "op": "register.mcp",
@@ -156,6 +157,7 @@
           "op": "link.skill",
           "from": "./skills/doc-review",
           "to": ".packhub/skills/doc-review",
+          "fromBase": "pack",
           "resource": "doc-review",
           "actionId": "link.skill#1"
         }
@@ -208,7 +210,7 @@
     },
     "dsh": {
       "target": "dsh",
-      "planHash": "sha256-xXAG7/QGymAGw7LRuv2Y0j6PgqKQ6q4omJgbZZ4CUbg=",
+      "planHash": "sha256-aS7lOe9KAZKYfhK6+MfWXA20xXVi8vU+ZfrMA/DPCH4=",
       "actions": [
         {
           "op": "register.mcp",
@@ -242,6 +244,7 @@
           "op": "link.skill",
           "from": "./skills/doc-review",
           "to": ".packhub/skills/doc-review",
+          "fromBase": "pack",
           "resource": "doc-review",
           "actionId": "link.skill#1"
         },
@@ -249,7 +252,7 @@
           "op": "instruction",
           "file": "AGENTS.md",
           "blockId": "lvlc233/doc-review",
-          "content": "这个项目装了一个整合包：**文档验收：先机械检查，再冷读**（0.1.0）。\n\n文档写完后先跑结构、链接和 Markdown 格式检查，再让独立读者按“目的内是否答得出、路径是否走得通”做一次冷读，最后只修阻断项。\n\n可用的能力：\n- `markdownlint`（mcp） → doc:lint\n- `review-rubric`（knowledge） → knowledge:review_rubric\n- `reader-brief`（prompt） → prompt:reader_brief\n- `doc-review`（skill） → skill:doc_review\n\n文件位置：\n- skills：`.packhub/skills`\n- 知识：`.packhub/knowledge`\n- 提示词：`.packhub/prompts`\n- 工具入口：`.packhub/bin`\n- 配置：`.packhub/config.json`",
+          "content": "这个项目装了一个整合包：**文档验收：先机械检查，再冷读**（0.1.0）。\n\n文档写完后先跑结构、链接和 Markdown 格式检查，再让独立读者按“目的内是否答得出、路径是否走得通”做一次冷读，最后只修阻断项。\n\n可用的能力：\n- `markdownlint`（mcp） → doc:lint\n- `review-rubric`（knowledge） → knowledge:review_rubric\n- `reader-brief`（prompt） → prompt:reader_brief\n- `doc-review`（skill） → skill:doc_review\n\n文件位置：\n- skills：`.packhub/skills`\n- 知识：`.packhub/knowledge`\n- 提示词：`.packhub/prompts`\n- 工具入口：`.packhub/bin`\n- 配置片段：`.packhub/config`\n- MCP 配置：`.packhub/config.json`",
           "actionId": "instruction#1"
         }
       ],
@@ -301,7 +304,7 @@
     },
     "claude-code": {
       "target": "claude-code",
-      "planHash": "sha256-BLbK22V2yYPwRM04PiwXbXoxu6jsX/rM/XLRe0pCdjg=",
+      "planHash": "sha256-Rx0Er/l3mpla/SMi1uUIhf+odd2ZbMoHaa9inPPuaEk=",
       "actions": [
         {
           "op": "register.mcp",
@@ -335,6 +338,7 @@
           "op": "link.skill",
           "from": "./skills/doc-review",
           "to": ".claude/skills/doc-review",
+          "fromBase": "pack",
           "resource": "doc-review",
           "actionId": "link.skill#1"
         },
@@ -342,7 +346,7 @@
           "op": "instruction",
           "file": "CLAUDE.md",
           "blockId": "lvlc233/doc-review",
-          "content": "这个项目装了一个整合包：**文档验收：先机械检查，再冷读**（0.1.0）。\n\n文档写完后先跑结构、链接和 Markdown 格式检查，再让独立读者按“目的内是否答得出、路径是否走得通”做一次冷读，最后只修阻断项。\n\n可用的能力：\n- `markdownlint`（mcp） → doc:lint\n- `review-rubric`（knowledge） → knowledge:review_rubric\n- `reader-brief`（prompt） → prompt:reader_brief\n- `doc-review`（skill） → skill:doc_review\n\n文件位置：\n- skills：`.claude/skills`\n- 知识：`.packhub/knowledge`\n- 提示词：`.packhub/prompts`\n- 工具入口：`.packhub/bin`\n- 配置：`.mcp.json`",
+          "content": "这个项目装了一个整合包：**文档验收：先机械检查，再冷读**（0.1.0）。\n\n文档写完后先跑结构、链接和 Markdown 格式检查，再让独立读者按“目的内是否答得出、路径是否走得通”做一次冷读，最后只修阻断项。\n\n可用的能力：\n- `markdownlint`（mcp） → doc:lint\n- `review-rubric`（knowledge） → knowledge:review_rubric\n- `reader-brief`（prompt） → prompt:reader_brief\n- `doc-review`（skill） → skill:doc_review\n\n文件位置：\n- skills：`.claude/skills`\n- 知识：`.packhub/knowledge`\n- 提示词：`.packhub/prompts`\n- 工具入口：`.packhub/bin`\n- 配置片段：`.packhub/config`\n- MCP 配置：`.mcp.json`",
           "actionId": "instruction#1"
         }
       ],

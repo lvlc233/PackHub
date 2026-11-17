@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { extname, join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
+import { PLAN_OPS } from '@packhub/kernel';
 import { loadState } from './install.ts';
 import { claudeHasMcp } from './host-mcp.ts';
 
@@ -77,7 +78,9 @@ export function doctorPack(root: string): DoctorReport {
     }
 
     for (const action of record.actions ?? []) {
-      if (action.op === 'register.mcp' && action.target && action.resource) {
+      // 撤销方式决定「怎么检查」：共享配置查 mcpServers 条目，托管块查标记
+      const undo = PLAN_OPS[action.op]?.undo;
+      if (undo === 'restore-shared' && action.target && action.resource) {
         const file = join(root, action.target);
         if (existsSync(file)) {
           const text = readFileSync(file, 'utf8');
@@ -87,7 +90,7 @@ export function doctorPack(root: string): DoctorReport {
           if (!present) finding.configDrift.push(`${action.target}:mcpServers.${action.resource}`);
         }
       }
-      if (action.op !== 'instruction' || !action.target || !action.blockId) continue;
+      if (undo !== 'strip-block' || !action.target || !action.blockId) continue;
       const abs = join(root, action.target);
       if (!existsSync(abs)) {
         if (!finding.blocksMissing.includes(action.target)) finding.blocksMissing.push(action.target);

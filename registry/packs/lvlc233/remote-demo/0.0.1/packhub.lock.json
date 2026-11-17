@@ -6,26 +6,28 @@
       "id": "repo-docs",
       "type": "skill",
       "source": "github:lvlc233/PackHub@533147315257260f9054947f1ece2ba20588bc93",
-      "integrity": null,
-      "resolvedAt": "2026-11-03T12:39:28.444Z"
+      "integrity": "sha256-3QPgfioYgh/3iNzTAhWXsFEoeCoq57lpwhdfaYo8Kmg=",
+      "resolvedAt": "2026-11-17T16:23:40.336Z"
     },
     {
       "id": "readme",
       "type": "knowledge",
       "source": "https://raw.githubusercontent.com/lvlc233/PackHub/533147315257260f9054947f1ece2ba20588bc93/README.md",
       "integrity": "sha256-CtMPyOdCbw/DtVRSFoKxJ4FbnhiPq2f92mvzzF5MR5Q=",
-      "resolvedAt": "2026-11-03T12:39:28.444Z"
+      "resolvedAt": "2026-11-17T16:23:40.336Z"
     }
   ],
-  "planHash": "sha256-59Ydxb7MO6PZZVuXSo5SA0CrfQ14I1gR5J/zhuztAlQ=",
+  "planHash": "sha256-fu8ISyMrDaPV4/nOaNRyl3iFAJt8fAEY3vYweTwkxl4=",
   "generatedBy": "packhub/0.0.1",
   "plan": {
     "target": "dir",
+    "planHash": "sha256-fu8ISyMrDaPV4/nOaNRyl3iFAJt8fAEY3vYweTwkxl4=",
     "actions": [
       {
         "op": "fetch",
         "uri": "github:lvlc233/PackHub@533147315257260f9054947f1ece2ba20588bc93",
         "dest": ".packhub/cache/repo-docs.tar.gz",
+        "integrity": "sha256-3QPgfioYgh/3iNzTAhWXsFEoeCoq57lpwhdfaYo8Kmg=",
         "resource": "repo-docs",
         "actionId": "fetch#1"
       },
@@ -34,6 +36,7 @@
         "from": ".packhub/cache/repo-docs.tar.gz",
         "to": ".packhub/cache/skills/repo-docs",
         "strip": 1,
+        "fromBase": "root",
         "resource": "repo-docs",
         "dependsOn": [
           "fetch#1"
@@ -44,6 +47,7 @@
         "op": "link.skill",
         "from": ".packhub/cache/skills/repo-docs",
         "to": ".packhub/skills/repo-docs",
+        "fromBase": "root",
         "resource": "repo-docs",
         "dependsOn": [
           "unpack#1"

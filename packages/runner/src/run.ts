@@ -1,11 +1,10 @@
 import { cpSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { loadPack, planFor } from '@packhub/kernel';
 import {
   installPack,
-  loadPack,
   loadLock,
-  planFor,
   readSignatures,
   verifyPack,
   verifySignatures,

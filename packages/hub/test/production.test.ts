@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { startHub, type HubOptions } from '../src/index.ts';
@@ -86,5 +86,25 @@ describe('Hub 生产化', () => {
     expect(lines.some((l) => l.status === 401)).toBe(true);
     expect(lines.some((l) => l.status === 200)).toBe(true);
     expect(lines[0].path).toBe('/api/registry');
+  });
+
+  it('内部错误原文不回给客户端：坏索引只回笼统错误', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'packhub-hub-broken-'));
+    mkdirSync(join(dir, 'registry'), { recursive: true });
+    writeFileSync(join(dir, 'registry', 'index.json'), '{ 不是 JSON', 'utf8');
+    const server = await startHub({ root: dir, port: 0 });
+    const addr = server.address();
+    const base = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}`;
+    try {
+      const res = await fetch(`${base}/api/registry`);
+      expect(res.status).toBe(500);
+      const body = (await res.json()) as { error: string };
+      expect(body.error).toBe('Hub 内部错误');
+      // 解析器原文与文件路径不该出现在响应里（状态码也不再从异常文本猜）
+      expect(JSON.stringify(body)).not.toMatch(/Unexpected|JSON at position|index\.json/);
+    } finally {
+      await new Promise<void>((ok) => server.close(() => ok()));
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

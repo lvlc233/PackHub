@@ -16,11 +16,14 @@ import { PalError } from './errors.ts';
 export type { CacheMeta };
 
 /**
- * 一份缓存条目的形状：`<cacheRoot>/<slug>/<variant>/`。
+ * 一份取包缓存条目的形状：`<cacheRoot>/<slug>/<variant>/`。
  * ref / source / fetchedAt 只来自 meta；meta 缺失时用清单补 pack 与 version，
  * ref 留 null（目录名里有哈希，但不该反推成引用）。
+ *
+ * 名字带 Pack 前缀：runtime 的 `CacheEntry` 是「安装根里还有没有被引用的缓存项」，
+ * 两个包从同一处导出时不至于同名不同义。
  */
-export interface CacheEntry {
+export interface PackCacheEntry {
   /** 第一层目录名（Pack 引用的 slug） */
   slug: string;
   /** 第二层目录名（明确版本或内容哈希） */
@@ -59,7 +62,7 @@ export interface CacheProblem {
 
 export interface CacheScan {
   root: string;
-  entries: CacheEntry[];
+  entries: PackCacheEntry[];
   problems: CacheProblem[];
   totalBytes: number;
 }
@@ -134,7 +137,7 @@ function readEntry(
   variantName: string,
   dir: string,
   problems: CacheProblem[],
-): CacheEntry | null {
+): PackCacheEntry | null {
   let dirStat: Stats;
   try {
     dirStat = statSync(dir);
@@ -171,7 +174,7 @@ function readEntry(
  */
 export function scanCache(): CacheScan {
   const root = resolve(cacheRoot());
-  const entries: CacheEntry[] = [];
+  const entries: PackCacheEntry[] = [];
   const problems: CacheProblem[] = [];
 
   let firstLevel: Dirent[];
@@ -223,11 +226,11 @@ export function scanCache(): CacheScan {
 }
 
 /** 列出缓存条目；坏目录不混进列表（用 scanCache().problems 报告）。 */
-export function listCache(): CacheEntry[] {
+export function listCache(): PackCacheEntry[] {
   return scanCache().entries;
 }
 
-export function cacheStats(entries: CacheEntry[]): CacheStats {
+export function cacheStats(entries: PackCacheEntry[]): CacheStats {
   return {
     count: entries.length,
     totalBytes: entries.reduce((sum, entry) => sum + entry.bytes, 0),
@@ -291,7 +294,7 @@ function selectorFor(opts: CleanOptions): CleanSelector {
   return { all: true };
 }
 
-function selectEntries(entries: CacheEntry[], selector: CleanSelector): CacheEntry[] {
+function selectEntries(entries: PackCacheEntry[], selector: CleanSelector): PackCacheEntry[] {
   if (selector.all) return [...entries];
   if (selector.ref !== undefined) {
     const target = selector.ref;
@@ -310,7 +313,7 @@ function selectEntries(entries: CacheEntry[], selector: CleanSelector): CacheEnt
 }
 
 /** 先算出会清哪些（CLI 拿它做确认文案）；选择器不合法在这里就抛。 */
-export function planClean(opts: CleanOptions = {}): CacheEntry[] {
+export function planClean(opts: CleanOptions = {}): PackCacheEntry[] {
   const selector = selectorFor(opts);
   return selectEntries(scanCache().entries, selector);
 }

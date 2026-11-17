@@ -1,8 +1,16 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { buildPlan, parseManifest, validateGraph, type TargetId } from '@packhub/kernel';
+import {
+  TARGET_IDS,
+  isTargetId,
+  parseManifest,
+  planFor,
+  validateGraph,
+  type PackContext,
+} from '@packhub/kernel';
 import { collectPackResources } from './resources.ts';
 
 export interface HubAuth {
@@ -28,6 +36,22 @@ export interface HubOptions {
 const LOOPBACK = new Set(['127.0.0.1', 'localhost', '::1']);
 
 /**
+ * 客户端输入造成的错误：状态码、对外文案与 code 都是显式给的。
+ * 顶层 catch 只认这个类型；别的异常一律当服务器内部问题，原文不进响应。
+ */
+class HttpError extends Error {
+  readonly status: number;
+  readonly code: string;
+
+  constructor(status: number, code: string, message: string) {
+    super(message);
+    this.name = 'HttpError';
+    this.status = status;
+    this.code = code;
+  }
+}
+
+/**
  * 只读发布端：索引、包/资源数据与计划预览。没有执行接口。
  * 静态页面已移除（2026-11-07），这里只剩 /api/*。
  * 对外监听必须带 auth，否则启动即失败（fail-closed）。
@@ -46,6 +70,11 @@ export function startHub(opts: HubOptions): Promise<Server> {
 
   const limiter = new RateLimiter(opts.rpm ?? 240);
   const startedAt = Date.now();
+  // /api/plan 收到的是一份清单文本，不是服务器上的 Pack 目录。给一个不存在的唯一路径当 packDir：
+  // 清单里 `context: ./x`、`modify.with: ./x`、`modify.at` 都会走 kernel 现成的「文件不存在」issue，
+  // 而不是把 Hub 机器上的文件读进响应。不建这个目录：建了的话 `context: ./` 会 resolve 到目录本身，
+  // readFileSync 抛 EISDIR，反而变成内部错误。
+  const planPackDir = join(tmpdir(), `packhub-hub-plan-${randomUUID()}`);
 
   const server = createServer(async (req, res) => {
     const ip = req.socket.remoteAddress ?? 'unknown';
@@ -92,14 +121,19 @@ export function startHub(opts: HubOptions): Promise<Server> {
       }
 
       if (url.pathname.startsWith('/api/')) {
-        return await handleApi(url, req, res, root);
+        return await handleApi(url, req, res, root, planPackDir);
       }
 
       res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
       res.end('404：Hub 只有只读接口（/api/health、/api/registry、/api/registry/pack、/api/plan）');
     } catch (err) {
-      const message = (err as Error).message;
-      sendJson(req, res, message.includes('超过 1 MB') ? 413 : 500, { error: message });
+      // 客户端输入的错（太大、不是 JSON）按 code 映射；其余是服务器自己的问题：
+      // 原文（解析器报错、带盘符的路径）只进日志，不交给客户端。
+      if (err instanceof HttpError) {
+        return sendJson(req, res, err.status, { error: err.message, code: err.code });
+      }
+      log({ event: 'hub.error', path: url.pathname, message: (err as Error).message });
+      sendJson(req, res, 500, { error: 'Hub 内部错误' });
     }
   });
 
@@ -163,6 +197,8 @@ async function handleApi(
   req: IncomingMessage,
   res: ServerResponse,
   root: string,
+  /** 计划预览用的 Pack 目录：一个不存在的路径，保证读不到服务器文件 */
+  planPackDir: string,
 ): Promise<void> {
   if (url.pathname === '/api/registry' && req.method === 'GET') {
     const file = join(root, 'registry/index.json');
@@ -242,18 +278,23 @@ async function handleApi(
     const body = await readBody(req);
     const text = String(body.manifest ?? '');
     if (!text.trim()) return sendJson(req, res, 400, { error: 'manifest 为空' });
+    const raw = String(body.target ?? 'dir') || 'dir';
+    // target 是计划契约的一部分：枚举外的值不能产出计划，直接拒掉
+    if (!isTargetId(raw)) {
+      return sendJson(req, res, 400, {
+        error: `未知 target：${raw}（可选 ${TARGET_IDS.join(' / ')}）`,
+      });
+    }
     const parsed = parseManifest(text, '<draft>');
     if (!parsed.manifest) return sendJson(req, res, 200, { issues: parsed.issues, plan: null });
     const { graph, issues } = validateGraph(parsed.manifest);
-    const errors = [...parsed.issues, ...issues].filter((i) => i.severity === 'error');
-    if (errors.length > 0) {
-      return sendJson(req, res, 200, { issues: [...parsed.issues, ...issues], plan: null });
+    const all = [...parsed.issues, ...issues];
+    if (all.some((i) => i.severity === 'error')) {
+      return sendJson(req, res, 200, { issues: all, plan: null });
     }
-    const { plan, issues: planIssues } = buildPlan(parsed.manifest, graph, {
-      target: (String(body.target ?? 'dir') as TargetId) || 'dir',
-      targetVars: {},
-      packDir: root,
-    });
+    // 出计划走 kernel 的 planFor：target 校验、落点变量、packDir 的用法只有那一份实现
+    const ctx: PackContext = { dir: planPackDir, manifest: parsed.manifest, graph, issues: [] };
+    const { plan, issues: planIssues } = planFor(ctx, { target: raw });
     return sendJson(req, res, 200, { issues: planIssues, plan: plan ?? null });
   }
 
@@ -264,21 +305,29 @@ function readJson(file: string): unknown {
   return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : null;
 }
 
+/** 1 MB 上限：预览用的清单不需要更大；超了按 413，而不是把内存吃满。 */
+const BODY_LIMIT = 1024 * 1024;
+
 async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
     size += (chunk as Buffer).length;
-    if (size > 1024 * 1024) throw new Error('请求体超过 1 MB');
+    if (size > BODY_LIMIT) throw new HttpError(413, 'body-too-large', '请求体超过 1 MB');
     chunks.push(chunk as Buffer);
   }
   const raw = Buffer.concat(chunks).toString('utf8');
   if (!raw) return {};
+  let parsed: unknown;
   try {
-    return JSON.parse(raw) as Record<string, unknown>;
+    parsed = JSON.parse(raw);
   } catch {
-    return {};
+    throw new HttpError(400, 'body-invalid-json', '请求体不是合法 JSON');
   }
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new HttpError(400, 'body-invalid-json', '请求体要一个 JSON 对象');
+  }
+  return parsed as Record<string, unknown>;
 }
 
 function sendJson(
