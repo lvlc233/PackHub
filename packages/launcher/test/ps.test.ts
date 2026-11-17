@@ -18,7 +18,7 @@ function writeRecord(id: string, overrides: Partial<InstanceRecord> = {}): strin
   const dir = join(instancesDir, id);
   mkdirSync(dir, { recursive: true });
   const record: InstanceRecord = {
-    apiVersion: 'packhub.dev/instance/v1',
+    apiVersion: 'packhub.dev/instance/v0',
     id,
     name: id,
     harness: 'dsh',

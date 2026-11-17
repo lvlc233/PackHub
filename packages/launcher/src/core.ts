@@ -26,7 +26,7 @@ import { watchOnce, type WatchStats } from './watch.ts';
 export const CORE_FILE = 'core.json';
 export const CORE_LOCK = 'core.lock';
 export const CORE_LOG = 'core.log';
-export const CORE_API_VERSION = 'packhub.dev/pal/core/v1';
+export const CORE_API_VERSION = 'packhub.dev/pal/core/v0';
 /** 看护间隔；core 起手先跑一轮，所以启动即接管。 */
 export const DEFAULT_CORE_INTERVAL_MS = 2000;
 /** core.log 到这么大就转一份 .1，留一次现场。 */

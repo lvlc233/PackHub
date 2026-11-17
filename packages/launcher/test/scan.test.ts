@@ -41,7 +41,7 @@ resources:
 `;
 
 const INSTANCE = {
-  apiVersion: 'packhub.dev/instance/v1',
+  apiVersion: 'packhub.dev/instance/v0',
   id: '20260101000000-0123456789ab',
   name: 'demo-instance',
   harness: 'dsh',

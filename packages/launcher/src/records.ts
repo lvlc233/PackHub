@@ -16,7 +16,7 @@ import { nowIso } from './time.ts';
 export const RECORD = 'instance.json';
 /** 运行态单独一份：进程/端口/地址不该跟着备份恢复，也不该混在配置里。 */
 export const RUNTIME = 'runtime.json';
-export const API_VERSION = 'packhub.dev/instance/v1';
+export const API_VERSION = 'packhub.dev/instance/v0';
 
 export type InstanceStatus =
   | 'installing'

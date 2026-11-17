@@ -53,7 +53,7 @@ async function fakeCore(options: { healthOk?: boolean; rpc?: (op: string) => { s
   const address = server.address();
   const port = typeof address === 'object' && address ? address.port : 0;
   const info: CoreInfo = {
-    apiVersion: 'packhub.dev/pal/core/v1',
+    apiVersion: 'packhub.dev/pal/core/v0',
     pid: process.pid,
     host: '127.0.0.1',
     port,

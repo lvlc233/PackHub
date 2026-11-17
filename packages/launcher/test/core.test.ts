@@ -143,7 +143,7 @@ describe('core：单例、发现、转发', () => {
     writeFileSync(
       file,
       JSON.stringify({
-        apiVersion: 'packhub.dev/pal/core/v1',
+        apiVersion: 'packhub.dev/pal/core/v0',
         pid: 99_999_999,
         host: '127.0.0.1',
         port: 1,

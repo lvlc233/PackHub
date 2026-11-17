@@ -1,6 +1,6 @@
 ---
 kind: contract
-summary: v0 数据形状与格式层不变量
+summary: 格式 v0 的数据形状与格式层不变量
 verified: 2026-11-18
 decay: 365
 review: 格式升版、字段增删、apiVersion 变化时
@@ -8,11 +8,19 @@ review: 格式升版、字段增删、apiVersion 变化时
 
 # PackHub 契约
 
-## 0 版本总表
+## 0 版本
 
-格式版本与产品版本是两件事。产品在 0.0.x，格式先统一在一个代际：
+三类版本：产品、api版本（格式）、包。apiVersion 的具体值见下面两张表。
 
-| 契约 | 版本号 | 位置 |
+| 类别 | 是什么 | 写法 | 唯一来源 |
+|---|---|---|
+| 产品 | 整个工具的版本，问「行为有没有承诺」 | `0.0.x`（范围）/ `0.0.1`（具体） | 仓库根 `package.json` |
+| api版本（格式） | 带有 `apiVersion` 字段的文件所用的格式；所有契约现阶段统一为 v0 | 全串 `packhub.dev/<契约>/v0`；正文写「格式 v0」，不写单独的 `v0` | 下面两张表的 apiVersion 与 schema |
+| 包 | 包内容的版本，问「这是哪一版内容」 | `scope/name@x.y.z` | 清单的 `metadata.version` |
+
+**Pack 格式**：
+
+| 契约 | apiVersion | 位置 |
 |---|---|---|
 | manifest | `packhub.dev/v0` | `packhub.yaml` |
 | plan | `packhub.dev/plan/v0` | 运行时（`--json` 输出） |
@@ -25,17 +33,18 @@ review: 格式升版、字段增删、apiVersion 变化时
 | 版本记录 | `packhub.dev/version/v0` | `.packhub/versions/<pack>/<ver>/record.json` |
 | 激活指针 | `packhub.dev/active/v0` | `.packhub/active.json` |
 
-上面这些是 **Pack 格式**。PAL 的本地记录另有自己的版本并且独立演进（`packhub.dev/instance/v1`、`packhub.dev/pal/v0`、`packhub.dev/pal/core/v1`、`packhub.dev/baseline/v0`、`packhub.dev/credentials/v0`、`packhub.dev/trust/v0`），它们只在启动器与本机之间流动，不随 Pack 分发，见 `packages/launcher/src/records.ts`。
+**PAL 本地记录**：
 
-**v0 期间没有兼容承诺**：字段可以增、可以改语义、可以删。读方遇到不认识的主版本（`v1`、`v2`）必须拒绝，不得猜测；遇到不认识的字段同样报错，不做静默忽略。
+| 记录 | apiVersion | 定义 |
+|---|---|---|
+| 实例配置与运行态 | `packhub.dev/instance/v0` | `packages/launcher/src/records.ts` |
+| core 握手 | `packhub.dev/pal/core/v0` | `packages/launcher/src/core.ts` |
+| 实例基线 | `packhub.dev/baseline/v0` | `packages/launcher/src/baseline.ts` |
+| 实例备份 | `packhub.dev/instance-backup/v0` | `packages/launcher/src/backup.ts` |
+| 实例模板 | `packhub.dev/instance-template/v0` | `packages/launcher/src/template.ts` |
+| 私有来源凭据 | `packhub.dev/credentials/v0` | `packages/runtime/src/credentials.ts` |
+| 持久信任公钥 | `packhub.dev/trust/v0` | `packages/runtime/src/trust.ts` |
 
-强制方式：manifest 由 `schema/packhub.v0.schema.json` 强制；`state`、`lock`、`active.json`、版本记录、credentials、trust、签名文件读到别的主版本一律拒绝（`apiVersion.ts` 的 `assertApiVersion`），缺 `apiVersion` 的文件同样拒绝。`index` 由读方比 kernel 的 `INDEX_API_VERSION`：`readIndex` 直接拒绝，Hub 的 `/api/registry` 遇到不认识的版本回 500、不透传。
-
-**升 v1 的判据**（三条都满足才升，届时提供 `packhub migrate`，内核同时读 v0 / v1 一段时间）：
-
-1. 资源类型集合固定，不再增删；
-2. `slots` / `bindings` 的语义固定；
-3. `lock` 里每个引用都有 integrity，不再出现 `null`。
 
 ## 1 Plan（`packhub.dev/plan/v0`）
 
@@ -262,7 +271,7 @@ registry 的索引，`search` / `add` / `update` 只读它。
 
 - `plan` / `lock` / `state` / `index` 各自独立升版本；读方遇到不认识的 `apiVersion` 主版本必须拒绝，不得猜测。`index` 的版本号由 kernel 的 `INDEX_API_VERSION` 单点给出：`readIndex` 比它，Hub 的 `/api/registry` 也对它，遇到不认识的值回 500、不透传。
 - 新增可选字段不算破坏性变更；删除字段、改变语义、收紧校验算。
-- v0.0.2 起，registry 里的包**必须**有 lock；要 `verified` 还必须有对得上的 verify 报告。
+- 产品 0.0.2 起，registry 里的包**必须**有 lock；要 `verified` 还必须有对得上的 verify 报告。
 
 ## 8 不在这份文档里
 
