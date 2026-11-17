@@ -1,0 +1,71 @@
+// issueCodes.ts	问题码一览（Issue.code 的取值）
+
+/**
+ * `Issue.code` 的全部取值。码值是对外契约：CLI 把它原样打给用户（`error [<code>]`）、
+ * runtime 按它分支（如 `unpinned-source`）、测试按它断言——这里只收口写法，值一个都不改。
+ *
+ * 新增码：在这里加一条，用 `ISSUE_CODES.<key>` 引用；键名是码值的驼峰写法。
+ */
+export const ISSUE_CODES = {
+  agentTargetMismatch: 'agent-target-mismatch',
+  badStatePath: 'bad-state-path',
+  bindingUnknownResource: 'binding-unknown-resource',
+  bindingUnknownSlot: 'binding-unknown-slot',
+  bindingWrongSlot: 'binding-wrong-slot',
+  catalogDuplicate: 'catalog-duplicate',
+  catalogEntry: 'catalog-entry',
+  catalogShape: 'catalog-shape',
+  catalogVersion: 'catalog-version',
+  contextFileMissing: 'context-file-missing',
+  contextOutsidePack: 'context-outside-pack',
+  dependencyCycle: 'dependency-cycle',
+  duplicateCommandName: 'duplicate-command-name',
+  duplicateMcpServer: 'duplicate-mcp-server',
+  duplicateResourceId: 'duplicate-resource-id',
+  duplicateStateId: 'duplicate-state-id',
+  duplicateStatePath: 'duplicate-state-path',
+  httpMissingIntegrity: 'http-missing-integrity',
+  localOverrides: 'local-overrides',
+  manifestMissing: 'manifest-missing',
+  manifestUnreadable: 'manifest-unreadable',
+  missingDependency: 'missing-dependency',
+  modifyAnchorAmbiguous: 'modify-anchor-ambiguous',
+  modifyAnchorMissing: 'modify-anchor-missing',
+  modifyConflict: 'modify-conflict',
+  modifyEmpty: 'modify-empty',
+  modifyFileMissing: 'modify-file-missing',
+  modifyInvalid: 'modify-invalid',
+  modifyNeedsFile: 'modify-needs-file',
+  modifyNoop: 'modify-noop',
+  modifyNotFile: 'modify-not-file',
+  modifyNthOutOfRange: 'modify-nth-out-of-range',
+  modifyOutsidePack: 'modify-outside-pack',
+  modifyRemoteUnsupported: 'modify-remote-unsupported',
+  modifyShadows: 'modify-shadows',
+  modifySourceMissing: 'modify-source-missing',
+  modifyUnknownResource: 'modify-unknown-resource',
+  outputConflict: 'output-conflict',
+  pinConflict: 'pin-conflict',
+  schema: 'schema',
+  slotContractUnmet: 'slot-contract-unmet',
+  slotUnbound: 'slot-unbound',
+  sourceNotArchive: 'source-not-archive',
+  toolBinaryWithoutPlatforms: 'tool-binary-without-platforms',
+  toolCommandInvalid: 'tool-command-invalid',
+  toolNeedsCommands: 'tool-needs-commands',
+  toolRouteNeedsCall: 'tool-route-needs-call',
+  toolRouteUnsupported: 'tool-route-unsupported',
+  toolShellUnsupported: 'tool-shell-unsupported',
+  undeclaredTarget: 'undeclared-target',
+  undefinedVariable: 'undefined-variable',
+  unknownAgent: 'unknown-agent',
+  unknownResourceType: 'unknown-resource-type',
+  unknownSlot: 'unknown-slot',
+  unknownTarget: 'unknown-target',
+  unmetNeed: 'unmet-need',
+  unpinnedSource: 'unpinned-source',
+  yamlSyntax: 'yaml-syntax',
+} as const;
+
+/** 一个错误码；想让某处只收已知码时用它。 */
+export type IssueCode = (typeof ISSUE_CODES)[keyof typeof ISSUE_CODES];

@@ -108,6 +108,22 @@ describe('全局 harness 同步', () => {
     expect(existsSync(join(dsh, 'skills/hello/agents/openai.yaml'))).toBe(false);
   });
 
+  it('同步到未声明的 target 时把 planFor 的原因带出来，且不写盘', async () => {
+    const { codex } = homes();
+    const src = pack();
+    // 这份包只声明了 dsh；显式同步到 codex 不能出计划
+    writeFileSync(
+      join(src, 'packhub.yaml'),
+      readFileSync(join(src, 'packhub.yaml'), 'utf8').replace('targets: [dsh, codex]', 'targets: [dsh]'),
+      'utf8',
+    );
+
+    await expect(syncPack(src, { targets: ['codex'] })).rejects.toThrow(
+      /codex: 生成不了计划：这个包没有声明 target codex；声明了：dsh/,
+    );
+    expect(existsSync(join(codex, 'skills'))).toBe(false);
+  });
+
   it('SKILL.md 带 BOM 也能读', async () => {
     const { dsh } = homes();
     const src = pack('\uFEFF---\nname: hello\ndescription: BOM skill.\n---\n\n# Hello\n');

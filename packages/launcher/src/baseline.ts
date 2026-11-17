@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { TargetId } from '@packhub/kernel';
 import { loadState } from '@packhub/runtime';
+import { writeAtomic } from './atomic.ts';
 import { nowIso } from './time.ts';
 
 /**
@@ -71,9 +72,7 @@ export function writeBaseline(root: string, baseline: Omit<Baseline, 'apiVersion
     runtime: baseline.runtime ?? process.version,
   };
   const file = join(root, BASELINE);
-  const tmp = `${file}.tmp-${process.pid}`;
-  writeFileSync(tmp, JSON.stringify(value, null, 2) + '\n', 'utf8');
-  renameSync(tmp, file);
+  writeAtomic(file, JSON.stringify(value, null, 2) + '\n');
   return value;
 }
 

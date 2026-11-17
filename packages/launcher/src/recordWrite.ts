@@ -1,5 +1,6 @@
-import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
+import { writeAtomic } from './atomic.ts';
 import { API_VERSION, partitionRecord, recordFile, runtimeFile, type InstanceRecord } from './records.ts';
 import { nowIso } from './time.ts';
 import { instancesRoot } from './paths.ts';
@@ -41,21 +42,13 @@ export function removeLink(id: string): void {
   rmSync(linkFile(id), { force: true });
 }
 
-/** 原子写：临时文件 + rename。写到一半崩溃只会留临时文件，不会留半份 JSON。 */
-function writeAtomic(file: string, value: unknown): void {
-  mkdirSync(dirname(file), { recursive: true });
-  const tmp = `${file}.tmp-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
-  writeFileSync(tmp, JSON.stringify(value, null, 2) + '\n', 'utf8');
-  try {
-    renameSync(tmp, file);
-  } catch (err) {
-    try {
-      rmSync(tmp, { force: true });
-    } catch {
-      /* 临时文件删不掉就留着，不影响主流程 */
-    }
-    throw err;
-  }
+/** 记录文件的原子写：目录按需建，临时文件名带随机后缀（避免同名残留），失败清掉临时文件。 */
+function writeRecordFile(file: string, value: unknown): void {
+  writeAtomic(file, JSON.stringify(value, null, 2) + '\n', {
+    mkdir: dirname(file),
+    tmpSuffix: `.tmp-${process.pid}-${Math.random().toString(36).slice(2, 8)}`,
+    cleanupOnFailure: true,
+  });
 }
 
 /**
@@ -66,8 +59,8 @@ function writeAtomic(file: string, value: unknown): void {
 export function writeInstance(record: InstanceRecord): void {
   const next: InstanceRecord = { ...record, apiVersion: API_VERSION, updatedAt: nowIso() };
   const { config, runtime } = partitionRecord(next);
-  writeAtomic(runtimeFile(next.root), runtime);
-  writeAtomic(recordFile(next.root), config);
+  writeRecordFile(runtimeFile(next.root), runtime);
+  writeRecordFile(recordFile(next.root), config);
   record.updatedAt = next.updatedAt;
   writeLink(next);
 }

@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, resolve, sep } from 'node:path';
 import { fetchPack, loadManifest, resolveAddSource, resolveRegistry } from '@packhub/runtime';
+import { writeAtomic } from './atomic.ts';
 import { cacheRoot } from './paths.ts';
 import { PalError } from './errors.ts';
 
@@ -133,15 +134,10 @@ export function readCacheMeta(dir: string): { meta?: CacheMeta; problem?: string
 
 /** 原子写：先写临时文件再 rename，中途失败不会留下半份 JSON。 */
 export function writeCacheMeta(dir: string, meta: CacheMeta): void {
-  const file = join(dir, CACHE_META);
-  const tmp = `${file}.${process.pid}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(meta, null, 2)}\n`, 'utf8');
-  try {
-    renameSync(tmp, file);
-  } catch (err) {
-    rmSync(tmp, { force: true });
-    throw err;
-  }
+  writeAtomic(join(dir, CACHE_META), `${JSON.stringify(meta, null, 2)}\n`, {
+    tmpSuffix: `.${process.pid}.tmp`,
+    cleanupOnFailure: true,
+  });
 }
 
 /** 新取/覆盖后写一份；命中补写时用缓存目录里的清单兜底版本。写失败不影响取包。 */

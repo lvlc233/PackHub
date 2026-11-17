@@ -1,6 +1,7 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { writeAtomic } from './atomic.ts';
 
 /** URL 里这些查询参数算凭据：不写进实例记录、不出现在界面、日志里打码。 */
 const SECRET_QUERY = /^(token|access_token|auth|key|apikey|api_key|secret|password|session|sig)$/i;
@@ -55,9 +56,7 @@ export function writeSecrets(root: string, secrets: Record<string, string>): voi
     return;
   }
   mkdirSync(dirname(file), { recursive: true });
-  const tmp = `${file}.tmp-${process.pid}`;
-  writeFileSync(tmp, JSON.stringify(secrets, null, 2) + '\n', { encoding: 'utf8', mode: 0o600 });
-  renameSync(tmp, file);
+  writeAtomic(file, JSON.stringify(secrets, null, 2) + '\n', { mode: 0o600 });
   try {
     chmodSync(file, 0o600);
   } catch {

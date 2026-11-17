@@ -1,5 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { writeAtomic } from './atomic.ts';
 import { PalError } from './errors.ts';
 import { instancesRoot } from './paths.ts';
 import { quarantineInstance } from './quarantine.ts';
@@ -118,10 +119,7 @@ export function readActiveMap(): ActiveMap {
 
 export function writeActiveMap(map: ActiveMap): void {
   mkdirSync(instancesRoot(), { recursive: true });
-  const file = activeMapPath();
-  const tmp = `${file}.tmp-${process.pid}`;
-  writeFileSync(tmp, JSON.stringify(map, null, 2) + '\n', 'utf8');
-  renameSync(tmp, file);
+  writeAtomic(activeMapPath(), JSON.stringify(map, null, 2) + '\n');
 }
 
 /** 删除/改名实例后把指向它的默认值清掉；只在包内用，index.ts 不对外导出。 */

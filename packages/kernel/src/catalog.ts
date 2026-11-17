@@ -1,4 +1,8 @@
 import { RESOURCE_TYPES, isResourceType, type Issue, type ResourceType, type TargetId } from './types.ts';
+import { ISSUE_CODES } from './issueCodes.ts';
+
+/** 资源目录的格式版本：`registry/resources.json` 与 `schema/resources.v0.schema.json` 用的是同一个值。 */
+export const RESOURCES_API_VERSION = 'packhub.dev/resources/v0';
 
 /** 资源目录里的一条候选：不是 Pack，只是「可以装进 Pack 的东西」。 */
 export interface CatalogEntry {
@@ -14,7 +18,7 @@ export interface CatalogEntry {
 }
 
 export interface ResourceCatalog {
-  apiVersion: 'packhub.dev/resources/v0';
+  apiVersion: typeof RESOURCES_API_VERSION;
   resources: CatalogEntry[];
 }
 
@@ -22,46 +26,46 @@ export interface ResourceCatalog {
 export function parseCatalog(raw: unknown): { catalog?: ResourceCatalog; issues: Issue[] } {
   const issues: Issue[] = [];
   if (!raw || typeof raw !== 'object') {
-    return { issues: [{ code: 'catalog-shape', severity: 'error', message: '资源目录不是对象' }] };
+    return { issues: [{ code: ISSUE_CODES.catalogShape, severity: 'error', message: '资源目录不是对象' }] };
   }
   const data = raw as Record<string, unknown>;
-  if (data.apiVersion !== 'packhub.dev/resources/v0') {
+  if (data.apiVersion !== RESOURCES_API_VERSION) {
     issues.push({
-      code: 'catalog-version',
+      code: ISSUE_CODES.catalogVersion,
       severity: 'error',
-      message: `不认识的资源目录版本：${String(data.apiVersion)}（只支持 packhub.dev/resources/v0）`,
+      message: `不认识的资源目录版本：${String(data.apiVersion)}（只支持 ${RESOURCES_API_VERSION}）`,
     });
   }
   if (!Array.isArray(data.resources)) {
-    issues.push({ code: 'catalog-shape', severity: 'error', message: 'resources 必须是数组' });
+    issues.push({ code: ISSUE_CODES.catalogShape, severity: 'error', message: 'resources 必须是数组' });
     return { issues };
   }
   const entries: CatalogEntry[] = [];
   const seen = new Set<string>();
   for (const [i, item] of data.resources.entries()) {
     if (!item || typeof item !== 'object') {
-      issues.push({ code: 'catalog-entry', severity: 'error', message: `resources[${i}] 不是对象` });
+      issues.push({ code: ISSUE_CODES.catalogEntry, severity: 'error', message: `resources[${i}] 不是对象` });
       continue;
     }
     const e = item as Record<string, unknown>;
     if (typeof e.id !== 'string' || !e.id.trim()) {
-      issues.push({ code: 'catalog-entry', severity: 'error', message: `resources[${i}] 缺少 id` });
+      issues.push({ code: ISSUE_CODES.catalogEntry, severity: 'error', message: `resources[${i}] 缺少 id` });
       continue;
     }
     if (typeof e.source !== 'string' || !e.source.trim()) {
-      issues.push({ code: 'catalog-entry', severity: 'error', message: `resources[${i}] 缺少 source` });
+      issues.push({ code: ISSUE_CODES.catalogEntry, severity: 'error', message: `resources[${i}] 缺少 source` });
       continue;
     }
     if (!isResourceType(e.type)) {
       issues.push({
-        code: 'catalog-entry',
+        code: ISSUE_CODES.catalogEntry,
         severity: 'error',
         message: `resources[${i}].type 不合法：${String(e.type)}（可选 ${RESOURCE_TYPES.join(' / ')}）`,
       });
       continue;
     }
     if (seen.has(e.id)) {
-      issues.push({ code: 'catalog-duplicate', severity: 'error', message: `资源目录 id 重复：${e.id}` });
+      issues.push({ code: ISSUE_CODES.catalogDuplicate, severity: 'error', message: `资源目录 id 重复：${e.id}` });
       continue;
     }
     seen.add(e.id);
@@ -77,7 +81,7 @@ export function parseCatalog(raw: unknown): { catalog?: ResourceCatalog; issues:
       ...(Array.isArray(e.targets) ? { targets: e.targets as TargetId[] } : {}),
     });
   }
-  return { catalog: { apiVersion: 'packhub.dev/resources/v0', resources: entries }, issues };
+  return { catalog: { apiVersion: RESOURCES_API_VERSION, resources: entries }, issues };
 }
 
 export interface CatalogHit {

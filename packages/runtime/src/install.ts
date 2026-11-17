@@ -17,7 +17,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-import { dirname, join, resolve, sep } from 'node:path';
+import { dirname, join } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import * as tar from 'tar';
 import type { Plan, PlanAction, PlanShape, PlanSnapshot } from '@packhub/kernel';
@@ -34,7 +34,6 @@ import {
   deepMerge,
   diffActions,
   isPlainObject,
-  isSharedInstallPath,
   planPathsOf,
   sha256,
 } from '@packhub/kernel';
@@ -44,6 +43,7 @@ import { generateOpenaiYaml, readSkillFrontmatter } from './skill-meta.ts';
 import { resolveToken } from './credentials.ts';
 import { assertApiVersion } from './apiVersion.ts';
 import { removeClaudeMcp } from './host-mcp.ts';
+import { resolveWithin } from './pathSafety.ts';
 
 export interface ApplyOptions {
   /** 目标目录：写到哪里、state 放哪里 */
@@ -113,9 +113,15 @@ interface State {
  */
 export const STATE_API_VERSION = 'packhub.dev/state/v0';
 
+/** active.json 的格式版本：写方（setActive）与读方（readActive）共用这一个常量。 */
+const ACTIVE_API_VERSION = 'packhub.dev/active/v0';
+
+/** 版本记录 record.json 的格式版本：写方（镜像落盘）与读方（readVersionRecord）共用这一个常量。 */
+const VERSION_API_VERSION = 'packhub.dev/version/v0';
+
 /** 一个已装版本的落盘记录：文件内容镜像 + 可重放的共享改动。 */
 export interface VersionRecord {
-  apiVersion: 'packhub.dev/version/v0';
+  apiVersion: typeof VERSION_API_VERSION;
   pack: string;
   version: string;
   target: Plan['target'];
@@ -145,7 +151,7 @@ export interface VersionInfo {
 }
 
 interface ActiveFile {
-  apiVersion: 'packhub.dev/active/v0';
+  apiVersion: typeof ACTIVE_API_VERSION;
   packs: Record<string, { version: string; target: string; planHash: string; at: string }>;
 }
 
@@ -247,6 +253,22 @@ export function planPaths(plan: PlanShape): string[] {
   return planPathsOf(plan);
 }
 
+/**
+ * 计划里语义共享的产物路径：只有 `register.mcp`（按 key 合并）与 `instruction`
+ * （托管块各写各的）算共享，其余动作的产物都是本包私有。
+ *
+ * 版本镜像、所有权冲突、升级清理都按这张集合判，不看文件扩展名或目录层级：
+ * `.json` 既可能是别人的配置，也可能是本包自己的数据文件，路径本身说明不了共享性。
+ */
+function semanticSharedPaths(plan: PlanShape): Set<string> {
+  const out = new Set<string>();
+  for (const action of plan.actions) {
+    if (!actionIsShared(action)) continue;
+    for (const rel of actionPaths(action, plan)) out.add(rel);
+  }
+  return out;
+}
+
 /** state 里存的是计划快照：target/planHash/actions/verify/excluded，够 diff、够算路径。 */
 export function planSnapshot(plan: Plan): PlanSnapshot {
   return {
@@ -264,7 +286,7 @@ function sourcePath(action: PlanAction, opts: ApplyOptions): string {
   if (base === 'none') throw new Error(`动作没有来源：${action.actionId}`);
   const raw = (action as { from?: string }).from;
   if (raw === undefined) throw new Error(`动作缺少 from：${action.actionId}`);
-  return base === 'pack' ? readable(opts.packRoot ?? opts.root, raw) : within(opts.root, raw);
+  return base === 'pack' ? resolveWithin(opts.packRoot ?? opts.root, raw) : resolveWithin(opts.root, raw);
 }
 
 /** 计划声明的持久状态目录。 */
@@ -284,7 +306,7 @@ function prepareGeneration(root: string, plan: Plan): Generation {
   const existed: string[] = [];
   const created: string[] = [];
   for (const rel of planPaths(plan)) {
-    const abs = within(root, rel);
+    const abs = resolveWithin(root, rel);
     if (existsSync(abs)) {
       const dest = join(dir, 'files', rel);
       mkdirSync(dirname(dest), { recursive: true });
@@ -318,7 +340,7 @@ export async function applyPlan(plan: Plan, opts: ApplyOptions): Promise<ApplyRe
   const written: string[] = [];
   const key = `${plan.pack.name}@${plan.pack.version}`;
 
-  // 项目级所有权：同一路径不许被两个包各写一份（配置文件是指路的共享物，例外）
+  // 项目级所有权：同一路径不许被两个包各写一份；只有两边都是语义共享产物才豁免
   const conflicts = findOwnershipConflicts(plan, key, opts.root);
   if (conflicts.length > 0 && !opts.overwrite) {
     throw new Error(
@@ -410,7 +432,7 @@ export async function applyPlan(plan: Plan, opts: ApplyOptions): Promise<ApplyRe
 
   if (!opts.dryRun && !failed) {
     const state = loadState(opts.root);
-    state.apiVersion = 'packhub.dev/state/v0';
+    state.apiVersion = STATE_API_VERSION;
     // 升级到新版本时把同名的旧记录并进来：written 取并集，旧 key 不留
     const oldKeys = Object.keys(state.packs).filter(
       (k) => k !== key && (k.split('@')[0] ?? '') === plan.pack.name,
@@ -474,15 +496,15 @@ function versionDirOf(root: string, pack: string, version: string): string {
 
 function readActive(root: string): ActiveFile {
   const file = join(root, ACTIVE_FILE);
-  if (!existsSync(file)) return { apiVersion: 'packhub.dev/active/v0', packs: {} };
+  if (!existsSync(file)) return { apiVersion: ACTIVE_API_VERSION, packs: {} };
   let parsed: Partial<ActiveFile>;
   try {
     parsed = JSON.parse(readFileSync(file, 'utf8')) as Partial<ActiveFile>;
   } catch {
-    return { apiVersion: 'packhub.dev/active/v0', packs: {} };
+    return { apiVersion: ACTIVE_API_VERSION, packs: {} };
   }
-  assertApiVersion(file, parsed, 'packhub.dev/active/v0');
-  return { apiVersion: 'packhub.dev/active/v0', packs: parsed.packs ?? {} };
+  assertApiVersion(file, parsed, ACTIVE_API_VERSION);
+  return { apiVersion: ACTIVE_API_VERSION, packs: parsed.packs ?? {} };
 }
 
 function writeActive(root: string, next: ActiveFile): void {
@@ -520,16 +542,18 @@ function stageVersion(
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(join(dir, 'files'), { recursive: true });
   const files: string[] = [];
+  const shared = semanticSharedPaths(plan);
   for (const rel of planPaths(plan)) {
-    if (isSharedInstallPath(rel)) continue;
-    const abs = within(root, rel);
+    // 共享产物不镜像：配置与托管块由 replayShared 按动作重放，镜像一份会盖掉别的包
+    if (shared.has(rel)) continue;
+    const abs = resolveWithin(root, rel);
     if (!existsSync(abs)) continue;
     // 版本镜像优先用硬链接共享字节；跨盘/不支持的文件系统退回复制
     linkTree(abs, join(dir, 'files', rel));
     files.push(rel);
   }
   const record: VersionRecord = {
-    apiVersion: 'packhub.dev/version/v0',
+    apiVersion: VERSION_API_VERSION,
     pack: plan.pack.name,
     version: plan.pack.version,
     target: plan.target,
@@ -582,7 +606,7 @@ export function readVersionRecord(root: string, pack: string, version: string): 
   const file = join(versionDirOf(root, pack, version), 'record.json');
   if (!existsSync(file)) throw new Error(`没有这个版本：${pack}@${version}（用 packhub versions ${pack} 查看）`);
   const record = JSON.parse(readFileSync(file, 'utf8')) as VersionRecord;
-  assertApiVersion(file, record, 'packhub.dev/version/v0');
+  assertApiVersion(file, record, VERSION_API_VERSION);
   return record;
 }
 
@@ -742,7 +766,7 @@ function materialize(root: string, record: VersionRecord): void {
   for (const rel of record.files) {
     const from = join(src, rel);
     if (!existsSync(from)) continue;
-    const to = within(root, rel);
+    const to = resolveWithin(root, rel);
     if (lstatSync(from).isDirectory()) replaceTree(from, to);
     else linkFileAtomic(from, to);
   }
@@ -759,7 +783,7 @@ async function replayShared(root: string, record: VersionRecord): Promise<Action
       continue;
     }
     if (action.op === 'state.dir') {
-      mkdirSync(within(root, action.to), { recursive: true });
+      mkdirSync(resolveWithin(root, action.to), { recursive: true });
       outcomes.push({ actionId: action.actionId, op: action.op, status: 'done', target: action.to });
       continue;
     }
@@ -802,7 +826,7 @@ function deactivatePlan(
       case 'delete': {
         for (const rel of actionPaths(action, plan)) {
           if (keptBy(rel)) continue;
-          const abs = within(root, rel);
+          const abs = resolveWithin(root, rel);
           if (!existsSync(abs)) continue;
           rmSync(abs, { recursive: true, force: true });
           removed.push(rel);
@@ -828,7 +852,7 @@ function deactivatePlan(
   }
 
   for (const { path: rel, resource } of servers) {
-    const abs = within(root, rel);
+    const abs = resolveWithin(root, rel);
     if (!existsSync(abs)) continue;
     if (/\.toml$/i.test(rel)) {
       const text = stripMcpToml(readFileSync(abs, 'utf8'), resource);
@@ -849,7 +873,7 @@ function deactivatePlan(
   }
 
   for (const { file, blockId } of blocks) {
-    const abs = within(root, file);
+    const abs = resolveWithin(root, file);
     if (!existsSync(abs)) continue;
     const text = stripBlock(readFileSync(abs, 'utf8'), blockId);
     if (text.trim() === '') rmSync(abs, { force: true });
@@ -917,7 +941,7 @@ function restoreGeneration(
   for (const rel of gen.existed) {
     const src = join(dir, 'files', rel);
     if (!existsSync(src)) continue;
-    const abs = within(root, rel);
+    const abs = resolveWithin(root, rel);
     if (lstatSync(src).isDirectory()) replaceTree(src, abs);
     else copyFileAtomic(src, abs);
     restored.push(rel);
@@ -925,7 +949,7 @@ function restoreGeneration(
 
   const removed: string[] = [];
   for (const rel of [...gen.created].sort((a, b) => b.length - a.length)) {
-    const abs = within(root, rel);
+    const abs = resolveWithin(root, rel);
     if (!existsSync(abs)) continue;
     rmSync(abs, { recursive: true, force: true });
     removed.push(rel);
@@ -965,7 +989,7 @@ export function removePack(root: string, packKey?: string): RemoveResult {
       }
       // 持久状态目录默认保留；只有显式 retain: remove 才跟随卸载删除
       for (const spec of record.stateDirs ?? []) {
-        const abs = within(root, spec.path);
+        const abs = resolveWithin(root, spec.path);
         if (!existsSync(abs)) continue;
         if (spec.retain === 'remove') {
           rmSync(abs, { recursive: true, force: true });
@@ -1005,7 +1029,7 @@ export function removePack(root: string, packKey?: string): RemoveResult {
           kept.push(rel);
           continue;
         }
-        const abs = within(root, rel);
+        const abs = resolveWithin(root, rel);
         if (!existsSync(abs)) continue;
 
         // 配置文件是共享的：先按 merge 的 undo 还原键，再摘掉自己登记的 server 条目，不整文件删
@@ -1048,13 +1072,13 @@ export function removePack(root: string, packKey?: string): RemoveResult {
       // 从 registry 装进来的包会留一份清单副本；卸载时一起清掉
       const packName = key.split('@')[0] ?? '';
       if (packName) {
-        const copy = within(root, join(STATE_DIR, 'packs', packName));
+        const copy = resolveWithin(root, join(STATE_DIR, 'packs', packName));
         if (existsSync(copy)) rmSync(copy, { recursive: true, force: true });
       }
       delete state.packs[key];
       // 没有任何版本记录留下时，把整个版本目录与激活项一并摘掉
       if (packName && !Object.keys(state.packs).some((k) => (k.split('@')[0] ?? '') === packName)) {
-        const versions = within(root, join(VERSIONS_DIR, packSlug(packName)));
+        const versions = resolveWithin(root, join(VERSIONS_DIR, packSlug(packName)));
         if (existsSync(versions)) rmSync(versions, { recursive: true, force: true });
         // 空壳目录不留在项目里
         const versionsRoot = join(root, VERSIONS_DIR);
@@ -1084,7 +1108,7 @@ async function applyAction(
 ): Promise<ActionOutcome> {
   switch (action.op) {
     case 'fetch': {
-      const dest = within(opts.root, action.dest);
+      const dest = resolveWithin(opts.root, action.dest);
       if (opts.dryRun) {
         return { actionId: action.actionId, op: action.op, status: 'done', target: action.dest };
       }
@@ -1121,7 +1145,7 @@ async function applyAction(
     case 'unpack': {
       // from 是 fetch 实际写盘的位置（安装根基准），由表里声明
       const from = sourcePath(action, opts);
-      const to = within(opts.root, action.to);
+      const to = resolveWithin(opts.root, action.to);
       if (!existsSync(from)) throw new Error(`待解包文件不存在：${action.from}`);
       if (!opts.dryRun) {
         // 解包产物可能与版本镜像是硬链接：先清空目的地，避免 tar 原地覆盖把镜像改掉
@@ -1147,7 +1171,7 @@ async function applyAction(
           message: `需要 --allow-exec 才会执行：${action.command} ${action.args.join(' ')}`,
         };
       }
-      const cwd = action.cwd ? within(opts.root, action.cwd) : within(opts.root, '.');
+      const cwd = action.cwd ? resolveWithin(opts.root, action.cwd) : resolveWithin(opts.root, '.');
       if (!existsSync(cwd)) throw new Error(`exec 的工作目录不存在：${action.cwd ?? '.'}`);
       if (opts.dryRun) {
         return { actionId: action.actionId, op: action.op, status: 'done', target: action.command };
@@ -1172,7 +1196,7 @@ async function applyAction(
     }
     case 'link.skill': {
       const from = sourcePath(action, opts);
-      const to = within(opts.root, action.to);
+      const to = resolveWithin(opts.root, action.to);
       if (!existsSync(from)) {
         throw new Error(`skill 源目录不存在：${action.from}`);
       }
@@ -1186,7 +1210,7 @@ async function applyAction(
 
     case 'copy': {
       const from = sourcePath(action, opts);
-      const to = within(opts.root, action.to);
+      const to = resolveWithin(opts.root, action.to);
       if (!existsSync(from)) throw new Error(`copy 的来源不存在：${action.from}`);
       if (!opts.dryRun) {
         mkdirSync(dirname(to), { recursive: true });
@@ -1213,11 +1237,11 @@ async function applyAction(
           `runtime: shell 要 sh，Windows 上没有：${action.to}；换 node / python，或用 platforms 限定平台`,
         );
       }
-      const entry = within(opts.root, action.entry);
-      const modulePath = action.module ? within(opts.root, action.module) : undefined;
+      const entry = resolveWithin(opts.root, action.entry);
+      const modulePath = action.module ? resolveWithin(opts.root, action.module) : undefined;
       if (!existsSync(entry)) throw new Error(`工具入口不存在：${action.entry}`);
       if (modulePath && !existsSync(modulePath)) throw new Error(`工具模块不存在：${action.module}`);
-      const to = within(opts.root, action.to);
+      const to = resolveWithin(opts.root, action.to);
       if (opts.dryRun) {
         return { actionId: action.actionId, op: action.op, status: 'done', target: action.to };
       }
@@ -1246,7 +1270,7 @@ async function applyAction(
     }
 
     case 'delete': {
-      const to = within(opts.root, action.to);
+      const to = resolveWithin(opts.root, action.to);
       // 目标已经不在：补丁要删的东西本来就没有，不当作失败（快照里也没有它）
       if (!existsSync(to)) {
         return { actionId: action.actionId, op: action.op, status: 'noop', target: action.to };
@@ -1258,7 +1282,7 @@ async function applyAction(
     }
 
     case 'write': {
-      const to = within(opts.root, action.to);
+      const to = resolveWithin(opts.root, action.to);
       // 覆盖层可能带二进制文件（图片、字体、脚本），不能一律按 UTF-8 读
       if (action.content === undefined && action.from) {
         const raw = readFileSync(sourcePath(action, opts));
@@ -1290,7 +1314,7 @@ async function applyAction(
 
     case 'register.mcp': {
       const path = action.path ?? '.packhub/config.json';
-      const to = within(opts.root, path);
+      const to = resolveWithin(opts.root, path);
       // codex 的全局 MCP 配置是 TOML：用带标记的托管块，卸载时按 id 摘掉
       if (/\.toml$/i.test(path)) {
         const before = existsSync(to) ? readFileSync(to, 'utf8') : '';
@@ -1348,7 +1372,7 @@ async function applyAction(
     }
 
     case 'instruction': {
-      const to = within(opts.root, action.file);
+      const to = resolveWithin(opts.root, action.file);
       const before = existsSync(to) ? readFileSync(to, 'utf8') : '';
       const next = upsertBlock(before, action.blockId, action.content);
       if (before === next) {
@@ -1369,7 +1393,7 @@ async function applyAction(
     }
 
     case 'state.dir': {
-      const to = within(opts.root, action.to);
+      const to = resolveWithin(opts.root, action.to);
       if (!opts.dryRun) mkdirSync(to, { recursive: true });
       return {
         actionId: action.actionId,
@@ -1429,27 +1453,9 @@ function readStructured(file: string): unknown {
 
 
 function backup(root: string, relPath: string, content: string): void {
-  const dest = within(root, join(STATE_DIR, 'backups', sha256(content).replace(/[^a-zA-Z0-9]/g, '').slice(0, 12), relPath));
+  const dest = resolveWithin(root, join(STATE_DIR, 'backups', sha256(content).replace(/[^a-zA-Z0-9]/g, '').slice(0, 12), relPath));
   mkdirSync(dirname(dest), { recursive: true });
   writeFileSync(dest, content, 'utf8');
-}
-
-function within(root: string, relPath: string): string {
-  const base = resolve(root);
-  const target = resolve(base, relPath);
-  if (target !== base && !target.startsWith(base + sep)) {
-    throw new Error(`路径越界，拒绝写入：${relPath}`);
-  }
-  return target;
-}
-
-/**
- * 只读取源文件时用的定位：extends 会让父包的本地资源落在包目录之外，
- * 读它不产生写入越界；写目标仍然走 within。
- */
-function readable(root: string, relPath: string): string {
-  if (relPath.startsWith('../') || relPath.startsWith('..\\')) return resolve(root, relPath);
-  return within(root, relPath);
 }
 
 export function loadState(root: string): State {
@@ -1715,7 +1721,7 @@ export function pruneRemoved(
             kept.push(rel);
             continue;
           }
-          const abs = within(root, rel);
+          const abs = resolveWithin(root, rel);
           if (!existsSync(abs)) continue;
           rmSync(abs, { recursive: true, force: true });
           removed.push(rel);
@@ -1731,7 +1737,7 @@ export function pruneRemoved(
           kept.push(path);
           break;
         }
-        const abs = within(root, path);
+        const abs = resolveWithin(root, path);
         if (!existsSync(abs)) break;
         if (/\.toml$/i.test(path)) {
           const text = stripMcpToml(readFileSync(abs, 'utf8'), server);
@@ -1757,7 +1763,7 @@ export function pruneRemoved(
           kept.push(payload.file);
           break;
         }
-        const abs = within(root, payload.file);
+        const abs = resolveWithin(root, payload.file);
         if (!existsSync(abs)) break;
         const text = stripBlock(readFileSync(abs, 'utf8'), payload.blockId);
         if (text.trim() === '') rmSync(abs, { force: true });
@@ -1790,28 +1796,37 @@ export function pruneRemoved(
   return { removed, kept, warnings };
 }
 
-/** 这次安装要写的路径里，哪些已经被别的包占了。 */
+/**
+ * 这次安装要写的路径里，哪些已经被别的包占了。
+ *
+ * 豁免只认「两边都是语义共享产物」：MCP 配置按 key 合并、指令文件按托管块合并，
+ * 合并不丢别人的东西，才不算冲突。别人当私有文件写的路径（哪怕后缀是 `.json`），
+ * 这次就算用 register.mcp 去改也会覆盖：仍然算冲突。
+ */
 function findOwnershipConflicts(plan: Plan, key: string, root: string): string[] {
   const state = loadState(root);
+  const sharedHere = semanticSharedPaths(plan);
   const owners = new Map<string, string>();
+  const ownerShared = new Map<string, Set<string>>();
   const selfName = key.split('@')[0] ?? '';
   for (const [packKey, record] of Object.entries(state.packs)) {
     if (packKey === key) continue;
     // 同一个包的旧版本不算冲突：升级本来就该覆盖自己
     if ((packKey.split('@')[0] ?? '') === selfName) continue;
+    // 老 state 未必存了计划快照：没有就当它全私有，宁可报冲突也不静默覆盖
+    ownerShared.set(packKey, record.plan ? semanticSharedPaths(record.plan) : new Set());
     for (const rel of record.written) owners.set(rel, packKey);
     for (const spec of record.stateDirs ?? []) owners.set(spec.path, packKey);
   }
   const out: string[] = [];
   const targets = [...planPaths(plan), ...stateDirSpecs(plan).map((s) => s.path)];
   for (const rel of targets) {
-    if (isSharedInstallPath(rel)) continue;
     // 目录整体归一个包时，另一个包往目录里写文件同样算冲突
     for (const [owned, owner] of owners) {
-      if (rel === owned || rel.startsWith(`${owned}/`) || owned.startsWith(`${rel}/`)) {
-        out.push(`${rel}（${owner} 拥有 ${owned}）`);
-        break;
-      }
+      if (!(rel === owned || rel.startsWith(`${owned}/`) || owned.startsWith(`${rel}/`))) continue;
+      if (sharedHere.has(rel) && ownerShared.get(owner)?.has(owned)) break;
+      out.push(`${rel}（${owner} 拥有 ${owned}）`);
+      break;
     }
   }
   return out;
@@ -1821,7 +1836,7 @@ function findOwnershipConflicts(plan: Plan, key: string, root: string): string[]
 function ensureCodexSkillYaml(root: string, plan: Plan, written: string[]): void {
   for (const action of plan.actions) {
     if (action.op !== 'link.skill') continue;
-    const dir = within(root, action.to);
+    const dir = resolveWithin(root, action.to);
     const file = join(dir, ...CODEX_SKILL_YAML.split('/'));
     if (existsSync(file)) continue;
     let front;

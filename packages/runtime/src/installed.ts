@@ -82,7 +82,9 @@ export async function verifyInstalled(
       installedAt: record.installedAt,
       plan,
       results,
-      ok: results.every((r) => r.status !== 'fail'),
+      // 和 runner 的发布门禁同一判据：只有每项检查都 pass 才算完成。
+      // skipped 表示这项没验过（缺规格/类型未知），不能当成通过。
+      ok: results.every((r) => r.status === 'pass'),
     });
   }
   return out;

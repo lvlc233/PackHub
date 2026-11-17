@@ -3,6 +3,7 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, r
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { dirname, join } from 'node:path';
 import pkg from '../package.json' with { type: 'json' };
+import { writeAtomic } from './atomic.ts';
 import { PalError, errorBody } from './errors.ts';
 import { palHome } from './paths.ts';
 import { isPidAlive } from './process.ts';
@@ -84,10 +85,7 @@ export function readCoreInfo(home: string = palHome()): CoreInfo | undefined {
 
 function writeCoreInfo(home: string, info: CoreInfo): void {
   mkdirSync(home, { recursive: true });
-  const file = coreFilePath(home);
-  const tmp = `${file}.tmp-${process.pid}`;
-  writeFileSync(tmp, JSON.stringify(info, null, 2) + '\n', 'utf8');
-  renameSync(tmp, file);
+  writeAtomic(coreFilePath(home), JSON.stringify(info, null, 2) + '\n');
 }
 
 /** core 的诊断日志：只留最近一份，写不进去不影响 core 本身。 */

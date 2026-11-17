@@ -73,16 +73,18 @@ review: 格式升版、字段增删、apiVersion 变化时
 | op | `from` 基准 | 写到安装根 | 撤销 | 撤销载荷 | 共享 | 备注 |
 |---|---|---|---|---|---|---|
 | `fetch` | 无（`uri`） | `dest` | 删文件 | — | 否 | 下载物进缓存，进快照/版本镜像 |
-| `unpack` | 安装根（`root`） | `to` | 删文件 | — | 按落点 | 读 fetch 实际写盘的位置 |
-| `copy` | Pack（`pack`） | `to` | 删文件 | — | 按落点 | 本地工具执行体整份复制 |
-| `write` | Pack（`pack`），内联内容可省 | `to` | 删文件 | — | 按落点 | 二进制也走它 |
-| `delete` | 无 | `to`（被删对象） | 不撤销 | — | 按落点 | 目标不存在算 `noop`，不进 `written` |
-| `link.skill` | 本地 `pack` / 远程 `root` | `to` | 删文件 | — | 按落点 | codex 额外派生 `<to>/agents/openai.yaml` |
+| `unpack` | 安装根（`root`） | `to` | 删文件 | — | 否 | 读 fetch 实际写盘的位置 |
+| `copy` | Pack（`pack`） | `to` | 删文件 | — | 否 | 本地工具执行体整份复制 |
+| `write` | Pack（`pack`），内联内容可省 | `to` | 删文件 | — | 否 | 二进制也走它 |
+| `delete` | 无 | `to`（被删对象） | 不撤销 | — | 否 | 目标不存在算 `noop`，不进 `written` |
+| `link.skill` | 本地 `pack` / 远程 `root` | `to` | 删文件 | — | 否 | codex 额外派生 `<to>/agents/openai.yaml` |
 | `link.exec` | 无（`entry` / `module` 相对安装根） | `to`、`to.cmd` | 删文件 | — | 否 | `.cmd` 只在 win32 生成；`platforms` 不匹配由执行器 `skipped` |
 | `register.mcp` | 无（`spec`） | `path`（默认 `.packhub/config.json`） | 还原共享配置 | `{path, key}` | 是 | `.toml` 用托管块 |
 | `exec` | 无 | 无 | 不撤销 | — | 否 | 计划里永远 `approval: required` |
 | `instruction` | 无（`content`） | `file` | 摘托管块 | `{file, blockId}` | 是 | 只动 `<!-- packhub:begin/end -->` 之间 |
 | `state.dir` | 无 | 无（只建目录） | 不撤销 | — | 否 | 数据目录，不随升级/卸载删除 |
+
+「共享」只由动作决定：`register.mcp` 按 key 合并、`instruction` 按托管块追加；落点路径（`.json` / `.toml` / 根目录 `.md`）不改变共享性，私有 `.json` 照常进版本镜像、参与所有权冲突、升级时按普通文件删。
 
 撤销载荷回答「撤销时要动哪一处」：`restore-shared` 给共享配置文件与 `mcpServers` 下要摘的键，`strip-block` 给指令文件与托管块 id。执行器（`deactivatePlan` / `pruneRemoved` / `removePack`）只按 `undo` 的四种方式各做一次，不再按 op 猜路径与键；`state.dir` 只建目录、不产出文件，所以不进文件冲突集合，同一目录挂两个 state id 另报 `duplicate-state-path`。
 

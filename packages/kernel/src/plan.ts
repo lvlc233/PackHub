@@ -18,6 +18,7 @@ import { parseSource } from './ref.ts';
 import { actionPaths, actionUndo } from './plan-ops.ts';
 import { TARGET_VARS, type TargetVars } from './targets.ts';
 import type { Graph } from './graph.ts';
+import { ISSUE_CODES } from './issueCodes.ts';
 
 export interface PlanOptions {
   target: TargetId;
@@ -54,7 +55,7 @@ export function buildPlan(
   for (const [i, spec] of (manifest.state ?? []).entries()) {
     if (stateIds.has(spec.id)) {
       issues.push({
-        code: 'duplicate-state-id',
+        code: ISSUE_CODES.duplicateStateId,
         severity: 'error',
         message: `state.id 重复：${spec.id}`,
       });
@@ -67,7 +68,7 @@ export function buildPlan(
     const normalized = normalizeStatePath(rel);
     if (!normalized) {
       issues.push({
-        code: 'bad-state-path',
+        code: ISSUE_CODES.badStatePath,
         severity: 'error',
         message: `state[${i}].path 必须是安装根内的相对路径：${rel}`,
       });
@@ -145,7 +146,7 @@ export function buildPlan(
       case 'skill': {
         if (parsed.kind === 'http' && !looksLikeArchive(res.source)) {
           issues.push({
-            code: 'source-not-archive',
+            code: ISSUE_CODES.sourceNotArchive,
             severity: 'error',
             message: `skill 的 https 来源必须是 .tar.gz（现在是单文件）：${res.source}`,
             path: at,
@@ -234,7 +235,7 @@ export function buildPlan(
         const commands = res.commands ?? [];
         if (commands.length === 0) {
           issues.push({
-            code: 'tool-needs-commands',
+            code: ISSUE_CODES.toolNeedsCommands,
             severity: 'error',
             message: `tool2 要用 commands 声明暴露哪些命令：${res.source}`,
             path: at,
@@ -253,7 +254,7 @@ export function buildPlan(
         } else {
           if (parsed.kind === 'http' && !looksLikeArchive(res.source)) {
             issues.push({
-              code: 'source-not-archive',
+              code: ISSUE_CODES.sourceNotArchive,
               severity: 'error',
               message: `tool2 的 https 来源必须是 .tar.gz（现在是单文件）：${res.source}`,
               path: at,
@@ -284,12 +285,12 @@ export function buildPlan(
         for (const [ci, cmd] of commands.entries()) {
           const label = `${at}.commands[${ci}]`;
           if (!cmd.name) {
-            issues.push({ code: 'tool-command-invalid', severity: 'error', message: `${label} 缺少 name`, path: label });
+            issues.push({ code: ISSUE_CODES.toolCommandInvalid, severity: 'error', message: `${label} 缺少 name`, path: label });
             continue;
           }
           if (names.has(cmd.name)) {
             issues.push({
-              code: 'duplicate-command-name',
+              code: ISSUE_CODES.duplicateCommandName,
               severity: 'error',
               message: `${label}：命令名重复：${cmd.name}`,
               path: label,
@@ -301,7 +302,7 @@ export function buildPlan(
           const exec = cmd.exec ?? (sourceIsFile ? fileNameOf(parsed.locator) : undefined);
           if (!exec) {
             issues.push({
-              code: 'tool-command-invalid',
+              code: ISSUE_CODES.toolCommandInvalid,
               severity: 'error',
               message: `${label}：source 是目录，必须写 exec 指明执行体`,
               path: label,
@@ -319,7 +320,7 @@ export function buildPlan(
           // 这里只用注入的平台给一条「跑不了」的警告，不删动作、不读 process。
           if (runtime === 'shell' && opts.platform.startsWith('win32')) {
             issues.push({
-              code: 'tool-shell-unsupported',
+              code: ISSUE_CODES.toolShellUnsupported,
               severity: 'warning',
               message: `${label}：runtime: shell 要 sh，Windows 上没有；执行器会拒绝这条命令，换 node / python 或用 platforms 限定平台`,
               path: label,
@@ -327,7 +328,7 @@ export function buildPlan(
           }
           if (runtime === 'binary' && !platforms) {
             issues.push({
-              code: 'tool-binary-without-platforms',
+              code: ISSUE_CODES.toolBinaryWithoutPlatforms,
               severity: 'warning',
               message: `${label}：binary 没写 platforms，装到别的平台要到运行时才失败`,
               path: label,
@@ -337,7 +338,7 @@ export function buildPlan(
           if (shim === 'route') {
             if (!cmd.call) {
               issues.push({
-                code: 'tool-route-needs-call',
+                code: ISSUE_CODES.toolRouteNeedsCall,
                 severity: 'error',
                 message: `${label}：shim: route 要写 call（模块里的函数名）`,
                 path: label,
@@ -346,7 +347,7 @@ export function buildPlan(
             }
             if (runtime !== 'node' && runtime !== 'python') {
               issues.push({
-                code: 'tool-route-unsupported',
+                code: ISSUE_CODES.toolRouteUnsupported,
                 severity: 'error',
                 message: `${label}：route 只支持 node / python，现在是 ${runtime}`,
                 path: label,
@@ -384,7 +385,7 @@ export function buildPlan(
         // 加资源类型时这里会编译失败：逼着同时补安装动作，别让新类型静默进不了计划
         const unhandled: never = res.type;
         issues.push({
-          code: 'unknown-resource-type',
+          code: ISSUE_CODES.unknownResourceType,
           severity: 'error',
           message: `未知资源类型：${String(unhandled)}`,
           path: at,
@@ -399,7 +400,7 @@ export function buildPlan(
     const prev = claimed.get(path);
     if (prev) {
       issues.push({
-        code: 'modify-conflict',
+        code: ISSUE_CODES.modifyConflict,
         severity: 'error',
         message: `${path} 被两条补丁同时改：${prev}、${label}`,
       });
@@ -419,7 +420,7 @@ export function buildPlan(
       const res = manifest.resources.find((r) => r.id === m.resource);
       if (res && !isPlainObject(m.with)) {
         issues.push({
-          code: 'modify-not-file',
+          code: ISSUE_CODES.modifyNotFile,
           severity: 'error',
           message: `${label}：${m.resource} 是 ${res.type}，没有可改的文件`,
         });
@@ -433,12 +434,12 @@ export function buildPlan(
     const isPath = typeof value === 'string' && PACK_PATH_RE.test(value);
     const fileRel = m.file ? normalizeRel(m.file) : undefined;
     if (m.file && !fileRel) {
-      issues.push({ code: 'modify-invalid', severity: 'error', message: `${label}：file 必须是包内的相对路径：${m.file}` });
+      issues.push({ code: ISSUE_CODES.modifyInvalid, severity: 'error', message: `${label}：file 必须是包内的相对路径：${m.file}` });
       continue;
     }
     if (info.kind === 'file' && fileRel && fileRel !== fileNameOf(info.to)) {
       issues.push({
-        code: 'modify-invalid',
+        code: ISSUE_CODES.modifyInvalid,
         severity: 'error',
         message: `${label}：${m.resource} 是单文件资源，file 只能是 ${fileNameOf(info.to)}`,
       });
@@ -448,11 +449,11 @@ export function buildPlan(
     const absWith = isPath ? resolve(packBase, value) : undefined;
     if (absWith) {
       if (!insidePack(absWith)) {
-        issues.push({ code: 'modify-outside-pack', severity: 'error', message: `${label}：指向包目录之外：${value}` });
+        issues.push({ code: ISSUE_CODES.modifyOutsidePack, severity: 'error', message: `${label}：指向包目录之外：${value}` });
         continue;
       }
       if (!existsSync(absWith)) {
-        issues.push({ code: 'modify-source-missing', severity: 'error', message: `${label}：找不到 ${value}` });
+        issues.push({ code: ISSUE_CODES.modifySourceMissing, severity: 'error', message: `${label}：找不到 ${value}` });
         continue;
       }
     }
@@ -464,7 +465,7 @@ export function buildPlan(
     if (withIsDir) {
       if (m.file || m.at || where !== 'replace') {
         issues.push({
-          code: 'modify-invalid',
+          code: ISSUE_CODES.modifyInvalid,
           severity: 'error',
           message: `${label}：目录补丁不带 file / at / where——整目录逐个文件叠上去`,
         });
@@ -473,7 +474,7 @@ export function buildPlan(
       const relDir = String(value).replace(/^\.\//, '').replace(/\/+$/, '');
       const files = walkFiles(absWith!);
       if (files.length === 0) {
-        issues.push({ code: 'modify-empty', severity: 'warning', message: `${label}：目录是空的：${value}` });
+        issues.push({ code: ISSUE_CODES.modifyEmpty, severity: 'warning', message: `${label}：目录是空的：${value}` });
       }
       for (const rel of files) {
         const to = `${info.to}/${rel}`;
@@ -485,7 +486,7 @@ export function buildPlan(
 
     if (!targetPath) {
       issues.push({
-        code: 'modify-needs-file',
+        code: ISSUE_CODES.modifyNeedsFile,
         severity: 'error',
         message: `${label}：${m.resource} 是目录资源，要写 file 指明改哪个文件`,
       });
@@ -496,7 +497,7 @@ export function buildPlan(
     if (m.at) {
       if (info.from === undefined) {
         issues.push({
-          code: 'modify-remote-unsupported',
+          code: ISSUE_CODES.modifyRemoteUnsupported,
           severity: 'error',
           message: `${label}：${m.resource} 是远程资源，正文要等安装时才取回；只能整文件替换或删除`,
         });
@@ -505,7 +506,7 @@ export function buildPlan(
       const upstreamAbs = info.kind === 'file' ? resolve(packBase, info.from) : resolve(packBase, info.from, fileRel ?? '');
       if (!existsSync(upstreamAbs)) {
         issues.push({
-          code: 'modify-file-missing',
+          code: ISSUE_CODES.modifyFileMissing,
           severity: 'error',
           message: `${label}：上游没有这个文件：${m.file ?? info.from}`,
         });
@@ -517,13 +518,13 @@ export function buildPlan(
       if (!applied.ok) {
         if (applied.reason === 'missing') {
           issues.push({
-            code: 'modify-anchor-missing',
+            code: ISSUE_CODES.modifyAnchorMissing,
             severity: 'error',
             message: `${label}：找不到锚点「${m.at}」`,
           });
         } else if (applied.reason === 'out-of-range') {
           issues.push({
-            code: 'modify-nth-out-of-range',
+            code: ISSUE_CODES.modifyNthOutOfRange,
             severity: 'error',
             message: `${label}：锚点「${m.at}」只有 ${applied.count} 处，nth: ${m.nth} 超出范围（1..${applied.count}）`,
           });
@@ -532,7 +533,7 @@ export function buildPlan(
             .map((c, i) => `  ${i + 1}. 第 ${c.line} 行${c.parent ? `（上面最近的标题：${c.parent}）` : ''}`)
             .join('\n');
           issues.push({
-            code: 'modify-anchor-ambiguous',
+            code: ISSUE_CODES.modifyAnchorAmbiguous,
             severity: 'error',
             message: `${label}：锚点「${m.at}」命中 ${applied.candidates.length} 处，补丁不知道改哪个：\n${list}\n用 nth 指定第几个：at: '${m.at}', nth: 1`,
           });
@@ -540,7 +541,7 @@ export function buildPlan(
         continue;
       }
       if (applied.text === upstream) {
-        issues.push({ code: 'modify-noop', severity: 'warning', message: `${label}：改完和原文一样，这条补丁可能过期了` });
+        issues.push({ code: ISSUE_CODES.modifyNoop, severity: 'warning', message: `${label}：改完和原文一样，这条补丁可能过期了` });
         continue;
       }
       if (!claim(targetPath, label)) continue;
@@ -549,7 +550,7 @@ export function buildPlan(
     }
 
     if (where !== 'replace') {
-      issues.push({ code: 'modify-invalid', severity: 'error', message: `${label}：where 要配合 at 用` });
+      issues.push({ code: ISSUE_CODES.modifyInvalid, severity: 'error', message: `${label}：where 要配合 at 用` });
       continue;
     }
     if (!claim(targetPath, label)) continue;
@@ -570,7 +571,7 @@ export function buildPlan(
     const abs = resolve(packBase, raw.replace(/^\.\//, ''));
     if (abs !== packBase && !abs.startsWith(packBase + sep)) {
       issues.push({
-        code: 'context-outside-pack',
+        code: ISSUE_CODES.contextOutsidePack,
         severity: 'error',
         message: `context 指向包目录之外：${raw}`,
       });
@@ -578,7 +579,7 @@ export function buildPlan(
     }
     if (!existsSync(abs)) {
       issues.push({
-        code: 'context-file-missing',
+        code: ISSUE_CODES.contextFileMissing,
         severity: 'error',
         message: `context 指向的文件不存在：${raw}`,
       });
@@ -622,7 +623,7 @@ export function buildPlan(
   });
   for (const key of new Set(missing)) {
     issues.push({
-      code: 'undefined-variable',
+      code: ISSUE_CODES.undefinedVariable,
       severity: 'error',
       message: `模板变量未定义：\${${key}}`,
     });
@@ -771,7 +772,7 @@ function detectConflicts(actions: PlanAction[], target: TargetId): Issue[] {
     const who = entries.map((e) => `state:${e.id}（retain: ${e.retain}）`).join('、');
     const retains = new Set(entries.map((e) => e.retain));
     issues.push({
-      code: 'duplicate-state-path',
+      code: ISSUE_CODES.duplicateStatePath,
       severity: 'error',
       message:
         retains.size > 1
@@ -785,14 +786,14 @@ function detectConflicts(actions: PlanAction[], target: TargetId): Issue[] {
     const producers = entries.filter((e) => !e.modify);
     if (producers.length > 1) {
       issues.push({
-        code: 'output-conflict',
+        code: ISSUE_CODES.outputConflict,
         severity: 'error',
         message: `${path} 被多个动作同时写：${producers.map((p) => p.id).join(', ')}`,
       });
     }
     if (modifiers.length === 1 && producers.length > 0) {
       issues.push({
-        code: 'modify-shadows',
+        code: ISSUE_CODES.modifyShadows,
         severity: 'warning',
         message: `${path} 会被补丁盖掉（${modifiers[0]?.id} 覆盖 ${producers[0]?.id}）；确认是有意的`,
       });
@@ -803,7 +804,7 @@ function detectConflicts(actions: PlanAction[], target: TargetId): Issue[] {
     if (ids.length > 1) {
       const [path, key] = composite.split('::');
       issues.push({
-        code: 'duplicate-mcp-server',
+        code: ISSUE_CODES.duplicateMcpServer,
         severity: 'error',
         message: `${path} 的 ${key} 被多处登记：${ids.join(', ')}（后写的会静默赢，必须显式定夺）`,
       });

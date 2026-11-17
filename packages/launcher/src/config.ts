@@ -1,5 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { writeAtomic } from './atomic.ts';
 import { PalError } from './errors.ts';
 import {
   DEFAULT_ISOLATION,
@@ -106,16 +107,10 @@ export function writePalConfig(config: PalConfig): PalConfig {
   const next: PalConfig = { version: CONFIG_VERSION, isolation: assertIsolation(config.isolation, file) };
   assertIsolationSupported(next.isolation);
   mkdirSync(dirname(file), { recursive: true });
-  const tmp = `${file}.tmp-${process.pid}`;
   try {
-    writeFileSync(tmp, JSON.stringify(next, null, 2) + '\n', 'utf8');
-    renameSync(tmp, file);
+    // 临时文件清不掉不影响结论：真配置没被写坏
+    writeAtomic(file, JSON.stringify(next, null, 2) + '\n', { cleanupOnFailure: true });
   } catch (err) {
-    try {
-      rmSync(tmp, { force: true });
-    } catch {
-      /* 临时文件清不掉不影响结论：真配置没被写坏 */
-    }
     throw new PalError('internal', `配置文件写不进去：${file}：${(err as Error).message}`, {
       hint: '看这个路径是否可写、磁盘是否已满',
       details: { file },

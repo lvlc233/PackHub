@@ -9,8 +9,10 @@ import { loadManifest } from './manifest.ts';
 import { validateGraph, type Graph } from './graph.ts';
 import { buildPlan, type PlanOptions } from './plan.ts';
 import { TARGET_VARS } from './targets.ts';
+import { ISSUE_CODES } from './issueCodes.ts';
 
 export * from './types.ts';
+export { ISSUE_CODES, type IssueCode } from './issueCodes.ts';
 export { parseSource, checkSource, isVolatilePin, type ParsedSource, type SourceKind } from './ref.ts';
 export { loadManifest, parseManifest, PACK_NAME_PATTERN, type LoadResult } from './manifest.ts';
 export { validateGraph, type Graph } from './graph.ts';
@@ -29,7 +31,6 @@ export {
   actionUndoPayload,
   actionWritten,
   execWrapperPath,
-  isSharedInstallPath,
   planPathsOf,
   type PlanOpFromBase,
   type PlanOpName,
@@ -44,6 +45,7 @@ export {
   type LockConsistencyStatus,
 } from './lockConsistency.ts';
 export {
+  RESOURCES_API_VERSION,
   parseCatalog,
   searchResources,
   type CatalogEntry,
@@ -88,7 +90,7 @@ export function loadPack(dir: string): PackContext {
       inherited.push(...localIssues);
     } catch (err) {
       inherited.push({
-        code: 'local-overrides',
+        code: ISSUE_CODES.localOverrides,
         severity: 'error',
         message: `.packhub/local.yaml 不是合法 YAML：${(err as Error).message}`,
       });
@@ -117,7 +119,7 @@ export function readLocalOverrides(root: string): { file?: LocalOverrides; issue
     return { file: parseLocalOverrides(file), issues: [] };
   } catch (err) {
     return {
-      issues: [{ code: 'local-overrides', severity: 'error', message: `读不了 ${file}：${(err as Error).message}` }],
+      issues: [{ code: ISSUE_CODES.localOverrides, severity: 'error', message: `读不了 ${file}：${(err as Error).message}` }],
     };
   }
 }
@@ -129,13 +131,13 @@ export function mergeLocalOverrides(
 ): { manifest: Manifest; issues: Issue[] } {
   const issues: Issue[] = [];
   if (!raw || typeof raw !== 'object') {
-    issues.push({ code: 'local-overrides', severity: 'error', message: '.packhub/local.yaml 不是一个对象' });
+    issues.push({ code: ISSUE_CODES.localOverrides, severity: 'error', message: '.packhub/local.yaml 不是一个对象' });
     return { manifest, issues };
   }
   const modify = Array.isArray(raw.modify) ? raw.modify : [];
   for (const [i, m] of modify.entries()) {
     if (!m?.resource) {
-      issues.push({ code: 'local-overrides', severity: 'error', message: `local.yaml 的 modify[${i}] 缺少 resource` });
+      issues.push({ code: ISSUE_CODES.localOverrides, severity: 'error', message: `local.yaml 的 modify[${i}] 缺少 resource` });
     }
   }
   return {
@@ -162,9 +164,22 @@ export function planFor(
     return {
       issues: [
         {
-          code: 'unknown-target',
+          code: ISSUE_CODES.unknownTarget,
           severity: 'error',
           message: `未知 target：${target}（可选 ${TARGET_IDS.join(' / ')}）`,
+        },
+      ],
+    };
+  }
+  // target 声明门只在这里：install / add / plan / verify / hub 预览都走 planFor，
+  // 未声明的 target 不能出计划（否则 verify 会拿一份装不上去的计划去核对）。
+  if (!ctx.manifest.metadata.targets.includes(target)) {
+    return {
+      issues: [
+        {
+          code: ISSUE_CODES.undeclaredTarget,
+          severity: 'error',
+          message: `这个包没有声明 target ${target}；声明了：${ctx.manifest.metadata.targets.join(', ')}`,
         },
       ],
     };

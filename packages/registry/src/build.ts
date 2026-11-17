@@ -6,9 +6,11 @@ import {
   INDEX_API_VERSION,
   canonicalize,
   loadPack,
+  parseCatalog,
   planFor,
   sha256,
   type LockFile,
+  type ResourceCatalog,
 } from '@packhub/kernel';
 import { SIGNATURE_FILE, readArchiveFilesSync, withLockPins } from '@packhub/runtime';
 
@@ -82,6 +84,47 @@ function parseJsonObject(text: string | undefined): Record<string, unknown> | nu
   } catch {
     return null;
   }
+}
+
+/** 资源目录的版本：与 kernel 的 `ResourceCatalog.apiVersion` 同源，不各写一份字面量。 */
+export const RESOURCES_API_VERSION: ResourceCatalog['apiVersion'] = 'packhub.dev/resources/v0';
+
+export interface ResourcesCatalogGate {
+  errors: string[];
+  warnings: string[];
+}
+
+/**
+ * `registry/resources.json` 的门禁：文件存在就必须是合法资源目录，且 `apiVersion` 精确等于
+ * `packhub.dev/resources/v0`；文件不存在只给 warning，不阻断（没有资源目录的 registry 仍然合法）。
+ *
+ * 纯函数：输入是文件内容，不碰文件系统，正常 / 坏版本 / 缺文件三种情形都能直接测。
+ * 结构校验复用 kernel 的 `parseCatalog`，与读端同一套规则，这里不另写一份。
+ */
+export function checkResourcesCatalog(text: string | undefined): ResourcesCatalogGate {
+  if (text === undefined) {
+    return { errors: [], warnings: ['resources.json 不存在：没有资源目录，跳过资源目录校验'] };
+  }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text) as unknown;
+  } catch (e) {
+    return { errors: [`resources.json 不是合法 JSON：${(e as Error).message}`], warnings: [] };
+  }
+  const errors: string[] = [];
+  const apiVersion =
+    typeof raw === 'object' && raw !== null ? (raw as { apiVersion?: unknown }).apiVersion : undefined;
+  if (apiVersion !== RESOURCES_API_VERSION) {
+    errors.push(
+      `resources.json: apiVersion 必须是 ${RESOURCES_API_VERSION}，实际是 ${String(apiVersion)}`,
+    );
+  }
+  for (const issue of parseCatalog(raw).issues) {
+    // 版本问题上面已经报过，别报两遍
+    if (issue.code === 'catalog-version') continue;
+    errors.push(`resources.json: [${issue.code}] ${issue.message}`);
+  }
+  return { errors, warnings: [] };
 }
 
 /**
@@ -355,6 +398,15 @@ export function buildIndex(registryRoot: string): BuildResult {
       });
     }
   }
+
+  // 资源目录也是 registry 的一部分：存在就必须是 v0 且结构合法（坏版本让 check 失败），
+  // 不存在只警告——没有资源目录的 registry 仍然合法。
+  const resourcesPath = join(registryRoot, 'resources.json');
+  const resourcesGate = checkResourcesCatalog(
+    existsSync(resourcesPath) ? readFileSync(resourcesPath, 'utf8') : undefined,
+  );
+  errors.push(...resourcesGate.errors);
+  warnings.push(...resourcesGate.warnings);
 
   return {
     index: { apiVersion: INDEX_API_VERSION, generatedAt: new Date().toISOString(), packs },

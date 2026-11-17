@@ -1,5 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { writeAtomic } from './atomic.ts';
 
 /** Pack 装进实例后登记的 MCP 服务器（`.packhub/config.json` 里的 mcpServers）。 */
 export interface McpServer {
@@ -149,8 +150,6 @@ export function writeDshMcpPatch(root: string, home: string): WritePatchResult {
     return { file, servers: 0, skipped: '实例里没有登记 MCP 服务器' };
   }
   mkdirSync(dirname(file), { recursive: true });
-  const tmp = `${file}.tmp-${process.pid}`;
-  writeFileSync(tmp, text, 'utf8');
-  renameSync(tmp, file);
+  writeAtomic(file, text);
   return { file, servers: servers.length };
 }

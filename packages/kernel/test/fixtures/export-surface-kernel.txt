@@ -8,7 +8,9 @@ Graph
 HARNESS_IDS
 HarnessId
 INDEX_API_VERSION
+ISSUE_CODES
 Issue
+IssueCode
 LoadResult
 LocalOverrides
 LockConsistency
@@ -33,6 +35,7 @@ PlanOpUndoPayload
 PlanOptions
 PlanShape
 PlanSnapshot
+RESOURCES_API_VERSION
 RESOURCE_TYPES
 ResolvedRef
 ResourceCatalog
@@ -72,7 +75,6 @@ interpolate
 isHarnessId
 isPlainObject
 isResourceType
-isSharedInstallPath
 isTargetId
 isVolatilePin
 loadManifest

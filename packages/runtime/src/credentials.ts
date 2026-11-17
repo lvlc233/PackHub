@@ -9,7 +9,7 @@ export interface CredentialEntry {
 }
 
 export interface CredentialFile {
-  apiVersion: 'packhub.dev/credentials/v0';
+  apiVersion: typeof API;
   tokens: Record<string, CredentialEntry>;
 }
 

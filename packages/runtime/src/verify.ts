@@ -1,11 +1,12 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { extname, join, resolve, sep } from 'node:path';
+import { extname, join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type { PlanShape, VerifyCheck } from '@packhub/kernel';
 import pkg from '../../../package.json' with { type: 'json' };
 import { askHarness } from './harness-probe.ts';
+import { resolveWithin } from './pathSafety.ts';
 
 export type CheckStatus = 'pass' | 'fail' | 'skipped';
 
@@ -54,13 +55,13 @@ async function evaluate(
 ): Promise<{ status: CheckStatus; detail: string }> {
   switch (check.type) {
     case 'file-exists': {
-      const file = safe(opts.root, check.path);
+      const file = resolveWithin(opts.root, check.path);
       return existsSync(file)
         ? { status: 'pass', detail: check.path }
         : { status: 'fail', detail: `不存在：${check.path}` };
     }
     case 'config-key': {
-      const file = safe(opts.root, check.path);
+      const file = resolveWithin(opts.root, check.path);
       if (!existsSync(file)) return { status: 'fail', detail: `配置文件不存在：${check.path}` };
       const data = readStructured(file);
       const actual = getPath(data, check.key);
@@ -206,7 +207,7 @@ async function evaluate(
       }
       const [command, ...args] = check.run;
       if (!command) return { status: 'fail', detail: 'scenario 的 run 为空' };
-      const cwd = check.cwd ? safe(opts.root, check.cwd) : opts.root;
+      const cwd = check.cwd ? resolveWithin(opts.root, check.cwd) : opts.root;
       const res = spawnSync(command, args, {
         cwd,
         encoding: 'utf8',
@@ -227,7 +228,7 @@ async function evaluate(
       if (missing.length > 0) {
         return { status: 'fail', detail: `输出里缺：${missing.join('、')}` };
       }
-      const missingFiles = (check.expectFiles ?? []).filter((f) => !existsSync(safe(opts.root, f)));
+      const missingFiles = (check.expectFiles ?? []).filter((f) => !existsSync(resolveWithin(opts.root, f)));
       if (missingFiles.length > 0) {
         return { status: 'fail', detail: `跑完没有产出文件：${missingFiles.join('、')}` };
       }
@@ -278,15 +279,6 @@ function findFileWithHash(root: string, integrity: string): string | null {
     return null;
   };
   return walk(start, '');
-}
-
-function safe(root: string, relPath: string): string {
-  const base = resolve(root);
-  const target = resolve(base, relPath);
-  if (target !== base && !target.startsWith(base + sep)) {
-    throw new Error(`路径越界：${relPath}`);
-  }
-  return target;
 }
 
 function readStructured(file: string): unknown {

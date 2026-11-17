@@ -10,7 +10,7 @@ export interface TrustedKey {
 }
 
 export interface TrustFile {
-  apiVersion: 'packhub.dev/trust/v0';
+  apiVersion: typeof API;
   keys: TrustedKey[];
   /** 有信任列表时，默认只接受列表内签名 */
   requireSignature?: boolean;

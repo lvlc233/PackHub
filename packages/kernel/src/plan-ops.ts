@@ -37,21 +37,15 @@ export interface PlanOpSpec {
   paths(action: PlanAction, plan: PlanShape): string[];
   /** 动作成功时计入 state.written 的路径（平台差异在这里收口）。 */
   written(action: PlanAction, plan: Plan, platform: string): string[];
-  /** 目标是否共享路径（多包合并 / 托管块）。 */
+  /**
+   * 这个动作的产物是否共享（多包可合并）。只由动作语义决定：`register.mcp` 按 key 合并、
+   * `instruction` 按托管块追加；其余 op 的产物都是本包私有，路径长什么样都不改变这一点。
+   */
   shared(action: PlanAction): boolean;
   /** 只读来源路径（缓存回收用：解包前的归档、技能/工具的执行体）。 */
   inputs(action: PlanAction): string[];
   /** 升级清理时保留并给出的原因；没有就按 `undo` 处理。 */
   retainWarning?: string;
-}
-
-/**
- * 共享路径：配置文件（多包合并）与根目录的指令文件（托管块各写各的）。
- * 住在表里，执行、版本镜像、升级清理、所有权冲突共用同一口径。
- */
-export function isSharedInstallPath(rel: string): boolean {
-  if (/\.(json|jsonc|toml)$/i.test(rel)) return true;
-  return !rel.includes('/') && /\.md$/i.test(rel);
 }
 
 const from =
@@ -69,10 +63,6 @@ const only =
     return hit ? [hit] : [];
   };
 
-/** 共享判定只看动作的目标路径（register.mcp / instruction 单独声明为共享）。 */
-const sharedByTarget = (action: PlanAction): boolean =>
-  'to' in action ? isSharedInstallPath(action.to) : false;
-
 /** `link.exec` 在 Windows 上多一个 `.cmd` 垫片；计划产物口径固定带上它。 */
 export function execWrapperPath(to: string): string {
   return `${to}.cmd`;
@@ -85,7 +75,7 @@ export const PLAN_OPS: Record<PlanOpName, PlanOpSpec> = {
     undoPayload: noUndo,
     paths: (a) => (a.op === 'fetch' ? [a.dest] : []),
     written: (a) => (a.op === 'fetch' ? [a.dest] : []),
-    shared: sharedByTarget,
+    shared: () => false,
     inputs: none,
   },
   unpack: {
@@ -95,7 +85,7 @@ export const PLAN_OPS: Record<PlanOpName, PlanOpSpec> = {
     undoPayload: noUndo,
     paths: (a) => (a.op === 'unpack' ? [a.to] : []),
     written: (a) => (a.op === 'unpack' ? [a.to] : []),
-    shared: sharedByTarget,
+    shared: () => false,
     inputs: only((a) => (a.op === 'unpack' ? a.from : undefined)),
   },
   write: {
@@ -104,7 +94,7 @@ export const PLAN_OPS: Record<PlanOpName, PlanOpSpec> = {
     undoPayload: noUndo,
     paths: (a) => (a.op === 'write' ? [a.to] : []),
     written: (a) => (a.op === 'write' ? [a.to] : []),
-    shared: sharedByTarget,
+    shared: () => false,
     inputs: only((a) => (a.op === 'write' ? a.from : undefined)),
   },
   copy: {
@@ -113,7 +103,7 @@ export const PLAN_OPS: Record<PlanOpName, PlanOpSpec> = {
     undoPayload: noUndo,
     paths: (a) => (a.op === 'copy' ? [a.to] : []),
     written: (a) => (a.op === 'copy' ? [a.to] : []),
-    shared: sharedByTarget,
+    shared: () => false,
     inputs: only((a) => (a.op === 'copy' ? a.from : undefined)),
   },
   'link.exec': {
@@ -135,7 +125,7 @@ export const PLAN_OPS: Record<PlanOpName, PlanOpSpec> = {
     undoPayload: noUndo,
     paths: (a) => (a.op === 'delete' ? [a.to] : []),
     written: none,
-    shared: sharedByTarget,
+    shared: () => false,
     inputs: none,
   },
   'link.skill': {
@@ -147,7 +137,7 @@ export const PLAN_OPS: Record<PlanOpName, PlanOpSpec> = {
         ? [a.to, ...(plan.target === 'codex' ? [`${a.to}/${CODEX_SKILL_YAML}`] : [])]
         : [],
     written: (a) => (a.op === 'link.skill' ? [a.to] : []),
-    shared: sharedByTarget,
+    shared: () => false,
     inputs: only((a) => (a.op === 'link.skill' ? a.from : undefined)),
   },
   'register.mcp': {

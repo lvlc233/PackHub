@@ -8,8 +8,11 @@ export interface SignatureEntry {
   at?: string;
 }
 
+/** 签名文件 packhub.signatures.json 的格式版本：写方与读方共用这一个常量。 */
+const SIGNATURE_API_VERSION = 'packhub.dev/signatures/v0';
+
 export interface SignatureFile {
-  apiVersion: 'packhub.dev/signatures/v0';
+  apiVersion: typeof SIGNATURE_API_VERSION;
   signatures: SignatureEntry[];
 }
 
@@ -25,7 +28,7 @@ export function readSignatures(dir: string): SignatureEntry[] {
     } catch {
       return [];
     }
-    assertApiVersion(file, data, 'packhub.dev/signatures/v0');
+    assertApiVersion(file, data, SIGNATURE_API_VERSION);
     return Array.isArray(data.signatures) ? data.signatures : [];
   }
   return [];
@@ -34,7 +37,7 @@ export function readSignatures(dir: string): SignatureEntry[] {
 export function writeSignature(dir: string, entry: SignatureEntry): void {
   const current = readSignatures(dir).filter((s) => s.key !== entry.key);
   const data: SignatureFile = {
-    apiVersion: 'packhub.dev/signatures/v0',
+    apiVersion: SIGNATURE_API_VERSION,
     signatures: [...current, entry],
   };
   writeFileSync(join(dir, SIGNATURE_FILE), JSON.stringify(data, null, 2) + '\n', 'utf8');

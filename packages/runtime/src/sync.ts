@@ -172,13 +172,14 @@ export async function syncPack(
   for (const target of opts.targets) {
     const root = harnessRoot(target);
     const spec = harnessSpec(target);
-    const { plan } = planFor(ctx, {
+    const { plan, issues } = planFor(ctx, {
       target,
       targetVars: globalTargetVars(target),
       // claude 的全局 MCP 交给它自己的 CLI，计划里只落 skills 与指令块
       ...(spec.mcp === 'claude-cli' ? { skipResourceTypes: ['mcp' as const] } : {}),
     });
-    if (!plan) throw new Error(`${target}: 生成不了计划`);
+    // target 声明门在 planFor：这里把它的 issue 原样带出来，否则只剩「生成不了计划」看不出原因
+    if (!plan) throw new Error(`${target}: 生成不了计划：${issues.map((i) => i.message).join('; ')}`);
     if (opts.dryRun) {
       results.push({
         target,

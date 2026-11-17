@@ -1,6 +1,7 @@
 import type { Issue, Manifest, ResourceSpec, TargetId } from './types.ts';
 import { checkSource, parseSource } from './ref.ts';
 import { deepMerge, isPlainObject } from './util.ts';
+import { ISSUE_CODES } from './issueCodes.ts';
 
 /** 已知的 harness 名称；requires.agent 写别的名字只警告，不阻断（新 harness 不该让旧包装不上）。 */
 export const KNOWN_AGENTS = ['dsh', 'claude-code', 'codex', 'opencode'] as const;
@@ -25,7 +26,7 @@ function resolveSlots(manifest: Manifest, issues: Issue[]): { active: Set<string
     if (!res.slot) continue;
     if (!slots[res.slot]) {
       issues.push({
-        code: 'unknown-slot',
+        code: ISSUE_CODES.unknownSlot,
         severity: 'error',
         message: `资源 ${res.id} 占用未声明的槽位：${res.slot}`,
       });
@@ -37,7 +38,7 @@ function resolveSlots(manifest: Manifest, issues: Issue[]): { active: Set<string
   for (const [slot, impl] of Object.entries(bindings)) {
     if (!slots[slot]) {
       issues.push({
-        code: 'binding-unknown-slot',
+        code: ISSUE_CODES.bindingUnknownSlot,
         severity: 'error',
         message: `bindings 指向未声明的槽位：${slot}`,
       });
@@ -46,7 +47,7 @@ function resolveSlots(manifest: Manifest, issues: Issue[]): { active: Set<string
     const res = manifest.resources.find((r) => r.id === impl);
     if (!res) {
       issues.push({
-        code: 'binding-unknown-resource',
+        code: ISSUE_CODES.bindingUnknownResource,
         severity: 'error',
         message: `槽位 ${slot} 绑定了不存在的资源：${impl}`,
       });
@@ -54,7 +55,7 @@ function resolveSlots(manifest: Manifest, issues: Issue[]): { active: Set<string
     }
     if (res.slot !== slot) {
       issues.push({
-        code: 'binding-wrong-slot',
+        code: ISSUE_CODES.bindingWrongSlot,
         severity: 'error',
         message: `资源 ${impl} 并不占用槽位 ${slot}（它属于 ${res.slot ?? '无'}）`,
       });
@@ -64,7 +65,7 @@ function resolveSlots(manifest: Manifest, issues: Issue[]): { active: Set<string
     const missing = contract.filter((c) => !(res.provides ?? []).includes(c));
     if (missing.length > 0) {
       issues.push({
-        code: 'slot-contract-unmet',
+        code: ISSUE_CODES.slotContractUnmet,
         severity: 'error',
         message: `槽位 ${slot} 的绑定 ${impl} 缺少契约能力：${missing.join(', ')}`,
       });
@@ -74,7 +75,7 @@ function resolveSlots(manifest: Manifest, issues: Issue[]): { active: Set<string
   for (const [slot, ids] of candidates) {
     if (!bindings[slot]) {
       issues.push({
-        code: 'slot-unbound',
+        code: ISSUE_CODES.slotUnbound,
         severity: 'error',
         message: `槽位 ${slot} 有 ${ids.length} 个候选（${ids.join(', ')}）但没有 bindings，装哪个不确定`,
       });
@@ -104,7 +105,7 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
   for (const [i, m] of (manifest.modify ?? []).entries()) {
     if (!manifest.resources.some((r) => r.id === m.resource)) {
       issues.push({
-        code: 'modify-unknown-resource',
+        code: ISSUE_CODES.modifyUnknownResource,
         severity: 'error',
         message: `modify[${i}] 指向不存在的资源：${m.resource}`,
       });
@@ -115,7 +116,7 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
       const type = manifest.resources.find((r) => r.id === m.resource)?.type;
       if (type !== 'mcp' && type !== 'tool2') {
         issues.push({
-          code: 'modify-invalid',
+          code: ISSUE_CODES.modifyInvalid,
           severity: 'error',
           message: `modify[${i}]：${m.resource} 是 ${type}，没有可合并的参数；改正文请用 file / at`,
         });
@@ -128,7 +129,7 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
   const agent = manifest.requires?.agent;
   if (agent && !(KNOWN_AGENTS as readonly string[]).includes(agent)) {
     issues.push({
-      code: 'unknown-agent',
+      code: ISSUE_CODES.unknownAgent,
       severity: 'warning',
       message: `requires.agent=${agent} 不在已知 harness（${KNOWN_AGENTS.join(' / ')}）里；按通用安装继续`,
     });
@@ -139,7 +140,7 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
     !manifest.metadata.targets.includes(agent as TargetId)
   ) {
     issues.push({
-      code: 'agent-target-mismatch',
+      code: ISSUE_CODES.agentTargetMismatch,
       severity: 'warning',
       message: `requires.agent=${agent}，但 metadata.targets 没有声明 ${agent}；这个包不会装进该 harness`,
     });
@@ -149,7 +150,7 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
   const seen = new Set<string>();
   for (const r of manifest.resources) {
     if (seen.has(r.id)) {
-      issues.push({ code: 'duplicate-resource-id', severity: 'error', message: `资源 id 重复：${r.id}` });
+      issues.push({ code: ISSUE_CODES.duplicateResourceId, severity: 'error', message: `资源 id 重复：${r.id}` });
     }
     seen.add(r.id);
   }
@@ -161,7 +162,7 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
     if (!isPlainObject(m.with)) continue;
     if (m.file || m.at) {
       issues.push({
-        code: 'modify-invalid',
+        code: ISSUE_CODES.modifyInvalid,
         severity: 'error',
         message: `modify[${i}] 的参数补丁不能带 file / at：那是文件修改的字段`,
       });
@@ -238,7 +239,7 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
     const pins = new Set(entries.map((e) => e.pin));
     if (entries.length > 1 && pins.size > 1) {
       issues.push({
-        code: 'pin-conflict',
+        code: ISSUE_CODES.pinConflict,
         severity: 'error',
         message: `${locator} 在不同资源里锁到不同版本：${entries
           .map((e) => `${e.id}@${e.pin ?? '<无>'}`)
@@ -253,7 +254,7 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
       const hits = (providers.get(need) ?? []).filter((id) => id !== res.id);
       if (hits.length === 0) {
         issues.push({
-          code: 'unmet-need',
+          code: ISSUE_CODES.unmetNeed,
           severity: 'error',
           message: `资源 ${res.id} 需要 ${need}，但没有任何资源 provides 它`,
           path: `resources.${res.id}.needs`,
@@ -276,7 +277,7 @@ function topoSort(resources: Map<string, ResourceSpec>, issues: Issue[]): string
     if (st === 2) return;
     if (st === 1) {
       issues.push({
-        code: 'dependency-cycle',
+        code: ISSUE_CODES.dependencyCycle,
         severity: 'error',
         message: `依赖成环：${[...trail, id].join(' → ')}`,
       });
@@ -287,7 +288,7 @@ function topoSort(resources: Map<string, ResourceSpec>, issues: Issue[]): string
     for (const dep of res?.dependsOn ?? []) {
       if (!resources.has(dep)) {
         issues.push({
-          code: 'missing-dependency',
+          code: ISSUE_CODES.missingDependency,
           severity: 'error',
           message: `${id} 依赖不存在的资源 ${dep}`,
         });

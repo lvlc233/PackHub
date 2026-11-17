@@ -1,7 +1,8 @@
 import { randomBytes } from 'node:crypto';
-import { accessSync, constants, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { accessSync, constants, existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, parse, resolve } from 'node:path';
+import { writeAtomic } from './atomic.ts';
 import { PalError } from './errors.ts';
 
 /**
@@ -217,16 +218,11 @@ export function writeHomePointer(home: string): string {
   const file = locationFile();
   try {
     mkdirSync(target, { recursive: true });
-    mkdirSync(dirname(file), { recursive: true });
-    const tmp = `${file}.tmp-${process.pid}`;
-    writeFileSync(tmp, JSON.stringify({ home: target }, null, 2) + '\n', 'utf8');
-    renameSync(tmp, file);
+    writeAtomic(file, JSON.stringify({ home: target }, null, 2) + '\n', {
+      mkdir: dirname(file),
+      cleanupOnFailure: true,
+    });
   } catch (err) {
-    try {
-      rmSync(`${file}.tmp-${process.pid}`, { force: true });
-    } catch {
-      /* 临时文件清不掉不影响结论 */
-    }
     throw new PalError('invalid-input', `数据目录不可用：${(err as Error).message}`, {
       hint: '换一个可写、非盘符根的目录',
       details: { home: target, file },

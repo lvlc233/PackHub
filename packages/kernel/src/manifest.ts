@@ -5,6 +5,7 @@ import { parse as parseYaml } from 'yaml';
 import Ajv, { type ValidateFunction } from 'ajv';
 import addFormats from 'ajv-formats';
 import type { Issue, Manifest } from './types.ts';
+import { ISSUE_CODES } from './issueCodes.ts';
 
 import schemaJson from '../../../schema/packhub.v0.schema.json' with { type: 'json' };
 
@@ -46,7 +47,7 @@ export function loadManifest(file: string): LoadResult {
     return {
       issues: [
         {
-          code: code === 'ENOENT' ? 'manifest-missing' : 'manifest-unreadable',
+          code: code === 'ENOENT' ? ISSUE_CODES.manifestMissing : ISSUE_CODES.manifestUnreadable,
           severity: 'error',
           message:
             code === 'ENOENT'
@@ -68,7 +69,7 @@ export function parseManifest(text: string, file = '<inline>'): LoadResult {
     return {
       issues: [
         {
-          code: 'yaml-syntax',
+          code: ISSUE_CODES.yamlSyntax,
           severity: 'error',
           message: `${file}: YAML 解析失败：${(err as Error).message}`,
         },
@@ -80,7 +81,7 @@ export function parseManifest(text: string, file = '<inline>'): LoadResult {
   const validate = validator();
   if (!validate(data)) {
     const issues = (validate.errors ?? []).map<Issue>((e) => ({
-      code: 'schema',
+      code: ISSUE_CODES.schema,
       severity: 'error',
       message: `${e.instancePath || '/'} ${e.message ?? ''}`.trim(),
       path: e.instancePath,
