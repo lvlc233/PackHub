@@ -1631,7 +1631,11 @@ const sign = command({
       reportIssues(issues, 'packhub sign');
       stop(EXIT.USAGE);
     }
-    if (lockRead.lock?.planHash && lockRead.lock.planHash !== plan.planHash) {
+    // 签的是 dir 计划的哈希，所以「锁是否过期」要比的是 dir 那份快照：多 target 锁的
+    // top-level planHash 是主 target 的计划，拿它比会把主 target 不是 dir 的锁误判成过期。
+    // 判定走 kernel 单点；missing / no-lock-plan 不拦（没有可比的快照就按当前清单签）。
+    const lockCheck = checkLockConsistency(lockRead.lock, 'dir', plan);
+    if (lockCheck.status === 'mismatch') {
       problemRaw('锁里的计划快照和当前清单对不上：先跑 packhub lock 再签，否则签的是一个装不上去的哈希');
       stop(EXIT.USAGE);
     }
