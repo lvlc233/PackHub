@@ -1,6 +1,6 @@
 {
   "apiVersion": "packhub.dev/verify/v0",
-  "planHash": "sha256-XrELNaf/f9lkeaY06NvZc3WeR3KRRH8V8QxOnTjtkuA=",
+  "planHash": "sha256-TD9R/jD9pq3CDc/nEMDliOVP5aaurksOL2xwy2AAXuQ=",
   "ok": true,
   "signatures": [],
   "checks": [
@@ -23,12 +23,12 @@
       "status": "done"
     },
     {
-      "actionId": "merge.config#1",
-      "op": "merge.config",
+      "actionId": "write#3",
+      "op": "write",
       "status": "done"
     }
   ],
-  "verifiedAt": "2026-11-07T14:11:50.733Z",
+  "verifiedAt": "2026-11-17T15:26:56.292Z",
   "env": {
     "node": "v22.15.0",
     "platform": "win32",

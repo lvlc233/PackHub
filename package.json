@@ -23,6 +23,7 @@
     "registry:index": "node --experimental-strip-types scripts/registry/build-index.mjs",
     "registry:pack": "node --experimental-strip-types scripts/registry/build-archives.mjs",
     "registry:check": "node --experimental-strip-types scripts/registry/build-index.mjs --check",
+    "registry:relock": "node --experimental-strip-types scripts/registry/relock-all.mjs",
     "registry:verify": "node --experimental-strip-types scripts/registry/verify-pack.mjs",
     "registry:verify-all": "node --experimental-strip-types scripts/registry/verify-all.mjs",
     "registry:verify-all:offline": "node --experimental-strip-types scripts/registry/verify-all.mjs --skip-network",

@@ -7,28 +7,28 @@
       "type": "knowledge",
       "source": "./resources/style-guide.md",
       "integrity": null,
-      "resolvedAt": "2026-11-07T14:11:50.740Z"
+      "resolvedAt": "2026-11-17T15:26:56.183Z"
     },
     {
       "id": "commit-rules",
       "type": "prompt",
       "source": "./resources/commit-rules.md",
       "integrity": null,
-      "resolvedAt": "2026-11-07T14:11:50.740Z"
+      "resolvedAt": "2026-11-17T15:26:56.183Z"
     },
     {
       "id": "editor-config",
       "type": "config",
       "source": "./fragments/editorconfig.yaml",
       "integrity": null,
-      "resolvedAt": "2026-11-07T14:11:50.740Z"
+      "resolvedAt": "2026-11-17T15:26:56.183Z"
     }
   ],
-  "planHash": "sha256-XrELNaf/f9lkeaY06NvZc3WeR3KRRH8V8QxOnTjtkuA=",
+  "planHash": "sha256-TD9R/jD9pq3CDc/nEMDliOVP5aaurksOL2xwy2AAXuQ=",
   "generatedBy": "packhub/0.0.1",
   "plan": {
     "target": "dir",
-    "planHash": "sha256-XrELNaf/f9lkeaY06NvZc3WeR3KRRH8V8QxOnTjtkuA=",
+    "planHash": "sha256-TD9R/jD9pq3CDc/nEMDliOVP5aaurksOL2xwy2AAXuQ=",
     "actions": [
       {
         "op": "write",
@@ -45,12 +45,11 @@
         "actionId": "write#2"
       },
       {
-        "op": "merge.config",
-        "path": ".packhub/config.json",
-        "strategy": "yaml-merge",
-        "patchFrom": "./fragments/editorconfig.yaml",
+        "op": "write",
+        "from": "./fragments/editorconfig.yaml",
+        "to": ".packhub/config/editorconfig.yaml",
         "resource": "editor-config",
-        "actionId": "merge.config#1"
+        "actionId": "write#3"
       }
     ],
     "verify": [

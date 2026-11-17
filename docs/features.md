@@ -74,7 +74,7 @@ review: 任何行为变更的提交
 | REF-09 | `packhub://` 跨包引用 | v0 已移除：解析器遇到未知 scheme 直接报错，代码里无实现 | [na] | `ref.ts`；移除提交 `095de32` |
 | REF-10 | 缓存与 GC | `cache ls` 标引用、`cache clean` 只删没被引用项并支持 dry-run。引用只认 state 里的计划快照——没有 `plan` 的旧 state 会被当成无引用 | [done] | `packages/runtime/src/cache.ts`、`cache.test.ts` |
 | REF-11 | 代理 | 下载与索引请求走 `HTTPS_PROXY` / `https_proxy` / `HTTP_PROXY`；代理设成进程级 dispatcher，运行中改环境变量不再生效。没有代理用例 | [done] | `download.ts` 的 `ensureProxy`、`packages/runtime/src/registry.ts` |
-| REF-12 | 锁过期检测 | `add` 先比目标 target 的快照、缺失时回落顶层 `planHash`；不一致是硬错误（`--allow-stale-lock` 放行）；`diff` 比快照与当前计划，`--check` 非零退出 | [done] | `consume.ts`、`cli.ts`、`consume.test.ts` |
+| REF-12 | 锁过期检测 | `add` 先比本次 target 的快照（`lock.plans[target]`），再由 `inspectPack` 用锁自己 target 的计划比顶层 `planHash`（锁里没有本次 target 的快照时只警告「目标计划没有被 planHash 校验」）；`update` 取 `lock.plans[target] ?? 锁顶层 plan` 比对；不一致都是硬错误（`--allow-stale-lock` 放行）；`diff` 比快照与当前计划，`--check` 非零退出 | [done] | `consume.ts`、`cli.ts`、`packages/runtime/src/update.ts`、`consume.test.ts` |
 | REF-13 | 消费端一次性核对 | `inspectPack` 一次核锁、`verify.json`、签名信任，产出 `lock-mismatch` / `lock-without-plan` / `verify-not-ok` / `signature-invalid` / `signature-untrusted` 等 issue；安装时 error 级直接拦 | [done] | `consume.ts`、`consume.test.ts` |
 | REF-14 | 未 pin 清单的自愈降级 | `lock` 不因未 pin 直接失败：解析成功就把 source + integrity 写回再生成计划；解析失败原样保留 + warning、integrity 写 `null` | [done] | `resolve.ts`、`resolve.test.ts` |
 | REF-15 | `.phub` 与 `git+https` 来源 | `add` 除 registry 名外接受本地 `.phub` 与 `git+https://` 仓库（GitHub codeload / GitLab archive 端点）。`git+https` 不带 integrity 校验 | [done] | `packages/runtime/src/source.ts`、`cli.ts` |
@@ -189,7 +189,7 @@ review: 任何行为变更的提交
 | HUB-11 | 账号 / 组织 | 市场账号即 scope，没有组织模型（已冻结） | [na] | 并入 REG-18 |
 | HUB-12 | 搜索 / 统计 | `/api/search`、`/api/admin/queue` 都在市场进程里，不在 Hub（已冻结） | [na] | 并入 REG-21 |
 | HUB-13 | 条件请求 | JSON 带 ETag / Cache-Control，`If-None-Match` 命中回 304 | [done] | `hub/server.ts`、`server.test.ts` |
-| HUB-14 | 请求体上限 | 读体前判长度，超上限直接 413，不把剩余字节读进内存（上限见 `hub/server.ts`） | [done] | `hub/server.ts`、`server.test.ts` |
+| HUB-14 | 请求体上限 | 边读边累加，累计超过 1 MB 才抛错，由顶层 catch 把「超过 1 MB」映射成 413；不预读 `Content-Length`，所以超限前读到的分片已经进内存（上限常量在 `readBody` 里） | [done] | `packages/hub/src/server.ts` 的 `readBody` 与顶层 catch、`server.test.ts` |
 | HUB-15 | 两种凭据形式 | `Authorization: Bearer <token>` 与 `x-packhub-token` 都认；也可用反向代理注入的身份头 | [done] | `hub/server.ts`、`production.test.ts` |
 | HUB-16 | 资源目录响应 | `/api/registry/resources` 返回 `{meta, resources[]}`；非法 name / version 返回空 | [done] | `packages/hub/src/resources.ts`、`resources.test.ts` |
 
@@ -258,8 +258,8 @@ review: 任何行为变更的提交
 |---|---|---|---|---|
 | OPS-01 | 测试套件 | `pnpm check` = `tsc --noEmit` + 全量 vitest，本地全绿；另有只在 Windows 上跑的用例 | [done] | `package.json`、`pnpm check`、`vitest.config.ts` |
 | OPS-02 | 类型检查 | `tsc --noEmit` 通过 | [done] | `package.json`、`pnpm typecheck` |
-| OPS-03 | registry 门禁 | `registry:check` 通过（本地实测）；CI 里同一个脚本再跑一遍 | [done] | `scripts/registry/build-index.mjs`、CI |
-| OPS-04 | 干净安装 CI | `registry:verify-all` 在 ubuntu job 跑，需网络；另有 `:offline` 变体 | [done] | `registry.yml`、`package.json` |
+| OPS-03 | registry 门禁 | `registry:check` 在已提交的树上退出 0（relock 后实测 3 个包）；relock 前它在这个分支的 HEAD 上是红的：doc-review 的 dsh / claude-code 计划快照与锁不一致、team-conventions 锁过期。`registry:relock` 逐版本「按版本目录重算锁 → 重签（原来有签名才签）→ 重跑 runner → 重打 `.phub`」，最后重建索引；版本目录相对 HEAD 有改动时索引那一步会被「版本目录不可变」门禁拦下，得先把版本目录提交再跑 `registry:index` | [done] | `scripts/registry/relock-all.mjs`、`scripts/registry/build-index.mjs`、`.github/workflows/registry.yml` |
+| OPS-04 | 干净安装 CI | `registry:verify-all` 在 ubuntu job 跑，需网络；另有 `:offline` 变体（跳过清单里有远程引用的版本）。本机重验 `lvlc233/remote-demo@0.0.1` 时 `fetch`（raw.githubusercontent.com）报 ECONNRESET，同一 URL 用 Invoke-WebRequest 返回 200，属本机网络 / 代理差异；该版本因此没有重锁后的 verify 报告，锁 / verify / 归档保持 HEAD 原样，`registry:relock --skip` 显式跳过它 | [done] | `registry.yml`、`package.json`、`scripts/registry/relock-all.mjs`、`scripts/registry/verify-all.mjs` |
 | OPS-05 | 单文件分发 | `build:local` 出 `dist/local/packhub.mjs` 与精简 package.json；`pack:local` 再 `npm pack` 出 tgz | [done] | `scripts/build-local.mjs`、`package.json` |
 | OPS-06 | Hub 镜像 | 多阶段构建，末尾 `pnpm prune --prod`；镜像直接跑 TS（`--experimental-strip-types`）；非回环强制带 token | [done] | `Dockerfile` |
 | OPS-07 | 文档治理 | 只留三份开发者文档（概念 / 契约 / 台账），入口 `docs/README.md`；每篇 front matter 标 `kind` / `verified` / `decay`，`pnpm docs:audit` 查分类、过期、断链、占位标记，CI 的 verify job 也跑；读完文档先体检的流程写在 `AGENTS.md` | [done] | `docs/README.md`、`AGENTS.md`、`scripts/docs-audit.mjs` |
