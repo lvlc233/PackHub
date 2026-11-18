@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { planFor } from '@packhub/kernel';
 import {
   activatePack,
   installPack,
   listVersions,
   loadPack,
-  planFor,
   removePack,
   readVersionRecord,
 } from '../src/index.ts';

@@ -153,7 +153,7 @@ export function readEvents(root: string, limit = 50): Array<Record<string, unkno
   }
 }
 
-/** 读日志尾部；默认只读最后 256KB，避免大日志把界面卡住。 */
+/** 读日志尾部；默认只读最后 256KB，避免大日志把一次输出撑爆。 */
 export function readLog(
   root: string,
   opts: { file?: string; maxBytes?: number } = {},

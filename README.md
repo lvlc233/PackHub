@@ -25,10 +25,9 @@ Node >= 22.13，包管理器 pnpm。
 ```bash
 pnpm install
 pnpm check                          # typecheck + 全部测试
-pnpm packhub plan examples/doc-review
+pnpm packhub plan registry/packs/lvlc233/doc-review/0.1.0
 pnpm registry:check
 pnpm registry:verify-all:offline    # 跳过远程引用，只验本地 registry
-pnpm verify:examples:offline        # 示例包逐个真装 + verify
 ```
 
 ## 文档

@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { installPack, loadPack, planFor, rollbackPack } from '../src/index.ts';
+import { planFor } from '@packhub/kernel';
+import { installPack, loadPack, rollbackPack } from '../src/index.ts';
 
 const MANIFEST = (source: string): string => `apiVersion: packhub.dev/v0
 kind: Pack

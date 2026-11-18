@@ -594,7 +594,7 @@ const ps = defineCommand({
 const core = defineCommand({
   meta: {
     name: 'core',
-    description: '常驻核心：实例的启停与看护都在它这里；CLI、界面、桌面壳只是它的客户端',
+    description: '常驻核心：实例的启停与看护都在它这里；CLI 只是它的客户端',
   },
   subCommands: {
     run: defineCommand({

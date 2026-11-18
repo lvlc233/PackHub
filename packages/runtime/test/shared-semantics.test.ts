@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { activatePack, installPack, loadPack, loadState, planFor, readVersionRecord } from '../src/index.ts';
+import { planFor } from '@packhub/kernel';
+import { activatePack, installPack, loadPack, loadState, readVersionRecord } from '../src/index.ts';
 import { pruneRemoved } from '../src/install.ts';
 
 /**

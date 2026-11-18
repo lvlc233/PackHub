@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { parseDocument } from 'yaml';
 import type { Manifest, ResourceType } from '@packhub/kernel';
+import { MANIFEST_FILE } from '@packhub/kernel';
 
 export interface AddResourceInput {
   type: ResourceType;
@@ -52,7 +53,7 @@ export function addResource(manifestPath: string, input: AddResourceInput): AddR
   const text = readFileSync(manifestPath, 'utf8');
   const doc = parseDocument(text);
   if (doc.errors.length > 0) {
-    throw new Error(`packhub.yaml 解析失败：${doc.errors[0]?.message ?? '未知错误'}`);
+    throw new Error(`${MANIFEST_FILE} 解析失败：${doc.errors[0]?.message ?? '未知错误'}`);
   }
 
   const current = doc.toJS() as Manifest;
@@ -84,7 +85,7 @@ export function addSignature(
 ): void {
   const text = readFileSync(manifestPath, 'utf8');
   const doc = parseDocument(text);
-  if (doc.errors.length > 0) throw new Error(`packhub.yaml 解析失败：${doc.errors[0]?.message}`);
+  if (doc.errors.length > 0) throw new Error(`${MANIFEST_FILE} 解析失败：${doc.errors[0]?.message}`);
   const current = doc.toJS() as Manifest;
   const others = (current.signatures ?? []).filter((s) => s.key !== signature.key);
   doc.set('signatures', [...others, signature]);
@@ -95,7 +96,7 @@ export function setBinding(manifestPath: string, slot: string, resourceId: strin
   const text = readFileSync(manifestPath, 'utf8');
   const doc = parseDocument(text);
   if (doc.errors.length > 0) {
-    throw new Error(`packhub.yaml 解析失败：${doc.errors[0]?.message ?? '未知错误'}`);
+    throw new Error(`${MANIFEST_FILE} 解析失败：${doc.errors[0]?.message ?? '未知错误'}`);
   }
   const current = doc.toJS() as Manifest;
   const slots = current.slots ?? {};

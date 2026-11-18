@@ -72,3 +72,12 @@ export function deepMerge(base: unknown, patch: unknown): unknown {
 export function isPlainObject(v: unknown): v is Record<string, unknown> {
   return !!v && typeof v === 'object' && !Array.isArray(v);
 }
+
+/**
+ * Windows 命令行参数加引号：带空白或引号的参数必须自己包起来，
+ * 否则过 shell 时会被拆成多个 argv（harness 探针与计划任务共用这一条）。
+ */
+export function quoteArg(arg: string): string {
+  if (!/[\s"]/.test(arg)) return arg;
+  return '"' + arg.replace(/"/g, '\\"') + '"';
+}

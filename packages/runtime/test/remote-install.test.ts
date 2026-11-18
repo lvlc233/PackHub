@@ -5,14 +5,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as tar from 'tar';
-import {
-  fetchPack,
-  installPack,
-  loadPack,
-  packArchive,
-  planFor,
-  unpackArchive,
-} from '../src/index.ts';
+import { planFor } from '@packhub/kernel';
+import { fetchPack, installPack, loadPack, packArchive, unpackArchive } from '../src/index.ts';
 
 /** 造一个带单层前缀的 tar.gz：解包 strip: 1 之后内容直接落在目标目录里。 */
 async function makeTarGz(out: string, prefix: string, files: Record<string, string>): Promise<string> {

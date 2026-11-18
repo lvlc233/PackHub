@@ -1,7 +1,7 @@
 import { cpSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { loadPack, planFor } from '@packhub/kernel';
+import { MANIFEST_FILE, STATE_DIR, loadPack, planFor } from '@packhub/kernel';
 import {
   contentHashFor,
   installPack,
@@ -47,8 +47,8 @@ export interface RunResult {
  */
 export async function runPack(packDir: string, opts: RunOptions = {}): Promise<RunResult> {
   const dir = resolve(packDir);
-  if (!existsSync(join(dir, 'packhub.yaml'))) {
-    throw new Error(`没有 packhub.yaml：${dir}`);
+  if (!existsSync(join(dir, MANIFEST_FILE))) {
+    throw new Error(`没有 ${MANIFEST_FILE}：${dir}`);
   }
 
   const log = opts.log ?? (() => {});
@@ -56,7 +56,7 @@ export async function runPack(packDir: string, opts: RunOptions = {}): Promise<R
   try {
     cpSync(dir, work, { recursive: true });
     // 干净环境：不带上一次的安装状态
-    rmSync(join(work, '.packhub'), { recursive: true, force: true });
+    rmSync(join(work, STATE_DIR), { recursive: true, force: true });
 
     const read = loadLock(work);
     if (read.problem) throw new Error(read.problem.message);

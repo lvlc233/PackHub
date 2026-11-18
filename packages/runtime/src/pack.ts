@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import * as tar from 'tar';
-import { loadPack, parseSource } from '@packhub/kernel';
+import { loadPack, parseSource, LOCK_FILE, MANIFEST_FILE, STATE_DIR } from '@packhub/kernel';
 
 export interface PackArchiveOptions {
   /**
@@ -36,7 +36,7 @@ export class LocalSourceNotVendoredError extends Error {
 
 /** vendored 归档会带上的顶层条目；安装状态、依赖、构建产物与旧归档不算。 */
 export function vendoredEntries(root: string): string[] {
-  const skip = new Set(['.packhub', 'node_modules', '.git', 'dist']);
+  const skip = new Set([STATE_DIR, 'node_modules', '.git', 'dist']);
   return readdirSync(root, { withFileTypes: true })
     .filter((entry) => !skip.has(entry.name))
     .filter((entry) => !(entry.isFile() && (entry.name.endsWith('.phub') || entry.name.endsWith('.tar.gz'))))
@@ -75,8 +75,8 @@ export async function packArchive(
   root: string,
   opts: PackArchiveOptions = {},
 ): Promise<PackArchiveResult> {
-  const manifest = join(root, 'packhub.yaml');
-  if (!existsSync(manifest)) throw new Error(`没有 packhub.yaml：${root}`);
+  const manifest = join(root, MANIFEST_FILE);
+  if (!existsSync(manifest)) throw new Error(`没有 ${MANIFEST_FILE}：${root}`);
 
   const vendored = opts.vendored !== false;
   const locals = [...localSources(root), ...localPatchFiles(root), ...localContextFile(root)];
@@ -85,7 +85,7 @@ export async function packArchive(
     throw new LocalSourceNotVendoredError(locals);
   }
 
-  const entries = ['packhub.yaml', 'packhub.lock.json', 'packhub.signatures.json'].filter((f) =>
+  const entries = [MANIFEST_FILE, LOCK_FILE, 'packhub.signatures.json'].filter((f) =>
     existsSync(join(root, f)),
   );
   if (vendored) entries.push(...vendoredEntries(root));

@@ -24,6 +24,7 @@ import {
   validateGraph,
   checkLockConsistency,
   PACKHUB_ENV,
+  STATE_DIR,
   TARGET_IDS,
 } from '@packhub/kernel';
 import {
@@ -98,7 +99,7 @@ export const add = command({
         .replace(/[@/\\:]/g, '-')
         .replace(/^-+|-+$/g, '')
         .slice(-48);
-      packDir = join(workBase, '.packhub/packs', slug);
+      packDir = join(workBase, STATE_DIR, 'packs', slug);
       say(`→ 取 ${target} …`);
       const resolved = await resolveAddSource(target, packDir);
       packDir = resolved.dir;
@@ -111,7 +112,7 @@ export const add = command({
         );
         stop(EXIT.USAGE);
       }
-      packDir = join(workBase, '.packhub/packs', registryName);
+      packDir = join(workBase, STATE_DIR, 'packs', registryName);
       say(`→ 取 ${registryName}${registryVersion ? `@${registryVersion}` : ''} …`);
       const fetched = await fetchPack({
         name: registryName,

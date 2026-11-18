@@ -3,7 +3,7 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { writeAtomic } from './atomic.ts';
 
-/** URL 里这些查询参数算凭据：不写进实例记录、不出现在界面、日志里打码。 */
+/** URL 里这些查询参数算凭据：不写进实例记录、不出现在输出里、日志里打码。 */
 const SECRET_QUERY = /^(token|access_token|auth|key|apikey|api_key|secret|password|session|sig)$/i;
 
 const SECRETS_FILE = 'secrets.json';
@@ -93,7 +93,7 @@ const PATTERNS: Array<[RegExp, string]> = [
   [/(--(?:token|password|secret|api-key)[= ]+)[^\s"']+/gi, '$1***'],
 ];
 
-/** 日志与错误信息统一过一遍：token、密钥、用户名路径都不该出现在界面上。 */
+/** 日志与错误信息统一过一遍：token、密钥、用户名路径都不该出现在输出里。 */
 export function redactText(text: string): string {
   let out = text;
   try {

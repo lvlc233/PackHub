@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import type { PlanShape, PlanSnapshot } from '@packhub/kernel';
-import { actionInputs } from '@packhub/kernel';
+import { actionInputs, STATE_DIR } from '@packhub/kernel';
 import { loadState, planPaths } from './install.ts';
 
 export interface CacheEntry {
@@ -49,7 +49,7 @@ function referencedPaths(plans: PlanShape[]): string[] {
  * 引用关系只认 state 里的计划快照：被删掉的版本留下的下载物就是可回收的。
  */
 export function inspectCache(root: string): CacheReport {
-  const base = join(root, '.packhub/cache');
+  const base = join(root, STATE_DIR, 'cache');
   const state = loadState(root);
   const refs = referencedPaths(
     Object.values(state.packs)
@@ -104,7 +104,7 @@ export function cleanCache(root: string, opts: { dryRun?: boolean } = {}): Cache
     if (entry.referenced) continue;
     if ([...gone].some((p) => entry.path === p || entry.path.startsWith(`${p}/`))) continue;
     const abs = resolve(root, entry.path);
-    if (!abs.startsWith(resolve(root, '.packhub/cache') + sep)) continue;
+    if (!abs.startsWith(resolve(root, STATE_DIR, 'cache') + sep)) continue;
     if (!existsSync(abs)) continue;
     if (!opts.dryRun) rmSync(abs, { recursive: true, force: true });
     gone.add(entry.path);

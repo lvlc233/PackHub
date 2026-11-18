@@ -3,8 +3,8 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, write
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { actionUndoPayload } from '@packhub/kernel';
-import { installPack, loadPack, planFor, removePack } from '../src/index.ts';
+import { actionUndoPayload, planFor } from '@packhub/kernel';
+import { installPack, loadPack, removePack } from '../src/index.ts';
 
 const EXAMPLE = fileURLToPath(new URL('../../../examples/team-conventions/', import.meta.url));
 

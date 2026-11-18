@@ -16,7 +16,7 @@ export interface Isolation {
   layers: Record<IsolationLayer, IsolationMode>;
 }
 
-/** 五层的固定顺序：解析、界面与日志都按它遍历，保证同一份策略的输出一致。 */
+/** 五层的固定顺序：解析与日志都按它遍历，保证同一份策略的输出一致。 */
 export const ISOLATION_LAYERS: readonly IsolationLayer[] = [
   'assembly',
   'session',

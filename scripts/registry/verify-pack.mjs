@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// 干净目录里装一遍并校验；默认把报告写回版本目录，CI 用 --out 写到临时位置。
-// 真正的执行在 @packhub/runner，这里只是给 CI 用的薄壳。
+// 干净目录里装一遍并校验；默认把报告写回版本目录，用 --out 写到别处（版本目录不可变时用）。
+// 真正的执行在 @packhub/runner，这里只负责参数、报告落点与退出码。
 import { resolve } from 'node:path';
 import { runPack } from '../../packages/runner/src/index.ts';
 

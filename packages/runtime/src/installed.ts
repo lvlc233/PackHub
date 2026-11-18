@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PlanSnapshot, VerifyCheck } from '@packhub/kernel';
+import { STATE_FILE } from '@packhub/kernel';
 import { loadState } from './install.ts';
 import { runChecks, serverSpecs, type CheckResult } from './verify.ts';
 
@@ -96,7 +97,7 @@ export async function verifyInstalled(
  * 只在 `verifyAt` 判「项目模式 / Pack 模式」时用它；命令层不要再自己判一次。
  */
 export function hasInstalledPacks(root: string): boolean {
-  const statePath = join(root, '.packhub/state.json');
+  const statePath = join(root, STATE_FILE);
   if (!existsSync(statePath)) return false;
   try {
     return Object.keys(loadState(root).packs).length > 0;

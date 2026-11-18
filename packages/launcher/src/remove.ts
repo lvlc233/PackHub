@@ -1,5 +1,6 @@
 import { existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { STATE_DIR } from '@packhub/kernel';
 import { loadState, removePack } from '@packhub/runtime';
 import { BASELINE } from './baseline.ts';
 import { dropActive, requireInstance } from './catalog.ts';
@@ -127,7 +128,7 @@ export async function removeInstance(
         });
       }
       stopped = pid;
-      // 标记必须先于 kill 落盘：pal serve 里的看护一看到进程退出就会走 onExit，
+      // 标记必须先于 kill 落盘：core 里的看护一看到进程退出就会走 onExit，
       // 没有标记就会把正在删除的 on-failure 实例又拉起来。
       markStopping(record.root, pid);
       try {
@@ -167,7 +168,7 @@ export async function removeInstance(
         }
       } catch (err) {
         throw new PalError('install-failed', `卸载 Pack 失败：${(err as Error).message}`, {
-          hint: '先手动清掉实例根里的 .packhub 再删，或保留数据后手工处理',
+          hint: `先手动清掉实例根里的 ${STATE_DIR} 再删，或保留数据后手工处理`,
           cause: err,
         });
       }

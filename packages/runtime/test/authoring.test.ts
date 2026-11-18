@@ -3,7 +3,8 @@ import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { addResource, inferId, setBinding } from '../src/authoring.ts';
-import { loadPack, planFor } from '../src/index.ts';
+import { planFor } from '@packhub/kernel';
+import { loadPack } from '../src/index.ts';
 
 const MANIFEST = `# 注释要被保留
 apiVersion: packhub.dev/v0

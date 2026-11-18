@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { STATE_DIR } from '@packhub/kernel';
 import { writeAtomic } from './atomic.ts';
 
 /** Pack 装进实例后登记的 MCP 服务器（`.packhub/config.json` 里的 mcpServers）。 */
@@ -15,7 +16,7 @@ export interface McpServer {
   headers?: Record<string, string>;
 }
 
-const MCP_CONFIG = '.packhub/config.json';
+const MCP_CONFIG = `${STATE_DIR}/config.json`;
 export const DSH_PATCH_FILE = 'pal-mcp.patch.yml';
 
 function asRecord(value: unknown): Record<string, unknown> {

@@ -1,7 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { parseManifest } from '@packhub/kernel';
-import { PACK_NAME_PATTERN, PACK_VERSION_PATTERN } from './patterns.ts';
+import { MANIFEST_FILE, PACK_NAME_PATTERN, PACK_VERSION_PATTERN, parseManifest } from '@packhub/kernel';
 
 export interface PackResourceInfo {
   id: string;
@@ -46,7 +45,7 @@ export function collectPackResources(
   }
   if (!PACK_VERSION_PATTERN.test(v)) return null;
 
-  const manifestPath = join(root, 'registry/packs', name, v, 'packhub.yaml');
+  const manifestPath = join(root, 'registry/packs', name, v, MANIFEST_FILE);
   if (!existsSync(manifestPath)) return null;
   const parsed = parseManifest(readFileSync(manifestPath, 'utf8'), manifestPath);
   if (!parsed.manifest) return null;

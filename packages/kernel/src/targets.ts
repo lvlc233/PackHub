@@ -1,4 +1,5 @@
 import type { TargetId } from './types.ts';
+import { STATE_DIR } from './files.ts';
 
 /**
  * 安装计划用到的落点变量。
@@ -23,14 +24,14 @@ export interface TargetVars {
 
 /** 默认约定：物化到 .packhub，不碰宿主的配置文件。 */
 const BASE_TARGET_VARS: TargetVars = {
-  root: '.packhub',
-  cacheDir: '.packhub/cache',
-  skillsDir: '.packhub/skills',
-  knowledgeDir: '.packhub/knowledge',
-  promptsDir: '.packhub/prompts',
-  binDir: '.packhub/bin',
-  configDir: '.packhub/config',
-  configFile: '.packhub/config.json',
+  root: STATE_DIR,
+  cacheDir: `${STATE_DIR}/cache`,
+  skillsDir: `${STATE_DIR}/skills`,
+  knowledgeDir: `${STATE_DIR}/knowledge`,
+  promptsDir: `${STATE_DIR}/prompts`,
+  binDir: `${STATE_DIR}/bin`,
+  configDir: `${STATE_DIR}/config`,
+  configFile: `${STATE_DIR}/config.json`,
 };
 
 /** 在默认约定上只写差量：一眼能看出哪个宿主不一样。 */

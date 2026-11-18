@@ -3,7 +3,8 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { installPack, loadPack, planFor, verifyPack } from '../src/index.ts';
+import { planFor } from '@packhub/kernel';
+import { installPack, loadPack, verifyPack } from '../src/index.ts';
 
 const hash = (s: string): string => `sha256-${createHash('sha256').update(s).digest('base64')}`;
 

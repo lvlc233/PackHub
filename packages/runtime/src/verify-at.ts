@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { loadPack, planFor, type Issue, type Plan, type TargetId } from '@packhub/kernel';
+import { loadPack, planFor, MANIFEST_FILE, type Issue, type Plan, type TargetId } from '@packhub/kernel';
 import { hasInstalledPacks, verifyInstalled, type InstalledVerifyReport } from './installed.ts';
 import { verifyPack, type CheckResult } from './verify.ts';
 
@@ -48,7 +48,7 @@ export interface VerifyAtResult {
 export async function verifyAt(root: string, opts: VerifyAtOptions = {}): Promise<VerifyAtResult> {
   const dir = resolve(root);
 
-  if (!existsSync(join(dir, 'packhub.yaml')) && hasInstalledPacks(dir)) {
+  if (!existsSync(join(dir, MANIFEST_FILE)) && hasInstalledPacks(dir)) {
     const reports = await verifyInstalled(dir, opts.pack ? { pack: opts.pack } : {});
     let failed = 0;
     let skipped = 0;

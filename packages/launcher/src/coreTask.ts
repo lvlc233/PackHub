@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { quoteArg } from '@packhub/kernel';
 import { PalError } from './errors.ts';
 import { palHome } from './paths.ts';
 
@@ -44,11 +45,6 @@ function escapeXml(text: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
-}
-
-/** 任务计划写的是命令行，带空格的路径要自己加引号。 */
-function quoteArg(text: string): string {
-  return /[\s"]/.test(text) ? `"${text.replace(/"/g, '\\"')}"` : text;
 }
 
 /** 当前用户与入口：`pal core install` 注册的就是这条命令。 */
@@ -151,7 +147,7 @@ const defaultRunner: TaskRunner = (command, args) => {
 function requireWindows(): void {
   if (process.platform !== 'win32') {
     throw new PalError('invalid-input', '系统任务启动只在 Windows 上支持', {
-      hint: '其它平台先靠 pal core run 挂在进程管理器里；CLI 与界面照样按需拉起 core',
+      hint: '其它平台先靠 pal core run 挂在进程管理器里；CLI 照样按需拉起 core',
     });
   }
 }

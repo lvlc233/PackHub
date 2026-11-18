@@ -4,6 +4,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type { Plan, PlanShape, VerifyCheck } from '@packhub/kernel';
+import { STATE_DIR } from '@packhub/kernel';
 import pkg from '../../../package.json' with { type: 'json' };
 import { askHarness } from './harness-probe.ts';
 import { resolveWithin } from './pathSafety.ts';
@@ -258,7 +259,7 @@ async function evaluate(
 
 /** 在安装产物里找第一个 sha256 匹配的文件（只看 .packhub 下的物化结果，跳过缓存/快照/包副本）。 */
 function findFileWithHash(root: string, integrity: string): string | null {
-  const start = existsSync(join(root, '.packhub')) ? join(root, '.packhub') : root;
+  const start = existsSync(join(root, STATE_DIR)) ? join(root, STATE_DIR) : root;
   // versions/ 是版本镜像，不是活文件：否则「文件被改过」会被镜像里的原始副本掩盖
   const skip = new Set(['.git', 'node_modules', 'cache', 'snapshots', 'backups', 'packs', 'versions']);
   const walk = (dir: string, rel: string): string | null => {

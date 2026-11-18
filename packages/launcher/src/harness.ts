@@ -131,7 +131,7 @@ export function discoverHarness(id: TargetId, opts: DiscoverOptions = {}): Harne
   const cacheKey = `${id}|${binary ?? ''}|${opts.probeVersion === false ? 'noprobe' : 'probe'}`;
   const cached = cache.get(cacheKey);
   if (cached) return cached;
-  // 本次进程已经探测过版本：跳过探测的调用也复用那份结果，界面上版本不会闪一下就没
+  // 本次进程已经探测过版本：跳过探测的调用也复用那份结果，调用方拿到的版本不会忽有忽无
   if (opts.probeVersion === false) {
     const probed = cache.get(`${id}|${binary ?? ''}|probe`);
     if (probed?.version) {
@@ -201,7 +201,7 @@ export function requireHarnessBinary(id: TargetId): HarnessInfo {
     throw new PalError('harness-missing', `找不到 ${info.executable ?? id} 命令`, {
       hint:
         id === 'dsh'
-          ? '装 dsh（npm i -g deepseek-harness）或用 PAL_DSH_BIN 指定路径；也可以在界面里先“体检”看探测结果。'
+          ? '装 dsh（npm i -g deepseek-harness）或用 PAL_DSH_BIN 指定路径；也可以先跑 pal doctor 看探测结果。'
           : `装 ${info.executable ?? id} 或用 PAL_${id.toUpperCase().replace(/-/g, '_')}_BIN 指定路径。`,
     });
   }

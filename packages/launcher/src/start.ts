@@ -26,10 +26,6 @@ import { isPidAlive, killTree, waitForExit } from './process.ts';
 import { writeDshMcpPatch } from './mcp.ts';
 import { clearStopping, isStopping, markStopping } from './stopMark.ts';
 
-export { isPidAlive, killTree } from './process.ts';
-// 标记实现搬到了 stopMark.ts；这里继续按原名导出，调用方（cli/server/测试）不受影响
-export { clearStopping, isStopping, markStopping, stoppingMarkFile } from './stopMark.ts';
-
 export type SpawnFn = (
   file: string,
   args: string[],
@@ -373,7 +369,7 @@ export async function startInstanceDetailed(
   // Windows 上 spawn 的是 cmd 垫片，真正监听的是它的子进程，所以两者本来就常常不同。
   const spawnPid = child.pid;
   const exited = trackExit(child);
-  // 起完就该放手：CLI 不因为宿主还活着而挂着；看护交给 pal serve
+  // 起完就该放手：CLI 不因为宿主还活着而挂着；看护交给 pal core
   child.unref?.();
 
   const timeoutMs = opts.timeoutMs ?? adapter.start.readyTimeoutMs ?? 20_000;
@@ -740,7 +736,7 @@ export async function stopInstance(idOrName: string, opts: StopOptions = {}): Pr
   // --force 只跳过「监听者不是本实例」的拒杀：不杀监听者，只把记录收成 stopped
   const target = decision.refusal ? undefined : decision.target;
   const stoppingPid = target ?? rec.pid;
-  // 标记必须先于 kill 落盘：看护可能活在另一个进程（pal serve）里，它一看到退出就会走 onExit
+  // 标记必须先于 kill 落盘：看护可能活在另一个进程（pal core）里，它一看到退出就会走 onExit
   markStopping(rec.root, stoppingPid);
   try {
     if (target !== undefined && alive(target)) {

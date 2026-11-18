@@ -4,10 +4,9 @@ import { applyPlan, type ApplyOptions, type ApplyResult } from './install.ts';
 /**
  * 调用方从 @packhub/runtime 拿的 kernel 符号：显式再导出，不再 `export *`。
  *
- * 新代码请直接从 `@packhub/kernel` 导入；这三项保留是因为 launcher 的
- * 现有调用点从 runtime 取（改它们不在本任务的写入范围内）。
+ * 新代码请直接从 `@packhub/kernel` 导入；这两项保留是因为 launcher 的调用点从 runtime 取。
  */
-export { loadManifest, loadPack, planFor } from '@packhub/kernel';
+export { loadManifest, loadPack } from '@packhub/kernel';
 
 export {
   STATE_API_VERSION,
@@ -195,13 +194,11 @@ export {
   removeSynced,
   doctorGlobal,
   globalTargetVars,
-  readSkillFrontmatter,
   type SyncTarget,
   type SyncOptions,
   type SyncTargetResult,
   type SyncRemoveResult,
   type GlobalDoctorResult,
-  type SkillFrontmatter,
 } from './sync.ts';
 export {
   HARNESSES,

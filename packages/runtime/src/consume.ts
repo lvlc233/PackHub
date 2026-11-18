@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { LockFile, Manifest, PackContext } from '@packhub/kernel';
-import { buildLock, checkLockConsistency, contentHashOf, validateGraph } from '@packhub/kernel';
+import { buildLock, checkLockConsistency, contentHashOf, LOCK_FILE, validateGraph } from '@packhub/kernel';
 import { readSignatures } from './signfile.ts';
 import { verifySignatures } from './signature.ts';
 
@@ -32,7 +32,7 @@ export interface LockRead {
 
 /** 读锁文件。没有锁返回空；坏锁与不认识的主版本都落到 problem。 */
 export function loadLock(dir: string): LockRead {
-  const file = join(dir, 'packhub.lock.json');
+  const file = join(dir, LOCK_FILE);
   if (!existsSync(file)) return {};
   let parsed: unknown;
   try {
@@ -42,7 +42,7 @@ export function loadLock(dir: string): LockRead {
       problem: {
         code: 'lock-unreadable',
         severity: 'error',
-        message: 'packhub.lock.json 读不出来（不是合法 JSON）',
+        message: `${LOCK_FILE} 读不出来（不是合法 JSON）`,
       },
     };
   }

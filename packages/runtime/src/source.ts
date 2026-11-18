@@ -1,5 +1,6 @@
 import { copyFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { MANIFEST_FILE } from '@packhub/kernel';
 import { download } from './download.ts';
 import { unpackArchive } from './pack.ts';
 
@@ -27,11 +28,11 @@ export function gitArchiveUrl(target: string): string {
 }
 
 function findPackRoot(dir: string): string | null {
-  if (existsSync(join(dir, 'packhub.yaml'))) return dir;
+  if (existsSync(join(dir, MANIFEST_FILE))) return dir;
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const sub = join(dir, entry.name);
-    if (existsSync(join(sub, 'packhub.yaml'))) return sub;
+    if (existsSync(join(sub, MANIFEST_FILE))) return sub;
   }
   return null;
 }
@@ -60,7 +61,7 @@ export async function resolveAddSource(
     // 归档顶层是一个目录，直接解到 dest，再找 packhub.yaml（根或一层子目录）
     await unpackArchive(archive, dest);
     const root = findPackRoot(dest);
-    if (!root) throw new Error('这个仓库里没有 packhub.yaml（可以放在根目录或一层子目录）');
+    if (!root) throw new Error(`这个仓库里没有 ${MANIFEST_FILE}（可以放在根目录或一层子目录）`);
     return { dir: root, kind: 'git', label: target };
   }
 

@@ -15,6 +15,7 @@ import type {
 } from './types.ts';
 import { interpolate, isPlainObject, canonicalize, sha256 } from './util.ts';
 import { parseSource } from './ref.ts';
+import { STATE_DIR } from './files.ts';
 import { actionPaths, actionUndo } from './plan-ops.ts';
 import { TARGET_VARS, type TargetVars } from './targets.ts';
 import type { Graph } from './graph.ts';
@@ -761,7 +762,7 @@ function detectConflicts(actions: PlanAction[], target: TargetId): Issue[] {
       fsPaths.set(rel, list);
     }
     if (a.op === 'register.mcp') {
-      const path = a.path ?? '.packhub/config.json';
+      const path = a.path ?? `${STATE_DIR}/config.json`;
       const composite = `${path}::mcpServers.${a.resource ?? 'mcp'}`;
       configKeys.set(composite, [...(configKeys.get(composite) ?? []), a.actionId]);
     }

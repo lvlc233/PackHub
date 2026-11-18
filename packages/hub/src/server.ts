@@ -5,7 +5,11 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
   INDEX_API_VERSION,
+  LOCK_FILE,
+  MANIFEST_FILE,
   PACKHUB_ENV,
+  PACK_NAME_PATTERN,
+  PACK_VERSION_PATTERN,
   TARGET_IDS,
   isTargetId,
   parseManifest,
@@ -13,7 +17,6 @@ import {
   validateGraph,
   type PackContext,
 } from '@packhub/kernel';
-import { PACK_NAME_PATTERN, PACK_VERSION_PATTERN } from './patterns.ts';
 import { collectPackResources } from './resources.ts';
 
 export interface HubAuth {
@@ -238,11 +241,11 @@ async function handleApi(
       return sendJson(req, res, 404, { error: '没有这个版本' });
     }
     const dir = join(root, 'registry/packs', name, version);
-    if (!existsSync(join(dir, 'packhub.yaml'))) {
+    if (!existsSync(join(dir, MANIFEST_FILE))) {
       return sendJson(req, res, 404, { error: '没有这个版本' });
     }
-    const manifestText = readFileSync(join(dir, 'packhub.yaml'), 'utf8');
-    const parsed = parseManifest(manifestText, join(dir, 'packhub.yaml'));
+    const manifestText = readFileSync(join(dir, MANIFEST_FILE), 'utf8');
+    const parsed = parseManifest(manifestText, join(dir, MANIFEST_FILE));
     const m = parsed.manifest?.metadata;
     return sendJson(
       req,
@@ -252,7 +255,7 @@ async function handleApi(
         name,
         version,
         manifest: manifestText,
-        // 解析后的元数据：页面不用在浏览器里再引一个 YAML 库
+        // 解析后的元数据：客户端不用再自己引一个 YAML 库
         metadata: m
           ? {
               name: m.name,
@@ -268,9 +271,9 @@ async function handleApi(
               requiresAgent: parsed.manifest?.requires?.agent ?? null,
             }
           : null,
-        lock: readJson(join(dir, 'packhub.lock.json')),
+        lock: readJson(join(dir, LOCK_FILE)),
         verify: readJson(join(dir, 'verify.json')),
-        // 包说明与变更记录：原文返回，页面自己排
+        // 包说明与变更记录：原文返回，排版交给客户端
         readme: existsSync(join(dir, 'PACK.md')) ? readFileSync(join(dir, 'PACK.md'), 'utf8') : null,
         changelog: existsSync(join(dir, 'CHANGELOG.md'))
           ? readFileSync(join(dir, 'CHANGELOG.md'), 'utf8')

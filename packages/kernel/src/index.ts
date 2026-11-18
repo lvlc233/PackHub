@@ -6,16 +6,24 @@ import { parse as parseYaml } from 'yaml';
 import type { Issue, Manifest, Plan } from './types.ts';
 import { TARGET_IDS } from './types.ts';
 import { loadManifest } from './manifest.ts';
+import { MANIFEST_FILE, STATE_DIR } from './files.ts';
 import { validateGraph, type Graph } from './graph.ts';
 import { buildPlan, type PlanOptions } from './plan.ts';
 import { TARGET_VARS } from './targets.ts';
 import { ISSUE_CODES } from './issueCodes.ts';
 
 export * from './types.ts';
+export { MANIFEST_FILE, LOCK_FILE, STATE_DIR, STATE_FILE } from './files.ts';
 export { PACKHUB_ENV } from './env.ts';
 export { ISSUE_CODES, type IssueCode } from './issueCodes.ts';
 export { parseSource, checkSource, isVolatilePin, type ParsedSource, type SourceKind } from './ref.ts';
-export { loadManifest, parseManifest, PACK_NAME_PATTERN, type LoadResult } from './manifest.ts';
+export {
+  loadManifest,
+  parseManifest,
+  PACK_NAME_PATTERN,
+  PACK_VERSION_PATTERN,
+  type LoadResult,
+} from './manifest.ts';
 export { validateGraph, type Graph } from './graph.ts';
 export { buildPlan, buildMcpSpec, type PlanOptions } from './plan.ts';
 export { DIR_TARGET_VARS, TARGET_VARS, type TargetVars } from './targets.ts';
@@ -54,7 +62,7 @@ export {
   type CatalogHit,
 } from './catalog.ts';
 export { diffActions, describeAction, type ActionDiff } from './diff.ts';
-export { canonicalize, sha256, interpolate, deepMerge, isPlainObject } from './util.ts';
+export { canonicalize, sha256, interpolate, deepMerge, isPlainObject, quoteArg } from './util.ts';
 
 export interface PackContext {
   dir: string;
@@ -66,7 +74,7 @@ export interface PackContext {
 /** 读取并校验一个 Pack 目录。所有命令的入口。只读，不写盘、不出网。 */
 export function loadPack(dir: string): PackContext {
   const abs = resolve(dir);
-  const loaded = loadManifest(join(abs, 'packhub.yaml'));
+  const loaded = loadManifest(join(abs, MANIFEST_FILE));
   if (!loaded.manifest) {
     return {
       dir: abs,
@@ -80,7 +88,7 @@ export function loadPack(dir: string): PackContext {
   const inherited: Issue[] = [];
 
   // 项目级本地覆盖：不进清单、不进锁，只改这次安装的参数
-  const localFile = join(abs, '.packhub', 'local.yaml');
+  const localFile = join(abs, STATE_DIR, 'local.yaml');
   if (existsSync(localFile)) {
     try {
       const { manifest: merged, issues: localIssues } = mergeLocalOverrides(
@@ -93,7 +101,7 @@ export function loadPack(dir: string): PackContext {
       inherited.push({
         code: ISSUE_CODES.localOverrides,
         severity: 'error',
-        message: `.packhub/local.yaml 不是合法 YAML：${(err as Error).message}`,
+        message: `${STATE_DIR}/local.yaml 不是合法 YAML：${(err as Error).message}`,
       });
     }
   }
@@ -114,7 +122,7 @@ function parseLocalOverrides(file: string): LocalOverrides {
 
 /** 读项目根的 `.packhub/local.yaml`；不存在就返回 undefined。 */
 export function readLocalOverrides(root: string): { file?: LocalOverrides; issues: Issue[] } {
-  const file = join(resolve(root), '.packhub', 'local.yaml');
+  const file = join(resolve(root), STATE_DIR, 'local.yaml');
   if (!existsSync(file)) return { issues: [] };
   try {
     return { file: parseLocalOverrides(file), issues: [] };
@@ -132,7 +140,7 @@ export function mergeLocalOverrides(
 ): { manifest: Manifest; issues: Issue[] } {
   const issues: Issue[] = [];
   if (!raw || typeof raw !== 'object') {
-    issues.push({ code: ISSUE_CODES.localOverrides, severity: 'error', message: '.packhub/local.yaml 不是一个对象' });
+    issues.push({ code: ISSUE_CODES.localOverrides, severity: 'error', message: `${STATE_DIR}/local.yaml 不是一个对象` });
     return { manifest, issues };
   }
   const modify = Array.isArray(raw.modify) ? raw.modify : [];

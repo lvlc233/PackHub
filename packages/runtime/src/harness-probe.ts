@@ -1,7 +1,8 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { PACKHUB_ENV } from '@packhub/kernel';
+import { PACKHUB_ENV, quoteArg } from '@packhub/kernel';
+import { INSTRUCTION_FILE } from './harnesses.ts';
 
 /**
  * dsh 探针固定用到的命令与开关。
@@ -72,12 +73,6 @@ export interface ProbeResult {
   /** 期望在回答里出现的标记 */
   marker: string | null;
   reason?: string;
-}
-
-/** Windows 上 harness 都是 .cmd 垫片，必须过 shell；过 shell 就得自己加引号，否则带空格的问题会被拆成多个 argv。 */
-function quoteArg(arg: string): string {
-  if (!/[\s"]/.test(arg)) return arg;
-  return '"' + arg.replace(/"/g, '\\"') + '"';
 }
 
 const DEFAULT_RUNNER: Runner = (command, args, cwd, opts = {}) => {
@@ -251,7 +246,7 @@ function parseDshFinal(stdout: string): string {
  * 声明式检查做不到这件事——只有真跑一次才知道 harness 有没有读。
  */
 export function probeHarness(opts: ProbeOptions): ProbeResult {
-  const instructionFile = opts.target === 'claude-code' ? 'CLAUDE.md' : 'AGENTS.md';
+  const instructionFile = INSTRUCTION_FILE[opts.target];
   const file = join(opts.projectDir, instructionFile);
   const base: ProbeResult = {
     ok: false,

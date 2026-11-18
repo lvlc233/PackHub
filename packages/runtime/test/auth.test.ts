@@ -4,7 +4,8 @@ import { createServer, type Server } from 'node:http';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { installPack, loadPack, planFor } from '../src/index.ts';
+import { planFor } from '@packhub/kernel';
+import { installPack, loadPack } from '../src/index.ts';
 
 const BODY = Buffer.from('# 内网规范\n\n需要 token 才能拿到。\n');
 const HASH = `sha256-${createHash('sha256').update(BODY).digest('base64')}`;

@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { activatePack, installPack, loadPack, planFor, removePack } from '../src/index.ts';
+import { planFor } from '@packhub/kernel';
+import { activatePack, installPack, loadPack, removePack } from '../src/index.ts';
 
 function scaffold(version: string, body: string): string {
   const dir = mkdtempSync(join(tmpdir(), 'packhub-hardlink-'));

@@ -1,6 +1,6 @@
 import { readdirSync, readFileSync, statSync, type Dirent } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { loadManifest } from '@packhub/kernel';
+import { MANIFEST_FILE, STATE_DIR, STATE_FILE, loadManifest } from '@packhub/kernel';
 import { STATE_API_VERSION } from '@packhub/runtime';
 
 /**
@@ -13,11 +13,8 @@ import { STATE_API_VERSION } from '@packhub/runtime';
 
 export const DEFAULT_SCAN_DEPTH = 2;
 
-/** 三类候选各自的标记文件；与 records.ts / runtime 的落点保持一致，这里不 import 它们。 */
+/** 三类候选各自的标记文件；与 records.ts / runtime 的落点保持一致（名字从 kernel 取）。 */
 export const INSTANCE_FILE = 'instance.json';
-export const PACK_FILE = 'packhub.yaml';
-export const STATE_DIR = '.packhub';
-export const STATE_FILE = 'state.json';
 
 export type ScanKind = 'instance' | 'pack' | 'environment';
 
@@ -62,7 +59,7 @@ export interface ScanOptions {
 }
 
 /** 不进这些目录：依赖目录、版本库元数据、.packhub 内部（装好的副本与状态不是候选）。 */
-const SKIP_DIRS = new Set(['node_modules', '.git', '.hg', '.svn', '.packhub']);
+const SKIP_DIRS = new Set(['node_modules', '.git', '.hg', '.svn', STATE_DIR]);
 
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -171,27 +168,27 @@ function readEnvironmentEntry(dir: string, file: string): ScanEntry {
   const base: ScanEntry = { kind: 'environment', dir, file };
   const read = readText(file);
   if (read.text === undefined) {
-    return { ...base, packs: 0, problem: `.packhub/state.json ${read.problem ?? '读不了'}` };
+    return { ...base, packs: 0, problem: `${STATE_FILE} ${read.problem ?? '读不了'}` };
   }
   let data: unknown;
   try {
     data = JSON.parse(read.text);
   } catch (err) {
-    return { ...base, packs: 0, problem: `.packhub/state.json 不是合法 JSON：${errorText(err)}` };
+    return { ...base, packs: 0, problem: `${STATE_FILE} 不是合法 JSON：${errorText(err)}` };
   }
   if (!isRecord(data)) {
-    return { ...base, packs: 0, problem: '.packhub/state.json 里没有 packs 对象' };
+    return { ...base, packs: 0, problem: `${STATE_FILE} 里没有 packs 对象` };
   }
   // 版本必须比较：别的代际的 state 不按字段猜，也不静默计数
   if (data.apiVersion !== STATE_API_VERSION) {
     return {
       ...base,
       packs: 0,
-      problem: `.packhub/state.json 的格式版本不认识：${String(data.apiVersion)}（只认 ${STATE_API_VERSION}）`,
+      problem: `${STATE_FILE} 的格式版本不认识：${String(data.apiVersion)}（只认 ${STATE_API_VERSION}）`,
     };
   }
   if (!isRecord(data.packs)) {
-    return { ...base, packs: 0, problem: '.packhub/state.json 里没有 packs 对象' };
+    return { ...base, packs: 0, problem: `${STATE_FILE} 里没有 packs 对象` };
   }
   return { ...base, packs: Object.keys(data.packs).length };
 }
@@ -231,9 +228,9 @@ export function scanDirectory(root: string, opts: ScanOptions = {}): DirectorySc
 
     const instanceFile = join(current.dir, INSTANCE_FILE);
     if (isFile(instanceFile)) entries.push(readInstanceEntry(current.dir, instanceFile));
-    const packFile = join(current.dir, PACK_FILE);
+    const packFile = join(current.dir, MANIFEST_FILE);
     if (isFile(packFile)) entries.push(readPackEntry(current.dir, packFile));
-    const stateFile = join(current.dir, STATE_DIR, STATE_FILE);
+    const stateFile = join(current.dir, STATE_FILE);
     if (isFile(stateFile)) entries.push(readEnvironmentEntry(current.dir, stateFile));
 
     if (current.level >= depth) continue;

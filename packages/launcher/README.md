@@ -8,7 +8,7 @@
 
 ```bash
 pnpm pal doctor                                   # 宿主装没装、什么版本、能不能起
-pnpm pal create examples/doc-review --name demo --harness dsh --from-home ~/.dsh
+pnpm pal create registry/packs/lvlc233/doc-review/0.1.0 --name demo --harness dsh --from-home ~/.dsh
 pnpm pal start demo                               # 起 dsh web，端口自动分配
 pnpm pal health demo                              # 进程、端口、home、基线、MCP 接线
 pnpm pal update demo --version 0.2.0               # 换 Pack 版本（清掉上一版独有的文件；本地改过要 --force）
@@ -55,8 +55,6 @@ core 崩溃或被结束后由计划任务带回来；起来的第一轮看护就
 | `src/port.ts` / `src/process.ts` | 端口分配与占用者、进程存活与回收 |
 | `src/paths.ts` | 数据目录、实例根、缓存、隔离区、归档区、失败现场 |
 | `src/config.ts` / `src/isolation.ts` | 全局配置（数据目录/默认隔离）、隔离五层模型 |
-
-落点、状态机、错误码、HTTP 面、接线细节见 [docs/checklist/details/pal.md](../../docs/checklist/details/pal.md)。
 
 ## 约定
 

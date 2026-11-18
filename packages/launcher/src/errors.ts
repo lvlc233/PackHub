@@ -1,5 +1,5 @@
 /**
- * PAL 的错误语义：每个失败都有一个稳定的 code，界面与 CLI 靠它给动作，
+ * PAL 的错误语义：每个失败都有一个稳定的 code，CLI 靠它给动作，
  * 不靠翻文案猜。HTTP 状态也在这里定，避免未知实例回 500 这类事。
  */
 export type PalErrorCode =

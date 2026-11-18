@@ -2,6 +2,21 @@ import { existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { PACKHUB_ENV, HARNESS_IDS, isHarnessId, type HarnessId } from '@packhub/kernel';
+import type { HarnessTarget } from './harness-probe.ts';
+
+/**
+ * 指令文件名：装到项目里那份项目说明叫什么。
+ *
+ * 表覆盖全部 `HarnessTarget`（含只在探针里的 opencode）；`GLOBAL_LAYOUT` 与 `harness-probe.ts`
+ * 都从这里取，不再各写一份三目。opencode 只用于探针，不是同步目标：它不在 kernel 的
+ * `HARNESS_IDS` 里，因此 `GLOBAL_LAYOUT` / `HARNESSES` / `syncTargets` 都没有它。
+ */
+export const INSTRUCTION_FILE: Record<HarnessTarget, string> = {
+  dsh: 'AGENTS.md',
+  'claude-code': 'CLAUDE.md',
+  codex: 'AGENTS.md',
+  opencode: 'AGENTS.md',
+};
 
 /**
  * 一个宿主的全局落点与能力。
@@ -41,7 +56,7 @@ export const GLOBAL_LAYOUT: Record<HarnessId, GlobalSpec | null> = {
     homeEnv: PACKHUB_ENV.dshHome,
     homeDir: '.dsh',
     skillsDir: 'skills',
-    instructionFile: 'AGENTS.md',
+    instructionFile: INSTRUCTION_FILE.dsh,
     mcp: 'none',
     mcpReason: '没有可依赖的全局 MCP 配置契约（profile patch 是 DSH 私有的）',
   },
@@ -50,7 +65,7 @@ export const GLOBAL_LAYOUT: Record<HarnessId, GlobalSpec | null> = {
     homeEnv: PACKHUB_ENV.claudeHome,
     homeDir: '.claude',
     skillsDir: 'skills',
-    instructionFile: 'CLAUDE.md',
+    instructionFile: INSTRUCTION_FILE['claude-code'],
     mcp: 'claude-cli',
   },
   codex: {
@@ -58,7 +73,7 @@ export const GLOBAL_LAYOUT: Record<HarnessId, GlobalSpec | null> = {
     homeEnv: PACKHUB_ENV.codexHome,
     homeDir: '.codex',
     skillsDir: 'skills',
-    instructionFile: 'AGENTS.md',
+    instructionFile: INSTRUCTION_FILE.codex,
     mcp: 'toml',
   },
 };

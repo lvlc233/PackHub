@@ -16,7 +16,7 @@ import { watchOnce, type WatchStats } from './watch.ts';
  * PAL 的常驻核心。
  *
  * 它只做两件事：独占实例进程的启停（谁 spawn，谁拿到退出事件），以及按间隔看护没有退出事件的实例。
- * CLI、界面、桌面壳都只是它的客户端：发命令、读结果；它们退出不影响实例，也不影响看护。
+ * CLI 只是它的客户端：发命令、读结果；它退出不影响实例，也不影响看护。
  *
  * 它是单例：抢 `<PAL home>/core.lock`（写 pid），只把 `core.json`（地址 + token）留给客户端发现。
  * 地址是回环 HTTP。为什么不走命名管道：Windows 上命名管道要另一套读法，而这里只需要本机进程之间
@@ -144,6 +144,7 @@ export function acquireCoreLock(home: string = palHome()): number {
   });
 }
 
+/** 让出锁但别的 core 已经接手时，不删它的锁文件。 */
 export function releaseCoreLock(home: string, fd: number): void {
   try {
     closeSync(fd);
@@ -153,8 +154,6 @@ export function releaseCoreLock(home: string, fd: number): void {
   const file = coreLockPath(home);
   if (lockHolder(file) === process.pid) rmSync(file, { force: true });
 }
-
-/** 让出锁但别的 core 已经接手时，不删它的锁文件。 */
 
 export interface CoreOps {
   start?: (id: string, params: { port?: number }) => Promise<InstanceRecord>;
@@ -289,7 +288,7 @@ export async function startCore(options: StartCoreOptions = {}): Promise<PalCore
       const params = (body.params ?? {}) as Record<string, unknown>;
       const handler = rpc[op];
       if (!handler) throw new PalError('invalid-input', `core 不认识这个操作：${op}`, {
-        hint: 'CLI 与界面各用各的命令，core 只认 start / stop / restart / watch / status / shutdown',
+        hint: 'core 只认 start / stop / restart / watch / status / shutdown；CLI 用 pal core status 查它在做什么',
       });
       sendJson(res, 200, { ok: true, result: await handler(params) });
       return;

@@ -2,14 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Plan } from '@packhub/kernel';
-import {
-  installPack,
-  loadPack,
-  loadState,
-  planFor,
-  planPaths,
-} from '../src/index.ts';
+import { planFor, type Plan } from '@packhub/kernel';
+import { installPack, loadPack, loadState, planPaths } from '../src/index.ts';
 import { pruneRemoved } from '../src/install.ts';
 
 const SKILL_MD = `---\nname: hello\ndescription: demo skill\n---\n\n# hello\n`;

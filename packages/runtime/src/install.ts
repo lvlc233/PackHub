@@ -36,6 +36,8 @@ import {
   isPlainObject,
   planPathsOf,
   sha256,
+  STATE_DIR,
+  STATE_FILE,
 } from '@packhub/kernel';
 import { download, resolvePypiSdist } from './download.ts';
 import { isSafeArchiveEntry } from './pack.ts';
@@ -155,11 +157,9 @@ interface ActiveFile {
   packs: Record<string, { version: string; target: string; planHash: string; at: string }>;
 }
 
-const STATE_DIR = '.packhub';
-const STATE_FILE = '.packhub/state.json';
-const INSTALL_LOCK = '.packhub/installing.lock';
-const VERSIONS_DIR = '.packhub/versions';
-const ACTIVE_FILE = '.packhub/active.json';
+const INSTALL_LOCK = `${STATE_DIR}/installing.lock`;
+const VERSIONS_DIR = `${STATE_DIR}/versions`;
+const ACTIVE_FILE = `${STATE_DIR}/active.json`;
 
 function pidAlive(pid: number): boolean {
   try {
@@ -1025,7 +1025,7 @@ export function removePack(root: string, packKey?: string): RemoveResult {
               : [],
           );
       for (const rel of files) {
-        if (rel === '.packhub/config.json' && !isLast) {
+        if (rel === `${STATE_DIR}/config.json` && !isLast) {
           kept.push(rel);
           continue;
         }
@@ -1313,7 +1313,7 @@ async function applyAction(
     }
 
     case 'register.mcp': {
-      const path = action.path ?? '.packhub/config.json';
+      const path = action.path ?? `${STATE_DIR}/config.json`;
       const to = resolveWithin(opts.root, path);
       // codex 的全局 MCP 配置是 TOML：用带标记的托管块，卸载时按 id 摘掉
       if (/\.toml$/i.test(path)) {

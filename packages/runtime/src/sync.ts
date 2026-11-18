@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import { PACKHUB_ENV, loadPack, planFor, buildMcpSpec, interpolate, type PackContext, type Plan, type ResourceSpec } from '@packhub/kernel';
+import { PACKHUB_ENV, STATE_DIR, loadPack, planFor, buildMcpSpec, interpolate, type PackContext, type Plan, type ResourceSpec } from '@packhub/kernel';
 import { applyPlan, loadState, saveState, removePack, type ActionOutcome } from './install.ts';
 import { doctorPack, type DoctorReport } from './doctor.ts';
 import { readSkillFrontmatter } from './skill-meta.ts';
@@ -59,18 +59,16 @@ export interface GlobalDoctorResult {
 export function globalTargetVars(target: SyncTarget = 'dsh'): Record<string, string> {
   const spec = harnessSpec(target);
   return {
-    root: '.packhub',
-    cacheDir: '.packhub/cache',
+    root: STATE_DIR,
+    cacheDir: `${STATE_DIR}/cache`,
     skillsDir: spec.skillsDir,
     knowledgeDir: 'knowledge',
     promptsDir: 'prompts',
     binDir: 'bin',
-    configFile: spec.mcp === 'toml' ? 'config.toml' : '.packhub/config.json',
+    configFile: spec.mcp === 'toml' ? 'config.toml' : `${STATE_DIR}/config.json`,
     instructionFile: spec.instructionFile,
   };
 }
-
-export { readSkillFrontmatter, type SkillFrontmatter } from './skill-meta.ts';
 
 /**
  * 把一个 skill-only Pack 同步到各 harness 的全局 skills/。

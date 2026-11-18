@@ -66,9 +66,6 @@ review: 格式升版、字段增删、apiVersion 变化时
 
 1. `planHash` = 计划自身的哈希，用于确保版本一致性。
 
-
-动作原语：`fetch` · `unpack` · `copy` · `write` · `delete` · `link.skill` · `link.exec` · `register.mcp` · `exec` · `instruction` · `state.dir`。
-
 每个 op 的路径、来源基准、撤销方式、撤销载荷、共享判定与派生输出都在 `packages/kernel/src/plan-ops.ts` 的 `PLAN_OPS` 表里（单点；执行器与清理侧都从它派生）：
 
 | op | `from` 基准 | 写到安装根 | 撤销 | 撤销载荷 | 共享 | 备注 |
@@ -236,8 +233,8 @@ registry 的索引，`search` / `add` / `update` 只读它。
 }
 ```
 
-- `ok`：每一步都是 `done` / `noop`，且每项检查都是 `pass`。`skipped`、`needs-approval`、`failed` 都算未完成；发布门禁只接受 `ok: true`。
-- 报告与 `contentHash` 绑定：它证明的是「这份内容（清单 + 解析后的引用）」跑得通；内容变了报告不作数（索引会降为 `community`）。`planHash` 记的是 runner 实际跑的那份 dir 计划的哈希，是安装期派生值——发布对齐（`publish.ts`）与索引门禁（`build.ts`）都只比 `contentHash`。
+- `ok`：每一步都是 `done` / `noop`，且每项检查都是 `pass`。`skipped`、`needs-approval`、`failed` 都算未完成。
+- 报告与 `contentHash` 绑定：它证明的是「这份内容（清单 + 解析后的引用）」跑得通；内容变了报告不作数（索引会降为 `community`）。`planHash` 记的是 runner 实际跑的那份 dir 计划的哈希，是安装期派生值，不是锁的内容。
 - 检查类型与判定细节见 `packages/runtime/src/verify.ts` 与 `packages/runner/src/run.ts`。
 
 ## 5 签名旁挂（`packhub.dev/signatures/v0`）

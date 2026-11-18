@@ -1,10 +1,11 @@
 #!/usr/bin/env node
-// 对 registry 里每个版本目录真装一遍并校验（CI 用）。
-// 报告写到临时目录：registry 版本目录是不可变的，CI 不能每次改 verify.json 的时间戳。
+// 对 registry 里每个版本目录真装一遍并校验。
+// 报告写到临时目录：registry 版本目录是不可变的，重验不能每次改 verify.json 的时间戳。
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { MANIFEST_FILE } from '../../packages/kernel/src/index.ts';
 
 const ROOT = resolve(import.meta.dirname, '../..');
 const PACKS = join(ROOT, 'registry/packs');
@@ -20,7 +21,7 @@ function dirs(p) {
 
 /** 清单里有没有安装期必须联网取的东西（远程 source）。 */
 function needsNetwork(dir) {
-  const file = join(dir, 'packhub.yaml');
+  const file = join(dir, MANIFEST_FILE);
   if (!existsSync(file)) return false;
   const text = readFileSync(file, 'utf8');
   return /source:\s*["']?(npm|pypi|github|https?):/m.test(text);

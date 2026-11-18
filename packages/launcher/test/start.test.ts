@@ -9,18 +9,16 @@ import {
   hostEnv,
   HOST_ENV_KEEP,
   HOST_ENV_KEEP_AS_IS,
-  isStopping,
-  markStopping,
   spawnPlanFor,
   startInstance,
   startInstanceDetailed,
   stopInstance,
-  stoppingMarkFile,
   statusView,
   refreshStatuses,
   trackExit,
   type SpawnFn,
 } from '../src/start.ts';
+import { isStopping, markStopping, stoppingMarkFile } from '../src/stopMark.ts';
 import { isPalError } from '../src/errors.ts';
 import { readSecrets } from '../src/secrets.ts';
 import { readEvents } from '../src/logs.ts';

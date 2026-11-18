@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { EXIT, command, json, problemRaw, say, stop, terminate, warn } from '../emit.ts';
 import { startHub } from '@packhub/hub';
-import { PACKHUB_ENV, searchResources, RESOURCE_TYPES } from '@packhub/kernel';
+import { MANIFEST_FILE, PACKHUB_ENV, searchResources, RESOURCE_TYPES } from '@packhub/kernel';
 import {
   addResource,
   readIndex,
@@ -158,9 +158,9 @@ export const discover = command({
         stop(EXIT.USAGE);
       }
       const pick = hits[n - 1]!.entry;
-      const file = join(resolve(String(args.dir)), 'packhub.yaml');
+      const file = join(resolve(String(args.dir)), MANIFEST_FILE);
       if (!existsSync(file)) {
-        problemRaw(`没有 packhub.yaml：${file}（先跑 packhub init）`);
+        problemRaw(`没有 ${MANIFEST_FILE}：${file}（先跑 packhub init）`);
         stop(EXIT.USAGE);
       }
       const added = addResource(file, { type: pick.type, source: pick.source });

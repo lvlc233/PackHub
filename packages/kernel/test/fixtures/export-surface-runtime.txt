@@ -60,7 +60,6 @@ STATE_API_VERSION
 SignatureCheck
 SignatureEntry
 SignatureFile
-SkillFrontmatter
 SkillProbeOptions
 SyncOptions
 SyncRemoveResult
@@ -93,6 +92,7 @@ claudeAvailable
 claudeHasMcp
 cleanCache
 configPath
+contentHashFor
 credentialsPath
 defaultRegistryIndex
 doctorGlobal
@@ -129,7 +129,6 @@ npmLicense
 packArchive
 pickSdist
 pinManifest
-planFor
 planPaths
 probeHarness
 probeSkill
@@ -139,7 +138,6 @@ readConfig
 readCredentials
 readIndex
 readSignatures
-readSkillFrontmatter
 readTrust
 readVersionRecord
 registryIndexes
@@ -162,7 +160,7 @@ searchNpm
 setBinding
 setRequireSignature
 setToken
-signPlan
+signContentHash
 signablePayload
 signaturePolicy
 syncPack

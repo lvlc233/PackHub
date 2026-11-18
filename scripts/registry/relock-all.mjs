@@ -39,7 +39,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
-import { PACKHUB_ENV, canonicalize, loadPack } from '../../packages/kernel/src/index.ts';
+import { LOCK_FILE, PACKHUB_ENV, canonicalize, loadPack } from '../../packages/kernel/src/index.ts';
 import {
   lockPack,
   readSignatures,
@@ -191,7 +191,7 @@ async function rebuildVersion(dir, label) {
     });
 
     // 新锁先只写副本：runner 看到的是重锁后的内容
-    writeFileSync(join(stage, 'packhub.lock.json'), jsonText(planned.lock), 'utf8');
+    writeFileSync(join(stage, LOCK_FILE), jsonText(planned.lock), 'utf8');
     try {
       resign(stage, dir, label, planned.lock.contentHash, planned.manifest);
     } catch (err) {
@@ -218,7 +218,7 @@ async function rebuildVersion(dir, label) {
     }
 
     // 到这里才动真实目录：锁、签名、verify.json
-    const lockPath = join(dir, 'packhub.lock.json');
+    const lockPath = join(dir, LOCK_FILE);
     const previous = readJson(lockPath);
     if (previous && contentOf(previous, ['resolvedAt']) === contentOf(planned.lock, ['resolvedAt'])) {
       stats.lockSame.push(label);

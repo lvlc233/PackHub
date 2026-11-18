@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { installPack, loadPack, planFor } from '../src/index.ts';
+import { planFor } from '@packhub/kernel';
+import { installPack, loadPack } from '../src/index.ts';
 
 function makePack(root: string, name: string, content: string): string {
   mkdirSync(root, { recursive: true });

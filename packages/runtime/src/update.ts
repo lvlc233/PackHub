@@ -1,8 +1,8 @@
 import { join } from 'node:path';
 import { fetchPack } from './registry.ts';
-import { loadPack, planFor, installPack, loadState, loadLock, withLockPins } from './index.ts';
+import { loadPack, installPack, loadState, loadLock, withLockPins } from './index.ts';
 import { pruneRemoved } from './install.ts';
-import { checkLockConsistency, diffActions, describeAction } from '@packhub/kernel';
+import { checkLockConsistency, diffActions, describeAction, planFor, STATE_DIR } from '@packhub/kernel';
 import type { PlanSnapshot } from '@packhub/kernel';
 
 export interface UpdateOptions {
@@ -36,7 +36,7 @@ export interface UpdateResult {
  * 差异来自 state 里存的上一份计划快照，所以能说清「多了什么、少了什么」。
  */
 export async function updatePack(opts: UpdateOptions): Promise<UpdateResult> {
-  const dest = join(opts.projectDir, '.packhub/packs', opts.name);
+  const dest = join(opts.projectDir, STATE_DIR, 'packs', opts.name);
   const fetched = await fetchPack({
     name: opts.name,
     index: opts.index,

@@ -1,4 +1,4 @@
-// 加载、并解析packhub.ymal(清单)，进行jav校验并转化为内存数据。[ok]
+// 加载并解析 packhub.yaml（清单），按 schema 校验后转成内存数据。
 
 import { readFileSync } from 'node:fs';
 import { parse as parseYaml } from 'yaml';
@@ -17,6 +17,12 @@ import schemaJson from '../../../schema/packhub.v0.schema.json' with { type: 'js
 export const PACK_NAME_PATTERN = new RegExp(
   (schemaJson as { properties: { metadata: { properties: { name: { pattern: string } } } } })
     .properties.metadata.properties.name.pattern,
+);
+
+/** `metadata.version` 的形状，同样从 schema 取；Hub 的 URL 路由用得上。 */
+export const PACK_VERSION_PATTERN = new RegExp(
+  (schemaJson as { properties: { metadata: { properties: { version: { pattern: string } } } } })
+    .properties.metadata.properties.version.pattern,
 );
 
 let cachedValidator: ValidateFunction | undefined;

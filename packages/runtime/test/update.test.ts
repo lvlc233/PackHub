@@ -53,7 +53,7 @@ describe('update', () => {
 
     // 先装旧版本：直接走 updatePack 会取 latest，所以用 add 的等价路径
     const { fetchPack } = await import('../src/index.ts');
-    const { installPack, loadPack, planFor } = await import('../src/index.ts');
+    const { installPack, loadPack } = await import('../src/index.ts');
     const dest = join(project, '.packhub/packs/demo/upd');
     await fetchPack({ name: 'demo/upd', index, version: '0.1.0', dest });
     const ctx = loadPack(dest);
@@ -75,7 +75,7 @@ describe('update', () => {
     const reg = await registry('  - id: extra\n    type: knowledge\n    source: ./extra.md\n');
     const project = mkdtempSync(join(tmpdir(), 'packhub-upd-snap-'));
     const index = join(reg, 'index.json');
-    const { fetchPack, installPack, loadPack, planFor } = await import('../src/index.ts');
+    const { fetchPack, installPack, loadPack } = await import('../src/index.ts');
 
     const dest = join(project, '.packhub/packs/demo/upd');
     await fetchPack({ name: 'demo/upd', index, version: '0.1.0', dest });

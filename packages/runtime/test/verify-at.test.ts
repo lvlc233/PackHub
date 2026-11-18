@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { installPack, loadPack, planFor, verifyAt } from '../src/index.ts';
+import { planFor } from '@packhub/kernel';
+import { installPack, loadPack, verifyAt } from '../src/index.ts';
 
 /** 一个最小的 dir target 包：一个知识文件 + 一条 file-exists 校验。 */
 function pack(name = 'demo/inst'): string {

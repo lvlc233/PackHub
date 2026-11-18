@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, resolve, sep } from 'node:path';
-import { PACKHUB_ENV } from '@packhub/kernel';
+import { MANIFEST_FILE, PACKHUB_ENV } from '@packhub/kernel';
 import { fetchPack, loadManifest, resolveAddSource, resolveRegistry } from '@packhub/runtime';
 import { writeAtomic } from './atomic.ts';
 import { cacheRoot } from './paths.ts';
@@ -51,7 +51,7 @@ function variant(packRef: string, version?: string): string {
 }
 
 function manifestFile(dir: string): string | undefined {
-  const direct = join(dir, 'packhub.yaml');
+  const direct = join(dir, MANIFEST_FILE);
   return existsSync(direct) ? direct : undefined;
 }
 
@@ -207,7 +207,7 @@ export async function materializePack(
   packRef: string,
   opts: MaterializeOptions = {},
 ): Promise<string> {
-  if (existsSync(join(packRef, 'packhub.yaml'))) return resolve(packRef);
+  if (existsSync(join(packRef, MANIFEST_FILE))) return resolve(packRef);
 
   const dest = join(packCacheRoot(), slug(packRef), variant(packRef, opts.version));
 
@@ -229,7 +229,7 @@ export async function materializePack(
     if (isDirectSource(packRef)) {
       const resolved = await resolveAddSource(packRef, dest);
       if (!manifestFile(resolved.dir)) {
-        throw new PalError('invalid-input', `取回来的目录里没有 packhub.yaml：${resolved.dir}`, {
+        throw new PalError('invalid-input', `取回来的目录里没有 ${MANIFEST_FILE}：${resolved.dir}`, {
           hint: '确认 .phub / git+ 指向的是一个 Pack 仓库',
         });
       }
@@ -251,7 +251,7 @@ export async function materializePack(
       ...(opts.version ? { version: opts.version, allowUnlisted: true } : {}),
     });
     if (!manifestFile(fetched.dir)) {
-      throw new PalError('invalid-input', `registry 归档里没有 packhub.yaml：${packRef}@${fetched.version}`);
+      throw new PalError('invalid-input', `registry 归档里没有 ${MANIFEST_FILE}：${packRef}@${fetched.version}`);
     }
     rememberCacheMeta(dest, packRef, 'registry', fetched.version, fetched.dir, opts.log);
     return fetched.dir;

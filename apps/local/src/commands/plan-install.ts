@@ -9,7 +9,10 @@ import {
   diffActions,
   describeAction,
   checkLockConsistency,
+  LOCK_FILE,
+  MANIFEST_FILE,
   PACK_NAME_PATTERN,
+  STATE_DIR,
   TARGET_IDS,
   type TargetId,
 } from '@packhub/kernel';
@@ -171,7 +174,7 @@ export const verify = command({
 });
 
 export const lock = command({
-  meta: { name: 'lock', description: '解析引用（npm/github/https/pypi）并生成 packhub.lock.json（只记引用与完整性）' },
+  meta: { name: 'lock', description: `解析引用（npm/github/https/pypi）并生成 ${LOCK_FILE}（只记引用与完整性）` },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
     offline: { type: 'boolean', default: false, description: '不联网：只解析本地引用，其余原样写进锁并给 warning' },
@@ -184,7 +187,7 @@ export const lock = command({
     const res = await lockPack(ctx, {
       offline: Boolean(args.offline),
     });
-    const out = join(ctx.dir, 'packhub.lock.json');
+    const out = join(ctx.dir, LOCK_FILE);
     writeFileSync(out, JSON.stringify(res.lock, null, 2) + '\n', 'utf8');
     if (args.json) {
       json({ out, lock: res.lock, contentHash: res.lock.contentHash, warnings: res.warnings });
@@ -206,7 +209,7 @@ export const init = command({
   },
   run({ args }) {
     const dir = resolve(String(args.dir));
-    const file = join(dir, 'packhub.yaml');
+    const file = join(dir, MANIFEST_FILE);
     const name = String(args.name);
     if (!PACK_NAME_PATTERN.test(name)) {
       problemRaw(`--name 要写成 owner/name（小写字母、数字、连字符，两段各至少一个字符）：收到 ${name}`);
@@ -247,7 +250,7 @@ verify:
     writeFileSync(join(dir, 'resources', 'example.md'), '# 示例知识\n\n替换成真实内容。\n', 'utf8');
     const gitignore = join(dir, '.gitignore');
     if (!existsSync(gitignore)) {
-      writeFileSync(gitignore, '.packhub/\npack.phub\npackhub.key\n*.tar.gz\n', 'utf8');
+      writeFileSync(gitignore, `${STATE_DIR}/\npack.phub\npackhub.key\n*.tar.gz\n`, 'utf8');
     }
     say(`created ${file}`);
     say('下一步：packhub resource add <type> <source> 追加资源，然后 packhub plan 看动作');
@@ -395,7 +398,7 @@ export const diff = command({
       if (read.problem) {
         reportIssues([read.problem]);
       } else {
-        problemRaw('没有 packhub.lock.json：先跑 packhub lock');
+        problemRaw(`没有 ${LOCK_FILE}：先跑 packhub lock`);
       }
       stop(EXIT.USAGE);
     }

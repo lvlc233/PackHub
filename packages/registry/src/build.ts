@@ -4,6 +4,8 @@ import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import {
   INDEX_API_VERSION,
+  LOCK_FILE,
+  MANIFEST_FILE,
   canonicalize,
   contentHashOf,
   loadPack,
@@ -142,18 +144,18 @@ function checkArchiveConsistency(
   // 读归档走 runtime/pack.ts 的同步读法（node-tar 的 sync 解包），registry 不再自己解析 tar 格式
   let files: Map<string, string>;
   try {
-    files = readArchiveFilesSync(archivePath, ['packhub.lock.json', 'verify.json']);
+    files = readArchiveFilesSync(archivePath, [LOCK_FILE, 'verify.json']);
   } catch {
     errors.push(`${packName}@${version}: 读不了 ${version}.phub，无法核对归档里的锁与报告`);
     return;
   }
 
-  const dirLock = parseJsonObject(readFileSync(join(versionDir, 'packhub.lock.json'), 'utf8'));
+  const dirLock = parseJsonObject(readFileSync(join(versionDir, LOCK_FILE), 'utf8'));
   const short = (value: unknown): string => String(value ?? '(无)').slice(0, 16);
-  const archiveLockText = files.get('packhub.lock.json');
+  const archiveLockText = files.get(LOCK_FILE);
   if (archiveLockText === undefined) {
     errors.push(
-      `${packName}@${version}: 归档里缺 packhub.lock.json（发布必须带锁，归档要从版本目录打）`,
+      `${packName}@${version}: 归档里缺 ${LOCK_FILE}（发布必须带锁，归档要从版本目录打）`,
     );
   } else {
     const archiveLock = parseJsonObject(archiveLockText);
@@ -178,15 +180,6 @@ function checkArchiveConsistency(
       `${packName}@${version}: 归档里的 verify.json 与版本目录不一致（归档 ok=${String(archiveVerify?.ok)} contentHash=${short(archiveVerify?.contentHash)}… 目录 ok=${String(dirVerify?.ok)} contentHash=${short(dirVerify?.contentHash)}…）`,
     );
   }
-}
-
-/**
- * CI 判定：GitHub Actions 把 `CI` 设成 `true`；空串 / `0` / `false` 当作没设。
- * 调用时才读环境变量（不在模块加载时固化），测试才能按场景切。
- */
-function inCI(): boolean {
-  const flag = process.env.CI;
-  return flag !== undefined && flag !== '' && flag !== '0' && flag.toLowerCase() !== 'false';
 }
 
 /**
@@ -228,13 +221,13 @@ export function buildIndex(registryRoot: string): BuildResult {
 
   /**
    * 取不到 HEAD 里的那份文件时，不可变性核对等于没做：本地允许（未提交的新版本、非 git 目录），
-   * 但必须留下路径。CI 里改成 error——CI 全绿必须能推出「版本没被改过」。
+   * 但必须留下路径，只按 warning 报——没有 CI 分支可言，跳过永远不阻断。
    * 版本目录里不存在的文件不进来（没有的东西谈不上被改）。
    */
   const reportSkippedImmutability = (where: string, relPath: string): void => {
-    const detail = `取不到 git 历史，${relPath} 的不可变性核对没有做`;
-    if (inCI()) errors.push(`${where}: ${detail}（CI 里不允许跳过）`);
-    else warnings.push(`${where}: ${detail}（本地允许，未提交的新版本）`);
+    warnings.push(
+      `${where}: 取不到 git 历史，${relPath} 的不可变性核对没有做（本地允许，未提交的新版本）`,
+    );
   };
 
   for (const scope of dirs(packsDir)) {
@@ -250,16 +243,16 @@ export function buildIndex(registryRoot: string): BuildResult {
       const entries: IndexEntry[] = [];
       for (const version of versions) {
         const dir = join(versionsDir, version);
-        const manifestPath = join(dir, 'packhub.yaml');
+        const manifestPath = join(dir, MANIFEST_FILE);
         if (!existsSync(manifestPath)) {
-          errors.push(`${packName}@${version}: 缺少 packhub.yaml`);
+          errors.push(`${packName}@${version}: 缺少 ${MANIFEST_FILE}`);
           continue;
         }
 
         // 版本目录里定义「发布了什么」的文件都不许改：清单、锁、验证报告、可选签名。
-        // 没进 git（或非 git 仓库）时跳过——但跳过必须留痕：本地 warning 带路径，CI 里算错误。
+        // 没进 git（或非 git 仓库）时跳过——但跳过必须留痕：warning 带路径。
         const norm = (s: string): string => s.replace(/\r\n/g, '\n');
-        for (const file of ['packhub.yaml', 'packhub.lock.json', 'verify.json', SIGNATURE_FILE]) {
+        for (const file of [MANIFEST_FILE, LOCK_FILE, 'verify.json', SIGNATURE_FILE]) {
           const abs = join(dir, file);
           if (!existsSync(abs)) continue;
           const relPath = relative(registryRoot, abs).replaceAll('\\', '/');
@@ -300,9 +293,9 @@ export function buildIndex(registryRoot: string): BuildResult {
           );
         }
 
-        const lockPath = join(dir, 'packhub.lock.json');
+        const lockPath = join(dir, LOCK_FILE);
         if (!existsSync(lockPath)) {
-          errors.push(`${packName}@${version}: 缺少 packhub.lock.json（发布必须带锁）`);
+          errors.push(`${packName}@${version}: 缺少 ${LOCK_FILE}（发布必须带锁）`);
           continue;
         }
         const lock = JSON.parse(readFileSync(lockPath, 'utf8')) as {

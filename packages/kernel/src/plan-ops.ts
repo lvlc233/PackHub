@@ -1,4 +1,5 @@
 import type { Plan, PlanAction } from './types.ts';
+import { STATE_DIR } from './files.ts';
 
 /** 计划动作名的唯一来源：`PlanOp` 联合里每加一个 op，这张表必须补齐（否则 typecheck 报错）。 */
 export type PlanOpName = PlanAction['op'];
@@ -148,12 +149,12 @@ export const PLAN_OPS: Record<PlanOpName, PlanOpSpec> = {
       a.op === 'register.mcp'
         ? {
             undo: 'restore-shared',
-            path: a.path ?? '.packhub/config.json',
+            path: a.path ?? `${STATE_DIR}/config.json`,
             key: a.resource ?? 'mcp',
           }
         : null,
-    paths: (a) => (a.op === 'register.mcp' ? [a.path ?? '.packhub/config.json'] : []),
-    written: (a) => (a.op === 'register.mcp' ? [a.path ?? '.packhub/config.json'] : []),
+    paths: (a) => (a.op === 'register.mcp' ? [a.path ?? `${STATE_DIR}/config.json`] : []),
+    written: (a) => (a.op === 'register.mcp' ? [a.path ?? `${STATE_DIR}/config.json`] : []),
     shared: () => true,
     inputs: none,
   },

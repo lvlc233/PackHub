@@ -11,14 +11,18 @@ INDEX_API_VERSION
 ISSUE_CODES
 Issue
 IssueCode
+LOCK_FILE
 LoadResult
 LocalOverrides
 LockConsistency
 LockConsistencyStatus
 LockFile
+MANIFEST_FILE
 Manifest
 ModifySpec
+PACKHUB_ENV
 PACK_NAME_PATTERN
+PACK_VERSION_PATTERN
 PLAN_OPS
 PackContext
 ParsedSource
@@ -41,6 +45,8 @@ ResolvedRef
 ResourceCatalog
 ResourceSpec
 ResourceType
+STATE_DIR
+STATE_FILE
 Severity
 SlotSpec
 SourceKind
@@ -86,6 +92,7 @@ parseManifest
 parseSource
 planFor
 planPathsOf
+quoteArg
 readLocalOverrides
 searchResources
 sha256

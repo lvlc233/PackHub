@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { planFor } from '@packhub/kernel';
 import { packArchive } from '../src/index.ts';
 import { updatePack } from '../src/index.ts';
 
@@ -56,7 +57,7 @@ describe('update 的删除语义', () => {
     const project = mkdtempSync(join(tmpdir(), 'packhub-prune-proj-'));
     const index = join(reg, 'index.json');
 
-    const { fetchPack, installPack, loadPack, planFor } = await import('../src/index.ts');
+    const { fetchPack, installPack, loadPack } = await import('../src/index.ts');
     const dest = join(project, '.packhub/packs/demo/prune');
     await fetchPack({ name: 'demo/prune', index, version: '0.1.0', dest });
     const ctx = loadPack(dest);

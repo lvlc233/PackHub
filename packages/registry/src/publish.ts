@@ -9,7 +9,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { loadPack } from '@packhub/kernel';
+import { LOCK_FILE, MANIFEST_FILE, loadPack } from '@packhub/kernel';
 import { lockPack, packArchive, vendoredEntries } from '@packhub/runtime';
 import { runPack, type VerifyReport } from '@packhub/runner';
 
@@ -43,7 +43,7 @@ export interface PublishResult {
   finalize: () => void;
 }
 
-const FILES = ['packhub.yaml', 'packhub.lock.json', 'packhub.signatures.json', 'PACK.md', 'CHANGELOG.md'];
+const FILES = [MANIFEST_FILE, LOCK_FILE, 'packhub.signatures.json', 'PACK.md', 'CHANGELOG.md'];
 
 /**
  * 从**版本目录**打 `.phub`：归档里的清单、锁、verify 与 vendored 条目就是版本目录那一份。
@@ -155,8 +155,8 @@ export async function publishPack(packDir: string, opts: PublishOptions): Promis
         cpSync(src, join(versionDir, entry), { recursive: true });
         wrote.push(entry);
       }
-      writeFileSync(join(versionDir, 'packhub.lock.json'), JSON.stringify(lock, null, 2) + '\n', 'utf8');
-      wrote.push('packhub.lock.json');
+      writeFileSync(join(versionDir, LOCK_FILE), JSON.stringify(lock, null, 2) + '\n', 'utf8');
+      wrote.push(LOCK_FILE);
       writeFileSync(join(versionDir, 'verify.json'), JSON.stringify(report, null, 2) + '\n', 'utf8');
       wrote.push('verify.json');
 
@@ -168,7 +168,7 @@ export async function publishPack(packDir: string, opts: PublishOptions): Promis
       throw err;
     }
   } else {
-    wrote.push(...FILES.filter((f) => existsSync(join(dir, f))), 'packhub.lock.json', 'verify.json');
+    wrote.push(...FILES.filter((f) => existsSync(join(dir, f))), LOCK_FILE, 'verify.json');
   }
 
   for (const w of wrote) log(`→ ${w}`);
@@ -184,7 +184,7 @@ export function stageForPr(packDir: string, registryRoot: string, outDir: string
   const rel = join('packs', scope!, name.split('/')[1]!, version);
   const target = join(outDir, rel);
   mkdirSync(target, { recursive: true });
-  for (const file of ['packhub.yaml', 'packhub.lock.json', 'packhub.signatures.json', 'verify.json']) {
+  for (const file of [MANIFEST_FILE, LOCK_FILE, 'packhub.signatures.json', 'verify.json']) {
     const src = join(registryRoot, rel, file);
     if (existsSync(src)) cpSync(src, join(target, file));
   }

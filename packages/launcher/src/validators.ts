@@ -34,7 +34,7 @@ export function assertHarness(value: string): TargetId {
 /**
  * 路径输入的公共门槛：只要绝对路径，`~` 不展开，UNC（`\\server\share` / `//server/share`）不收。
  *
- * 不解析 cwd 相对路径：CLI、界面、别的进程算出来的「当前目录」可能不是一个地方，
+ * 不解析 cwd 相对路径：CLI、别的进程算出来的「当前目录」可能不是一个地方，
  * 猜错了就把实例指到意想不到的目录里。UNC 会被 PAL 当成普通目录，跨机行为不可控；
  * `~` 在这边也不是 shell，展开不了。失败一律 invalid-input；message 不回显完整路径，
  * 排障看 details（键名由 field 决定，保持各接口原有的 details 形状）。

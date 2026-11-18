@@ -67,19 +67,6 @@ function gitRun(cwd: string, ...args: string[]): string {
   });
 }
 
-/** 跑 buildIndex / writeIndex 时临时切 `CI`：GitHub Actions 里默认是 true，本地场景要显式关掉。 */
-function withCI<T>(value: string | undefined, fn: () => T): T {
-  const saved = process.env.CI;
-  try {
-    if (value === undefined) delete process.env.CI;
-    else process.env.CI = value;
-    return fn();
-  } finally {
-    if (saved === undefined) delete process.env.CI;
-    else process.env.CI = saved;
-  }
-}
-
 describe('publish', () => {
   it('干净安装通过后写版本目录、归档与索引，索引标 verified', async () => {
     const pack = makePack();
@@ -92,8 +79,8 @@ describe('publish', () => {
     expect(existsSync(join(res.dir, 'verify.json'))).toBe(true);
     expect(existsSync(join(reg, 'packs/demo/published/0.1.0.phub'))).toBe(true);
 
-    // 本地发布流程：版本目录还没提交，门禁只给 warning——`CI` 下才升级为 error
-    const idx = withCI(undefined, () => writeIndex(reg));
+    // 本地发布流程：版本目录还没提交，门禁只给 warning
+    const idx = writeIndex(reg);
     expect(idx.ok).toBe(true);
     const index = JSON.parse(readFileSync(join(reg, 'index.json'), 'utf8')) as {
       packs: {
@@ -225,7 +212,7 @@ describe('publish', () => {
     expect(archivedLock.plans).toBeUndefined();
     expect(existsSync(join(unpacked, 'verify.json'))).toBe(true);
 
-    expect(withCI(undefined, () => buildIndex(reg)).errors).toEqual([]);
+    expect(buildIndex(reg).errors).toEqual([]);
     rmSync(pack, { recursive: true, force: true });
     rmSync(reg, { recursive: true, force: true });
     rmSync(unpacked, { recursive: true, force: true });
@@ -310,11 +297,9 @@ describe('版本不可变门禁：跳过必须可见', () => {
   it('已提交且未改：没有不可变性错误，也没有跳过警告', async () => {
     const { reg } = await committed();
 
-    const res = withCI(undefined, () => buildIndex(reg));
+    const res = buildIndex(reg);
     expect(res.errors).toEqual([]);
     expect(res.warnings.filter((w) => w.includes(skipped))).toEqual([]);
-    // 有完整历史时 CI 也不该误报
-    expect(withCI('true', () => buildIndex(reg)).errors).toEqual([]);
 
     rmSync(reg, { recursive: true, force: true });
   });
@@ -324,31 +309,24 @@ describe('版本不可变门禁：跳过必须可见', () => {
     const manifest = join(dir, 'packhub.yaml');
     writeFileSync(manifest, `${readFileSync(manifest, 'utf8')}# 改一行\n`, 'utf8');
 
-    const errors = withCI(undefined, () => buildIndex(reg)).errors.join('\n');
+    const errors = buildIndex(reg).errors.join('\n');
     expect(errors).toContain('版本目录不可变，packhub.yaml 已被修改');
 
     rmSync(reg, { recursive: true, force: true });
   });
 
-  it('未跟踪：本地只 warning 且带路径，CI 里变成 error', async () => {
+  it('未跟踪：只 warning 且带路径，不阻断', async () => {
     const reg = registry();
     await published(reg);
     gitRun(reg, 'init');
     // 有 HEAD，但版本目录没进提交：git show 取不到
     gitRun(reg, 'commit', '--allow-empty', '-m', 'init');
 
-    const local = withCI(undefined, () => buildIndex(reg));
-    expect(local.errors).toEqual([]);
-    const localSkips = local.warnings.filter((w) => w.includes(skipped)).join('\n');
-    expect(localSkips).toContain('packs/demo/published/0.1.0/packhub.yaml');
-    expect(localSkips).toContain('packs/demo/published/0.1.0.phub');
-
-    const ci = withCI('true', () => buildIndex(reg));
-    expect(ci.errors.filter((e) => !e.includes(skipped))).toEqual([]);
-    const ciSkips = ci.errors.filter((e) => e.includes(skipped)).join('\n');
-    expect(ciSkips).toContain('packs/demo/published/0.1.0/packhub.yaml');
-    expect(ciSkips).toContain('CI 里不允许跳过');
-    expect(ci.warnings.filter((w) => w.includes(skipped))).toEqual([]);
+    const res = buildIndex(reg);
+    expect(res.errors).toEqual([]);
+    const skips = res.warnings.filter((w) => w.includes(skipped)).join('\n');
+    expect(skips).toContain('packs/demo/published/0.1.0/packhub.yaml');
+    expect(skips).toContain('packs/demo/published/0.1.0.phub');
 
     rmSync(reg, { recursive: true, force: true });
   });
@@ -357,7 +335,7 @@ describe('版本不可变门禁：跳过必须可见', () => {
     const reg = registry();
     await published(reg);
 
-    const local = withCI(undefined, () => buildIndex(reg));
+    const local = buildIndex(reg);
     expect(local.errors).toEqual([]);
     expect(local.warnings.filter((w) => w.includes(skipped)).join('\n')).toContain(
       'packs/demo/published/0.1.0/packhub.yaml',
@@ -365,7 +343,7 @@ describe('版本不可变门禁：跳过必须可见', () => {
 
     // writeIndex 会把 warning 打到 console；这里只关心落盘结果
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const written = withCI(undefined, () => writeIndex(reg));
+    const written = writeIndex(reg);
     warn.mockRestore();
     expect(written.ok).toBe(true);
     expect(existsSync(join(reg, 'index.json'))).toBe(true);

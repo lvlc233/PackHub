@@ -9,7 +9,8 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { doctorPack, installPack, loadPack, planFor, removePack, rollbackPack } from '../src/index.ts';
+import { planFor } from '@packhub/kernel';
+import { doctorPack, installPack, loadPack, removePack, rollbackPack } from '../src/index.ts';
 
 function scaffold(version: string, state: string): string {
   const dir = mkdtempSync(join(tmpdir(), 'packhub-state-'));

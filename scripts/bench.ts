@@ -1,12 +1,12 @@
 /**
  * 计划层基准：生成 N 个资源的包，量 loadPack + planFor 的耗时。
  * 用法：pnpm bench [资源数] [--check]
- * --check 时超过预算（默认 1500ms/次）返回 1，给 CI 用。
+ * --check 时超过预算（默认 1500ms/次）返回 1，可以直接当门禁用。
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { PACKHUB_ENV, loadPack, planFor } from '../packages/kernel/src/index.ts';
+import { MANIFEST_FILE, PACKHUB_ENV, loadPack, planFor } from '../packages/kernel/src/index.ts';
 
 const args = process.argv.slice(2);
 const check = args.includes('--check');
@@ -34,7 +34,7 @@ if (modifyCount > 0) {
 const modifyLines = Array.from({ length: modifyCount }, (_, i) => `  - { resource: r${i}, with: ./patches/p${i}.md }`);
 
 writeFileSync(
-  join(dir, 'packhub.yaml'),
+  join(dir, MANIFEST_FILE),
   `apiVersion: packhub.dev/v0
 kind: Pack
 metadata: { name: demo/bench, version: 0.0.1, targets: [dir] }

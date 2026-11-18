@@ -2,12 +2,12 @@
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { EXIT, command, issueError, problemRaw, say, stop } from '../emit.ts';
-import { loadPack, planFor, RESOURCE_TYPES, TARGET_IDS } from '@packhub/kernel';
+import { MANIFEST_FILE, loadPack, planFor, RESOURCE_TYPES, TARGET_IDS } from '@packhub/kernel';
 import { addResource, setBinding } from '@packhub/runtime';
 import { reportIssues } from './shared.ts';
 
 export const resourceAdd = command({
-  meta: { name: 'add', description: '往 packhub.yaml 追加一个资源（结构化编辑，保留注释）' },
+  meta: { name: 'add', description: `往 ${MANIFEST_FILE} 追加一个资源（结构化编辑，保留注释）` },
   args: {
     type: {
       type: 'positional',
@@ -30,9 +30,9 @@ export const resourceAdd = command({
       stop(EXIT.USAGE);
     }
     const dir = resolve(String(args.dir));
-    const file = join(dir, 'packhub.yaml');
+    const file = join(dir, MANIFEST_FILE);
     if (!existsSync(file)) {
-      problemRaw(`没有 packhub.yaml：${file}（先跑 packhub init）`);
+      problemRaw(`没有 ${MANIFEST_FILE}：${file}（先跑 packhub init）`);
       stop(EXIT.USAGE);
     }
 
@@ -72,9 +72,9 @@ export const slotSwap = command({
   },
   async run({ args }) {
     const dir = resolve(String(args.dir));
-    const file = join(dir, 'packhub.yaml');
+    const file = join(dir, MANIFEST_FILE);
     if (!existsSync(file)) {
-      problemRaw(`没有 packhub.yaml：${file}`);
+      problemRaw(`没有 ${MANIFEST_FILE}：${file}`);
       stop(EXIT.USAGE);
     }
     const before = planFor(loadPack(dir)).plan;

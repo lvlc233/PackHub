@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { extname, join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import { PLAN_OPS } from '@packhub/kernel';
+import { PLAN_OPS, STATE_DIR } from '@packhub/kernel';
 import { loadState } from './install.ts';
 import { claudeHasMcp } from './host-mcp.ts';
 
@@ -142,7 +142,7 @@ interface ActivePointer {
 }
 
 function readActiveFile(root: string): Record<string, ActivePointer> {
-  const file = join(root, '.packhub/active.json');
+  const file = join(root, STATE_DIR, 'active.json');
   if (!existsSync(file)) return {};
   try {
     const parsed = JSON.parse(readFileSync(file, 'utf8')) as {

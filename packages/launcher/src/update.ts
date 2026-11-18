@@ -1,6 +1,6 @@
 import { existsSync, rmSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { planFor, type PackContext } from '@packhub/kernel';
+import { MANIFEST_FILE, planFor, type PackContext } from '@packhub/kernel';
 import { installPack, loadLock, loadPack, loadState, planPaths, saveState, withLockPins } from '@packhub/runtime';
 import { baselineFromState, hashFile, readBaseline, writeBaseline, type Baseline } from './baseline.ts';
 import { withInstanceLock } from './lock.ts';
@@ -77,7 +77,7 @@ export async function updateInstance(
   if (!loaded.manifest) {
     const detail = loaded.issues.filter((i) => i.severity === 'error').map((i) => i.message).join('; ');
     throw new PalError('invalid-input', `清单有问题${detail ? `：${detail}` : ''}`, {
-      hint: '确认 Pack 目录里有 packhub.yaml，且清单能被解析',
+      hint: `确认 Pack 目录里有 ${MANIFEST_FILE}，且清单能被解析`,
       details: { packDir: resolve(opts.packDir) },
     });
   }
