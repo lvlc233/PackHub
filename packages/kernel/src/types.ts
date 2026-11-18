@@ -195,9 +195,9 @@ export interface Manifest {
   bindings?: Record<string, string>;
   /** 持久状态目录；资源里用 ${state.<id>} 引用 */
   state?: StateDirSpec[];
-  /** 按资源做二次修改（整文件 / 一段 / 删掉 / 改参数），见 ModifySpec */
+  /** 按资源做二次修改（整文件 / 一段 / 删掉 / 改参数） */
   modify?: ModifySpec[];
-  /** 对 {pack, contentHash} 的 ed25519 签名；contentHash 口径见 `lock.ts` 的 `contentHashOf` */
+  /** 对 {pack, contentHash} 的 ed25519 签名 */
   signatures?: { key: string; sig: string; at?: string }[];
   install?: { exec?: ExecSpec[] };
   verify?: VerifyCheck[];
@@ -289,7 +289,7 @@ export interface PlanSnapshot {
 /**
  * 锁只描述「引用了什么、内容是否完整」。
  *
- * 安装 target 是安装期参数，计划由 `planFor(ctx, { target })` 在安装 / 校验时现算，
+ * 安装 target 是安装参数，计划由 `planFor(ctx, { target })` 在用到时现算，
  * 不进锁、不进内容层：同一份内容装到 dir 或任一宿主，锁是同一份。
  */
 export interface LockFile {

@@ -18,7 +18,6 @@ import {
   exportTemplate,
   listInstances,
   migrateInstance,
-  migrateInstanceDetailed,
   readBaseline,
   readInstance,
   readRecordResult,
@@ -924,7 +923,7 @@ describe('实例配置', () => {
     const rec = await createInstance({ name: 'mover', harness: 'dir', packDir: PACK });
     const target = join(tmp, 'moved-root');
 
-    const moved = migrateInstance('mover', target);
+    const moved = migrateInstance('mover', target).record;
 
     expect(moved.id).toBe(rec.id);
     expect(moved.root).toBe(target);
@@ -1008,7 +1007,7 @@ describe('实例配置', () => {
     const rec = await createInstance({ name: 'xdev', harness: 'dir', packDir: PACK });
     const target = join(tmp, 'xdev-target');
 
-    const result = migrateInstanceDetailed('xdev', target, {
+    const result = migrateInstance('xdev', target, {
       rename: () => {
         throw Object.assign(new Error('EXDEV: cross-device link not permitted'), { code: 'EXDEV' });
       },
@@ -1030,7 +1029,7 @@ describe('实例配置', () => {
     const rec = await createInstance({ name: 'copy-same', harness: 'dir', packDir: PACK });
     const target = join(tmp, 'copy-same-target');
 
-    const result = migrateInstanceDetailed('copy-same', target, { forceCopy: true });
+    const result = migrateInstance('copy-same', target, { forceCopy: true });
 
     expect(result.movedBy).toBe('copy');
     expect(result.record.root).toBe(target);
@@ -1046,7 +1045,7 @@ describe('实例配置', () => {
 
     let caught: unknown;
     try {
-      migrateInstanceDetailed('copy-fail', target, { forceCopy: true });
+      migrateInstance('copy-fail', target, { forceCopy: true });
     } catch (err) {
       caught = err;
     }
@@ -1065,7 +1064,7 @@ describe('实例配置', () => {
 
     let caught: unknown;
     try {
-      migrateInstanceDetailed('leftover', target, { forceCopy: true });
+      migrateInstance('leftover', target, { forceCopy: true });
     } catch (err) {
       caught = err;
     }

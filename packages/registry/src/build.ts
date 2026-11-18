@@ -314,11 +314,11 @@ export function buildIndex(registryRoot: string): BuildResult {
           checkArchiveConsistency(packName, version, dir, archive, errors);
         }
         // 锁只描述内容：重算 contentHash（清单 + 锁的 resolved），与目标无关。
-        // 旧口径的锁没有 contentHash，按过期处理，提示重锁。
+        // 没有 contentHash 的锁是无效锁，按错误处理，提示重锁；不做旧形状特判。
         const actual = contentHashOf(ctx.manifest, lock.resolved ?? []);
         if (typeof lock.contentHash !== 'string') {
           errors.push(
-            `${packName}@${version}: 锁是旧口径（没有 contentHash），重跑 packhub lock 再发布`,
+            `${packName}@${version}: 锁没有 contentHash（不是当前形状），重跑 packhub lock 再发布`,
           );
         } else if (lock.contentHash !== actual) {
           errors.push(

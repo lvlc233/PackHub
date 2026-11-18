@@ -317,7 +317,7 @@ function migrateLocked(
 }
 
 /** 把实例根整体挪到别处（换盘、整理目录），记录里的路径一起改。 */
-export function migrateInstanceDetailed(
+export function migrateInstance(
   nameOrId: string,
   to: string,
   opts: MigrateOptions = {},
@@ -339,7 +339,3 @@ export function migrateInstanceDetailed(
   );
 }
 
-/** 兼容旧调用：只要记录。跨盘复制与旧根残留的细节用 migrateInstanceDetailed。 */
-export function migrateInstance(nameOrId: string, to: string): InstanceRecord {
-  return migrateInstanceDetailed(nameOrId, to).record;
-}

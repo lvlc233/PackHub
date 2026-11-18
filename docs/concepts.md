@@ -70,7 +70,7 @@ Pack 里的一条能力声明，它相对于 Agent，而不是相对于整个 ha
 
 计划是唯一描述副作用的东西，安装只是执行它。
 
-计划是**安装期现算**的产物：`planFor(ctx, { target })` 在安装 / 校验 / diff 那一刻按 target 算；同一个 Pack 装到不同 target 会得到不同的计划与 `planHash`。锁和内容哈希都不含计划。
+计划是**按需现算**的产物：`planFor(ctx, { target })` 在用到它的那一刻按 target 算——`plan` 预览、`add` / `install`、`diff`、`update`、`verify`、hub 的 `/api/plan`、launcher 建/更新实例都各算一份；同一个 Pack 装到不同 target 会得到不同的计划与 `planHash`。锁和内容哈希都不含计划。
 
 ### Target（安装目标）
 

@@ -40,8 +40,9 @@ export function keyIdFromPem(publicPem: string): string {
 /**
  * 用私钥签 `{pack, contentHash}`。
  *
- * 旧名 `signPlan`：计划不再进锁，锁只描述内容，签的就是锁的 contentHash（口径见 kernel
- * `contentHashOf`）。调用方必须先拿到锁再签，不要把安装期现算的计划哈希签进来。
+
+
+ * `contentHashOf`）。调用方必须先拿到锁再签，不要把按需现算的计划哈希签进来。
  */
 export function signContentHash(
   privatePem: string,

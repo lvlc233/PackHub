@@ -15,7 +15,7 @@ export interface PackInspection {
   lock?: LockFile;
   /** 锁的 contentHash 与「按当前清单重算的 contentHash」是否一致 */
   lockMatches?: boolean;
-  /** 验证报告；`contentHash` 是它跑的那份内容（旧版 runner 写的报告没有这个字段） */
+  /** 验证报告；`contentHash` 是它跑的那份内容，缺这个字段的报告无效 */
   verifyReport?: { ok?: boolean; contentHash?: string } | null;
   signatures: { key: string; ok: boolean }[];
   issues: InspectionIssue[];
@@ -143,14 +143,14 @@ export function inspectPack(
     try {
       verifyReport = JSON.parse(readFileSync(verifyFile, 'utf8')) as { ok?: boolean; contentHash?: string };
       // 报告绑定的是内容：contentHash 对得上，才说明这份报告是这份内容跑出来的。
-      // 旧版 runner 写的报告只有 planHash（安装期的派生值），无法核对，提示重跑。
+      // 报告必须绑 contentHash；缺这个字段就是无效报告，按不一致处理。
       if (verifyReport?.contentHash !== contentHash) {
         issues.push({
           code: 'verify-content-mismatch',
-          severity: 'warning',
+          severity: 'error',
           message:
             verifyReport?.contentHash === undefined
-              ? '验证报告是旧口径（没有 contentHash），无法核对是不是这份内容跑出来的'
+              ? '验证报告没有 contentHash（不是当前 verify 形状）；重跑 verify'
               : '验证报告与当前内容不一致（报告是别的内容跑出来的）',
         });
       }

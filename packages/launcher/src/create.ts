@@ -29,7 +29,7 @@ export interface CreateInstanceOptions {
   packDir: string;
   /**
    * 实例根；不写就建在 instances 根下的新目录里。
-   * 写了只接受绝对路径，且不能是盘符根/文件系统根、不能落在 instances 根里（见 validators.assertExternalRoot）。
+   * 写了只接受绝对路径，且不能是盘符根/文件系统根、不能落在 instances 根里。
    */
   root?: string;
   /** 记录来源（materialize 前的原始引用），供导出模板与排障 */

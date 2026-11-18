@@ -10,7 +10,7 @@ import { nowIso } from './time.ts';
  * 带副作用的写记录在 recordWrite.ts；列表、隔离区与归档仍在 index.ts。
  *
  * 持久化分两份：instance.json 只存 InstanceConfig，runtime.json 只存 RuntimeState。
- * 没有旧格式兼容：缺 runtime.json 的记录一律当坏记录，不做「运行态还在 instance.json」的合并。
+ * 没有兼容：缺 runtime.json 是坏记录；`apiVersion` 与当前值不符也是坏记录，不改写、不迁移。
  */
 
 export const RECORD = 'instance.json';
@@ -65,8 +65,7 @@ export interface RuntimeState {
   status: InstanceStatus;
   /**
    * 运行中的进程与端口；停掉后清空。url 已摘掉凭据，凭据在 secrets.json。
-   * 语义 = `spawnPid ?? listenPid`。只有 `spawnPid` 是可杀目标；`listenPid` 是证据，
-   * 详见 start.ts 的 killTargetFor。
+   * 语义 = `spawnPid ?? listenPid`。只有 `spawnPid` 是可杀目标；`listenPid` 是证据。
    */
   pid?: number;
   /** PAL 自己 spawn 出来的进程（Windows 上可能是 .cmd 垫片）；唯一允许 kill 的目标 */
@@ -165,6 +164,7 @@ function jsonObject(text: string): Record<string, unknown> {
 /** instance.json 必须有身份字段；缺了就是坏记录，不能拿默认值蒙混。 */
 function instanceData(text: string): Record<string, unknown> {
   const data = jsonObject(text);
+  if (data.apiVersion !== API_VERSION) throw new Error(`记录版本不认识：${String(data.apiVersion)}（只认 ${API_VERSION}）`);
   if (typeof data.id !== 'string' || typeof data.name !== 'string') throw new Error('记录缺字段');
   return data;
 }

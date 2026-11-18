@@ -66,6 +66,7 @@ export function readCoreInfo(home: string = palHome()): CoreInfo | undefined {
   } catch {
     return undefined;
   }
+  if (data.apiVersion !== CORE_API_VERSION) return undefined;
   if (typeof data.pid !== 'number' || !Number.isInteger(data.pid) || data.pid <= 0) return undefined;
   if (typeof data.port !== 'number' || !Number.isInteger(data.port) || data.port <= 0) return undefined;
   if (typeof data.host !== 'string' || typeof data.url !== 'string') return undefined;

@@ -611,7 +611,7 @@ async function handleExit(record: InstanceRecord, info: ExitInfo): Promise<void>
  * - `spawnPid`：PAL 自己 spawn 出来的，**唯一**允许 kill 的目标；
  * - `listenPid`：启动后按端口反查到的监听者，只作证据。Windows 上 spawn 的是 cmd 垫片，
  *   真正监听的是它的子进程，所以两者不同是常态，不是异常；
- * - `pid`：兼容字段，= `spawnPid ?? listenPid`，不额外承担 kill 目标语义。
+ * - `pid`：派生字段，= `spawnPid ?? listenPid`，只给状态展示，不承担 kill 目标语义。
  *
  * 判定只回答「能不能杀、杀谁」：spawnPid 活着就只杀它；进程树没了、端口却换到别人手里就拒杀。
  * 没有 `spawnPid` 的记录无法确认归属，一律拒杀（`--force` 也不放行）。

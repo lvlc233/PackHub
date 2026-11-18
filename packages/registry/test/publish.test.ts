@@ -202,7 +202,7 @@ describe('publish', () => {
       plan?: unknown;
       plans?: unknown;
     };
-    // 锁里没有 target 的计划快照：装到哪个 target 由安装期现算
+    // 锁里没有 target 的计划快照：装到哪个 target 由用到时现算
     expect('plan' in lock).toBe(false);
     expect('plans' in lock).toBe(false);
 

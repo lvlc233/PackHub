@@ -29,7 +29,7 @@ describe('diffActions', () => {
 });
 
 describe('锁里没有计划快照', () => {
-  it('锁只记内容哈希，动作要靠安装期现算的计划', () => {
+  it('锁只记内容哈希，动作要靠按需现算的计划', () => {
     const ctx = loadPack(EXAMPLE);
     const { plan } = planFor(ctx);
     const lock = buildLock(ctx.manifest);

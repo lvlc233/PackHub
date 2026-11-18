@@ -13,7 +13,7 @@ export interface MaterializeOptions {
   log?: (line: string) => void;
 }
 
-/** 取回来的 Pack 放在实例根旁边，按来源分目录（兼容旧调用点）。 */
+/** 取回来的 Pack 放在实例根旁边，按来源分目录。 */
 export function packCacheRoot(): string {
   return cacheRoot();
 }
@@ -62,7 +62,7 @@ export const CACHE_META = '.pal-cache.json';
  * 只描述缓存本身，不记录 registry 索引或任何凭据。
  */
 export interface CacheMeta {
-  /** Pack 引用；URL 里的 userinfo 会被去掉（见 stripUrlSecrets） */
+  /** Pack 引用；URL 里的 userinfo 会被去掉 */
   ref: string;
   /** 实际取回的版本；清单里读不到时为 null */
   version: string | null;

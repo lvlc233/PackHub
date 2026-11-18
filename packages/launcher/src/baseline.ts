@@ -68,7 +68,7 @@ export function writeBaseline(root: string, baseline: Omit<Baseline, 'apiVersion
     apiVersion: 'packhub.dev/baseline/v0',
     at: nowIso(),
     ...baseline,
-    // 没显式给就记下写盘时的 node 版本：分发自带 node，切换能力不在 0.x（见 A11）
+    // 没显式给就记下写盘时的 node 版本：分发自带 node，切换能力不在 0.x
     runtime: baseline.runtime ?? process.version,
   };
   const file = join(root, BASELINE);

@@ -410,7 +410,7 @@ export const diff = command({
     const snapshot = key ? state.packs[key]?.plan : undefined;
     if (!snapshot) {
       problemRaw(
-        `这个包还没装：state 里没有 ${pack} 的安装计划快照（旧版安装也可能没有）；先 packhub add 装上再 diff`,
+        `这个包还没装：state 里没有 ${pack} 的安装计划快照；先 packhub add 装上再 diff`,
       );
       stop(EXIT.USAGE);
     }

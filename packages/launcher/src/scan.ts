@@ -5,7 +5,7 @@ import { STATE_API_VERSION } from '@packhub/runtime';
 
 /**
  * 只读目录扫描：在一个目录下按深度找三类 PAL 候选——已有实例、Pack 目录、装过 Pack 的环境。
- * 清单身份交给 kernel 的 loadManifest 读（与 create / update 同一套解析，见 readManifestIdentity）；
+ * 清单身份交给 kernel 的 loadManifest 读（与 create / update 同一套解析）；
  * state 的格式版本取自 runtime 的 STATE_API_VERSION，比较不写字面量。
  * 其余只依赖 node:fs / node:path：不写盘、不改记录、不取包、不接管（adopt 仍要人给 dir + harness）。
  * 路径比较统一走 pathKey：Windows 大小写不敏感；resolve 之后分隔符也已归一。

@@ -9,7 +9,7 @@ import {
   cloneInstance,
   exportTemplate,
   listInstances,
-  migrateInstanceDetailed,
+  migrateInstance,
   readInstance,
   rebaselineInstance,
   removeInstance,
@@ -949,7 +949,7 @@ const migrate = defineCommand({
     json: { type: 'boolean', default: false },
   },
   run({ args }) {
-    const moved = migrateInstanceDetailed(requireTarget(args.target), String(args.to));
+    const moved = migrateInstance(requireTarget(args.target), String(args.to));
     if (args.json) {
       console.log(JSON.stringify(moved.record, null, 2));
       return;

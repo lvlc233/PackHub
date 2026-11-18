@@ -42,8 +42,8 @@ export function contentHashOf(manifest: Manifest, resolved: readonly ResolvedRef
 /**
  * 生成锁：只记录引用与完整性，不含任何 target 的计划。
  *
- * 装到哪个 target、计划长什么样，都由调用方在安装期用 `planFor(ctx, { target })` 现算。
- * `manifest` 与 `resolved` 一起进 contentHash；来源是否已被 pin 过不影响结果（见 `contentHashOf`），
+ * 装到哪个 target、计划长什么样，都由调用方在用到时用 `planFor(ctx, { target })` 现算。
+ * `manifest` 与 `resolved` 一起进 contentHash；来源是否已被 pin 过不影响结果，
  * 但 `pack` / `resolved` 的 id 与类型取自传入的这份清单。
  */
 export function buildLock(manifest: Manifest, opts: LockOptions = {}): LockFile {

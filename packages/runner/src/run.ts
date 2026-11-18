@@ -72,7 +72,7 @@ export async function runPack(packDir: string, opts: RunOptions = {}): Promise<R
 
     const { plan, issues } = planFor(ctx);
     if (!plan) throw new Error(`生成不了计划：${issues.map((i) => i.message).join('; ')}`);
-    // 内容哈希：签名与报告都绑它，不绑安装期现算的计划（计划含 target，不是内容）
+    // 内容哈希：签名与报告都绑它，不绑按需现算的计划（计划含 target，不是内容）
     const contentHash = contentHashFor(ctx.manifest, read.lock);
 
     const result = await installPack(ctx, plan, { allowExec: opts.allowExec === true });

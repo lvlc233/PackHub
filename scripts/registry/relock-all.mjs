@@ -225,7 +225,7 @@ async function rebuildVersion(dir, label) {
     } else {
       writeFileSync(lockPath, jsonText(planned.lock), 'utf8');
       stats.lockChanged.push(
-        `${label}：contentHash ${String(previous?.contentHash ?? (previous ? '(旧口径锁)' : '(无锁)')).slice(0, 18)}… → ${planned.lock.contentHash.slice(0, 18)}…（${rel(lockPath)}）`,
+        `${label}：contentHash ${String(previous?.contentHash ?? (previous ? '(无 contentHash)' : '(无锁)')).slice(0, 18)}… → ${planned.lock.contentHash.slice(0, 18)}…（${rel(lockPath)}）`,
       );
     }
 

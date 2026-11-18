@@ -6,7 +6,7 @@ export type LockConsistencyStatus = 'ok' | 'mismatch' | 'missing';
 
 export interface LockConsistency {
   status: LockConsistencyStatus;
-  /** 锁里记的 contentHash；没有锁或旧版锁没有这个字段时为 undefined */
+  /** 锁里记的 contentHash；没有锁时为 undefined */
   expected?: string;
   /** 按当前清单 + 锁的 resolved 重算出的 contentHash；没有锁时为 undefined */
   actual?: string;
@@ -24,7 +24,7 @@ function short(hash: unknown): string {
  *
  * 锁只描述内容（清单 + resolved），所以判据就是重算 contentHash：与安装 target 无关，
  * 也不存在「锁里没有这个 target 的计划快照」这种状态——计划由安装期按 target 现算。
- * 旧版锁（只有 planHash、没有 contentHash）按 mismatch 报，提示重跑 lock。
+ * 锁没有 contentHash 就是无效锁，按 mismatch 报，提示重跑 lock；不做旧形状特判。
  *
  * 只做判定，放行与否由调用方决定（`--allow-stale-lock` 之类）。
  */
@@ -45,7 +45,7 @@ export function checkLockConsistency(
     return {
       status: 'mismatch',
       actual,
-      message: `锁是旧格式（只有计划哈希，没有 contentHash）；重跑 packhub lock 再装`,
+      message: `锁没有 contentHash（不是 packhub.dev/lock/v0 的当前形状）；重跑 packhub lock`,
     };
   }
   if (stored !== actual) {

@@ -8,7 +8,7 @@ export interface InstalledVerifyReport {
   pack: string;
   planHash: string;
   installedAt: string;
-  /** state 里存的计划快照；旧版安装没有时为 undefined */
+  /** state 里存的计划快照；没有就是记录不完整 */
   plan?: PlanSnapshot;
   results: CheckResult[];
   ok: boolean;
@@ -63,8 +63,8 @@ export async function verifyInstalled(
           {
             index: 0,
             type: 'file-exists',
-            status: 'skipped',
-            detail: 'state 里没有计划快照（旧版安装），重装一次再验',
+            status: 'fail',
+            detail: 'state 缺少安装计划快照（记录不完整），重装后再验',
           },
         ],
         ok: false,
