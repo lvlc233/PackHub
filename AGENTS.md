@@ -21,7 +21,7 @@
 
 ```yaml
 ---
-kind: ledger            # 见下表
+kind: concept           # 见下表
 summary: 一行说清它管什么
 verified: 2026-11-11    # 最后一次对着代码核过的日期，不是最后修改日期
 decay: 60               # 多少天后算过期；不写默认 180
@@ -33,11 +33,10 @@ review: 任何行为变更的提交   # 什么事件会让它失效（给人读�
 |---|---|---|
 | `contract` | 数据形状与格式层不变量 | 格式升版、字段增删 |
 | `decision` | 取舍与代价，为什么没选另一条 | 前提变了 |
-| `ledger` | 现状 + 证据（`docs/features.md`） | 行为变了 |
 | `concept` | 术语与边界（`docs/concepts.md`） | 概念本身改了 |
 | `pointer` | 指路（`docs/README.md`） | 指向的东西变了 |
 
-`snapshot`（数字/形态快照）与 `research`（一次性调研）**不许留在 `docs/`**：结论并进台账后删掉，草稿放 `tmp/`。
+`snapshot`（数字/形态快照）与 `research`（一次性调研）**不许留在 `docs/`**：结论并进 concepts / contract / decisions 后删掉，草稿放 `tmp/`。
 
 ## 什么东西值得长期写下来
 
@@ -54,13 +53,12 @@ review: 任何行为变更的提交   # 什么事件会让它失效（给人读�
 - `docs/README.md` 的索引
 - 根 `README.md` 的链接
 - 代码注释里的指针
-- 台账里引用它的条目
 
 然后跑 `pnpm docs:audit`。
 
 ## 改代码时
 
-行为变了就在同一次提交里改 `docs/features.md` 的对应行；加能力先加台账行再补测试，删能力先删测试再动文档。台账行怎么写、`[na]` 怎么填，见 `docs/README.md` 的台账规则。提交前 `pnpm check` 与 `pnpm docs:audit` 都要过。
+行为变了就在同一次提交里改 docs/ 里对应的那篇（契约、概念或取舍）；加能力先补测试，删能力先删测试再动文档。提交前 `pnpm check` 与 `pnpm docs:audit` 都要过。
 
 ## 常用命令
 

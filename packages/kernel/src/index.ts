@@ -180,7 +180,7 @@ export function planFor(
       ],
     };
   }
-  // target 声明门只在这里：install / add / plan / verify / hub 预览都走 planFor，
+  // target 声明门只在这里：install / add / plan / verify 都走 planFor，
   // 未声明的 target 不能出计划（否则 verify 会拿一份装不上去的计划去核对）。
   if (!ctx.manifest.metadata.targets.includes(target)) {
     return {

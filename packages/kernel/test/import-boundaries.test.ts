@@ -8,11 +8,9 @@ const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 const ALLOWED: Record<string, string[]> = {
   // 内核是最底层：不许 import 任何同仓包
   kernel: [],
-  // hub 只读内核（计划/清单解析），不碰 runtime / launcher
-  hub: ['@packhub/kernel'],
   // runner 的执行面依赖 runtime，清单/计划直接取 kernel
   runner: ['@packhub/runtime', '@packhub/kernel'],
-  // launcher 是外壳：不能反过来依赖 hub 或 registry
+  // launcher 是外壳：不能反过来依赖 registry
   launcher: ['@packhub/kernel', '@packhub/runtime'],
 };
 
@@ -76,16 +74,15 @@ describe('import 方向', () => {
     expect(workspaceDeps('kernel')).toEqual([]);
   });
 
-  it('launcher 不 import hub / registry', () => {
+  it('launcher 不 import registry', () => {
     const imports = workspaceImports('launcher');
-    expect(imports.has('@packhub/hub')).toBe(false);
     expect(imports.has('@packhub/registry')).toBe(false);
   });
 });
 
-// 防止 walk 在空目录上静默通过：至少确认四个包的 src 都读到了
+// 防止 walk 在空目录上静默通过：至少确认三个包的 src 都读到了
 describe('扫描面', () => {
-  it('四个包都有 src 文件被扫描', () => {
+  it('三个包都有 src 文件被扫描', () => {
     for (const pkg of Object.keys(ALLOWED)) {
       const dir = join(ROOT, 'packages', pkg, 'src');
       expect(existsSync(dir), `${pkg}/src 不存在`).toBe(true);

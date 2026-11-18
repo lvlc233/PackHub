@@ -14,7 +14,6 @@
     "test:runtime": "vitest run packages/runtime/test",
     "test:runner": "vitest run packages/runner/test",
     "test:registry": "vitest run packages/registry/test",
-    "test:hub": "vitest run packages/hub/test",
     "typecheck": "tsc --noEmit --pretty false",
     "packhub": "node --experimental-strip-types apps/local/src/bin.ts",
     "pal": "node --experimental-strip-types packages/launcher/src/bin.ts",

@@ -23,9 +23,6 @@ importers:
 
   apps/local:
     dependencies:
-      '@packhub/hub':
-        specifier: workspace:*
-        version: link:../../packages/hub
       '@packhub/kernel':
         specifier: workspace:*
         version: link:../../packages/kernel
@@ -41,12 +38,6 @@ importers:
       citty:
         specifier: ^0.1.6
         version: 0.1.6
-
-  packages/hub:
-    dependencies:
-      '@packhub/kernel':
-        specifier: workspace:*
-        version: link:../kernel
 
   packages/kernel:
     dependencies:

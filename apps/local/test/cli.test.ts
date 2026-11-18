@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildLock, loadPack } from '@packhub/kernel';
@@ -21,34 +20,7 @@ function run(args: string[], env: Record<string, string> = {}): { status: number
   return { status: res.status, out: `${res.stdout ?? ''}${res.stderr ?? ''}` };
 }
 
-function waitForUrl(child: ReturnType<typeof spawn>, timeoutMs = 15_000): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let out = '';
-    const timer = setTimeout(() => reject(new Error(`等待服务地址超时：${out}`)), timeoutMs);
-    const check = (): void => {
-      const match = out.match(/http:\/\/127\.0\.0\.1:\d+/);
-      if (!match) return;
-      clearTimeout(timer);
-      resolve(match[0]);
-    };
-    child.stdout?.on('data', (chunk) => {
-      out += String(chunk);
-      check();
-    });
-    child.stderr?.on('data', (chunk) => {
-      out += String(chunk);
-      check();
-    });
-    child.on('exit', (code) => {
-      if (!out.match(/http:\/\/127\.0\.0\.1:\d+/)) {
-        clearTimeout(timer);
-        reject(new Error(`服务提前退出（${code}）：${out}`));
-      }
-    });
-  });
-}
-
-describe('cli 端到端：pack / publish / hub', () => {
+describe('cli 端到端：pack / publish', () => {
   const makePack = (dir: string, name = 'me/e2e', version = '0.1.0'): void => {
     writeFileSync(
       join(dir, 'packhub.yaml'),
@@ -126,40 +98,6 @@ verify:
 
     rmSync(packDir, { recursive: true, force: true });
     rmSync(registry, { recursive: true, force: true });
-  });
-
-  it('hub 命令起只读服务并响应 health', async () => {
-    const home = mkdtempSync(join(tmpdir(), 'packhub-cli-hubhome-'));
-    const child = spawn(process.execPath, ['--experimental-strip-types', BIN, 'hub', ROOT, '--port', '0'], {
-      cwd: ROOT,
-      env: { ...process.env, PACKHUB_HOME: home },
-    });
-    try {
-      const url = await waitForUrl(child);
-      const res = await fetch(`${url}/api/health`);
-      expect(res.status).toBe(200);
-      const body = (await res.json()) as { ok: boolean; packs: number };
-      expect(body.ok).toBe(true);
-      expect(body.packs).toBeGreaterThan(0);
-    } finally {
-      child.kill();
-      rmSync(home, { recursive: true, force: true });
-    }
-  });
-
-  it('hub 端口被占时给能照做的提示，不是原始 EADDRINUSE', async () => {
-    const blocker = createServer();
-    await new Promise<void>((resolve) => blocker.listen(0, '127.0.0.1', () => resolve()));
-    const port = (blocker.address() as { port: number }).port;
-    try {
-      const res = run(['hub', '--port', String(port)]);
-      expect(res.status).toBe(2);
-      expect(res.out).toContain(`端口 ${port} 已经被占用`);
-      expect(res.out).toContain('--port 0');
-      expect(res.out).not.toContain('EADDRINUSE');
-    } finally {
-      await new Promise<void>((resolve) => blocker.close(() => resolve()));
-    }
   });
 
 });

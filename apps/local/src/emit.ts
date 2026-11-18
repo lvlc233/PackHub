@@ -80,7 +80,7 @@ export function problem(message: string): void {
 
 /**
  * 原样写一行错误。只给「本身已经是一句能照做的话」的命令用（例如
- * `没有 packhub.yaml：…（先跑 packhub init）`、hub 端口占用提示），
+ * `没有 packhub.yaml：…（先跑 packhub init）`），
  * 保持旧输出的逐字文案，不额外加 `x `。
  */
 export function problemRaw(message: string): void {

@@ -36,8 +36,7 @@ import {
   cacheClean,
   cache,
   discover,
-  hub,
-} from './commands/registry-hub.ts';
+} from './commands/registry.ts';
 import { audit, doctor, licenses } from './commands/doctor-license.ts';
 import { resourceAdd, resource, slotSwap, slot } from './commands/misc.ts';
 
@@ -180,7 +179,6 @@ export const main: CommandDef = command({
     slot,
     diff,
     pack,
-    hub,
     doctor,
     auth,
     trust,

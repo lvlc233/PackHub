@@ -1,10 +1,6 @@
 # PackHub
 
-把一套 Agent 环境收成一个 Pack：一份清单说明用了哪些资源、怎么接、装完怎么验；一条命令装进新项目，换台机器装出来的是同一套。
-
-> **产品 0.0.x，格式 v0，没有任何兼容承诺。** 字段、命令、落点都可能在下一次提交里改掉。
->
-> 所以这里**只放给开发者看的文档**：契约、实现机制、功能台账、概念。写给使用者的说明（怎么装、每个参数什么意思、怎么写包）在行为稳定之前不写——写了就会和代码对不上，而错的说明比没有说明更贵。要看命令就 `packhub <命令> --help`，那是唯一会被测试盯着的地方。
+把一套 Agent 环境收成一个 Pack
 
 ## 代码分层
 
@@ -15,7 +11,6 @@
 | `packages/runner` | 干净目录 install + verify，产出报告 |
 | `packages/registry` | 发布、索引生成、门禁 |
 | `packages/launcher` | PAL 实例内核：建实例、启停与看护、体检、基线 |
-| `packages/hub` | 只读 HTTP API：索引、包/资源数据、计划预览 |
 | `apps/local` | `packhub` 命令 |
 
 ## 本地开发
@@ -37,7 +32,6 @@ pnpm registry:verify-all:offline    # 跳过远程引用，只验本地 registry
 | 概念与边界 | [docs/concepts.md](docs/concepts.md) |
 | 为什么这么定（取舍与代价） | [docs/decisions.md](docs/decisions.md) |
 | 文件里每个 JSON 长什么样 | [docs/contract.md](docs/contract.md) |
-| 某条功能到底做了没 | [docs/features.md](docs/features.md) |
 | 文档怎么维护 | [docs/README.md](docs/README.md) |
 
-改代码时如果行为变了，同一次提交里把台账对应行改掉。历史不进 `docs/`，`git log -- docs/` 里查。
+改代码时如果行为变了，同一次提交里把文档里对应的描述改掉。历史不进 `docs/`，`git log -- docs/` 里查。

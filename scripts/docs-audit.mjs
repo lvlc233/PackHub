@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const DOCS = join(ROOT, 'docs');
-const KINDS = new Set(['contract', 'decision', 'ledger', 'concept', 'pointer']);
+const KINDS = new Set(['contract', 'decision', 'concept', 'pointer']);
 const FORBIDDEN_KINDS = new Set(['snapshot', 'research']);
 const DEFAULT_DECAY = 180;
 const PLACEHOLDERS = [/\[待更新\]/, /\[待消费\]/, /\bTBD\b/, /待补充/];
@@ -83,7 +83,7 @@ for (const file of docs) {
   const kind = meta.kind;
   if (!kind) err(file, 'front matter 缺 kind');
   else if (FORBIDDEN_KINDS.has(kind)) {
-    err(file, `kind=${kind} 不许留在 docs/：结论并进台账后删掉，草稿放 tmp/`);
+    err(file, `kind=${kind} 不许留在 docs/：结论并进 concepts / contract / decisions 后删掉，草稿放 tmp/`);
   } else if (!KINDS.has(kind)) {
     err(file, `未知 kind=${kind}（可用：${[...KINDS].join(' / ')}）`);
   }

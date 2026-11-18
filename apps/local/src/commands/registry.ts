@@ -1,8 +1,7 @@
-// 由 cli.ts 拆分：search / cacheLs / cacheClean / cache / discover / hub
+// 由 cli.ts 拆分：search / cacheLs / cacheClean / cache / discover
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { EXIT, command, json, problemRaw, say, stop, terminate, warn } from '../emit.ts';
-import { startHub } from '@packhub/hub';
+import { EXIT, command, json, problemRaw, say, stop, warn } from '../emit.ts';
 import { MANIFEST_FILE, PACKHUB_ENV, searchResources, RESOURCE_TYPES } from '@packhub/kernel';
 import {
   addResource,
@@ -185,52 +184,5 @@ export const discover = command({
     }
     say(`\n目录：${local.source}${args.npm ? ' + npm search' : ''}`);
     say('写进清单：packhub discover "<关键词>" ' + (args.index ? `--index ${String(args.index)} ` : '') + `--add <序号> --dir .`);
-  },
-});
-
-export const hub = command({
-  meta: { name: 'hub', description: '启动只读发布端（索引、包数据、计划预览；没有执行接口）' },
-  args: {
-    dir: { type: 'positional', required: false, default: '.' },
-    port: { type: 'string', default: '8788' },
-    host: { type: 'string', default: '127.0.0.1', description: '非回环地址必须配鉴权' },
-    token: { type: 'string', description: `静态 token（也可用 ${PACKHUB_ENV.hubToken}）` },
-    'user-header': { type: 'string', description: '反向代理注入的身份头，例如 X-Forwarded-User' },
-    audit: { type: 'string', description: '审计日志文件（每行一个 JSON）' },
-    rpm: { type: 'string', default: '240', description: '每 IP 每分钟请求上限，0 不限' },
-  },
-  async run({ args }) {
-    const wanted = Number(args.port);
-    const server = await startHub({
-      root: resolve(String(args.dir)),
-      port: wanted,
-      host: String(args.host),
-      ...(args.token ? { auth: { token: String(args.token) } } : {}),
-      ...(args['user-header'] ? { auth: { userHeader: String(args['user-header']) } } : {}),
-      ...(args.audit ? { auditFile: resolve(String(args.audit)) } : {}),
-      rpm: Number(args.rpm),
-    }).catch((err: NodeJS.ErrnoException) => {
-      if (err.code === 'EADDRINUSE') {
-        problemRaw(`端口 ${wanted} 已经被占用：换一个 --port（--port 0 让系统分配），或先停掉占用它的进程`);
-        problemRaw(
-          `  查占用：${process.platform === 'win32' ? `netstat -ano | findstr :${wanted}` : `lsof -iTCP:${wanted} -sTCP:LISTEN`}`,
-        );
-        stop(EXIT.USAGE);
-      }
-      throw err;
-    });
-    const addr = server.address();
-    const port = typeof addr === 'object' && addr ? addr.port : Number(args.port);
-    say(`Hub（只读）→ http://${String(args.host)}:${port}  ${args.token || args['user-header'] ? '（已启用鉴权）' : '（回环，无鉴权）'}`);
-    say('执行接口一个都没有；安装请用 packhub install / add');
-
-    // 优雅退出：收到信号先停监听，等在途请求写完再走
-    for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-      process.on(signal, () => {
-        say(`${signal} → 停止接收新请求`);
-        server.close(() => terminate(EXIT.OK));
-        setTimeout(() => terminate(EXIT.RUNTIME), 5000).unref();
-      });
-    }
   },
 });

@@ -325,6 +325,6 @@ export interface Issue {
 
 /**
  * registry 索引的格式版本。`registry/src/build.ts` 写它，`runtime/src/registry.ts`
- * 的 readIndex 与 `hub/src/server.ts` 的透传读它——两端比同一个常量，不各写一份字面量。
+ * 的 readIndex 读它——两端比同一个常量，不各写一份字面量。
  */
 export const INDEX_API_VERSION = 'packhub.dev/index/v0';

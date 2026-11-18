@@ -269,7 +269,7 @@ export interface LockPackResult {
  * 解析引用 → 生成锁。
  *
  * 锁只记录引用与完整性（`resolved` + `contentHash`）：装到哪个 target、计划长什么样，
- * 由用到计划的调用点（plan / add / diff / update / verify / hub / launcher）用 `planFor(ctx, { target })` 现算，锁里不存计划快照。
+ * 由用到计划的调用点（plan / add / diff / update / verify / launcher）用 `planFor(ctx, { target })` 现算，锁里不存计划快照。
  */
 export async function lockPack(ctx: PackContext, opts: LockPackOptions = {}): Promise<LockPackResult> {
   const report = await resolveReferences(ctx.manifest, opts);

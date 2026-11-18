@@ -15,8 +15,6 @@ export const PACKHUB_ENV = {
   instances: 'PACKHUB_INSTANCES',
   /** location.json 的覆盖位置，只给测试/多环境用 */
   locationFile: 'PACKHUB_LOCATION_FILE',
-  /** hub 的静态鉴权 token */
-  hubToken: 'PACKHUB_HUB_TOKEN',
   /** 资源目录文件或 URL */
   catalog: 'PACKHUB_CATALOG',
   /** harness 探针超时（毫秒） */

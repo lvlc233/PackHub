@@ -119,7 +119,7 @@ review: 格式升版、字段增删、apiVersion 变化时
 
 不变量：
 
-1. 锁只描述「引用了什么、内容是否完整」：`resolved` + `contentHash`，没有 `plan` / `plans` / `planHash`。装到哪个 target、计划长什么样，由用到它的调用点（`plan` / `add` / `diff` / `update` / `verify` / hub / launcher）在那一刻用 `planFor(ctx, { target })` 现算。
+1. 锁只描述「引用了什么、内容是否完整」：`resolved` + `contentHash`，没有 `plan` / `plans` / `planHash`。装到哪个 target、计划长什么样，由用到它的调用点（`plan` / `add` / `diff` / `update` / `verify` / launcher）在那一刻用 `planFor(ctx, { target })` 现算。
 2. `contentHash` = 清单 + `resolved` 的规范化 sha256；口径只写在 kernel 的 `contentHashOf(manifest, resolved)` 上，写端（`buildLock`）与所有校验端（`checkLockConsistency`、`contentHashFor`、registry 门禁）都调它，不各算一份：
    - 清单先去掉 `signatures`：签名不是内容，而且签名载荷就是这个哈希，含进来会自指；
    - 清单里的资源来源先按 `resolved` 归一（有 pin 过的 source / integrity 就用它），于是「作者清单 + 锁」和「pin 过的清单 + 锁」算出同一个哈希；
@@ -265,6 +265,6 @@ registry 的索引，`search` / `add` / `update` 只读它。
 
 ## 7 版本策略
 
-- `plan` / `lock` / `state` / `index` 各自独立升版本；读方遇到不认识的 `apiVersion` 主版本必须拒绝，不得猜测。`index` 的版本号由 kernel 的 `INDEX_API_VERSION` 单点给出：`readIndex` 比它，Hub 的 `/api/registry` 也对它，遇到不认识的值回 500、不透传。
+- `plan` / `lock` / `state` / `index` 各自独立升版本；读方遇到不认识的 `apiVersion` 主版本必须拒绝，不得猜测。`index` 的版本号由 kernel 的 `INDEX_API_VERSION` 单点给出：`readIndex` 比它，遇到不认识的值拒绝。
 - **格式 v0 期间没有任何兼容承诺**：字段可以增、可以改语义、可以删。读方按当前形状严格校验——缺字段、多出字段、缺 `apiVersion`、主版本不认识的文件一律判无效（锁判 `mismatch`、报告判 error、registry 门禁报 error），不做旧形状特判、不写迁移。
 - 产品 0.0.2 起，registry 里的包**必须**有 lock；要 `verified` 还必须有对得上的 verify 报告。

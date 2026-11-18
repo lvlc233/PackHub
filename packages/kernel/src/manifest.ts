@@ -19,7 +19,7 @@ export const PACK_NAME_PATTERN = new RegExp(
     .properties.metadata.properties.name.pattern,
 );
 
-/** `metadata.version` 的形状，同样从 schema 取；Hub 的 URL 路由用得上。 */
+/** `metadata.version` 的形状，同样从 schema 取。 */
 export const PACK_VERSION_PATTERN = new RegExp(
   (schemaJson as { properties: { metadata: { properties: { version: { pattern: string } } } } })
     .properties.metadata.properties.version.pattern,
