@@ -105,9 +105,9 @@ export function harnessSpec(target: string): HarnessSpec {
 
 /**
  * 解析 `--to`：逗号分隔的 id，或 `.` / `all`。
- * `.` 优先按包声明的 targets 展开（只取已注册的），包没声明时用全部已注册目标。
+ * `.` / `all` 展开为全部已注册目标。
  */
-export function resolveSyncTargets(raw: string, declared: readonly string[] = []): SyncTarget[] {
+export function resolveSyncTargets(raw: string): SyncTarget[] {
   const items = raw
     .split(',')
     .map((item) => item.trim())
@@ -121,11 +121,7 @@ export function resolveSyncTargets(raw: string, declared: readonly string[] = []
   };
   for (const item of items) {
     if (item === '.' || item === 'all') {
-      const pool = (declared.length > 0 ? declared : syncTargets()).filter(isSyncTarget);
-      if (pool.length === 0) {
-        throw new Error(`这个包没有声明可同步的 target（已注册：${syncTargets().join(', ')}）`);
-      }
-      for (const target of pool) add(target);
+      for (const target of syncTargets()) add(target);
       continue;
     }
     if (!isSyncTarget(item)) {

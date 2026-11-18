@@ -56,7 +56,6 @@ export const ISSUE_CODES = {
   toolRouteNeedsCall: 'tool-route-needs-call',
   toolRouteUnsupported: 'tool-route-unsupported',
   toolShellUnsupported: 'tool-shell-unsupported',
-  undeclaredTarget: 'undeclared-target',
   undefinedVariable: 'undefined-variable',
   unknownAgent: 'unknown-agent',
   unknownResourceType: 'unknown-resource-type',

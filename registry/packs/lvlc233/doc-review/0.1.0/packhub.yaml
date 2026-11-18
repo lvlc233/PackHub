@@ -7,7 +7,6 @@ metadata:
   title: 文档验收：先机械检查，再冷读
   description: 文档写完后先跑结构、链接和 Markdown 格式检查，再让独立读者按“目的内是否答得出、路径是否走得通”做一次冷读，最后只修阻断项。
   license: MIT
-  targets: [dir, dsh, claude-code]
   visibility: public
   keywords: [documentation, review, markdown, cold-read]
 

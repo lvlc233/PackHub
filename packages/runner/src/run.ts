@@ -66,10 +66,6 @@ export async function runPack(packDir: string, opts: RunOptions = {}): Promise<R
       for (const e of errors) log(`error ${e.message}`);
       throw new Error(`清单未通过校验：${errors.map((e) => e.message).join('; ')}`);
     }
-    if (!ctx.manifest.metadata.targets.includes('dir')) {
-      throw new Error('发布门禁只验证 dir target，但清单没有声明 dir');
-    }
-
     const { plan, issues } = planFor(ctx);
     if (!plan) throw new Error(`生成不了计划：${issues.map((i) => i.message).join('; ')}`);
     // 内容哈希：签名与报告都绑它，不绑按需现算的计划（计划含 target，不是内容）

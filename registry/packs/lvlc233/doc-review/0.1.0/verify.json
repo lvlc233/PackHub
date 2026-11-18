@@ -1,5 +1,6 @@
 {
   "apiVersion": "packhub.dev/verify/v0",
+  "contentHash": "sha256-7qMb0B8HBegVkfjAjhWb6ZgCD1k1dK4kCFS5d5qOU7E=",
   "planHash": "sha256-rLcml+xQDLWxs50KT9isnO+X3GTG3TKt+0LUhLYOWfY=",
   "ok": true,
   "signatures": [],
@@ -75,7 +76,7 @@
       "status": "done"
     }
   ],
-  "verifiedAt": "2026-11-17T16:22:58.764Z",
+  "verifiedAt": "2026-11-18T10:47:36.164Z",
   "env": {
     "node": "v22.15.0",
     "platform": "win32",

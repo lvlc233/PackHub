@@ -10,7 +10,6 @@ metadata:
   description: 一份团队代码规范、一套提交信息约定、一个 EditorConfig 片段。装完即可被 Agent 引用。
   license: CC-BY-4.0
   keywords: [conventions, knowledge, config]
-  targets: [dir]
   visibility: public
 
 requires:

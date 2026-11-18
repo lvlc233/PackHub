@@ -229,7 +229,6 @@ metadata:
   version: 0.0.1
   title: 未命名整合包
   description: 一句话说清这个 Pack 替使用者完成了哪些整合工作。
-  targets: [dir]
   # public 才能进公共 registry；unlisted 可直链分发，internal/private 不发布
   visibility: private
 

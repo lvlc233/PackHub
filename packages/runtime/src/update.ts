@@ -59,11 +59,6 @@ export async function updatePack(opts: UpdateOptions): Promise<UpdateResult> {
   const previousActions = key ? state.packs[key]?.actions ?? [] : [];
   // 没显式指定 target 就沿用上次安装的，避免更新时把 claude-code 的投影换成 dir
   const target = opts.target ?? previous?.target ?? 'dir';
-  if (!ctx.manifest.metadata.targets.includes(target as never)) {
-    throw new Error(
-      `这个包没有声明 target ${target}（声明：${ctx.manifest.metadata.targets.join(', ')}）`,
-    );
-  }
 
   const { plan, issues } = planFor(ctx, { target: target as never });
   if (!plan) throw new Error(`新版本生成不了计划：${issues.map((i) => i.message).join('; ')}`);

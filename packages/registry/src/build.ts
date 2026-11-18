@@ -31,7 +31,6 @@ export interface IndexPack {
   description: string;
   latest: string;
   versions: string[];
-  targets: string[];
   trust: 'verified' | 'community';
   verifiedAt: string | null;
   signers: string[];
@@ -362,7 +361,6 @@ export function buildIndex(registryRoot: string): BuildResult {
             title?: string;
             name: string;
             description?: string;
-            targets: string[];
             keywords?: string[];
             license?: string;
             homepage?: string;
@@ -381,7 +379,6 @@ export function buildIndex(registryRoot: string): BuildResult {
         description: meta.description ?? '',
         latest: lead.version,
         versions: sorted.map((e) => e.version),
-        targets: meta.targets,
         trust: allVerified ? 'verified' : 'community',
         verifiedAt: lead.verifiedAt,
         signers: lead.signers,

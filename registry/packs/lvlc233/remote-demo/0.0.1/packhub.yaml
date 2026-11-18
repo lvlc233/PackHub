@@ -8,7 +8,6 @@ metadata:
   description: 一个只用远程资源的整合包：GitHub tarball 里的文档 + 固定 commit 上的一份 README。用来验证「别人能装」这条链路。
   license: MIT
   keywords: [demo, remote, github]
-  targets: [dir]
   visibility: public
 
 requires:

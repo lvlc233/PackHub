@@ -46,7 +46,7 @@ Pack 里的一条能力声明，它相对于 Agent，而不是相对于整个 ha
 
 ### Manifest（清单）
 
-清单是 Pack 的书面声明：有哪些资源、彼此怎么接、装到哪些目标、有哪些约束。
+清单是 Pack 的书面声明：有哪些资源、彼此怎么接、有哪些约束。它不声明装到哪些 target——那属于安装参数，见 Target 词条。
 
 它是打包的重要依据。
 
@@ -70,13 +70,15 @@ Pack 里的一条能力声明，它相对于 Agent，而不是相对于整个 ha
 
 计划是唯一描述副作用的东西，安装只是执行它。
 
-计划是**按需现算**的产物：`planFor(ctx, { target })` 在用到它的那一刻按 target 算——`plan` 预览、`add` / `install`、`diff`、`update`、`verify`、launcher 建/更新实例都各算一份；同一个 Pack 装到不同 target 会得到不同的计划与 `planHash`。锁和内容哈希都不含计划。
+计划是**按需现算**的产物：`planFor(ctx, { target })` 在用到它的那一刻按 target 算（不传就是 `dir`）——`plan` 预览、`add` / `install`、`diff`、`update`、`verify`、launcher 建/更新实例都各算一份；同一个 Pack 装到不同 target 会得到不同的计划与 `planHash`。锁和内容哈希都不含计划。
 
 ### Target（安装目标）
 
-Target 是**安装期参数**：决定这份内容落到哪个宿主形态——中性的 `dir`，或某个 harness（`dsh` / `claude-code` / `codex`）。
+Target 是**安装 / 交付参数**：决定这次把这份内容落到哪个宿主形态——中性的 `dir`，或某个 harness（`dsh` / `claude-code` / `codex`）；不显式指定时是 `dir`。它由安装时选（`planFor(ctx, { target })`），不是 Pack 自带的属性。
 
-它不属于 Pack 内容、不进锁、不进内容哈希：同一份内容装到不同 target，锁与签名不变；变的是落点与计划（`planFor` 现算）。清单里的 `metadata.targets` 与资源级 `targets` 声明「这个包支持哪些 target」，那属于内容；Target 词条说的是「这次安装选了哪一个」。
+它不属于 Pack 内容、不进锁、不进内容哈希：同一份内容装到不同 target，锁与签名不变；变的是落点与计划（`planFor` 现算）。
+
+清单**不声明**支持哪些 target：`schema/packhub.v0.schema.json` 的 `metadata` 只有 `name` / `version` 是必填，`additionalProperties: false`，旧清单残留 `targets` 会被判 schema error。只有资源可以带 `targets`：那是单个资源在哪些 target 上装，由 `buildPlan` 按本次 target 裁剪，未命中进计划的 `excluded`（`target-mismatch`）；它是资源的收窄条件，不是包的支持集。
 
 ### Install（安装）
 

@@ -86,9 +86,6 @@ export async function updateInstance(
   const ctx: PackContext = withLockPins(loaded, read.lock);
   const errors = ctx.issues.filter((i) => i.severity === 'error');
   if (errors.length > 0) throw new PalError('invalid-input', `清单有问题：${errors.map((i) => i.message).join('; ')}`);
-  if (!ctx.manifest.metadata.targets.includes(harness)) {
-    throw new PalError('invalid-input', `这个包没有声明 target ${harness}`);
-  }
   if (ctx.manifest.metadata.name !== record.pack.name) {
     throw new PalError(
       'invalid-input',

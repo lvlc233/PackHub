@@ -205,13 +205,6 @@ export async function createInstance(opts: CreateInstanceOptions): Promise<Insta
   if (errors.length > 0) {
     throw new PalError('invalid-input', `清单有问题：${errors.map((i) => i.message).join('; ')}`);
   }
-  if (!ctx.manifest.metadata.targets.includes(harness)) {
-    throw new PalError(
-      'invalid-input',
-      `这个包没有声明 target ${harness}；声明了：${ctx.manifest.metadata.targets.join(', ')}`,
-      { details: { pack: ctx.manifest.metadata.name, declared: ctx.manifest.metadata.targets } },
-    );
-  }
 
   const adapter = ADAPTERS[harness];
   const targetVars = targetVarsFor(harness);

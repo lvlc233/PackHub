@@ -367,7 +367,7 @@ export const sync = command({
   meta: { name: 'sync', description: '把本地 skill / mcp 同步到各宿主 home 的全局落点（--to 支持 .）' },
   args: {
     dir: { type: 'positional', required: true, description: 'Pack 目录' },
-    to: { type: 'string', required: true, description: '目标，逗号分隔；. 表示包声明的全部（--remove 时为全部已注册）' },
+    to: { type: 'string', required: true, description: '目标，逗号分隔；. 表示全部已注册目标' },
     'dry-run': { type: 'boolean', default: false },
     remove: { type: 'boolean', default: false, description: '从目标 harness 移除这个包' },
     overwrite: { type: 'boolean', default: false, description: '允许覆盖别的包占用的 skill 目录' },
@@ -375,9 +375,7 @@ export const sync = command({
   },
   async run({ args }) {
     const dir = resolve(String(args.dir));
-    // `.` 按包声明的 targets 展开；移除时不看声明，避免包改了清单就删不掉
-    const declared = args.remove ? [] : (loadPack(dir).manifest?.metadata.targets ?? []);
-    const targets = orStop(() => resolveSyncTargets(String(args.to), declared));
+    const targets = orStop(() => resolveSyncTargets(String(args.to)));
     if (args.remove) {
       const results = removeSynced(dir, targets);
       if (args.json) {

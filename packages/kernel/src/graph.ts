@@ -1,4 +1,4 @@
-import type { Issue, Manifest, ResourceSpec, TargetId } from './types.ts';
+import type { Issue, Manifest, ResourceSpec } from './types.ts';
 import { checkSource, parseSource } from './ref.ts';
 import { deepMerge, isPlainObject } from './util.ts';
 import { ISSUE_CODES } from './issueCodes.ts';
@@ -132,17 +132,6 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
       code: ISSUE_CODES.unknownAgent,
       severity: 'warning',
       message: `requires.agent=${agent} 不在已知 harness（${KNOWN_AGENTS.join(' / ')}）里；按通用安装继续`,
-    });
-  }
-  if (
-    agent &&
-    ['dir', 'dsh', 'claude-code', 'codex'].includes(agent) &&
-    !manifest.metadata.targets.includes(agent as TargetId)
-  ) {
-    issues.push({
-      code: ISSUE_CODES.agentTargetMismatch,
-      severity: 'warning',
-      message: `requires.agent=${agent}，但 metadata.targets 没有声明 ${agent}；这个包不会装进该 harness`,
     });
   }
 

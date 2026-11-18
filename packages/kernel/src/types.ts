@@ -175,7 +175,6 @@ export interface Manifest {
     homepage?: string;
     keywords?: string[];
     authors?: { name: string; url?: string }[];
-    targets: TargetId[];
     /** 默认 private：要进公共索引必须显式写 public */
     visibility?: 'public' | 'unlisted' | 'internal' | 'private';
   };

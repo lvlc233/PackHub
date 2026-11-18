@@ -180,20 +180,18 @@ export function planFor(
       ],
     };
   }
-  // target 声明门只在这里：install / add / plan / verify 都走 planFor，
-  // 未声明的 target 不能出计划（否则 verify 会拿一份装不上去的计划去核对）。
-  if (!ctx.manifest.metadata.targets.includes(target)) {
-    return {
-      issues: [
-        {
-          code: ISSUE_CODES.undeclaredTarget,
-          severity: 'error',
-          message: `这个包没有声明 target ${target}；声明了：${ctx.manifest.metadata.targets.join(', ')}`,
-        },
-      ],
-    };
+  // requires.agent 这次才和安装参数对得上：作者写的 agent 与选中的 target 不同就提醒一声。
+  // 已知 harness 之外的值在 graph 阶段已按 unknownAgent 警告过。
+  const agent = ctx.manifest.requires?.agent;
+  const warnings: Issue[] = [];
+  if (agent && (TARGET_IDS as readonly string[]).includes(agent) && agent !== target) {
+    warnings.push({
+      code: ISSUE_CODES.agentTargetMismatch,
+      severity: 'warning',
+      message: `requires.agent=${agent}，但这次安装 target=${target}`,
+    });
   }
-  return buildPlan(ctx.manifest, ctx.graph, {
+  const built = buildPlan(ctx.manifest, ctx.graph, {
     target,
     // 默认落点由 buildPlan 按 target 选（TARGET_VARS）；这里只传显式覆盖
     targetVars: { ...(opts.targetVars ?? {}) },
@@ -203,4 +201,5 @@ export function planFor(
     // 这个选项在 buildPlan 里支持，planFor 以前把它丢了：全局同步会多写配置并重复登记 MCP
     ...(opts.skipResourceTypes ? { skipResourceTypes: opts.skipResourceTypes } : {}),
   });
+  return { plan: built.plan, issues: [...warnings, ...built.issues] };
 }

@@ -11,7 +11,7 @@
     "metadata": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "version", "targets"],
+      "required": ["name", "version"],
       "properties": {
         "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]*/[a-z0-9][a-z0-9-]*$" },
         "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?$" },
@@ -36,12 +36,6 @@
               "url": { "type": "string", "format": "uri" }
             }
           }
-        },
-        "targets": {
-          "type": "array",
-          "minItems": 1,
-          "uniqueItems": true,
-          "items": { "enum": ["dir", "dsh", "claude-code", "codex"] }
         },
         "visibility": {
           "enum": ["public", "unlisted", "internal", "private"],

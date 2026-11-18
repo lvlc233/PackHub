@@ -125,7 +125,7 @@ review: 格式升版、字段增删、apiVersion 变化时
    - 清单里的资源来源先按 `resolved` 归一（有 pin 过的 source / integrity 就用它），于是「作者清单 + 锁」和「pin 过的清单 + 锁」算出同一个哈希；
    - `resolved` 每项只取 `{id, type, source, integrity}`，丢掉 `resolvedAt`（生成时刻不是内容），并按 `id` 升序排列；
    - 序列化用 `canonicalize`（递归键排序、丢 undefined），sha256 写成 `sha256-<base64>`。
-   - **安装 target 不进这个哈希**：清单里声明的 `targets` 是内容的一部分，但「这次装到 dir 还是某个宿主」是安装期参数；同一份内容装到任何 target，`contentHash` 相同。
+   - **安装 target 不进这个哈希**：清单不声明 target 支持集，「这次装到 dir 还是某个宿主」是安装期参数；同一份内容装到任何 target，`contentHash` 相同。
 3. `checkLockConsistency(lock, manifest)` 是「锁 ↔ 清单」的唯一判据，只返回 `ok` / `mismatch` / `missing` 三档。没有 `contentHash` 的锁按 `mismatch` 报（无效锁），要求重跑 `packhub lock`。
 4. `resolved[].source` 是**解析后**的引用：github 分支 / tag 换成 40 位 commit，npm 范围 / tag 换成具体版本，pypi 换成具体版本。
 5. `integrity` 来自清单、npm 的 `dist.integrity`、https 下载后的 sha256 或 PyPI 的 sha256；解析不出来就是 `null`，读方不得把 `null` 当「已验证」。
@@ -186,7 +186,6 @@ registry 的索引，`search` / `add` / `update` 只读它。
       "description": "…",
       "latest": "0.0.1",
       "versions": ["0.0.1"],
-      "targets": ["dir"],
       "trust": "verified",
       "verifiedAt": "2026-11-03T…",
       "signers": [],
@@ -207,7 +206,7 @@ registry 的索引，`search` / `add` / `update` 只读它。
 - `verified`：这个包的**每个**版本都有 `verify.json`、`ok: true` 且报告里的 `contentHash` 与按锁的 `resolved` 重算的 `contentHash` 一致（整包都 verified 才标 verified）。
 - `community`：其余；有报告但对不上会给 warning，按 community 处理。
 
-清单派生的展示字段（`title` / `description` / `license` / `homepage` / `authors` / `keywords` / `requiresAgent`）取 `latest` 那个版本的清单；`signers` 只收该版本 `verify.json` 里 `ok: true` 的 key；清单没写的字段写 `null` 或空数组，读方不用猜。
+清单派生的展示字段（`title` / `description` / `license` / `homepage` / `authors` / `keywords` / `requiresAgent`）取 `latest` 那个版本的清单；`signers` 只收该版本 `verify.json` 里 `ok: true` 的 key；清单没写的字段写 `null` 或空数组，读方不用猜。索引没有 `targets` 字段：清单不声明支持集，装到哪个 target 是使用者在安装时选的参数；`requiresAgent` 是作者的 agent 偏好，不是「支持哪些宿主」。
 
 不变量：
 
