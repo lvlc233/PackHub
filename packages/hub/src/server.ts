@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
   INDEX_API_VERSION,
+  PACKHUB_ENV,
   TARGET_IDS,
   isTargetId,
   parseManifest,
@@ -61,12 +62,12 @@ class HttpError extends Error {
 export function startHub(opts: HubOptions): Promise<Server> {
   const root = resolve(opts.root);
   const host = opts.host ?? '127.0.0.1';
-  const token = opts.auth?.token ?? process.env.PACKHUB_HUB_TOKEN;
+  const token = opts.auth?.token ?? process.env[PACKHUB_ENV.hubToken];
   const userHeader = opts.auth?.userHeader;
 
   if (!LOOPBACK.has(host) && !token && !userHeader) {
     throw new Error(
-      `拒绝在 ${host} 上无鉴权启动：对外监听必须配 --token（或 PACKHUB_HUB_TOKEN / --user-header）`,
+      `拒绝在 ${host} 上无鉴权启动：对外监听必须配 --token（或 ${PACKHUB_ENV.hubToken} / --user-header）`,
     );
   }
 

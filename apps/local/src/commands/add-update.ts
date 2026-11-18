@@ -23,6 +23,7 @@ import {
   readLocalOverrides,
   validateGraph,
   checkLockConsistency,
+  PACKHUB_ENV,
   TARGET_IDS,
 } from '@packhub/kernel';
 import {
@@ -51,7 +52,7 @@ export const add = command({
       required: true,
       description: 'scope/name（配合 --index）、./x.phub，或 git+https://github.com/o/r@ref',
     },
-    index: { type: 'string', description: 'registry 的 index.json（本地路径或 URL；也可用 PACKHUB_INDEX）' },
+    index: { type: 'string', description: `registry 的 index.json（本地路径或 URL；也可用 ${PACKHUB_ENV.index}）` },
     version: { type: 'string', description: 'registry 包的版本，默认 latest' },
     dir: { type: 'string', default: '.', description: '项目目录' },
     target: { type: 'string', default: 'dir', description: `${TARGET_IDS.join(' | ')}` },
@@ -106,7 +107,7 @@ export const add = command({
       const indexRef = resolveRegistry(args.index ? String(args.index) : undefined);
       if (!indexRef) {
         problemRaw(
-          '用 registry 名称安装需要一个索引：加 --index <路径|URL>，或设 PACKHUB_INDEX，或在 ~/.packhub/config.json 里配 defaultRegistry',
+          `用 registry 名称安装需要一个索引：加 --index <路径|URL>，或设 ${PACKHUB_ENV.index}，或在 ~/.packhub/config.json 里配 defaultRegistry`,
         );
         stop(EXIT.USAGE);
       }
@@ -301,7 +302,7 @@ export const update = command({
   async run({ args }) {
     const indexRef = resolveRegistry(args.index ? String(args.index) : undefined);
     if (!indexRef) {
-      problemRaw('没有索引：加 --index <路径|URL|registry 名>，或设 PACKHUB_INDEX');
+      problemRaw(`没有索引：加 --index <路径|URL|registry 名>，或设 ${PACKHUB_ENV.index}`);
       stop(EXIT.USAGE);
     }
     const say = sayUnless(args.json);

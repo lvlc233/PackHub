@@ -12,6 +12,7 @@ import { TARGET_VARS } from './targets.ts';
 import { ISSUE_CODES } from './issueCodes.ts';
 
 export * from './types.ts';
+export { PACKHUB_ENV } from './env.ts';
 export { ISSUE_CODES, type IssueCode } from './issueCodes.ts';
 export { parseSource, checkSource, isVolatilePin, type ParsedSource, type SourceKind } from './ref.ts';
 export { loadManifest, parseManifest, PACK_NAME_PATTERN, type LoadResult } from './manifest.ts';

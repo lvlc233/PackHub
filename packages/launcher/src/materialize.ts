@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join, resolve, sep } from 'node:path';
+import { PACKHUB_ENV } from '@packhub/kernel';
 import { fetchPack, loadManifest, resolveAddSource, resolveRegistry } from '@packhub/runtime';
 import { writeAtomic } from './atomic.ts';
 import { cacheRoot } from './paths.ts';
@@ -239,7 +240,7 @@ export async function materializePack(
 
     const index = resolveRegistry(opts.index);
     if (!index) {
-      throw new PalError('invalid-input', '用 registry 名称需要一个索引：--index <路径|URL>，或设 PACKHUB_INDEX', {
+      throw new PalError('invalid-input', `用 registry 名称需要一个索引：--index <路径|URL>，或设 ${PACKHUB_ENV.index}`, {
         hint: '也可以直接填 Pack 目录、.phub 或 git+https',
       });
     }

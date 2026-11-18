@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { accessSync, constants, existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, parse, resolve } from 'node:path';
+import { PACKHUB_ENV } from '@packhub/kernel';
 import { writeAtomic } from './atomic.ts';
 import { PalError } from './errors.ts';
 
@@ -21,7 +22,7 @@ import { PalError } from './errors.ts';
 export type PalHomeSource = 'env' | 'pointer' | 'portable' | 'default';
 
 export const HOME_SOURCE_LABEL: Record<PalHomeSource, string> = {
-  env: '环境变量 PACKHUB_HOME',
+  env: `环境变量 ${PACKHUB_ENV.home}`,
   pointer: '自定义（location.json）',
   portable: '便携（程序目录旁）',
   default: '系统默认',
@@ -67,7 +68,7 @@ function fallbackHome(): string {
  * `PACKHUB_LOCATION_FILE` 只给测试/多环境用。
  */
 export function locationFile(): string {
-  const override = process.env.PACKHUB_LOCATION_FILE?.trim();
+  const override = process.env[PACKHUB_ENV.locationFile]?.trim();
   return override ? resolve(override) : join(localAppData(), 'PackHub', 'location.json');
 }
 
@@ -107,7 +108,7 @@ export interface PalHomeInfo {
 export function palHomeInfo(): PalHomeInfo {
   const portable = bundledHome();
   return choosePalHome({
-    env: process.env.PACKHUB_HOME,
+    env: process.env[PACKHUB_ENV.home],
     pointerHome: readPointerHome(),
     ...(portable ? { portable } : {}),
     portableWritable: portable !== undefined && canWrite(dirname(portable)),
@@ -139,7 +140,7 @@ export function palConfigFile(): string {
 
 /** 实例存放的根；测试与多环境都用它隔离。 */
 export function instancesRoot(): string {
-  return resolve(process.env.PACKHUB_INSTANCES ?? join(homeBase(), 'instances'));
+  return resolve(process.env[PACKHUB_ENV.instances] ?? join(homeBase(), 'instances'));
 }
 
 /** 取回来的 Pack 放这里，按来源与版本分目录。 */

@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { EXIT, command, json, problemRaw, say, stop, terminate, warn } from '../emit.ts';
 import { startHub } from '@packhub/hub';
-import { searchResources, RESOURCE_TYPES } from '@packhub/kernel';
+import { PACKHUB_ENV, searchResources, RESOURCE_TYPES } from '@packhub/kernel';
 import {
   addResource,
   readIndex,
@@ -20,7 +20,7 @@ export const search = command({
   meta: { name: 'search', description: '在 registry 索引里按关键词找包' },
   args: {
     keyword: { type: 'positional', required: false, description: '名称 / 标题 / 描述 / 关键词' },
-    index: { type: 'string', description: '索引路径、URL 或本机配置里的 registry 名（默认取 PACKHUB_INDEX / 本机配置）' },
+    index: { type: 'string', description: `索引路径、URL 或本机配置里的 registry 名（默认取 ${PACKHUB_ENV.index} / 本机配置）` },
     all: { type: 'boolean', default: false, description: '搜所有配置过的 registry' },
     json: { type: 'boolean', default: false },
   },
@@ -29,7 +29,7 @@ export const search = command({
       ? registryIndexes()
       : [resolveRegistry(args.index ? String(args.index) : undefined)].filter((r): r is string => Boolean(r));
     if (refs.length === 0) {
-      problemRaw('没有索引：加 --index <路径|URL|registry 名>，或设 PACKHUB_INDEX，或在 ~/.packhub/config.json 配 registries');
+      problemRaw(`没有索引：加 --index <路径|URL|registry 名>，或设 ${PACKHUB_ENV.index}，或在 ~/.packhub/config.json 配 registries`);
       stop(EXIT.USAGE);
     }
     const keyword = String(args.keyword ?? '').toLowerCase();
@@ -194,7 +194,7 @@ export const hub = command({
     dir: { type: 'positional', required: false, default: '.' },
     port: { type: 'string', default: '8788' },
     host: { type: 'string', default: '127.0.0.1', description: '非回环地址必须配鉴权' },
-    token: { type: 'string', description: '静态 token（也可用 PACKHUB_HUB_TOKEN）' },
+    token: { type: 'string', description: `静态 token（也可用 ${PACKHUB_ENV.hubToken}）` },
     'user-header': { type: 'string', description: '反向代理注入的身份头，例如 X-Forwarded-User' },
     audit: { type: 'string', description: '审计日志文件（每行一个 JSON）' },
     rpm: { type: 'string', default: '240', description: '每 IP 每分钟请求上限，0 不限' },

@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { parseCatalog, type CatalogEntry } from '@packhub/kernel';
+import { PACKHUB_ENV, parseCatalog, type CatalogEntry } from '@packhub/kernel';
 import { httpJson } from './download.ts';
 
 export interface CatalogLoadResult {
@@ -23,10 +23,10 @@ export function catalogPathNear(indexRef: string): string {
 
 /** 读一份资源目录；`--catalog` 可直接指向文件或 URL。 */
 export async function loadCatalog(opts: { catalog?: string; index?: string } = {}): Promise<CatalogLoadResult> {
-  const explicit = opts.catalog ?? process.env.PACKHUB_CATALOG;
+  const explicit = opts.catalog ?? process.env[PACKHUB_ENV.catalog];
   const ref = explicit ?? (opts.index ? catalogPathNear(opts.index) : undefined);
   if (!ref) {
-    return { entries: [], source: 'none', error: '没有资源目录：加 --catalog <文件|URL>，或设 PACKHUB_CATALOG' };
+    return { entries: [], source: 'none', error: `没有资源目录：加 --catalog <文件|URL>，或设 ${PACKHUB_ENV.catalog}` };
   }
   let raw: unknown;
   try {

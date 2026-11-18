@@ -5,6 +5,7 @@ import { cpSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } fr
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { PACKHUB_ENV } from '../packages/kernel/src/index.ts';
 
 const ROOT = resolve(import.meta.dirname, '..');
 const EXAMPLES = join(ROOT, 'examples');
@@ -46,7 +47,7 @@ for (const name of names) {
       filter: (path) => !['.packhub', '.git', 'node_modules'].includes(path.split(/[\\/]/).pop() ?? ''),
     });
     console.log(`\n=== examples/${name} ===`);
-    const env = { ...process.env, PACKHUB_HOME: join(work, 'home') };
+    const env = { ...process.env, [PACKHUB_ENV.home]: join(work, 'home') };
     const install = spawnSync(
       process.execPath,
       ['--experimental-strip-types', BIN, 'install', packDir, '--target', 'dir'],

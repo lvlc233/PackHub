@@ -1,6 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { PACKHUB_ENV } from '@packhub/kernel';
 
 export interface AuditEntry {
   at: string;
@@ -15,7 +16,7 @@ export interface AuditEntry {
 
 /** 安装审计落点：默认 ~/.packhub/audit.jsonl，PACKHUB_HOME 可覆盖。 */
 export function auditPath(): string {
-  const home = process.env.PACKHUB_HOME ?? join(homedir(), '.packhub');
+  const home = process.env[PACKHUB_ENV.home] ?? join(homedir(), '.packhub');
   return join(home, 'audit.jsonl');
 }
 

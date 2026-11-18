@@ -6,14 +6,14 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { loadPack, planFor } from '../packages/kernel/src/index.ts';
+import { PACKHUB_ENV, loadPack, planFor } from '../packages/kernel/src/index.ts';
 
 const args = process.argv.slice(2);
 const check = args.includes('--check');
 const withInstall = args.includes('--install');
 const withOverlay = args.includes('--overlay');
 const count = Number(args.find((a) => /^\d+$/.test(a)) ?? 200);
-const budgetMs = Number(process.env.PACKHUB_BENCH_BUDGET_MS ?? 1500);
+const budgetMs = Number(process.env[PACKHUB_ENV.benchBudgetMs] ?? 1500);
 const rounds = 10;
 
 const dir = mkdtempSync(join(tmpdir(), 'packhub-bench-'));

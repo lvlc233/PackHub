@@ -1,7 +1,7 @@
 import { existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { HARNESS_IDS, isHarnessId, type HarnessId } from '@packhub/kernel';
+import { PACKHUB_ENV, HARNESS_IDS, isHarnessId, type HarnessId } from '@packhub/kernel';
 
 /**
  * 一个宿主的全局落点与能力。
@@ -38,7 +38,7 @@ export interface HarnessSpec extends GlobalSpec {
 export const GLOBAL_LAYOUT: Record<HarnessId, GlobalSpec | null> = {
   dsh: {
     label: 'DSH',
-    homeEnv: 'PACKHUB_DSH_HOME',
+    homeEnv: PACKHUB_ENV.dshHome,
     homeDir: '.dsh',
     skillsDir: 'skills',
     instructionFile: 'AGENTS.md',
@@ -47,7 +47,7 @@ export const GLOBAL_LAYOUT: Record<HarnessId, GlobalSpec | null> = {
   },
   'claude-code': {
     label: 'Claude Code',
-    homeEnv: 'PACKHUB_CLAUDE_HOME',
+    homeEnv: PACKHUB_ENV.claudeHome,
     homeDir: '.claude',
     skillsDir: 'skills',
     instructionFile: 'CLAUDE.md',
@@ -55,7 +55,7 @@ export const GLOBAL_LAYOUT: Record<HarnessId, GlobalSpec | null> = {
   },
   codex: {
     label: 'Codex',
-    homeEnv: 'PACKHUB_CODEX_HOME',
+    homeEnv: PACKHUB_ENV.codexHome,
     homeDir: '.codex',
     skillsDir: 'skills',
     instructionFile: 'AGENTS.md',

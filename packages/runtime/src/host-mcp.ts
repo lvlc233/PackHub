@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { PACKHUB_ENV } from '@packhub/kernel';
 
 /** 宿主 MCP 的启动规格：与计划里的 register.mcp spec 同形。 */
 export interface HostMcpSpec {
@@ -16,7 +17,7 @@ export interface HostMcpResult {
 }
 
 function claudeBin(): string {
-  return process.env.PACKHUB_CLAUDE_BIN || 'claude';
+  return process.env[PACKHUB_ENV.claudeBin] || 'claude';
 }
 
 /** 调宿主自己的 CLI；Claude Code 的 user scope 是稳定接口，不猜它的配置文件格式。 */

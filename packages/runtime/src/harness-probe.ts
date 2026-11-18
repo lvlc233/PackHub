@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { PACKHUB_ENV } from '@packhub/kernel';
 
 /**
  * dsh 探针固定用到的命令与开关。
@@ -88,7 +89,7 @@ const DEFAULT_RUNNER: Runner = (command, args, cwd, opts = {}) => {
     cwd,
     encoding: 'utf8',
     // 显式注入优先；没给才看环境变量与默认值
-    timeout: opts.timeoutMs ?? Number(process.env.PACKHUB_PROBE_TIMEOUT ?? 180_000),
+    timeout: opts.timeoutMs ?? Number(process.env[PACKHUB_ENV.probeTimeout] ?? 180_000),
     shell: isWin,
   });
   return {

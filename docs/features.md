@@ -220,7 +220,7 @@ review: 任何行为变更的提交
 | 编号 | 功能点 | 能观察到的事实 | 现状 | 证据 |
 |---|---|---|---|---|
 | CLI-01 | 单一入口 | `packhub --help` 列出全部命令；`pal` 是独立入口（`packages/launcher/src/bin.ts`），不在 packhub 下 | [done] | `apps/local/src/cli.ts`、`apps/local/src/bin.ts` |
-| CLI-02 | 命令覆盖 | `packhub --help` 列出的顶层命令覆盖安装、校验、发布、同步与运维各环节；`cache` / `resource` / `slot` / `auth` / `trust` 是命令组。完整清单以 `--help` 为准 | [done] | `apps/local/src/cli.ts`、`packhub --help` |
+| CLI-02 | 命令覆盖 | `packhub --help` 列出的顶层命令覆盖安装、校验、发布、同步与运维各环节；完整清单与每条命令的参数以 `--help` 为准 | [done] | `apps/local/src/cli.ts`、`packhub --help` |
 | CLI-03 | JSON 输出 | 多数顶层命令支持 `--json`；`init` / `diff` / `hub` / `keygen` / `sign` / `completion` 与命令组里的多数叶子不支持，逐个看 `--help` | [done] | `cli.ts`、`cli.test.ts` |
 | CLI-04 | 退出码 | 只有 0 / 1 / 2 三档，表在 `emit.ts` 的 `EXIT`（0 成功、1 运行失败、2 输入或前置条件错）；命令体内用 `stop(code)` 抛退出信号，由 `command()` 的 guard 统一落 `process.exitCode`（不再各自 `process.exit`），已写出的 stdout/stderr 不会被截断；未捕获异常在 bin 入口落成 `x <message>` + 1，不再是 citty 堆栈。缺清单、未声明 target、未知参数、锁与清单不一致都是 2；动作失败与校验失败是 1 | [done] | `apps/local/src/emit.ts`、`apps/local/src/bin.ts`、`exit-codes.test.ts`、`cli.test.ts` |
 | CLI-05 | 结构化编辑 | `resource add` / `slot swap` 用 YAML AST 只改一个节点、保留注释；`init` 只写固定模板 | [done] | `packages/runtime/src/authoring.ts`、`authoring.test.ts` |

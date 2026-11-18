@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { PACKHUB_ENV } from '@packhub/kernel';
 import { assertApiVersion } from './apiVersion.ts';
 
 export interface TrustedKey {
@@ -19,7 +20,7 @@ export interface TrustFile {
 const API = 'packhub.dev/trust/v0';
 
 export function trustPath(): string {
-  const home = process.env.PACKHUB_HOME ?? join(homedir(), '.packhub');
+  const home = process.env[PACKHUB_ENV.home] ?? join(homedir(), '.packhub');
   return join(home, 'trust.json');
 }
 

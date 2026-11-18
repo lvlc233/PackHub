@@ -1,6 +1,7 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { PACKHUB_ENV } from '@packhub/kernel';
 import { assertApiVersion } from './apiVersion.ts';
 
 export interface CredentialEntry {
@@ -17,7 +18,7 @@ const API = 'packhub.dev/credentials/v0';
 
 /** 凭据库位置：默认 ~/.packhub/credentials.json，PACKHUB_HOME 可覆盖（测试与多环境）。 */
 export function credentialsPath(): string {
-  const home = process.env.PACKHUB_HOME ?? join(homedir(), '.packhub');
+  const home = process.env[PACKHUB_ENV.home] ?? join(homedir(), '.packhub');
   return join(home, 'credentials.json');
 }
 

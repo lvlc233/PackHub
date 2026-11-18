@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import { loadPack, planFor, buildMcpSpec, interpolate, type PackContext, type Plan, type ResourceSpec } from '@packhub/kernel';
+import { PACKHUB_ENV, loadPack, planFor, buildMcpSpec, interpolate, type PackContext, type Plan, type ResourceSpec } from '@packhub/kernel';
 import { applyPlan, loadState, saveState, removePack, type ActionOutcome } from './install.ts';
 import { doctorPack, type DoctorReport } from './doctor.ts';
 import { readSkillFrontmatter } from './skill-meta.ts';
@@ -150,7 +150,7 @@ export async function syncPack(
     if (harnessSpec(target).mcp === 'claude-cli' && mcp.length > 0) {
       if (!claudeAvailable()) {
         throw new Error(
-          'claude-code: 找不到可用的 claude 命令（先安装 Claude Code，或用 PACKHUB_CLAUDE_BIN 指定），无法注册全局 MCP',
+          `claude-code: 找不到可用的 claude 命令（先安装 Claude Code，或用 ${PACKHUB_ENV.claudeBin} 指定），无法注册全局 MCP`,
         );
       }
       const owned = new Set(

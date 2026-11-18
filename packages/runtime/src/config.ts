@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { PACKHUB_ENV } from '@packhub/kernel';
 
 export interface RegistryEntry {
   name: string;
@@ -18,7 +19,7 @@ export interface PackhubConfig {
  * 只读不写——PackHub 不替用户改全局配置；要配默认 registry 由用户自己写这个文件或设 PACKHUB_INDEX。
  */
 export function configPath(): string {
-  return join(process.env.PACKHUB_HOME ?? join(homedir(), '.packhub'), 'config.json');
+  return join(process.env[PACKHUB_ENV.home] ?? join(homedir(), '.packhub'), 'config.json');
 }
 
 export function readConfig(): PackhubConfig {
@@ -50,14 +51,14 @@ export function resolveRegistry(input?: string): string | undefined {
 /** 所有可用 registry 的索引（PACKHUB_INDEX 排最前），用于 --all 搜索。 */
 export function registryIndexes(): string[] {
   const out = new Set<string>();
-  const env = process.env.PACKHUB_INDEX;
+  const env = process.env[PACKHUB_ENV.index];
   if (env) out.add(env);
   for (const r of readConfig().registries ?? []) out.add(r.url);
   return [...out];
 }
 
 export function defaultRegistryIndex(): string | undefined {
-  const fromEnv = process.env.PACKHUB_INDEX;
+  const fromEnv = process.env[PACKHUB_ENV.index];
   if (fromEnv) return fromEnv;
 
   const cfg = readConfig();

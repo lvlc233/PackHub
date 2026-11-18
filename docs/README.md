@@ -54,7 +54,5 @@ pnpm docs:audit
 - 删能力 → 先删测试，再把台账行改 `[na]` 并注明替代物。
 - 不抄可变量：**凡一次提交就会变的计数都不写**——测试文件数、用例数、命令数、路由数、检查项数、行号、提交号。要指数量就写去哪读（`pnpm check` 的输出、`packhub --help`、对应源文件里的常量）。
 - 不写「待更新」「待消费」：做不到就不写这条，做得到就写准。需要跟随的用指针。
-- 版本按三类写：产品 `0.0.x`、api版本（正文写「格式 v0」，具体文件写全串 `packhub.dev/<契约>/v0`，不写单独的 `v0`）、包 `scope/name@x.y.z`；类别与来源见 [contract.md](contract.md#0-版本)。
+- 版本按三类写，类别、写法与来源见 [contract.md](contract.md#0-版本) 的 §0。
 - 不写散文式的实现说明：没人维护的机制说明，比多读两遍代码更贵。要展开就写进代码注释或测试名。
-## tmp
-流程与判定在代码里：`packages/runtime/src/install.ts`、`verify.ts`，`packages/registry/src/publish.ts`、`build.ts`。

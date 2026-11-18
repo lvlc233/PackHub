@@ -1,5 +1,6 @@
 import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process';
 import { join } from 'node:path';
+import { PACKHUB_ENV } from '@packhub/kernel';
 import { readCoreInfo, type CoreInfo } from './core.ts';
 import { PalError, type PalErrorCode } from './errors.ts';
 import { palHome } from './paths.ts';
@@ -61,7 +62,7 @@ export function spawnCore(home: string, options: CoreClientOptions = {}): ChildP
   const spawnFn = options.spawn ?? (nodeSpawn as unknown as (file: string, args: string[], opts: Record<string, unknown>) => ChildProcess);
   const child = spawnFn(process.execPath, [...process.execArgv, entry, 'core', 'run'], {
     cwd: process.cwd(),
-    env: { ...process.env, PACKHUB_HOME: home, ...(options.env ?? {}) },
+    env: { ...process.env, [PACKHUB_ENV.home]: home, ...(options.env ?? {}) },
     detached: true,
     stdio: 'ignore',
     windowsHide: true,

@@ -1,4 +1,5 @@
 import { defineCommand } from 'citty';
+import { PACKHUB_ENV } from '@packhub/kernel';
 import pkg from '../package.json' with { type: 'json' };
 import { createInterface } from 'node:readline/promises';
 import { spawn } from 'node:child_process';
@@ -89,7 +90,7 @@ function applyHomeArg(value: unknown): void {
   if (!isAbsolute(text)) {
     throw new PalError('invalid-input', '--home 要绝对路径', { hint: '例如 D:\\PackHubData' });
   }
-  process.env.PACKHUB_HOME = resolve(text);
+  process.env[PACKHUB_ENV.home] = resolve(text);
 }
 
 async function confirm(question: string, yes: boolean): Promise<boolean> {
@@ -116,7 +117,7 @@ const create = defineCommand({
     },
     name: { type: 'string', required: true, description: '实例名；同名拒绝' },
     harness: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code | codex' },
-    index: { type: 'string', description: 'registry 索引（路径或 URL；也可用 PACKHUB_INDEX）' },
+    index: { type: 'string', description: `registry 索引（路径或 URL；也可用 ${PACKHUB_ENV.index}）` },
     'from-home': {
       type: 'string',
       description: '沿用已有宿主 home 的模型凭据与指令（例如 ~/.dsh）；Pack 写好的文件不会被覆盖',

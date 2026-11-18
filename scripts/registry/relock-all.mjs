@@ -39,7 +39,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative, resolve } from 'node:path';
-import { canonicalize, loadPack } from '../../packages/kernel/src/index.ts';
+import { PACKHUB_ENV, canonicalize, loadPack } from '../../packages/kernel/src/index.ts';
 import {
   lockPack,
   readSignatures,
@@ -57,7 +57,7 @@ const INDEX = join(REGISTRY, 'index.json');
 const argv = process.argv.slice(2);
 const SKIP_INDEX = argv.includes('--skip-index');
 const skips = new Set();
-let keyPath = process.env.PACKHUB_RELOCK_KEY;
+let keyPath = process.env[PACKHUB_ENV.relockKey];
 for (let i = 0; i < argv.length; i++) {
   const token = argv[i];
   if (token === '--skip-index') continue;
@@ -158,7 +158,7 @@ function resign(stageDir, realDir, label, contentHash, manifest) {
   if (!keyPath) {
     throw new StepError(
       'sign',
-      `这个版本有 ${entries.length} 个签名要重签，但没给私钥：--key <路径> 或 PACKHUB_RELOCK_KEY`,
+      `这个版本有 ${entries.length} 个签名要重签，但没给私钥：--key <路径> 或 ${PACKHUB_ENV.relockKey}`,
     );
   }
   if (!existsSync(keyPath)) throw new StepError('sign', `私钥文件不存在：${keyPath}`);
