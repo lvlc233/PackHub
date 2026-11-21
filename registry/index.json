@@ -1,6 +1,6 @@
 {
   "apiVersion": "packhub.dev/index/v0",
-  "generatedAt": "2026-11-21T20:17:09.818Z",
+  "generatedAt": "2026-11-21T22:56:20.829Z",
   "packs": [
     {
       "name": "lvlc233/doc-review",
@@ -23,8 +23,7 @@
       "install": "packhub install lvlc233/doc-review",
       "license": "MIT",
       "homepage": null,
-      "authors": [],
-      "requiresAgent": null
+      "authors": []
     },
     {
       "name": "lvlc233/remote-demo",
@@ -46,8 +45,7 @@
       "install": "packhub install lvlc233/remote-demo",
       "license": "MIT",
       "homepage": null,
-      "authors": [],
-      "requiresAgent": null
+      "authors": []
     },
     {
       "name": "lvlc233/team-conventions",
@@ -69,8 +67,7 @@
       "install": "packhub install lvlc233/team-conventions",
       "license": "CC-BY-4.0",
       "homepage": null,
-      "authors": [],
-      "requiresAgent": null
+      "authors": []
     }
   ]
 }

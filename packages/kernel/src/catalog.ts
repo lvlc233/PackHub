@@ -1,4 +1,4 @@
-import { RESOURCE_TYPES, isResourceType, type Issue, type ResourceType, type TargetId } from './types.ts';
+import { RESOURCE_TYPES, isResourceType, type Issue, type ResourceType } from './types.ts';
 import { ISSUE_CODES } from './issueCodes.ts';
 
 /** 资源目录的格式版本：`registry/resources.json` 与 `schema/resources.v0.schema.json` 用的是同一个值。 */
@@ -14,7 +14,6 @@ export interface CatalogEntry {
   keywords?: string[];
   provides?: string[];
   homepage?: string;
-  targets?: TargetId[];
 }
 
 export interface ResourceCatalog {
@@ -78,7 +77,6 @@ export function parseCatalog(raw: unknown): { catalog?: ResourceCatalog; issues:
       ...(Array.isArray(e.keywords) ? { keywords: e.keywords.map(String) } : {}),
       ...(Array.isArray(e.provides) ? { provides: e.provides.map(String) } : {}),
       ...(typeof e.homepage === 'string' ? { homepage: e.homepage } : {}),
-      ...(Array.isArray(e.targets) ? { targets: e.targets as TargetId[] } : {}),
     });
   }
   return { catalog: { apiVersion: RESOURCES_API_VERSION, resources: entries }, issues };

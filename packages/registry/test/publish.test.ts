@@ -11,7 +11,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { packArchive, unpackArchive } from '@packhub/runtime';
+import { packArchive } from '@packhub/runtime';
 import { buildIndex, publishPack, writeIndex } from '../src/index.ts';
 
 function makePack(
@@ -19,8 +19,6 @@ function makePack(
     version?: string;
     visibility?: string;
     verifyFail?: boolean;
-    /** 资源级支持集（metadata 上没有 targets：target 已退出内容层） */
-    targets?: string[];
   } = {},
 ): string {
   const dir = mkdtempSync(join(tmpdir(), 'packhub-pub-pack-'));
@@ -38,12 +36,11 @@ metadata:
   homepage: https://example.com/demo
   authors: [{ name: 测试作者 }]
   visibility: ${overrides.visibility ?? 'public'}
-requires: { packhub: ">=0.0.1 <0.1", agent: dsh }
+requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: rules
     type: knowledge
     source: ./rules.md
-    targets: [${(overrides.targets ?? ['dir']).join(', ')}]
 verify:
   - type: file-exists
     path: \${target.skillsDir}/../knowledge/${overrides.verifyFail ? 'nope.md' : 'rules.md'}
@@ -91,7 +88,6 @@ describe('publish', () => {
         license: string | null;
         homepage: string | null;
         authors: { name: string }[];
-        requiresAgent: string | null;
       }[];
     };
     expect(index.packs[0]!.name).toBe('demo/published');
@@ -100,7 +96,6 @@ describe('publish', () => {
     expect(index.packs[0]!.license).toBe('MIT');
     expect(index.packs[0]!.homepage).toBe('https://example.com/demo');
     expect(index.packs[0]!.authors[0]!.name).toBe('测试作者');
-    expect(index.packs[0]!.requiresAgent).toBe('dsh');
     rmSync(pack, { recursive: true, force: true });
     rmSync(reg, { recursive: true, force: true });
   });
@@ -180,47 +175,8 @@ describe('publish', () => {
     rmSync(reg, { recursive: true, force: true });
   });
 
-  it('多 target：锁只描述内容，归档从版本目录打（锁与报告同一内容）', async () => {
-    const pack = makePack({ targets: ['dir', 'dsh', 'claude-code'] });
-    const reg = registry();
-    const res = await publishPack(pack, { registry: reg });
-
-    const lock = JSON.parse(readFileSync(join(res.dir, 'packhub.lock.json'), 'utf8')) as {
-      contentHash: string;
-      plan?: unknown;
-      plans?: unknown;
-    };
-    // 锁里没有 target 的计划快照：装到哪个 target 由用到时现算
-    expect('plan' in lock).toBe(false);
-    expect('plans' in lock).toBe(false);
-
-    // verify 报告与锁绑定同一份内容
-    const report = JSON.parse(readFileSync(join(res.dir, 'verify.json'), 'utf8')) as {
-      ok?: boolean;
-      contentHash?: string;
-    };
-    expect(report.ok).toBe(true);
-    expect(report.contentHash).toBe(lock.contentHash);
-
-    // 归档里的锁 / 报告就是版本目录那一份（不是从包源目录打的旧锁）
-    const unpacked = mkdtempSync(join(tmpdir(), 'packhub-pub-unpack-'));
-    await unpackArchive(join(reg, 'packs/demo/published/0.1.0.phub'), unpacked);
-    const archivedLock = JSON.parse(readFileSync(join(unpacked, 'packhub.lock.json'), 'utf8')) as {
-      contentHash: string;
-      plans?: unknown;
-    };
-    expect(archivedLock.contentHash).toBe(lock.contentHash);
-    expect(archivedLock.plans).toBeUndefined();
-    expect(existsSync(join(unpacked, 'verify.json'))).toBe(true);
-
-    expect(buildIndex(reg).errors).toEqual([]);
-    rmSync(pack, { recursive: true, force: true });
-    rmSync(reg, { recursive: true, force: true });
-    rmSync(unpacked, { recursive: true, force: true });
-  });
-
   it('旧口径的锁（没有 contentHash）：索引门禁报错，提示重锁', async () => {
-    const pack = makePack({ targets: ['dir', 'dsh'] });
+    const pack = makePack();
     const reg = registry();
     const res = await publishPack(pack, { registry: reg });
 

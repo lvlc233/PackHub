@@ -26,8 +26,8 @@ function run(
   };
 }
 
-/** 支持集只在资源级声明（metadata 上没有 targets）：多 target 由 resources[].targets 表达。 */
-const manifest = (resourceTargets: string, extraResource = ''): string => `apiVersion: packhub.dev/v0
+/** 清单不声明 target：装到哪由命令行选，锁只认内容。 */
+const manifest = (extraResource = ''): string => `apiVersion: packhub.dev/v0
 kind: Pack
 metadata:
   name: demo/sign-lock
@@ -37,12 +37,11 @@ resources:
   - id: rules
     type: knowledge
     source: ./rules.md
-    targets: [${resourceTargets}]
 ${extraResource}`;
 
-function makePack(dir: string, resourceTargets = 'dir', extraResource = ''): void {
+function makePack(dir: string, extraResource = ''): void {
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, 'packhub.yaml'), manifest(resourceTargets, extraResource), 'utf8');
+  writeFileSync(join(dir, 'packhub.yaml'), manifest(extraResource), 'utf8');
   writeFileSync(join(dir, 'rules.md'), '# rules\n', 'utf8');
   writeFileSync(join(dir, 'more.md'), '# more\n', 'utf8');
 }
@@ -54,11 +53,11 @@ function keygen(base: string): string {
 }
 
 describe('sign 的锁过期判断只看内容哈希', () => {
-  it('多 target 清单照样能签（锁里没有计划快照，target 不参与）', () => {
-    const base = mkdtempSync(join(tmpdir(), 'packhub-sign-lock-multi-'));
+  it('清单能签：锁里没有计划快照，target 不参与', () => {
+    const base = mkdtempSync(join(tmpdir(), 'packhub-sign-lock-'));
     try {
       const pack = join(base, 'pack');
-      makePack(pack, 'dsh, dir');
+      makePack(pack);
       expect(run(['lock', pack]).status).toBe(0);
 
       const lock = JSON.parse(readFileSync(join(pack, 'packhub.lock.json'), 'utf8')) as {
@@ -89,7 +88,7 @@ describe('sign 的锁过期判断只看内容哈希', () => {
       // 锁之后再改清单：contentHash 变了，锁过期
       writeFileSync(
         join(pack, 'packhub.yaml'),
-        manifest('dir', '  - id: more\n    type: knowledge\n    source: ./more.md\n'),
+        manifest('  - id: more\n    type: knowledge\n    source: ./more.md\n'),
         'utf8',
       );
 

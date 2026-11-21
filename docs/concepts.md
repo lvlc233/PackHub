@@ -86,7 +86,7 @@ Target 是**安装 / 交付参数**：决定这次把这份内容落到哪个宿
 
 它不属于 Pack 内容、不进锁、不进内容哈希：同一份内容装到不同 target，锁与签名不变；变的是落点与计划（`planFor` 现算）。
 
-清单**不声明**支持哪些 target：`schema/packhub.v0.schema.json` 的 `metadata` 只有 `name` / `version` 是必填，`additionalProperties: false`，旧清单残留 `targets` 会被判 schema error。只有资源可以带 `targets`：那是单个资源在哪些 target 上装，由 `buildPlan` 按本次 target 裁剪，未命中进计划的 `excluded`（`target-mismatch`）；它是资源的收窄条件，不是包的支持集。
+清单与资源都不声明安装形态：`schema/packhub.v0.schema.json` 的 `metadata` 只有 `name` / `version` 是必填、`additionalProperties: false`，资源条目也没有 `targets`——旧清单在这两处带 `targets` 会被判 schema error。装到哪个 target 只由安装时选。
 
 `--target` 只决定目录内的落点形态：按哪个宿主的落点表物化文件、指令与 MCP 写法。它不等于有了一份宿主环境——home、进程、端口都不在目录里，装完只得到一份文件；要跑起来用实例（见 Launcher 词条）。
 

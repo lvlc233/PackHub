@@ -32,7 +32,17 @@ review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增
 
 没选另一条：把每个 target 的计划快照留在锁里（`plan` / `plans` / `planHash`），签名覆盖计划哈希。target 不是内容：同一份 Pack 装到 dir 或任一宿主，装的是同一批字节，锁却会随宿主数量膨胀；每个 target 的快照都要在每次清单变化时重算、重核对，签名还要回答「签的是哪个 target 的计划」。把 target 收进安装期后，锁只有一份，内容哈希与 target 无关，`checkLockConsistency(lock, manifest)` 退化成「重算 contentHash」这一条判据。也没选「只把计划移出锁、保留清单的支持集声明」：声明是一份要单独维护的第二真相，每加一个宿主都要改清单、重锁、重签、重发版本，而它最终只用来在计划期拦一下；装不装得成，由落点表和安装结果说了算。
 
-代价：装到不合适的宿主不再在计划期被拦——`requires.agent` 是已知 target 且与本次 target 不同时只给 warning（`agent-target-mismatch`），写得不在已知 harness 里也只给 `unknown-agent` warning；除此之外没有任何声明可对。要么装完在 `verify` 暴露，要么按该 target 的落点表装出一份作者没验证过的结果。给已发布包加宿主不再需要发新版本：同一份内容、同一把锁、同一个签名可以按新 target 装（落点由该 target 的适配表决定）。索引和锁里都不再有「这包支持哪些宿主」，用户与读端只能直接按 target 试，无法先筛。签名只证明内容、不再证明某个 target 的安装结果——换 target 不会让签名失效；`diff` 没有锁里的旧计划可读，只能读 state 里安装时留下的 `PlanSnapshot`（没装过就没有旧计划，`diff` 要求先安装）；`verify` 在项目根也按 state 快照复核，包目录模式则现算；发布门禁只验 dir 一个 target，其余 target 的安装行为只有单测；没有 `contentHash` 的锁是无效锁，registry 门禁报 error（`build.ts` 的 `buildIndex`），必须重跑 `packhub lock`（原来有签名的还要重签）。
+代价：装到不合适的宿主不再在计划期被拦——资源与清单都不声明安装形态，计划里没有任何声明可对。要么装完在 `verify` 暴露，要么按该 target 的落点表装出一份作者没验证过的结果。给已发布包加宿主不再需要发新版本：同一份内容、同一把锁、同一个签名可以按新 target 装（落点由该 target 的适配表决定）。索引和锁里都不再有「这包支持哪些宿主」，用户与读端只能直接按 target 试，无法先筛。签名只证明内容、不再证明某个 target 的安装结果——换 target 不会让签名失效；`diff` 没有锁里的旧计划可读，只能读 state 里安装时留下的 `PlanSnapshot`（没装过就没有旧计划，`diff` 要求先安装）；`verify` 在项目根也按 state 快照复核，包目录模式则现算；发布门禁只验 dir 一个 target，其余 target 的安装行为只有单测；没有 `contentHash` 的锁是无效锁，registry 门禁报 error（`build.ts` 的 `buildIndex`），必须重跑 `packhub lock`（原来有签名的还要重签）。
+
+### 资源级 targets 与 requires.agent 删除
+
+`resources[].targets` 与清单的 `requires.agent` 都删了：schema 里资源条目不接受 `targets`，`requires` 只剩 `packhub`；registry 索引的 `requiresAgent` 展示字段一起删，`target-mismatch` 与 `agent-target-mismatch` / `unknown-agent` 三个码也不再出现。
+
+删之前，registry 里没有包写这两个字段；仓库里唯一的用例是 `target-trim` 测试里给「桌面版」专用的资源裁剪（那个测试随字段一起删），而桌面版（Electron 壳）已经删了。资源级 `targets` 也和上一条冲突：target 是安装参数，资源再声明「我只在哪些 target 上装」等于让内容层再管一次安装形态，同一个目标有两处说了算。`requires.agent` 同理：作者写的 agent 偏好只在计划期换一句 warning，装不装得成仍由落点表决定。
+
+没选另一条：留着字段等以后真有人用。空字段要一直进 schema、类型、索引和文档；有人写错时还得解释「为什么写了不生效」，比没有这个字段更贵。
+
+代价：真出现宿主专用资源时，只能按宿主拆包发布；格式 v0 不做跨包引用，共享内容只能在每个包里各带一份。将来若这种需求真的出现，在能力层表达：`host` 作为一个 form，由宿主提供 `host/<harness>@1`，资源用 `optional` 需要它——让「这条资源要哪个宿主」成为接线的一部分，而不是给内容加支持集。
 
 ### 命令层是薄壳，例外只剩一处
 

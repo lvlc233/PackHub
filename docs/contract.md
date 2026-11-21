@@ -98,7 +98,7 @@ review: 格式升版、字段增删、apiVersion 变化时
 - `state.dir` 只建目录；清单里的 `state` 块决定路径与 `retain`，目录不参与 `written`、不随快照回滚删除。
 - `exec` 带 `command/args/cwd/env/timeout` 与 `approval: required`：计划里永远标待批准，执行层必须显式 `--allow-exec` 才跑。退出码非零算失败，触发整次安装回滚。`undo` 目前只作记录，不自动执行。
 
-`excluded` 记录没进计划的候选，`reason` 四种：`unbound-slot`（槽位没选中它：没写 `bindings` 也没有 `default`，或被别的实现覆盖）、`target-mismatch`（资源级 target 不匹配）、`optional-unmet`（可选资源缺依赖，级联跳过）、`host-managed`（同步时由宿主管理、不进安装计划）。它们不进动作列表，但必须在计划里可见，否则「为什么没装」无从查起。
+`excluded` 记录没进计划的候选，`reason` 三种：`unbound-slot`（槽位没选中它：没写 `bindings` 也没有 `default`，或被别的实现覆盖）、`optional-unmet`（可选资源缺依赖，级联跳过）、`host-managed`（调用方按资源类型跳过，不进安装计划）。它们不进动作列表，但必须在计划里可见，否则「为什么没装」无从查起。
 
 能力令牌统一写成 `<form>/<name>@<major>`：`form` 是闭集 `tool` / `skill` / `content` / `config`，表示能力的消费形态、不是资源类型；`name` 匹配 `[a-z][a-z0-9-]*`，只描述能做什么；`major` 是从 1 起的正整数，主版本不同就视为不兼容的两种能力（目前只有精确匹配，没有范围）。`provides` / `needs` 与槽位的 `contract` 共用这套写法，schema 用同一个正则 `^(tool|skill|content|config)/[a-z][a-z0-9-]*@[1-9][0-9]*$`。
 
@@ -195,8 +195,7 @@ registry 的索引，`search` / `install` / `update` 只读它。
       "install": "packhub install lvlc233/team-conventions",
       "license": "CC-BY-4.0",
       "homepage": "https://example.com/team-conventions",
-      "authors": [{ "name": "…", "url": "https://example.com" }],
-      "requiresAgent": "dsh"
+      "authors": [{ "name": "…", "url": "https://example.com" }]
     }
   ]
 }
@@ -207,7 +206,7 @@ registry 的索引，`search` / `install` / `update` 只读它。
 - `verified`：这个包的**每个**版本都有 `verify.json`、`ok: true` 且报告里的 `contentHash` 与按锁的 `resolved` 重算的 `contentHash` 一致（整包都 verified 才标 verified）。
 - `community`：其余；有报告但对不上会给 warning，按 community 处理。
 
-清单派生的展示字段（`title` / `description` / `license` / `homepage` / `authors` / `keywords` / `requiresAgent`）取 `latest` 那个版本的清单；`signers` 只收该版本 `verify.json` 里 `ok: true` 的 key；清单没写的字段写 `null` 或空数组，读方不用猜。索引没有 `targets` 字段：清单不声明支持集，装到哪个 target 是使用者在安装时选的参数；`requiresAgent` 是作者的 agent 偏好，不是「支持哪些宿主」。
+清单派生的展示字段（`title` / `description` / `license` / `homepage` / `authors` / `keywords`）取 `latest` 那个版本的清单；`signers` 只收该版本 `verify.json` 里 `ok: true` 的 key；清单没写的字段写 `null` 或空数组，读方不用猜。索引没有 `targets` 字段：清单不声明支持集，装到哪个 target 是使用者在安装时选的参数。
 
 不变量：
 

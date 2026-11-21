@@ -85,8 +85,6 @@ export interface ResourceSpec {
   provides?: string[];
   /** 这个资源需要的能力令牌；安装顺序由它派生 */
   needs?: string[];
-  /** 只在这些 target 上安装；不写就是全部（client / server 裁剪靠它） */
-  targets?: TargetId[];
   optional?: boolean;
 }
 
@@ -182,7 +180,7 @@ export interface Manifest {
     visibility?: 'public' | 'unlisted' | 'internal' | 'private';
   };
   /** schema 的顶层 required 里没有它；读端（graph.ts、registry 索引）也都按可选取。 */
-  requires?: { packhub: string; agent?: string };
+  requires?: { packhub: string };
   /**
    * 整合包自己的那段上下文：这个环境是什么、默认怎么做事、什么不做、从哪开始。
    * 写成 `./` 开头的路径时，plan 期读那份文件；否则按内联文本用。

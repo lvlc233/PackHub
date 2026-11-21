@@ -4,9 +4,6 @@ import { deepMerge, isPlainObject } from './util.ts';
 import { RESOURCE_KINDS } from './kinds.ts';
 import { ISSUE_CODES } from './issueCodes.ts';
 
-/** 已知的 harness 名称；requires.agent 写别的名字只警告，不阻断（新 harness 不该让旧包装不上）。 */
-export const KNOWN_AGENTS = ['dsh', 'claude-code', 'codex', 'opencode'] as const;
-
 /** 安装边：provider 必须先于 consumer 装（由 needs 派生）。 */
 export interface GraphEdge {
   provider: string;
@@ -173,16 +170,6 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
     }
   }
   const { active, excluded } = resolveSlots(manifest, issues);
-
-  // requires.agent 只做提示：写错名字不阻断安装，但要让人看见
-  const agent = manifest.requires?.agent;
-  if (agent && !(KNOWN_AGENTS as readonly string[]).includes(agent)) {
-    issues.push({
-      code: ISSUE_CODES.unknownAgent,
-      severity: 'warning',
-      message: `requires.agent=${agent} 不在已知 harness（${KNOWN_AGENTS.join(' / ')}）里；按通用安装继续`,
-    });
-  }
 
   // 重复 id 在所有资源上查（包括未绑定的候选）
   const seen = new Set<string>();

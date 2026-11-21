@@ -41,7 +41,6 @@ export interface IndexPack {
   license: string | null;
   homepage: string | null;
   authors: { name: string; url?: string }[];
-  requiresAgent: string | null;
 }
 
 export interface RegistryIndex {
@@ -367,10 +366,8 @@ export function buildIndex(registryRoot: string): BuildResult {
             authors?: { name: string; url?: string }[];
           };
           resources: unknown[];
-          requires?: { agent?: string };
         }
       ).metadata;
-      const leadManifest = lead.manifest as { requires?: { agent?: string } };
       const allVerified = entries.every((e) => e.trust === 'verified');
 
       packs.push({
@@ -388,7 +385,6 @@ export function buildIndex(registryRoot: string): BuildResult {
         license: meta.license ?? null,
         homepage: meta.homepage ?? null,
         authors: meta.authors ?? [],
-        requiresAgent: leadManifest.requires?.agent ?? null,
       });
     }
   }

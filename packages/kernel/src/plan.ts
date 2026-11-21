@@ -135,11 +135,6 @@ export function buildPlan(
       excluded.push({ resource: id, slot: res.slot ?? '', reason: 'host-managed' });
       continue;
     }
-    // 资源级 target 裁剪：同一个 Pack 在 server 上可以不带 client-only 的资源
-    if (res.targets && res.targets.length > 0 && !res.targets.includes(opts.target)) {
-      excluded.push({ resource: id, slot: res.slot ?? '', reason: 'target-mismatch' });
-      continue;
-    }
     RESOURCE_KINDS[res.type].materialize(kindCtx, res);
   }
 

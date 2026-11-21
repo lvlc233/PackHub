@@ -25,12 +25,7 @@
             "items": { "type": "string", "pattern": "^(tool|skill|content|config)/[a-z][a-z0-9-]*@[1-9][0-9]*$" },
             "uniqueItems": true
           },
-          "homepage": { "type": "string", "format": "uri" },
-          "targets": {
-            "type": "array",
-            "items": { "enum": ["dir", "dsh", "claude-code", "codex"] },
-            "uniqueItems": true
-          }
+          "homepage": { "type": "string", "format": "uri" }
         }
       }
     }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseManifest, planFor, validateGraph } from '../src/index.ts';
+import { parseManifest, validateGraph } from '../src/index.ts';
 import type { Manifest } from '../src/index.ts';
 
 const base = (patch: Partial<Manifest> = {}): Manifest => {
@@ -92,26 +92,5 @@ describe('optional 资源', () => {
     const { graph, issues } = validateGraph(manifest);
     expect(graph.resources.has('impl')).toBe(true);
     expect(issues.map((i) => i.code)).toContain('unmet-need');
-  });
-});
-
-describe('requires.agent', () => {
-  it('已知 harness 不报警告', () => {
-    const manifest = base({ requires: { packhub: '>=0.0.1 <0.1', agent: 'dsh' } });
-    expect(validateGraph(manifest).issues.map((i) => i.code)).not.toContain('unknown-agent');
-  });
-
-  it('未知 harness 只警告，不阻断', () => {
-    const manifest = base({ requires: { packhub: '>=0.0.1 <0.1', agent: 'future-agent' } });
-    const { issues } = validateGraph(manifest);
-    expect(issues.find((i) => i.code === 'unknown-agent')?.severity).toBe('warning');
-    expect(issues.filter((i) => i.severity === 'error')).toHaveLength(0);
-  });
-
-  it('requires.agent 与本次安装 target 不一致时警告（判据在 planFor）', () => {
-    const manifest = base({ requires: { packhub: '>=0.0.1 <0.1', agent: 'dsh' } });
-    const { graph, issues: graphIssues } = validateGraph(manifest);
-    const { issues } = planFor({ dir: '.', manifest, graph, issues: graphIssues }, { target: 'dir' });
-    expect(issues.map((i) => i.code)).toContain('agent-target-mismatch');
   });
 });

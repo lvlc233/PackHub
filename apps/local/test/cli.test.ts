@@ -223,7 +223,7 @@ describe('cli 端到端：install → verify → uninstall', () => {
     rmSync(project, { recursive: true, force: true });
   });
 
-  it('target 只由命令行选：清单不再声明 targets（声明门已删）', () => {
+  it('target 只由命令行选：清单不声明 target', () => {
     const pack = mkdtempSync(join(tmpdir(), 'packhub-cli-target-'));
     writeFileSync(
       join(pack, 'packhub.yaml'),
@@ -239,7 +239,7 @@ resources:
       'utf8',
     );
     writeFileSync(join(pack, 'rules.md'), '# rules\n', 'utf8');
-    // 以前 metadata 没写 target 就出不了别的 target 的计划；现在按命令行现算
+    // 清单里没有 target 字段：落点按命令行 --target 现算，换 target 就是换一份计划
     const planned = run(['plan', pack, '--target', 'claude-code']);
     expect(planned.status).toBe(0);
     expect(planned.out).toContain('target=claude-code');

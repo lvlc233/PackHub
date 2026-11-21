@@ -21,7 +21,7 @@ export function reportIssues(issues: Issue[], ctx = 'packhub'): boolean {
  * 接线段：能力令牌 → provider、needs 派生的安装边、槽位的 contract / 有效实现 /
  * 候选 / 被排除的候选与原因。
  *
- * `plan.excluded` 是 `graph.excluded` 的超集（plan 期还多出 target-mismatch / host-managed），
+ * `plan.excluded` 是 `graph.excluded` 的超集（plan 期还多出 host-managed），
  * 所以「为什么没装」以 plan 为准；graph 侧的原因只在这一项计划里没有时兜底。
  * 槽位之外的排除（不占槽位、被整条计划裁掉）另起一段，不能因为按槽位打印就丢掉。
  */

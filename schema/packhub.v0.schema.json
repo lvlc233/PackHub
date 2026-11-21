@@ -49,8 +49,7 @@
       "additionalProperties": false,
       "required": ["packhub"],
       "properties": {
-        "packhub": { "type": "string" },
-        "agent": { "type": "string" }
+        "packhub": { "type": "string" }
       }
     },
     "vars": {
@@ -193,12 +192,6 @@
         "config": { "type": "object" },
         "provides": { "$ref": "#/definitions/capabilities" },
         "needs": { "$ref": "#/definitions/capabilities" },
-        "targets": {
-          "type": "array",
-          "description": "只在这些 target 上安装；不写就全部安装",
-          "items": { "enum": ["dir", "dsh", "claude-code", "codex"] },
-          "uniqueItems": true
-        },
         "optional": { "type": "boolean", "default": false }
       },
       "allOf": [
