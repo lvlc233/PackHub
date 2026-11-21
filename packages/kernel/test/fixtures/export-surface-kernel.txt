@@ -16,8 +16,10 @@ HARNESS_IDS
 HarnessId
 INDEX_API_VERSION
 ISSUE_CODES
+InstalledResource
 Issue
 IssueCode
+KindContext
 LOCK_FILE
 LoadResult
 LocalOverrides
@@ -48,9 +50,11 @@ PlanOptions
 PlanShape
 PlanSnapshot
 RESOURCES_API_VERSION
+RESOURCE_KINDS
 RESOURCE_TYPES
 ResolvedRef
 ResourceCatalog
+ResourceKind
 ResourceSpec
 ResourceType
 STATE_DIR

@@ -1,6 +1,7 @@
 import type { Issue, Manifest, ResourceSpec } from './types.ts';
 import { checkSource, parseSource } from './ref.ts';
 import { deepMerge, isPlainObject } from './util.ts';
+import { RESOURCE_KINDS } from './kinds.ts';
 import { ISSUE_CODES } from './issueCodes.ts';
 
 /** 已知的 harness 名称；requires.agent 写别的名字只警告，不阻断（新 harness 不该让旧包装不上）。 */
@@ -159,10 +160,10 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
       });
       continue;
     }
-    // 参数补丁只对真有参数的东西有意义；skill / prompt / knowledge 的正文不吃这一口
+    // 参数补丁只对真有参数面的类型有意义；其余类型的正文不吃这一口
     if (isPlainObject(m.with)) {
       const type = manifest.resources.find((r) => r.id === m.resource)?.type;
-      if (type !== 'mcp' && type !== 'tool2') {
+      if (type && RESOURCE_KINDS[type].paramPatch === null) {
         issues.push({
           code: ISSUE_CODES.modifyInvalid,
           severity: 'error',
@@ -214,9 +215,11 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
   manifest.resources.forEach((raw, index) => {
     const at = `resources[${index}]`;
     const patch = paramPatches.get(raw.id);
+    // 参数补丁并到哪儿由 kind 表决定：mcp 并 config，tool2 并 env（值 String() 化）；
+    // null 的 kind 在上一轮已经报了 modify-invalid，这里保持与旧实现一致的兜底
     const res: ResourceSpec = !patch
       ? raw
-      : raw.type === 'tool2'
+      : RESOURCE_KINDS[raw.type].paramPatch === 'env'
         ? {
             ...raw,
             // 工具的配置面是环境变量：对象形式的补丁并进 env

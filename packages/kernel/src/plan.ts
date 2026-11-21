@@ -10,15 +10,14 @@ import type {
   ResourceSpec,
   ResourceType,
   TargetId,
-  ToolRuntime,
   VerifyCheck,
 } from './types.ts';
 import { interpolate, isPlainObject, canonicalize, sha256 } from './util.ts';
-import { parseSource } from './ref.ts';
 import { STATE_DIR } from './files.ts';
 import { actionPaths, actionUndo } from './plan-ops.ts';
 import { TARGET_VARS, type TargetVars } from './targets.ts';
 import type { Graph } from './graph.ts';
+import { RESOURCE_KINDS, fileNameOf, type InstalledResource, type KindContext } from './kinds.ts';
 import { ISSUE_CODES } from './issueCodes.ts';
 
 export interface PlanOptions {
@@ -90,7 +89,6 @@ export function buildPlan(
   };
 
   // 资源装到哪儿、本地来源在哪；文件类补丁要按这个落点算目标、按来源读上游内容
-  type InstalledResource = { type: ResourceType; kind: 'dir' | 'file'; to: string; from?: string };
   const installed = new Map<string, InstalledResource>();
 
   const packBase = resolve(opts.packDir ?? '.');
@@ -103,6 +101,18 @@ export function buildPlan(
     push({ op: 'write', to: rel, content: ROUTE_SHIM[runtime], resource: `shim:${runtime}` });
     shimEmitted.set(runtime, rel);
     return rel;
+  };
+
+  // 类型特有的物化全在 RESOURCE_KINDS 里；循环只把计划上下文递进去，不再按类型分叉
+  const kindCtx: KindContext = {
+    issues,
+    installed,
+    targetVars,
+    packBase,
+    platform: opts.platform,
+    push,
+    interp,
+    pushRouteShim,
   };
 
   // 状态目录：建目录，不写文件。放在最前面，后续动作引用 ${state.x} 时目录已经存在。
@@ -130,266 +140,7 @@ export function buildPlan(
       excluded.push({ resource: id, slot: res.slot ?? '', reason: 'target-mismatch' });
       continue;
     }
-    const parsed = parseSource(res.source);
-    const at = `resources.${id}`;
-
-    switch (res.type) {
-      case 'mcp': {
-        // MCP 由目标环境自己用 npx/uvx 拉起，安装期只登记，不预先下载包体
-        push({
-          op: 'register.mcp',
-          spec: buildMcpSpec(res, interp(res.config ?? {}) as Record<string, unknown>),
-          path: targetVars.configFile,
-          resource: id,
-        });
-        break;
-      }
-      case 'skill': {
-        if (parsed.kind === 'http' && !looksLikeArchive(res.source)) {
-          issues.push({
-            code: ISSUE_CODES.sourceNotArchive,
-            severity: 'error',
-            message: `skill 的 https 来源必须是 .tar.gz（现在是单文件）：${res.source}`,
-            path: at,
-          });
-          break;
-        }
-        if (parsed.kind === 'local') {
-          push({ op: 'link.skill', from: parsed.locator, to: `${targetVars.skillsDir}/${id}`, fromBase: 'pack', resource: id });
-          installed.set(id, { type: res.type, kind: 'dir', to: `${targetVars.skillsDir}/${id}`, from: parsed.locator });
-        } else {
-          push({
-            op: 'fetch',
-            uri: res.source,
-            dest: `${targetVars.cacheDir}/${id}.tar.gz`,
-            ...(res.integrity ? { integrity: res.integrity } : {}),
-            ...(res.auth ? { auth: res.auth } : {}),
-            resource: id,
-          });
-          push({
-            op: 'unpack',
-            from: `${targetVars.cacheDir}/${id}.tar.gz`,
-            to: `${targetVars.cacheDir}/skills/${id}`,
-            strip: 1,
-            fromBase: 'root',
-            resource: id,
-          });
-          // github:owner/repo/sub/path@ref 的 sub/path 只在解包后的仓库里取
-          const from = parsed.subpath
-            ? `${targetVars.cacheDir}/skills/${id}/${parsed.subpath}`
-            : `${targetVars.cacheDir}/skills/${id}`;
-          push({
-            op: 'link.skill',
-            from,
-            to: `${targetVars.skillsDir}/${id}`,
-            fromBase: 'root',
-            resource: id,
-          });
-          // 远程资源的正文要等安装时才取回：能做整文件替换与删除，做不了按锚点改
-          installed.set(id, { type: res.type, kind: 'dir', to: `${targetVars.skillsDir}/${id}` });
-        }
-        break;
-      }
-      case 'knowledge':
-      case 'prompt': {
-        const dir = res.type === 'knowledge' ? targetVars.knowledgeDir : targetVars.promptsDir;
-        const name = fileNameOf(parsed.locator);
-        if (parsed.kind === 'local') {
-          push({ op: 'write', from: parsed.locator, to: `${dir}/${name}`, resource: id });
-          installed.set(id, { type: res.type, kind: 'file', to: `${dir}/${name}`, from: parsed.locator });
-        } else {
-          push({
-            op: 'fetch',
-            uri: res.source,
-            dest: `${dir}/${name}`,
-            ...(res.integrity ? { integrity: res.integrity } : {}),
-            ...(res.auth ? { auth: res.auth } : {}),
-            resource: id,
-          });
-          installed.set(id, { type: res.type, kind: 'file', to: `${dir}/${name}` });
-        }
-        break;
-      }
-      case 'config': {
-        // config 就是一份配置文件，原样落进 configDir；不合并、不碰 MCP 的配置文件
-        const dir = targetVars.configDir;
-        const name = fileNameOf(parsed.locator);
-        if (parsed.kind === 'local') {
-          push({ op: 'write', from: parsed.locator, to: `${dir}/${name}`, resource: id });
-          installed.set(id, { type: res.type, kind: 'file', to: `${dir}/${name}`, from: parsed.locator });
-        } else {
-          push({
-            op: 'fetch',
-            uri: res.source,
-            dest: `${dir}/${name}`,
-            ...(res.integrity ? { integrity: res.integrity } : {}),
-            ...(res.auth ? { auth: res.auth } : {}),
-            resource: id,
-          });
-          installed.set(id, { type: res.type, kind: 'file', to: `${dir}/${name}` });
-        }
-        break;
-      }
-      case 'tool2': {
-        const commands = res.commands ?? [];
-        if (commands.length === 0) {
-          issues.push({
-            code: ISSUE_CODES.toolNeedsCommands,
-            severity: 'error',
-            message: `tool2 要用 commands 声明暴露哪些命令：${res.source}`,
-            path: at,
-          });
-          break;
-        }
-
-        // 执行体整份落地，按 commands 逐条建入口
-        const toolRoot = `${targetVars.cacheDir}/tools/${id}`;
-        const localPath = parsed.kind === 'local' ? resolve(packBase, parsed.locator) : undefined;
-        const sourceIsFile = localPath ? existsSync(localPath) && !statSync(localPath).isDirectory() : false;
-        if (parsed.kind === 'local') {
-          push({ op: 'copy', from: parsed.locator, to: toolRoot, resource: id });
-          // 本地来源能读到正文：允许 modify 按锚点改执行体
-          installed.set(id, { type: res.type, kind: 'dir', to: toolRoot, from: parsed.locator });
-        } else {
-          if (parsed.kind === 'http' && !looksLikeArchive(res.source)) {
-            issues.push({
-              code: ISSUE_CODES.sourceNotArchive,
-              severity: 'error',
-              message: `tool2 的 https 来源必须是 .tar.gz（现在是单文件）：${res.source}`,
-              path: at,
-            });
-            break;
-          }
-          push({
-            op: 'fetch',
-            uri: res.source,
-            dest: `${targetVars.cacheDir}/${id}.tar.gz`,
-            ...(res.integrity ? { integrity: res.integrity } : {}),
-            ...(res.auth ? { auth: res.auth } : {}),
-            resource: id,
-          });
-          push({
-            op: 'unpack',
-            from: `${targetVars.cacheDir}/${id}.tar.gz`,
-            to: toolRoot,
-            strip: 1,
-            fromBase: 'root',
-            resource: id,
-          });
-          installed.set(id, { type: res.type, kind: 'dir', to: toolRoot });
-        }
-
-        const names = new Set<string>();
-        for (const [ci, cmd] of commands.entries()) {
-          const label = `${at}.commands[${ci}]`;
-          if (!cmd.name) {
-            issues.push({ code: ISSUE_CODES.toolCommandInvalid, severity: 'error', message: `${label} 缺少 name`, path: label });
-            continue;
-          }
-          if (names.has(cmd.name)) {
-            issues.push({
-              code: ISSUE_CODES.duplicateCommandName,
-              severity: 'error',
-              message: `${label}：命令名重复：${cmd.name}`,
-              path: label,
-            });
-            continue;
-          }
-          names.add(cmd.name);
-
-          const exec = cmd.exec ?? (sourceIsFile ? fileNameOf(parsed.locator) : undefined);
-          if (!exec) {
-            issues.push({
-              code: ISSUE_CODES.toolCommandInvalid,
-              severity: 'error',
-              message: `${label}：source 是目录，必须写 exec 指明执行体`,
-              path: label,
-            });
-            continue;
-          }
-          const runtime = cmd.runtime ?? inferRuntime(exec);
-          const shim = cmd.shim ?? res.shim ?? 'auto';
-          const mergedEnv = (() => {
-            const merged = { ...(res.env ?? {}), ...(cmd.env ?? {}) };
-            return Object.keys(merged).length > 0 ? merged : undefined;
-          })();
-          const platforms = cmd.platforms ?? res.platforms;
-          // 平台裁剪改到执行期：计划保留全部动作，不匹配由执行器记 skipped。
-          // 这里只用注入的平台给一条「跑不了」的警告，不删动作、不读 process。
-          if (runtime === 'shell' && opts.platform.startsWith('win32')) {
-            issues.push({
-              code: ISSUE_CODES.toolShellUnsupported,
-              severity: 'warning',
-              message: `${label}：runtime: shell 要 sh，Windows 上没有；执行器会拒绝这条命令，换 node / python 或用 platforms 限定平台`,
-              path: label,
-            });
-          }
-          if (runtime === 'binary' && !platforms) {
-            issues.push({
-              code: ISSUE_CODES.toolBinaryWithoutPlatforms,
-              severity: 'warning',
-              message: `${label}：binary 没写 platforms，装到别的平台要到运行时才失败`,
-              path: label,
-            });
-          }
-          const platformField = platforms && platforms.length > 0 ? { platforms } : {};
-          if (shim === 'route') {
-            if (!cmd.call) {
-              issues.push({
-                code: ISSUE_CODES.toolRouteNeedsCall,
-                severity: 'error',
-                message: `${label}：shim: route 要写 call（模块里的函数名）`,
-                path: label,
-              });
-              continue;
-            }
-            if (runtime !== 'node' && runtime !== 'python') {
-              issues.push({
-                code: ISSUE_CODES.toolRouteUnsupported,
-                severity: 'error',
-                message: `${label}：route 只支持 node / python，现在是 ${runtime}`,
-                path: label,
-              });
-              continue;
-            }
-            const shimPath = pushRouteShim(runtime);
-            push({
-              op: 'link.exec',
-              to: `${targetVars.binDir}/${cmd.name}`,
-              runtime,
-              entry: shimPath,
-              module: `${toolRoot}/${exec}`,
-              args: [cmd.call, ...(cmd.args ?? [])],
-              ...platformField,
-              ...(mergedEnv ? { env: mergedEnv } : {}),
-              resource: id,
-            });
-            continue;
-          }
-          push({
-            op: 'link.exec',
-            to: `${targetVars.binDir}/${cmd.name}`,
-            runtime,
-            entry: `${toolRoot}/${exec}`,
-            args: cmd.args ?? [],
-            ...platformField,
-            ...(mergedEnv ? { env: mergedEnv } : {}),
-            resource: id,
-          });
-        }
-        break;
-      }
-      default: {
-        // 加资源类型时这里会编译失败：逼着同时补安装动作，别让新类型静默进不了计划
-        const unhandled: never = res.type;
-        issues.push({
-          code: ISSUE_CODES.unknownResourceType,
-          severity: 'error',
-          message: `未知资源类型：${String(unhandled)}`,
-          path: at,
-        });
-      }
-    }
+    RESOURCE_KINDS[res.type].materialize(kindCtx, res);
   }
 
   // 二次修改：按资源定位到文件或段落，排在资源动作之后，才盖得住刚装好的东西。
@@ -642,42 +393,6 @@ export function buildPlan(
   return { plan: { ...plan, planHash: sha256(canonicalize(plan)) }, issues };
 }
 
-export function buildMcpSpec(res: ResourceSpec, raw: Record<string, unknown>): Record<string, unknown> {
-  const parsed = parseSource(res.source);
-  const config = isPlainObject(raw) ? raw : {};
-  const env = isPlainObject(config.env) ? config.env : undefined;
-  const spec: Record<string, unknown> = {
-    transport: res.transport ?? 'stdio',
-    ...(env ? { env } : {}),
-  };
-  if (parsed.kind === 'npm') {
-    spec.command = config.command ?? 'npx';
-    spec.args = config.args ?? ['-y', res.source.replace(/^npm:/, '')];
-  } else if (parsed.kind === 'pypi') {
-    spec.command = config.command ?? 'uvx';
-    spec.args = config.args ?? [parsed.locator.replace(/^pypi:/, '')];
-  } else if (parsed.kind === 'http') {
-    spec.url = parsed.locator;
-  } else if (isPlainObject(config) && config.command) {
-    spec.command = config.command;
-    spec.args = config.args ?? [];
-  } else {
-    spec.command = undefined;
-  }
-  return spec;
-}
-
-function slug(id: string): string {
-  return id.replace(/[^a-z0-9.-]+/gi, '-');
-}
-
-/** 目标文件名：取定位符最后一段；https 取路径末段。 */
-function fileNameOf(locator: string): string {
-  const withoutScheme = locator.replace(/^[a-z]+:\/\//, '');
-  const last = withoutScheme.split('/').filter(Boolean).pop() ?? 'resource';
-  return last.includes('.') ? last : `${slug(last)}.md`;
-}
-
 /* ---------- 覆盖与冲突 ---------- */
 
 /** 递归列出目录下所有文件（posix 相对路径）。 */
@@ -812,22 +527,8 @@ function detectConflicts(actions: PlanAction[], target: TargetId): Issue[] {
   return issues;
 }
 
-/** https 来源能不能当归档解包（目前只认 tar 系）。 */
-function looksLikeArchive(url: string): boolean {
-  const path = url.split('?')[0] ?? url;
-  return /\.(tar\.gz|tgz|tar)$/i.test(path);
-}
-
 /** `with` 是路径还是内联文本：只有 ./ ../ 或带 scheme 的才算路径。 */
 const PACK_PATH_RE = /^(\.\.?\/|[a-z][a-z0-9+.-]*:)/i;
-
-/** 入口后缀推运行时；推不出就当二进制直接执行。 */
-function inferRuntime(exec: string): ToolRuntime {
-  if (/\.(c|m)?js$/i.test(exec)) return 'node';
-  if (/\.py$/i.test(exec)) return 'python';
-  if (/\.(sh|bash)$/i.test(exec)) return 'shell';
-  return 'binary';
-}
 
 /**
  * route 模式的通用 shim：argv 是 `<模块> <函数> <参数…>`，

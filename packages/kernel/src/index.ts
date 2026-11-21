@@ -39,7 +39,14 @@ export {
   type CompositionContext,
   type CompositionSlot,
 } from './composition.ts';
-export { buildPlan, buildMcpSpec, type PlanOptions } from './plan.ts';
+export {
+  RESOURCE_KINDS,
+  buildMcpSpec,
+  type InstalledResource,
+  type KindContext,
+  type ResourceKind,
+} from './kinds.ts';
+export { buildPlan, type PlanOptions } from './plan.ts';
 export { DIR_TARGET_VARS, TARGET_VARS, type TargetVars } from './targets.ts';
 export { buildLock, contentHashOf } from './lock.ts';
 export {
