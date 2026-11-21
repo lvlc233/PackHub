@@ -104,13 +104,6 @@ const CASES: {
     quietStdout: true,
   },
   {
-    name: '坏参数：activate 缺版本',
-    args: (base) => ['activate', 'demo/exit', base],
-    code: 2,
-    stderr: /^用法：packhub activate <name>@<version>$/m,
-    quietStdout: true,
-  },
-  {
     name: '坏参数：completion 不支持的 shell',
     args: () => ['completion', 'fish'],
     code: 2,
@@ -139,8 +132,8 @@ const CASES: {
     quietStdout: true,
   },
   {
-    name: '前置条件：add 用 registry 名称但没配索引',
-    args: (base) => ['add', 'lvlc233/team-conventions', '--dir', base],
+    name: '前置条件：install 用 registry 名称但没配索引',
+    args: (base) => ['install', 'lvlc233/team-conventions', '--dir', base],
     code: 2,
     stderr: /^用 registry 名称安装需要一个索引/m,
     quietStdout: true,
@@ -151,14 +144,6 @@ const CASES: {
     prepare: (base) => makePack(base),
     code: 2,
     stderr: /^x 清单里有 1 个本地文件/m,
-    quietStdout: true,
-  },
-  {
-    name: '前置条件：sync 未知 target',
-    args: (base) => ['sync', base, '--to', 'opencode'],
-    prepare: (base) => makePack(base),
-    code: 2,
-    stderr: /^x 未知 target：opencode/m,
     quietStdout: true,
   },
   {

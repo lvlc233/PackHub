@@ -3,18 +3,16 @@ import type { CommandDef } from 'citty';
 import { EXIT, command, problemRaw, say, stop } from './emit.ts';
 import {
   plan,
-  install,
   verify,
   lock,
   init,
   rollback,
-  versions,
-  activate,
   uninstall,
   diff,
 } from './commands/plan-install.ts';
-import { add, update, sync } from './commands/add-update.ts';
-import { run, publish, probe, pack } from './commands/pack.ts';
+import { install } from './commands/install.ts';
+import { update } from './commands/update.ts';
+import { publish, pack } from './commands/pack.ts';
 import {
   trustAdd,
   trustRemove,
@@ -37,7 +35,7 @@ import {
   cache,
   discover,
 } from './commands/registry.ts';
-import { audit, doctor, licenses } from './commands/doctor-license.ts';
+import { audit, licenses } from './commands/doctor-license.ts';
 import { resourceAdd, resource, slotSwap, slot } from './commands/misc.ts';
 
 // completion 要读 main.subCommands，main 又在这里组装：留在同一个文件，避免循环依赖。
@@ -159,13 +157,13 @@ export function unknownFlag(argv: string[]): string | undefined {
 export const main: CommandDef = command({
   // 版本号只认仓库根 package.json 一份，别在这里手写第二份。
   meta: { name: 'packhub', version: pkg.version, description: 'Agent 能力的整合包工具' },
+  // 命令面按「对象」划分：packhub 只碰 Pack 目录与项目目录，pal 只碰实例。
+  // 安装只发生在目录（install 的 SOURCE 是装什么，--dir 是装到哪），要跑起来用 pal create。
   subCommands: {
     plan,
     install,
     uninstall,
     rollback,
-    versions,
-    activate,
     update,
     verify,
     lock,
@@ -173,23 +171,18 @@ export const main: CommandDef = command({
     search,
     discover,
     cache,
-    add,
-    sync,
     resource,
     slot,
     diff,
     pack,
-    doctor,
-    auth,
-    trust,
-    audit,
-    run,
     publish,
-    probe,
     licenses,
     keygen,
     sign,
     'verify-sig': verifySig,
+    auth,
+    trust,
+    audit,
     completion,
   },
 });

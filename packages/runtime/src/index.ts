@@ -16,16 +16,12 @@ export {
   saveState,
   removePack,
   rollbackPack,
-  listVersions,
-  activatePack,
   readVersionRecord,
   atomicWrite,
   type ApplyOptions,
   type ApplyResult,
   type RemoveResult,
   type RollbackResult,
-  type ActivateResult,
-  type VersionInfo,
   type VersionRecord,
   type ActionOutcome,
   type ActionStatus,
@@ -189,29 +185,6 @@ export {
   type PackhubConfig,
   type RegistryEntry,
 } from './config.ts';
-export {
-  syncPack,
-  removeSynced,
-  doctorGlobal,
-  globalTargetVars,
-  type SyncTarget,
-  type SyncOptions,
-  type SyncTargetResult,
-  type SyncRemoveResult,
-  type GlobalDoctorResult,
-} from './sync.ts';
-export {
-  HARNESSES,
-  GLOBAL_LAYOUT,
-  syncTargets,
-  isSyncTarget,
-  harnessSpec,
-  harnessRoot,
-  assertHarnessRoot,
-  resolveSyncTargets,
-  type HarnessSpec,
-  type GlobalSpec,
-} from './harnesses.ts';
 
 /** 把计划落到目标目录（执行面：写盘、下载、可选执行命令）。 */
 export function installPack(

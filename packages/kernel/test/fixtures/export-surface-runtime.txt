@@ -1,6 +1,5 @@
 ActionOutcome
 ActionStatus
-ActivateResult
 AddResourceInput
 AddResourceResult
 ApplyOptions
@@ -18,11 +17,6 @@ DoctorReport
 DriftFinding
 FetchError
 FetchResult
-GLOBAL_LAYOUT
-GlobalDoctorResult
-GlobalSpec
-HARNESSES
-HarnessSpec
 HarnessTarget
 HostMcpResult
 HostMcpSpec
@@ -61,10 +55,6 @@ SignatureCheck
 SignatureEntry
 SignatureFile
 SkillProbeOptions
-SyncOptions
-SyncRemoveResult
-SyncTarget
-SyncTargetResult
 TokenInfo
 TrustFile
 TrustedKey
@@ -74,9 +64,7 @@ VerifyAtOptions
 VerifyAtResult
 VerifyMode
 VerifyOptions
-VersionInfo
 VersionRecord
-activatePack
 addClaudeMcp
 addResource
 addSignature
@@ -84,7 +72,6 @@ addTrustedKey
 appendAudit
 applyPlan
 archivePath
-assertHarnessRoot
 atomicWrite
 auditPath
 catalogPathNear
@@ -95,7 +82,6 @@ configPath
 contentHashFor
 credentialsPath
 defaultRegistryIndex
-doctorGlobal
 doctorPack
 download
 evaluateLicense
@@ -103,9 +89,6 @@ extractMarker
 fetchPack
 generateKeyPair
 gitArchiveUrl
-globalTargetVars
-harnessRoot
-harnessSpec
 hasInstalledPacks
 inferId
 inspectCache
@@ -113,10 +96,8 @@ inspectLicenses
 inspectPack
 installPack
 isSafeArchiveEntry
-isSyncTarget
 keyIdFromPem
 listTokens
-listVersions
 loadCatalog
 loadLock
 loadManifest
@@ -143,7 +124,6 @@ readVersionRecord
 registryIndexes
 removeClaudeMcp
 removePack
-removeSynced
 removeToken
 removeTrustedKey
 resolveAddSource
@@ -151,7 +131,6 @@ resolveDownloadUrl
 resolvePypiSdist
 resolveReferences
 resolveRegistry
-resolveSyncTargets
 resolveToken
 rollbackPack
 runChecks
@@ -163,8 +142,6 @@ setToken
 signContentHash
 signablePayload
 signaturePolicy
-syncPack
-syncTargets
 trustPath
 trustedKeyIds
 unpackArchive

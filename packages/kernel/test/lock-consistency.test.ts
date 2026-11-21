@@ -5,7 +5,7 @@ import { checkLockConsistency, contentHashOf } from '../src/index.ts';
 const MANIFEST: Manifest = {
   apiVersion: 'packhub.dev/v0',
   kind: 'Pack',
-  metadata: { name: 'demo/consistency', version: '0.0.1', targets: ['dir', 'dsh'] },
+  metadata: { name: 'demo/consistency', version: '0.0.1' },
   resources: [{ id: 'guide', type: 'knowledge', source: './guide.md' }],
 };
 

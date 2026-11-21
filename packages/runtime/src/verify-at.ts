@@ -41,7 +41,7 @@ export interface VerifyAtResult {
 /**
  * 在某个目录上验：先判模式，再各自跑。
  *
- * 模式判定只在这里：`add` 装进来的包没有 `packhub.yaml`，计划和安装根都在 state 里。
+ * 模式判定只在这里：`install` 装进来的包没有 `packhub.yaml`，计划和安装根都在 state 里。
  * 两者都成立（目录里既有清单、又装过包）时按 Pack 模式走——目录里的清单是更明确的
  * 意图，这一优先级与挪动之前逐字一致。
  */

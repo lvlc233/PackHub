@@ -3,7 +3,7 @@
  *
  * 命令里别再自己 `lastIndexOf('@')`：包名可能带 owner（`owner/name`），版本里不会
  * 再有 `@`，所以取最后一个 `@` 切。解析失败返回 undefined，由各命令决定提示文案与
- * 退出码（activate 的用法提示和 update 的回落不一样）。
+ * 退出码（install 把 name@version 当版本、update 回落到 registry latest，两者不一样）。
  */
 export interface PackRef {
   name: string;

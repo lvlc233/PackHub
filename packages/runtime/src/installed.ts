@@ -24,7 +24,7 @@ export interface InstalledVerifyOptions {
 
 /**
  * 验一个「已经装进项目」的包：计划来自 state 里的快照，检查根就是项目根。
- * 这条路径不要求项目里有 packhub.yaml —— add 装进来的包，清单在 .packhub/packs/ 下。
+ * 这条路径不要求项目里有 packhub.yaml —— install 装进来的包，清单在 .packhub/packs/ 下。
  */
 export async function verifyInstalled(
   root: string,

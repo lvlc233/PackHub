@@ -2,7 +2,19 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PACKHUB_ENV, quoteArg } from '@packhub/kernel';
-import { INSTRUCTION_FILE } from './harnesses.ts';
+
+/**
+ * 指令文件名：装到项目里那份项目说明叫什么。
+ *
+ * 探针要按宿主找到「包写进去的指令块」在哪个文件里；这张表覆盖全部 `HarnessTarget`
+ * （含只在探针里的 opencode）。
+ */
+const INSTRUCTION_FILE: Record<HarnessTarget, string> = {
+  dsh: 'AGENTS.md',
+  'claude-code': 'CLAUDE.md',
+  codex: 'AGENTS.md',
+  opencode: 'AGENTS.md',
+};
 
 /**
  * dsh 探针固定用到的命令与开关。

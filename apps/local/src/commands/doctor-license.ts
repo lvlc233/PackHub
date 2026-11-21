@@ -1,4 +1,5 @@
-// 由 cli.ts 拆分：audit / doctor / licenses
+// 由 cli.ts 拆分：audit / licenses。
+// 原 doctor 已并入 verify（漂移段），全局漂移随 sync 一起删除（全局落点归 PAL 实例）。
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { EXIT, command, json, orStop, say, stop } from '../emit.ts';
@@ -8,16 +9,13 @@ import {
   evaluateLicense,
   npmLicense,
   type LicensePolicy,
-  doctorPack,
-  doctorGlobal,
   auditPath,
   readAudit,
-  resolveSyncTargets,
 } from '@packhub/runtime';
 import { reportIssues } from './shared.ts';
 
 export const audit = command({
-  meta: { name: 'audit', description: '看本机的安装审计（add / install / update）' },
+  meta: { name: 'audit', description: '看本机的安装审计（install / update）' },
   args: {
     tail: { type: 'string', default: '20', description: '只看最近 N 条' },
     json: { type: 'boolean', default: false },
@@ -38,89 +36,6 @@ export const audit = command({
       );
     }
     say(`\n${auditPath()}`);
-  },
-});
-
-export const doctor = command({
-  meta: { name: 'doctor', description: '检查已装的包有没有被外部改写（文件被删、托管块被吃）' },
-  args: {
-    dir: { type: 'positional', required: false, default: '.' },
-    json: { type: 'boolean', default: false },
-    global: { type: 'boolean', default: false, description: '检查全局 harness' },
-    targets: {
-      type: 'string',
-      default: '.',
-      description: '全局检查目标，逗号分隔；. 表示全部已注册',
-    },
-  },
-  run({ args }) {
-    if (args.global) {
-      const targets = orStop(() => resolveSyncTargets(String(args.targets)));
-      const results = doctorGlobal(targets);
-      // skipped 是「这个 harness 没装」，不是失败；只有真读过状态却不 ok 才算失败
-      const failed = results.some((r) => !r.skipped && (r.error !== undefined || !r.report?.ok));
-      if (args.json) {
-        json(results);
-        if (failed) stop(EXIT.RUNTIME);
-        return;
-      }
-      for (const r of results) {
-        say(`\n${r.target} ${r.root}`);
-        if (r.skipped) {
-          say('  - 跳过：没有这个 harness 的 home');
-          continue;
-        }
-        if (r.error) {
-          say(`  x ${r.error}`);
-          continue;
-        }
-        if (!r.report || r.report.packs.length === 0) {
-          say('  没有同步过包');
-          continue;
-        }
-        if (r.report.ok) {
-          say(`  ✓ ${r.report.packs.length} 个包全部在位`);
-          continue;
-        }
-        for (const f of r.report.findings) {
-          say(`  x ${f.pack}`);
-          for (const m of f.filesMissing) say(`      文件不见了：${m}`);
-          for (const b of f.blocksMissing) say(`      托管块不见了：${b}`);
-          for (const c of f.configDrift) say(`      配置被改：${c}`);
-          for (const a of f.activeDrift) say(`      激活指针不一致：${a}`);
-          for (const s of f.stateMissing) say(`      状态目录不见了：${s}`);
-          for (const m of f.mcpMissing) say(`      MCP 不见了：${m}`);
-        }
-      }
-      if (failed) stop(EXIT.RUNTIME);
-      return;
-    }
-    const report = doctorPack(resolve(String(args.dir)));
-    if (args.json) {
-      json(report);
-      if (!report.ok) stop(EXIT.RUNTIME);
-      return;
-    }
-    if (report.packs.length === 0) {
-      say('这个目录没有装任何包');
-      return;
-    }
-    say(`检查 ${report.packs.length} 个包`);
-    for (const f of report.findings) {
-      say(`x ${f.pack}`);
-      for (const b of f.blocksMissing) say(`    托管块不见了：${b}（可能被宿主工具重新生成覆盖）`);
-      for (const m of f.filesMissing) say(`    文件不见了：${m}`);
-      for (const c of f.configDrift) say(`    配置被改：${c}`);
-      for (const a of f.activeDrift) say(`    激活指针不一致：${a}`);
-      for (const s of f.stateMissing) say(`    状态目录不见了：${s}`);
-      for (const m of f.mcpMissing) say(`    MCP 不见了：${m}`);
-    }
-    if (report.ok) {
-      say('✓ 全部在位');
-    } else {
-      say('\n重新 install 可以补回缺失的块；如果宿主会自动重写指令文件，把 PackHub 的块当成"会被覆盖"的内容对待。');
-      stop(EXIT.RUNTIME);
-    }
   },
 });
 

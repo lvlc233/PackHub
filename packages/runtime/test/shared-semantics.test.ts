@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { planFor } from '@packhub/kernel';
-import { activatePack, installPack, loadPack, loadState, readVersionRecord } from '../src/index.ts';
+import { installPack, loadPack, loadState, readVersionRecord } from '../src/index.ts';
 import { pruneRemoved } from '../src/install.ts';
 
 /**
@@ -42,7 +42,7 @@ const TWO_KNOWLEDGE = `  - id: rules
 `;
 
 describe('.json 产物的私有语义', () => {
-  it('写出的 .json 进版本镜像，切回旧版本能还原内容', async () => {
+  it('写出的 .json 进版本记录', async () => {
     const base = mkdtempSync(join(tmpdir(), 'packhub-shared-json-'));
     const project = join(base, 'proj');
     mkdirSync(project, { recursive: true });
@@ -69,11 +69,6 @@ describe('.json 产物的私有语义', () => {
     expect(loadState(project).packs['demo/table@0.3.0']?.written).toContain(
       '.packhub/knowledge/table.json',
     );
-
-    // 切回 0.1.0：文件内容按镜像还原，而不是停在 0.3.0 那一份
-    await activatePack(project, 'demo/table', '0.1.0');
-    expect(readFileSync(table, 'utf8')).toBe('{"flavor":"one"}\n');
-    expect(readFileSync(join(project, '.packhub/knowledge/rules.md'), 'utf8')).toBe('# v1\n');
 
     rmSync(base, { recursive: true, force: true });
   });

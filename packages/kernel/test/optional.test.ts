@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseManifest, validateGraph } from '../src/index.ts';
+import { parseManifest, planFor, validateGraph } from '../src/index.ts';
 import type { Manifest } from '../src/index.ts';
 
 const base = (patch: Partial<Manifest> = {}): Manifest => {
@@ -7,7 +7,7 @@ const base = (patch: Partial<Manifest> = {}): Manifest => {
     JSON.stringify({
       apiVersion: 'packhub.dev/v0',
       kind: 'Pack',
-      metadata: { name: 'a/b', version: '0.0.1', targets: ['dir'] },
+      metadata: { name: 'a/b', version: '0.0.1' },
       requires: { packhub: '>=0.0.1 <0.1' },
       resources: [{ id: 'plain', type: 'knowledge', source: './a.md' }],
       ...patch,
@@ -108,11 +108,10 @@ describe('requires.agent', () => {
     expect(issues.filter((i) => i.severity === 'error')).toHaveLength(0);
   });
 
-  it('requires.agent 不在 targets 里时警告', () => {
-    const manifest = base({
-      metadata: { name: 'a/b', version: '0.0.1', targets: ['dir'] },
-      requires: { packhub: '>=0.0.1 <0.1', agent: 'dsh' },
-    });
-    expect(validateGraph(manifest).issues.map((i) => i.code)).toContain('agent-target-mismatch');
+  it('requires.agent 与本次安装 target 不一致时警告（判据在 planFor）', () => {
+    const manifest = base({ requires: { packhub: '>=0.0.1 <0.1', agent: 'dsh' } });
+    const { graph, issues: graphIssues } = validateGraph(manifest);
+    const { issues } = planFor({ dir: '.', manifest, graph, issues: graphIssues }, { target: 'dir' });
+    expect(issues.map((i) => i.code)).toContain('agent-target-mismatch');
   });
 });

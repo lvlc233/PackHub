@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync }
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { planFor } from '@packhub/kernel';
-import { activatePack, installPack, loadPack, removePack } from '../src/index.ts';
+import { installPack, loadPack, removePack } from '../src/index.ts';
 
 function scaffold(version: string, body: string): string {
   const dir = mkdtempSync(join(tmpdir(), 'packhub-hardlink-'));
@@ -54,10 +54,6 @@ describe('版本镜像硬链接', () => {
 
     expect(readFileSync(live, 'utf8')).toBe('# two\n');
     expect(readFileSync(v1, 'utf8')).toBe('# one\n');
-
-    // 切回旧版本：按镜像铺回，内容恢复
-    await activatePack(dir, 'demo/hardlink', '0.0.1');
-    expect(readFileSync(live, 'utf8')).toBe('# one\n');
 
     removePack(dir);
     rmSync(dir, { recursive: true, force: true });

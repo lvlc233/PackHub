@@ -5,7 +5,6 @@ import { join } from 'node:path';
 import { loadPack, planFor } from '@packhub/kernel';
 import {
   installPack,
-  listVersions,
   readCredentials,
   readIndex,
   readSignatures,
@@ -54,7 +53,7 @@ describe('带版本文件的读取闸门', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('active.json 与版本记录：写了 v1 就拒绝', async () => {
+  it('版本记录：写了 v1 就拒绝', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'packhub-apiver-pack-'));
     writeFileSync(
       join(dir, 'packhub.yaml'),
@@ -72,11 +71,6 @@ resources:
     writeFileSync(join(dir, 'rules.md'), '# rules\n', 'utf8');
     const ctx = loadPack(dir);
     await installPack(ctx, planFor(ctx).plan!);
-
-    const activeFile = join(dir, '.packhub/active.json');
-    const active = JSON.parse(readFileSync(activeFile, 'utf8')) as Record<string, unknown>;
-    writeFileSync(activeFile, JSON.stringify({ ...active, apiVersion: 'packhub.dev/active/v1' }), 'utf8');
-    expect(() => listVersions(dir)).toThrow(/格式版本不认识/);
 
     const recordFile = join(dir, '.packhub/versions/demo-apiver/0.0.1/record.json');
     const record = JSON.parse(readFileSync(recordFile, 'utf8')) as Record<string, unknown>;

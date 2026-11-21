@@ -6,7 +6,7 @@ import { buildLock } from '../src/index.ts';
 const MANIFEST: Manifest = {
   apiVersion: 'packhub.dev/v0',
   kind: 'Pack',
-  metadata: { name: 'demo/lock', version: '0.0.1', targets: ['dir'] },
+  metadata: { name: 'demo/lock', version: '0.0.1' },
   requires: { packhub: '>=0.0.1 <0.1' },
   resources: [],
 };

@@ -1,29 +1,9 @@
-// 由 cli.ts 拆分：run / publish / probe / pack
-import { join, resolve } from 'node:path';
+// 由 cli.ts 拆分：publish / pack。
+// 原 run 命令已删除（runPack 仍由 publish 内部调用）；原 probe 已并入 verify --probe。
+import { resolve } from 'node:path';
 import { EXIT, command, json, problemRaw, say, stop } from '../emit.ts';
-import { runPack } from '@packhub/runner';
 import { publishPack, writeIndex } from '@packhub/registry';
-import { probeHarness, probeSkill, packArchive, LocalSourceNotVendoredError } from '@packhub/runtime';
-
-export const run = command({
-  meta: { name: 'run', description: '在干净目录里装一遍并校验（发布门禁的同一个执行者）' },
-  args: {
-    dir: { type: 'positional', required: false, default: '.' },
-    out: { type: 'string', description: '报告写到哪，默认 <dir>/verify.json' },
-    json: { type: 'boolean', default: false },
-    'allow-exec': { type: 'boolean', default: false, description: '允许执行清单里的 install.exec' },
-  },
-  async run({ args }) {
-    const dir = resolve(String(args.dir));
-    const { report } = await runPack(dir, {
-      out: args.out ? resolve(String(args.out)) : join(dir, 'verify.json'),
-      allowExec: Boolean(args['allow-exec']),
-      log: (line) => say(line),
-    });
-    if (args.json) json(report);
-    stop(report.ok ? EXIT.OK : EXIT.RUNTIME);
-  },
-});
+import { packArchive, LocalSourceNotVendoredError } from '@packhub/runtime';
 
 export const publish = command({
   meta: { name: 'publish', description: '发布一个包：先干净安装+校验，再写进 registry' },
@@ -82,38 +62,6 @@ export const publish = command({
         say(`发布完成：${res.name}@${res.version}`);
       }
     }
-  },
-});
-
-export const probe = command({
-  meta: { name: 'probe', description: '真机探针：跑一次 harness，看它有没有读到包写进去的指令' },
-  args: {
-    dir: { type: 'positional', required: false, default: '.' },
-    target: { type: 'string', default: 'dsh', description: 'dsh | claude-code | opencode | codex' },
-    patch: { type: 'string', description: 'dsh 的 --patch 层（配置 provider / 模型）' },
-    skill: { type: 'string', description: '改问技能选择器：断言这个 skill 名出现在可用列表里' },
-    json: { type: 'boolean', default: false },
-  },
-  run({ args }) {
-    const target = String(args.target) as 'dsh' | 'claude-code' | 'opencode' | 'codex';
-    const result = args.skill
-      ? probeSkill({ target, projectDir: resolve(String(args.dir)), skill: String(args.skill) })
-      : probeHarness({
-          target,
-          projectDir: resolve(String(args.dir)),
-          ...(args.patch ? { patchFile: resolve(String(args.patch)) } : {}),
-        });
-    if (args.json) {
-      json(result);
-      if (!result.ok) stop(EXIT.RUNTIME);
-      return;
-    }
-    say(result.ok ? '✓ harness 读到了托管块' : 'x 没读到');
-    say(`  命令：${result.command}`);
-    if (result.marker) say(`  期望标记：${result.marker}`);
-    if (result.answer) say(`  回答：${result.answer.replace(/\s+/g, ' ').slice(0, 200)}`);
-    if (result.reason) say(`  原因：${result.reason}`);
-    if (!result.ok) stop(EXIT.RUNTIME);
   },
 });
 
