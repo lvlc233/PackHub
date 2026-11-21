@@ -30,7 +30,6 @@ kind: Pack
 metadata:
   name: demo/exit
   version: 0.0.1
-  targets: [dir]
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: rules
@@ -144,30 +143,6 @@ const CASES: {
     prepare: (base) => makePack(base),
     code: 2,
     stderr: /^x 清单里有 1 个本地文件/m,
-    quietStdout: true,
-  },
-  {
-    name: '前置条件：plan 用未声明的 target（声明门在 planFor）',
-    args: (base) => ['plan', base, '--target', 'dsh'],
-    prepare: (base) => makePack(base),
-    code: 2,
-    stderr: /^error \[undeclared-target\] 这个包没有声明 target dsh；声明了：dir/m,
-    quietStdout: true,
-  },
-  {
-    name: '前置条件：install 用未声明的 target',
-    args: (base) => ['install', base, '--target', 'dsh', '--dry-run'],
-    prepare: (base) => makePack(base),
-    code: 2,
-    stderr: /^error \[undeclared-target\] 这个包没有声明 target dsh；声明了：dir/m,
-    quietStdout: true,
-  },
-  {
-    name: '前置条件：verify 用未声明的 target',
-    args: (base) => ['verify', base, '--target', 'dsh'],
-    prepare: (base) => makePack(base),
-    code: 2,
-    stderr: /^error \[undeclared-target\] 这个包没有声明 target dsh；声明了：dir/m,
     quietStdout: true,
   },
   {

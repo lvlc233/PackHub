@@ -13,7 +13,6 @@ kind: Pack
 metadata:
   name: demo/authoring
   version: 0.0.1
-  targets: [dir]
 
 requires:
   packhub: ">=0.0.1 <0.1"
@@ -81,23 +80,23 @@ describe('setBinding（换实现）', () => {
   const withSlots = `# 头部注释
 apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/slots, version: 0.0.1, targets: [dir] }
+metadata: { name: demo/slots, version: 0.0.1 }
 requires: { packhub: ">=0.0.1 <0.1" }
 slots:
-  voice: { contract: [audio:speak] }
+  voice: { contract: [tool/speak@1] }
 resources:
   - id: tts-a
     type: mcp
     transport: stdio
     slot: voice
     source: npm:tts-a@1.2.0
-    provides: [audio:speak]
+    provides: [tool/speak@1]
   - id: tts-b
     type: mcp
     transport: stdio
     slot: voice
     source: npm:tts-b@0.4.0
-    provides: [audio:speak]
+    provides: [tool/speak@1]
 bindings:
   voice: tts-a
 `;

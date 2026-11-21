@@ -23,7 +23,7 @@ function makePack(
     join(dir, 'packhub.yaml'),
     `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: ${name}, version: ${version}, targets: [dir] }
+metadata: { name: ${name}, version: ${version} }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
 ${resources}`,

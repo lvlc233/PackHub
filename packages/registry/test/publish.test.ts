@@ -19,6 +19,7 @@ function makePack(
     version?: string;
     visibility?: string;
     verifyFail?: boolean;
+    /** 资源级支持集（metadata 上没有 targets：target 已退出内容层） */
     targets?: string[];
   } = {},
 ): string {
@@ -36,13 +37,13 @@ metadata:
   license: MIT
   homepage: https://example.com/demo
   authors: [{ name: 测试作者 }]
-  targets: [${(overrides.targets ?? ['dir']).join(', ')}]
   visibility: ${overrides.visibility ?? 'public'}
 requires: { packhub: ">=0.0.1 <0.1", agent: dsh }
 resources:
   - id: rules
     type: knowledge
     source: ./rules.md
+    targets: [${(overrides.targets ?? ['dir']).join(', ')}]
 verify:
   - type: file-exists
     path: \${target.skillsDir}/../knowledge/${overrides.verifyFail ? 'nope.md' : 'rules.md'}

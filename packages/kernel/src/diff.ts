@@ -1,12 +1,9 @@
 import type { PlanAction } from './types.ts';
 import { canonicalize } from './util.ts';
 
-/** 比较动作时忽略这两个字段：编号会随顺序漂移，依赖是派生的。 */
+/** 比较动作时忽略 actionId：编号会随顺序漂移，不代表内容变了。 */
 function actionKey(action: PlanAction): string {
-  const { actionId: _id, dependsOn: _deps, ...rest } = action as PlanAction & {
-    actionId?: string;
-    dependsOn?: string[];
-  };
+  const { actionId: _id, ...rest } = action as PlanAction & { actionId?: string };
   return canonicalize(rest);
 }
 

@@ -10,7 +10,7 @@ const SKILL_MD = `---\nname: hello\ndescription: demo skill\n---\n\n# hello\n`;
 
 const MANIFEST = (version: string): string => `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/codex, version: ${version}, targets: [codex, dir] }
+metadata: { name: demo/codex, version: ${version} }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: hello

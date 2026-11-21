@@ -6,18 +6,83 @@ import { ISSUE_CODES } from './issueCodes.ts';
 /** 已知的 harness 名称；requires.agent 写别的名字只警告，不阻断（新 harness 不该让旧包装不上）。 */
 export const KNOWN_AGENTS = ['dsh', 'claude-code', 'codex', 'opencode'] as const;
 
+/** 安装边：provider 必须先于 consumer 装（由 needs 派生）。 */
+export interface GraphEdge {
+  provider: string;
+  consumer: string;
+  /** 触发这条边的那条 needs 令牌 */
+  capability: string;
+}
+
 export interface Graph {
-  /** capability -> 提供它的 resource id 列表（只含会被安装的资源） */
+  /** 能力令牌 -> 提供它的 resource id 列表（只含会被安装的资源） */
   providers: Map<string, string[]>;
-  /** 安装顺序（拓扑 + 作者声明优先） */
+  /** needs 派生的安装边：provider → consumer */
+  edges: GraphEdge[];
+  /** 安装顺序（needs 拓扑 + 清单顺序） */
   order: string[];
   resources: Map<string, ResourceSpec>;
   /** 被槽位绑定排除的候选：为什么这个实现这次不装 */
   excluded: { resource: string; slot: string; reason: string }[];
 }
 
-/** 槽位：谁占位、绑定了谁、这次装不装。 */
-function resolveSlots(manifest: Manifest, issues: Issue[]): { active: Set<string>; excluded: Graph['excluded'] } {
+/**
+ * 校验一个槽位的实现（`bindings` 的值或 `slots[].default`）：必须是本清单里的资源、
+ * 必须真的占这个槽位、必须满足 contract。错误码沿用绑定那一套，文案点明来源是 default。
+ */
+function checkImplementation(
+  manifest: Manifest,
+  slot: string,
+  impl: string,
+  from: 'bindings' | 'default',
+  issues: Issue[],
+): void {
+  const slots = manifest.slots ?? {};
+  const res = manifest.resources.find((r) => r.id === impl);
+  if (!res) {
+    issues.push({
+      code: ISSUE_CODES.bindingUnknownResource,
+      severity: 'error',
+      message:
+        from === 'default'
+          ? `槽位 ${slot} 的 default 指向不存在的资源：${impl}（default 只能写本清单里的资源 id）`
+          : `槽位 ${slot} 绑定了不存在的资源：${impl}`,
+    });
+    return;
+  }
+  if (res.slot !== slot) {
+    issues.push({
+      code: ISSUE_CODES.bindingWrongSlot,
+      severity: 'error',
+      message:
+        from === 'default'
+          ? `槽位 ${slot} 的 default ${impl} 并不占用这个槽位（它属于 ${res.slot ?? '无'}）`
+          : `资源 ${impl} 并不占用槽位 ${slot}（它属于 ${res.slot ?? '无'}）`,
+    });
+    return;
+  }
+  const contract = slots[slot]?.contract ?? [];
+  const missing = contract.filter((c) => !(res.provides ?? []).includes(c));
+  if (missing.length > 0) {
+    issues.push({
+      code: ISSUE_CODES.slotContractUnmet,
+      severity: 'error',
+      message:
+        from === 'default'
+          ? `槽位 ${slot} 的 default ${impl} 缺少契约能力：${missing.join(', ')}`
+          : `槽位 ${slot} 的绑定 ${impl} 缺少契约能力：${missing.join(', ')}`,
+    });
+  }
+}
+
+/**
+ * 槽位的有效实现 = `bindings[slot] ?? slots[slot].default`。
+ * 两个都没写、但槽位下有候选，就报 slot-unbound——这次装哪个不确定。
+ */
+function resolveSlots(
+  manifest: Manifest,
+  issues: Issue[],
+): { active: Set<string>; excluded: Graph['excluded'] } {
   const slots = manifest.slots ?? {};
   const bindings = manifest.bindings ?? {};
   const candidates = new Map<string, string[]>();
@@ -44,40 +109,23 @@ function resolveSlots(manifest: Manifest, issues: Issue[]): { active: Set<string
       });
       continue;
     }
-    const res = manifest.resources.find((r) => r.id === impl);
-    if (!res) {
-      issues.push({
-        code: ISSUE_CODES.bindingUnknownResource,
-        severity: 'error',
-        message: `槽位 ${slot} 绑定了不存在的资源：${impl}`,
-      });
-      continue;
-    }
-    if (res.slot !== slot) {
-      issues.push({
-        code: ISSUE_CODES.bindingWrongSlot,
-        severity: 'error',
-        message: `资源 ${impl} 并不占用槽位 ${slot}（它属于 ${res.slot ?? '无'}）`,
-      });
-      continue;
-    }
-    const contract = slots[slot]?.contract ?? [];
-    const missing = contract.filter((c) => !(res.provides ?? []).includes(c));
-    if (missing.length > 0) {
-      issues.push({
-        code: ISSUE_CODES.slotContractUnmet,
-        severity: 'error',
-        message: `槽位 ${slot} 的绑定 ${impl} 缺少契约能力：${missing.join(', ')}`,
-      });
-    }
+    checkImplementation(manifest, slot, impl, 'bindings', issues);
   }
 
+  // default 被 bindings 覆盖时也校验：清单里的死配置不该靠「这次恰好写了 bindings」藏着
+  for (const [slot, spec] of Object.entries(slots)) {
+    if (spec.default === undefined) continue;
+    checkImplementation(manifest, slot, spec.default, 'default', issues);
+  }
+
+  const effectiveOf = (slot: string): string | undefined => bindings[slot] ?? slots[slot]?.default;
+
   for (const [slot, ids] of candidates) {
-    if (!bindings[slot]) {
+    if (effectiveOf(slot) === undefined) {
       issues.push({
         code: ISSUE_CODES.slotUnbound,
         severity: 'error',
-        message: `槽位 ${slot} 有 ${ids.length} 个候选（${ids.join(', ')}）但没有 bindings，装哪个不确定`,
+        message: `槽位 ${slot} 有 ${ids.length} 个候选（${ids.join(', ')}）但没有可用的实现：写 bindings.${slot}，或在 slots.${slot}.default 指定一个`,
       });
     }
   }
@@ -87,7 +135,7 @@ function resolveSlots(manifest: Manifest, issues: Issue[]): { active: Set<string
   for (const res of manifest.resources) {
     if (!res.slot) {
       active.add(res.id);
-    } else if (bindings[res.slot] === res.id) {
+    } else if (effectiveOf(res.slot) === res.id) {
       active.add(res.id);
     } else {
       excluded.push({ resource: res.id, slot: res.slot, reason: 'unbound-slot' });
@@ -186,9 +234,12 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
   });
 
   // optional 资源：needs 在当前集合里无人提供时自动跳过（级联：跳过后它 provides 的能力也消失）。
-  // 显式绑定到槽位的实现不自动跳过——作者已经点名要它，缺能力应当报错而不是静默换掉。
+  // 作者点名的实现（bindings 或 slots[].default）不自动跳过——点名要它，缺能力应当报错而不是静默换掉。
   const explicitlyBound = (res: ResourceSpec): boolean =>
-    Boolean(res.slot && manifest.bindings?.[res.slot] === res.id);
+    Boolean(
+      res.slot &&
+        (manifest.bindings?.[res.slot] === res.id || manifest.slots?.[res.slot]?.default === res.id),
+    );
   const providersOf = (set: Map<string, ResourceSpec>): Map<string, string[]> => {
     const map = new Map<string, string[]>();
     for (const res of set.values()) {
@@ -237,9 +288,10 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
     }
   }
 
-  // needs 必须有 provider
+  // needs 必须有 provider；同时派生安装边（provider 先于 consumer）
+  const edges: GraphEdge[] = [];
   for (const res of resources.values()) {
-    for (const need of res.needs ?? []) {
+    for (const need of new Set(res.needs ?? [])) {
       const hits = (providers.get(need) ?? []).filter((id) => id !== res.id);
       if (hits.length === 0) {
         issues.push({
@@ -248,16 +300,22 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
           message: `资源 ${res.id} 需要 ${need}，但没有任何资源 provides 它`,
           path: `resources.${res.id}.needs`,
         });
+        continue;
       }
+      for (const provider of hits) edges.push({ provider, consumer: res.id, capability: need });
     }
   }
 
-  // 顺序只由 dependsOn 决定；没有依赖关系的资源按清单顺序
-  const order = topoSort(resources, issues);
-  return { graph: { providers, order, resources, excluded }, issues };
+  // 安装顺序只由 needs 派生：provider 先于 consumer；没有依赖关系的资源按清单顺序
+  const order = topoSort(resources, providers, issues);
+  return { graph: { providers, edges, order, resources, excluded }, issues };
 }
 
-function topoSort(resources: Map<string, ResourceSpec>, issues: Issue[]): string[] {
+function topoSort(
+  resources: Map<string, ResourceSpec>,
+  providers: Map<string, string[]>,
+  issues: Issue[],
+): string[] {
   const result: string[] = [];
   const state = new Map<string, 0 | 1 | 2>(); // 0 未访问 1 访问中 2 完成
 
@@ -268,22 +326,18 @@ function topoSort(resources: Map<string, ResourceSpec>, issues: Issue[]): string
       issues.push({
         code: ISSUE_CODES.dependencyCycle,
         severity: 'error',
-        message: `依赖成环：${[...trail, id].join(' → ')}`,
+        message: `能力依赖成环：${[...trail, id].join(' → ')}`,
       });
       return;
     }
     state.set(id, 1);
     const res = resources.get(id);
-    for (const dep of res?.dependsOn ?? []) {
-      if (!resources.has(dep)) {
-        issues.push({
-          code: ISSUE_CODES.missingDependency,
-          severity: 'error',
-          message: `${id} 依赖不存在的资源 ${dep}`,
-        });
-        continue;
+    // needs 的每个令牌都先装它的全部 provider；自己提供自己的令牌不算边
+    for (const need of new Set(res?.needs ?? [])) {
+      for (const provider of providers.get(need) ?? []) {
+        if (provider === id || !resources.has(provider)) continue;
+        visit(provider, [...trail, id]);
       }
-      visit(dep, [...trail, id]);
     }
     state.set(id, 2);
     result.push(id);

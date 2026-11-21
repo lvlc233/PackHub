@@ -15,7 +15,7 @@ async function registry(extraResource = ''): Promise<string> {
       join(dir, 'packhub.yaml'),
       `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/upd, version: ${version}, targets: [dir] }
+metadata: { name: demo/upd, version: ${version} }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: rules
@@ -126,7 +126,7 @@ describe('update 的锁核对', () => {
     mkdirSync(dir, { recursive: true });
     const manifest = (extra: string): string => `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/stale, version: 0.2.0, targets: [dir] }
+metadata: { name: demo/stale, version: 0.2.0 }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: rules

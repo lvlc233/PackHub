@@ -7,7 +7,7 @@ import { contentHashFor, lockPack } from '../src/index.ts';
 
 const MANIFEST = `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/multi, version: 0.0.1, targets: [dir, dsh] }
+metadata: { name: demo/multi, version: 0.0.1 }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: rules

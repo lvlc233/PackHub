@@ -6,7 +6,7 @@ import { createInstance } from '../src/index.ts';
 
 const MANIFEST = `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/homes, version: 0.1.0, targets: [dir, codex, claude-code] }
+metadata: { name: demo/homes, version: 0.1.0 }
 resources:
   - id: rules
     type: knowledge

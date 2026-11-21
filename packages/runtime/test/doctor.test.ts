@@ -11,7 +11,6 @@ metadata:
   name: demo/doctor
   version: 0.0.1
   title: 漂移检测
-  targets: [dir, claude-code]
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: rules

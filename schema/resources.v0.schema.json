@@ -20,7 +20,11 @@
           "title": { "type": "string", "maxLength": 120 },
           "description": { "type": "string", "maxLength": 600 },
           "keywords": { "type": "array", "items": { "type": "string" }, "maxItems": 24 },
-          "provides": { "type": "array", "items": { "type": "string" } },
+          "provides": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "^(tool|skill|content|config)/[a-z][a-z0-9-]*@[1-9][0-9]*$" },
+            "uniqueItems": true
+          },
           "homepage": { "type": "string", "format": "uri" },
           "targets": {
             "type": "array",

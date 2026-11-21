@@ -17,7 +17,7 @@ resources:
   - id: repo-docs
     type: skill
     source: github:lvlc233/PackHub@533147315257260f9054947f1ece2ba20588bc93
-    provides: [knowledge:repo_docs]
+    provides: [content/repo-docs@1]
 
   - id: readme
     type: knowledge

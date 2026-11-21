@@ -31,7 +31,6 @@ metadata:
   version: ${version}
   title: E2E
   visibility: public
-  targets: [dir]
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: rules
@@ -224,16 +223,115 @@ describe('cli 端到端：install → verify → uninstall', () => {
     rmSync(project, { recursive: true, force: true });
   });
 
-  it('安装到未声明的 target 会被拒绝', () => {
-    const project = mkdtempSync(join(tmpdir(), 'packhub-cli-target-'));
-    const res = run(['install', 'lvlc233/team-conventions', '--dir', project, '--target', 'claude-code'], {
-      PACKHUB_INDEX: join(ROOT, 'registry/index.json'),
+  it('target 只由命令行选：清单不再声明 targets（声明门已删）', () => {
+    const pack = mkdtempSync(join(tmpdir(), 'packhub-cli-target-'));
+    writeFileSync(
+      join(pack, 'packhub.yaml'),
+      `apiVersion: packhub.dev/v0
+kind: Pack
+metadata: { name: demo/target, version: 0.0.1 }
+requires: { packhub: ">=0.0.1 <0.1" }
+resources:
+  - id: rules
+    type: knowledge
+    source: ./rules.md
+`,
+      'utf8',
+    );
+    writeFileSync(join(pack, 'rules.md'), '# rules\n', 'utf8');
+    // 以前 metadata 没写 target 就出不了别的 target 的计划；现在按命令行现算
+    const planned = run(['plan', pack, '--target', 'claude-code']);
+    expect(planned.status).toBe(0);
+    expect(planned.out).toContain('target=claude-code');
+    rmSync(pack, { recursive: true, force: true });
+  });
+
+  it('plan 打接线：能力令牌 → provider、needs 边、槽位解析（--json 里是 wiring）', () => {
+    const base = mkdtempSync(join(tmpdir(), 'packhub-cli-wiring-'));
+    const pack = join(base, 'pack');
+    mkdirSync(pack, { recursive: true });
+    writeFileSync(join(pack, 'skill.md'), '# skill\n', 'utf8');
+    writeFileSync(
+      join(pack, 'packhub.yaml'),
+      `apiVersion: packhub.dev/v0
+kind: Pack
+metadata: { name: demo/wiring, version: 0.0.1 }
+requires: { packhub: ">=0.0.1 <0.1" }
+slots:
+  review:
+    contract: [tool/lint@1]
+    default: linter-a
+resources:
+  - id: linter-a
+    type: mcp
+    transport: stdio
+    slot: review
+    source: npm:linter-a@1.0.0
+    provides: [tool/lint@1]
+  - id: linter-b
+    type: mcp
+    transport: stdio
+    slot: review
+    source: npm:linter-b@1.0.0
+    provides: [tool/lint@1]
+  - id: reviewer
+    type: skill
+    source: ./skill.md
+    needs: [tool/lint@1]
+    provides: [skill/review@1]
+`,
+      'utf8',
+    );
+
+    const planned = run(['plan', pack, '--json']);
+    expect(planned.status).toBe(0);
+    const body = JSON.parse(planned.out.slice(planned.out.indexOf('{'), planned.out.lastIndexOf('}') + 1)) as {
+      planHash: string;
+      wiring: {
+        capabilities: Record<string, string[]>;
+        edges: { provider: string; consumer: string; capability: string }[];
+        slots: {
+          name: string;
+          contract: string[];
+          default?: string;
+          bound?: string;
+          effective?: string;
+          candidates: string[];
+          excluded: { resource: string; reason: string }[];
+        }[];
+      };
+    };
+    expect(body.planHash).toBeTruthy();
+    // 能力：令牌是键，provider 按清单顺序；落选的槽位候选不进图（它这次不装）
+    expect(body.wiring.capabilities).toEqual({
+      'skill/review@1': ['reviewer'],
+      'tool/lint@1': ['linter-a'],
     });
-    expect(res.status).toBe(2);
-    expect(res.out).toContain('没有声明 target claude-code');
-    expect(existsSync(join(project, '.packhub/knowledge'))).toBe(false);
-    expect(existsSync(join(project, '.packhub/state.json'))).toBe(false);
-    rmSync(project, { recursive: true, force: true });
+    // 边由 needs 派生：provider 先装
+    expect(body.wiring.edges).toEqual([
+      { provider: 'linter-a', consumer: 'reviewer', capability: 'tool/lint@1' },
+    ]);
+    // 槽位：default 生效，未选中的候选带原因
+    expect(body.wiring.slots).toEqual([
+      {
+        name: 'review',
+        contract: ['tool/lint@1'],
+        default: 'linter-a',
+        effective: 'linter-a',
+        candidates: ['linter-a', 'linter-b'],
+        excluded: [{ resource: 'linter-b', reason: 'unbound-slot' }],
+      },
+    ]);
+
+    // 文本模式同一份接线；顺序是「provider 先装」的证据
+    const printed = run(['plan', pack]);
+    expect(printed.status).toBe(0);
+    expect(printed.out).toContain('接线：');
+    expect(printed.out).toContain('tool/lint@1 → linter-a');
+    expect(printed.out).toContain('linter-a → reviewer（tool/lint@1）');
+    expect(printed.out).toContain('effective linter-a（default）');
+
+    rmSync(base, { recursive: true, force: true });
   });
 
   it('退出码：缺清单/坏参数是 2，校验失败是 1，提示可执行', () => {
@@ -247,7 +345,7 @@ describe('cli 端到端：install → verify → uninstall', () => {
       join(pack, 'packhub.yaml'),
       `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/exit, version: 0.0.1, targets: [dir] }
+metadata: { name: demo/exit, version: 0.0.1 }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: rules
@@ -317,7 +415,7 @@ verify:
       join(pack, 'packhub.yaml'),
       `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/discover, version: 0.0.1, targets: [dir] }
+metadata: { name: demo/discover, version: 0.0.1 }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: rules
@@ -376,7 +474,7 @@ resources:
       join(src, 'packhub.yaml'),
       `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/locked, version: 0.0.1, targets: [dir] }
+metadata: { name: demo/locked, version: 0.0.1 }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: rules
@@ -397,7 +495,7 @@ resources:
       join(src, 'packhub.yaml'),
       `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/locked, version: 0.0.1, targets: [dir] }
+metadata: { name: demo/locked, version: 0.0.1 }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: rules
@@ -430,7 +528,7 @@ describe('cli 端到端：install', () => {
       join(dir, 'packhub.yaml'),
       `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/dry, version: 0.0.1, targets: [dir] }
+metadata: { name: demo/dry, version: 0.0.1 }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: rules
@@ -485,7 +583,7 @@ describe('cli 端到端：verify 的两种模式', () => {
       join(packDir, 'packhub.yaml'),
       `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/verify, version: 0.0.1, targets: [dir] }
+metadata: { name: demo/verify, version: 0.0.1 }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: rules
@@ -539,7 +637,7 @@ verify:
 describe('cli 端到端：签名', () => {
   const MANIFEST = (extra: string): string => `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/sign, version: 0.0.1, targets: [dir] }
+metadata: { name: demo/sign, version: 0.0.1 }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: rules

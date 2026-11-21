@@ -7,7 +7,7 @@ import { installPack, loadPack } from '../src/index.ts';
 
 const MANIFEST = `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/fail, version: 0.0.1, targets: [dir] }
+metadata: { name: demo/fail, version: 0.0.1 }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: rules
@@ -53,7 +53,7 @@ describe('安装失败的回滚', () => {
         join(src, 'packhub.yaml'),
         `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/${name}, version: 0.0.1, targets: [dir] }
+metadata: { name: demo/${name}, version: 0.0.1 }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: rules

@@ -7,6 +7,7 @@ import { EXIT, command, json, problemRaw, say, sayUnless, stop, warn } from '../
 import {
   loadPack,
   planFor,
+  describeComposition,
   diffActions,
   describeAction,
   checkLockConsistency,
@@ -47,8 +48,10 @@ export const plan = command({
       reportIssues(issues);
       stop(EXIT.USAGE);
     }
-    if (args.json) json(p);
-    else printPlan(p);
+    // 接线从清单现算，不进计划、不落盘：plan 打印它，--json 原样带上
+    const wiring = describeComposition(ctx);
+    if (args.json) json({ ...p, wiring });
+    else printPlan(p, wiring);
   },
 });
 
@@ -264,7 +267,7 @@ resources:
   - id: example-knowledge
     type: knowledge
     source: ./resources/example.md
-    # provides: [knowledge:your_thing]   # 只有需要被别的资源依赖时才写
+    # provides: [content/example@1]   # 能力令牌 <form>/<name>@<major>；只有要提供给别人时才写
 `;
     writeFileSync(file, template, 'utf8');
     writeFileSync(join(dir, 'resources', 'example.md'), '# 示例知识\n\n替换成真实内容。\n', 'utf8');
@@ -274,6 +277,9 @@ resources:
     }
     say(`created ${file}`);
     say('下一步：packhub resource add <type> <source> 追加资源，然后 packhub plan 看动作');
+    say(
+      '能力写进 provides / needs，令牌是 <form>/<name>@<major>（tool / skill / content / config）；安装顺序由 needs 派生，没有 dependsOn',
+    );
     say('要发布到公共 registry 时，把 metadata.visibility 改成 public（或 unlisted 直链分发）');
     say('verify 不是必填：只写程序自己查不了的事——宿主真读到、MCP 真起来、命令真跑通');
   },

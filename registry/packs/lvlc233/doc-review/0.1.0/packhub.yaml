@@ -15,11 +15,9 @@ requires:
 
 slots:
   lint:
-    contract: [doc:lint]
-    note: 格式检查实现；当前绑定 markdownlint MCP，换实现只改 bindings.lint。
-
-bindings:
-  lint: markdownlint
+    contract: [tool/lint@1]
+    default: markdownlint
+    note: 格式检查实现；当前默认绑定 markdownlint MCP，换实现改 slots.lint.default（或 bindings.lint）。
 
 resources:
   - id: markdownlint
@@ -30,24 +28,23 @@ resources:
     config:
       command: npx
       args: ["-y", "@dougis/markdown-lint-mcp@1.0.5"]
-    provides: [doc:lint]
+    provides: [tool/lint@1]
 
   - id: review-rubric
     type: knowledge
     source: ./resources/review-rubric.md
-    provides: [knowledge:review_rubric]
+    provides: [content/review-rubric@1]
 
   - id: reader-brief
     type: prompt
     source: ./resources/reader-brief.md
-    provides: [prompt:reader_brief]
+    provides: [content/reader-brief@1]
 
   - id: doc-review
     type: skill
     source: ./skills/doc-review
-    needs: [doc:lint, knowledge:review_rubric, prompt:reader_brief]
-    dependsOn: [markdownlint, review-rubric, reader-brief]
-    provides: [skill:doc_review]
+    needs: [tool/lint@1, content/review-rubric@1, content/reader-brief@1]
+    provides: [skill/doc-review@1]
 
 verify:
   - type: file-exists

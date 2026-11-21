@@ -25,7 +25,7 @@ describe('optional 资源', () => {
           id: 'optional-skill',
           type: 'skill',
           source: './skills/x',
-          needs: ['tool:missing'],
+          needs: ['tool/missing@1'],
           optional: true,
         },
         { id: 'plain', type: 'knowledge', source: './a.md' },
@@ -49,15 +49,15 @@ describe('optional 资源', () => {
           id: 'provider',
           type: 'skill',
           source: './skills/p',
-          needs: ['tool:missing'],
+          needs: ['tool/missing@1'],
           optional: true,
-          provides: ['skill:p'],
+          provides: ['skill/p@1'],
         },
         {
           id: 'consumer',
           type: 'skill',
           source: './skills/c',
-          needs: ['skill:p'],
+          needs: ['skill/p@1'],
           optional: true,
         },
       ],
@@ -69,7 +69,7 @@ describe('optional 资源', () => {
 
   it('非 optional 资源缺能力仍然报错', () => {
     const manifest = base({
-      resources: [{ id: 'x', type: 'skill', source: './skills/x', needs: ['tool:missing'] }],
+      resources: [{ id: 'x', type: 'skill', source: './skills/x', needs: ['tool/missing@1'] }],
     });
     expect(validateGraph(manifest).issues.map((i) => i.code)).toContain('unmet-need');
   });
@@ -82,11 +82,11 @@ describe('optional 资源', () => {
           type: 'skill',
           source: './skills/x',
           slot: 'search',
-          needs: ['tool:missing'],
+          needs: ['tool/missing@1'],
           optional: true,
         },
       ],
-      slots: { search: { contract: ['tool:search'] } },
+      slots: { search: { contract: ['skill/search@1'] } },
       bindings: { search: 'impl' },
     });
     const { graph, issues } = validateGraph(manifest);

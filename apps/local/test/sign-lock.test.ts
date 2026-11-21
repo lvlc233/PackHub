@@ -26,22 +26,23 @@ function run(
   };
 }
 
-const manifest = (targets: string, extraResource = ''): string => `apiVersion: packhub.dev/v0
+/** 支持集只在资源级声明（metadata 上没有 targets）：多 target 由 resources[].targets 表达。 */
+const manifest = (resourceTargets: string, extraResource = ''): string => `apiVersion: packhub.dev/v0
 kind: Pack
 metadata:
   name: demo/sign-lock
   version: 0.1.0
-  targets: [${targets}]
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: rules
     type: knowledge
     source: ./rules.md
+    targets: [${resourceTargets}]
 ${extraResource}`;
 
-function makePack(dir: string, targets = 'dir', extraResource = ''): void {
+function makePack(dir: string, resourceTargets = 'dir', extraResource = ''): void {
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, 'packhub.yaml'), manifest(targets, extraResource), 'utf8');
+  writeFileSync(join(dir, 'packhub.yaml'), manifest(resourceTargets, extraResource), 'utf8');
   writeFileSync(join(dir, 'rules.md'), '# rules\n', 'utf8');
   writeFileSync(join(dir, 'more.md'), '# more\n', 'utf8');
 }

@@ -14,7 +14,7 @@ import {
 
 const BODY = (extra: string): string => `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/consume, version: 0.0.1, targets: [dir] }
+metadata: { name: demo/consume, version: 0.0.1 }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: rules

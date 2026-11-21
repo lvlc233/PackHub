@@ -7,7 +7,7 @@ import { LocalSourceNotVendoredError, packArchive, readArchiveFilesSync, unpackA
 function manifest(name: string, version: string, body: string): string {
   return `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: ${name}, version: ${version}, targets: [dir] }
+metadata: { name: ${name}, version: ${version} }
 requires: { packhub: ">=0.0.1 <0.1" }
 ${body}`;
 }

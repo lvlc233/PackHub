@@ -31,7 +31,7 @@ function codexPack(version: string, skill: string): string {
     join(dir, 'packhub.yaml'),
     `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/codex-derived, version: ${version}, targets: [codex] }
+metadata: { name: demo/codex-derived, version: ${version} }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: note

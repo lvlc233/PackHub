@@ -3,6 +3,13 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 import packhubSchema from '../../../schema/packhub.v0.schema.json' with { type: 'json' };
+import resourcesSchema from '../../../schema/resources.v0.schema.json' with { type: 'json' };
+import {
+  CAPABILITY_FORMS,
+  CAPABILITY_TOKEN_PATTERN,
+  isCapabilityToken,
+  parseCapabilityToken,
+} from '../src/index.ts';
 
 /**
  * schema 与 types.ts 是两份手写镜像：权威定义是 `schema/packhub.v0.schema.json`，
@@ -19,8 +26,9 @@ import packhubSchema from '../../../schema/packhub.v0.schema.json' with { type: 
  * `uniqueItems` / `additionalProperties`、嵌套对象内部的字段与类型（例如
  * `metadata.required`、`auth.scheme`）、数组元素类型（enum 除外）、
  * `definitions.resource.allOf` 里的条件必填（mcp 要 transport、tool2 要 commands、
- * http 来源要 integrity）。`pattern` 没法在 types.ts 里镜像，由
- * `ref-source-consistency.test.ts` 直接比 schema 与源码里的来源语法。
+ * http 来源要 integrity）。`pattern` 没法在 types.ts 里镜像：来源语法由
+ * `ref-source-consistency.test.ts` 直接比 schema 与源码，能力令牌由本文件末尾的
+ * 「能力令牌：pattern 单源」比两份 schema 与 kernel 常量。
  */
 
 const TYPES_PATH = fileURLToPath(new URL('../src/types.ts', import.meta.url));
@@ -541,5 +549,73 @@ describe('schema ↔ types.ts 镜像', () => {
       ['x'],
     );
     expect(requiredWhitelist.join('\n')).toContain('白名单字段必须是可选镜像字段：x');
+  });
+});
+
+/**
+ * 能力令牌 `<form>/<name>@<major>` 的 pattern 有两份 schema 各写一遍
+ * （packhub 的 provides / needs / slots.contract，resources 的 provides），
+ * kernel 又从 packhub 那份建 CAPABILITY_TOKEN_PATTERN。三处必须字面相等：
+ * 任何一处单独改都会让「同一个令牌在清单里合法、在目录里非法」这种裂缝出现。
+ */
+describe('能力令牌：pattern 单源', () => {
+  const packhubToken = (packhubSchema as unknown as {
+    definitions: { capabilities: { items: { pattern: string } } };
+  }).definitions.capabilities.items.pattern;
+
+  const resourcesToken = (resourcesSchema as unknown as {
+    properties: {
+      resources: { items: { properties: { provides: { items: { pattern: string } } } } };
+    };
+  }).properties.resources.items.properties.provides.items.pattern;
+
+  const slotContractToken = (packhubSchema as unknown as {
+    properties: {
+      slots: {
+        additionalProperties: { properties: { contract: { items: { pattern: string } } } };
+      };
+    };
+  }).properties.slots.additionalProperties.properties.contract.items.pattern;
+
+  it('两份 schema 的令牌 pattern 相等（packhub ↔ resources）', () => {
+    expect(packhubToken).toBe(resourcesToken);
+  });
+
+  it('清单里的三处（provides / needs / slots.contract）用同一条 pattern', () => {
+    // needs 与 provides 共用 definitions.capabilities，这里只额外盯 slots.contract 没走偏
+    expect(slotContractToken).toBe(packhubToken);
+  });
+
+  it('kernel 的 CAPABILITY_TOKEN_PATTERN 就是 schema 那条，不在 TS 里另写正则', () => {
+    // RegExp.source 会把 `/` 转义成 `\/`（V8 的写法），比之前先还原
+    expect(CAPABILITY_TOKEN_PATTERN.source.replace(/\\\//g, '/')).toBe(packhubToken);
+  });
+
+  it('CAPABILITY_FORMS 与 pattern 里的 form 闭集一致', () => {
+    const forms = /^\^?\(([^)]+)\)\//.exec(packhubToken)?.[1]?.split('|') ?? [];
+    expect(forms).toEqual([...CAPABILITY_FORMS]);
+  });
+
+  it('合法令牌拆得开；旧写法、错版本、错 form 一律拒', () => {
+    expect(parseCapabilityToken('tool/lint@1')).toEqual({ form: 'tool', name: 'lint', major: 1 });
+    expect(parseCapabilityToken('content/review-rubric@12')).toEqual({
+      form: 'content',
+      name: 'review-rubric',
+      major: 12,
+    });
+
+    for (const bad of [
+      'doc/lint@1', // form 不在闭集：旧写法的 namespace 位置现在是 tool / skill / content / config
+      'tool/lint', // 缺主版本
+      'tool/lint@0', // 主版本从 1 起
+      'Tool/lint@1', // form 闭集是小写
+      'tool/Lint@1', // 名字 kebab-case
+      'tool/lint_v2@1', // 名字不吃下划线
+      'mcp/filesystem@1', // form 是消费形态，不是资源类型
+      'tool/lint@1 extra',
+    ]) {
+      expect(isCapabilityToken(bad), bad).toBe(false);
+      expect(parseCapabilityToken(bad), bad).toBeUndefined();
+    }
   });
 });

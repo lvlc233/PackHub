@@ -35,7 +35,7 @@ describe('resolveAddSource', () => {
       join(pack, 'packhub.yaml'),
       `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/src, version: 0.0.1, targets: [dir] }
+metadata: { name: demo/src, version: 0.0.1 }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: rules

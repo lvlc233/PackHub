@@ -158,7 +158,7 @@ export function buildPlan(
           push({ op: 'link.skill', from: parsed.locator, to: `${targetVars.skillsDir}/${id}`, fromBase: 'pack', resource: id });
           installed.set(id, { type: res.type, kind: 'dir', to: `${targetVars.skillsDir}/${id}`, from: parsed.locator });
         } else {
-          const fetched = push({
+          push({
             op: 'fetch',
             uri: res.source,
             dest: `${targetVars.cacheDir}/${id}.tar.gz`,
@@ -166,14 +166,13 @@ export function buildPlan(
             ...(res.auth ? { auth: res.auth } : {}),
             resource: id,
           });
-          const unpacked = push({
+          push({
             op: 'unpack',
             from: `${targetVars.cacheDir}/${id}.tar.gz`,
             to: `${targetVars.cacheDir}/skills/${id}`,
             strip: 1,
             fromBase: 'root',
             resource: id,
-            dependsOn: [fetched.actionId],
           });
           // github:owner/repo/sub/path@ref 的 sub/path 只在解包后的仓库里取
           const from = parsed.subpath
@@ -185,7 +184,6 @@ export function buildPlan(
             to: `${targetVars.skillsDir}/${id}`,
             fromBase: 'root',
             resource: id,
-            dependsOn: [unpacked.actionId],
           });
           // 远程资源的正文要等安装时才取回：能做整文件替换与删除，做不了按锚点改
           installed.set(id, { type: res.type, kind: 'dir', to: `${targetVars.skillsDir}/${id}` });
@@ -262,7 +260,7 @@ export function buildPlan(
             });
             break;
           }
-          const fetched = push({
+          push({
             op: 'fetch',
             uri: res.source,
             dest: `${targetVars.cacheDir}/${id}.tar.gz`,
@@ -277,7 +275,6 @@ export function buildPlan(
             strip: 1,
             fromBase: 'root',
             resource: id,
-            dependsOn: [fetched.actionId],
           });
           installed.set(id, { type: res.type, kind: 'dir', to: toolRoot });
         }

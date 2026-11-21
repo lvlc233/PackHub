@@ -50,7 +50,6 @@ kind: Pack
 metadata:
   name: t/sub
   version: 0.0.1
-  targets: [dir]
 requires:
   packhub: ">=0.0.1 <0.1"
 resources:

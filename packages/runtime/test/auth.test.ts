@@ -46,7 +46,6 @@ kind: Pack
 metadata:
   name: demo/private
   version: 0.0.1
-  targets: [dir]
   visibility: internal
 requires:
   packhub: ">=0.0.1 <0.1"

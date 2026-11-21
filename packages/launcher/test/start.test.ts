@@ -36,7 +36,7 @@ const MCP_PACK = (dir: string): string => {
     join(dir, 'packhub.yaml'),
     `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/mcp, version: 0.2.0, targets: [dsh] }
+metadata: { name: demo/mcp, version: 0.2.0 }
 resources:
   - id: everything
     type: mcp
@@ -350,7 +350,7 @@ describe('实例启动', () => {
           join(dir, 'packhub.yaml'),
           `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/cc, version: 0.1.0, targets: [claude-code] }
+metadata: { name: demo/cc, version: 0.1.0 }
 resources:
   - id: rules
     type: knowledge

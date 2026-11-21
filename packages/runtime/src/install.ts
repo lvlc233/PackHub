@@ -344,19 +344,8 @@ export async function applyPlan(plan: Plan, opts: ApplyOptions): Promise<ApplyRe
   const gen = opts.dryRun ? undefined : prepareGeneration(opts.root, plan);
 
   for (const action of plan.actions) {
-    const blockedBy = (action.dependsOn ?? []).find((id) => {
-      const status = outcomes.find((o) => o.actionId === id)?.status;
-      return status !== 'done' && status !== 'noop';
-    });
-    if (blockedBy) {
-      outcomes.push({
-        actionId: action.actionId,
-        op: action.op,
-        status: 'skipped',
-        message: `依赖 ${blockedBy} 未成功，跳过`,
-      });
-      continue;
-    }
+    // 动作按计划里的顺序执行，且失败即 break：计划已经把「先 fetch 再 unpack」排进去了，
+    // 不再有逐动作的依赖字段（资源级的旧依赖字段也已删除，顺序改由 needs 派生）。
     try {
       const outcome = await applyAction(action, plan, opts);
       outcomes.push(outcome);

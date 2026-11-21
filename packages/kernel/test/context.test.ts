@@ -16,7 +16,7 @@ function pack(files: Record<string, string>): string {
 
 const base = (contextLine: string): string => `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/ctx, version: 0.0.1, targets: [dir, dsh] }
+metadata: { name: demo/ctx, version: 0.0.1 }
 requires: { packhub: ">=0.0.1 <0.1" }
 ${contextLine}
 resources:

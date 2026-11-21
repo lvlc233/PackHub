@@ -53,6 +53,7 @@ export const resourceAdd = command({
     }
     const { plan } = planFor(ctx, { target: String(args.target ?? 'dir') as never });
     say(`计划：${plan?.actions.length ?? 0} 个动作 · planHash ${plan?.planHash.slice(0, 22)}…`);
+    say('要提供 / 需要能力时在清单里写 provides / needs，令牌形如 tool/repo-search@1');
     say('下一步：packhub install . --dry-run 看会发生什么');
   },
 });
@@ -96,7 +97,7 @@ export const slotSwap = command({
     const after = plan;
     // 换绑时 actionId（fetch#1）不变，必须按内容比，否则看不出换了什么
     const fp = (a: { op: string } & Record<string, unknown>): string =>
-      JSON.stringify({ ...a, actionId: undefined, dependsOn: undefined });
+      JSON.stringify({ ...a, actionId: undefined });
     const beforeSet = new Set((before?.actions ?? []).map((a) => fp(a as never)));
     const afterSet = new Set((after?.actions ?? []).map((a) => fp(a as never)));
     const describe = (a: { op: string } & Record<string, unknown>): string => {
@@ -108,7 +109,9 @@ export const slotSwap = command({
     say(`计划：${after?.actions.length ?? 0} 个动作（+${added.length} / -${removed.length}）`);
     for (const a of removed) say(`  - ${describe(a as never)}`);
     for (const a of added) say(`  + ${describe(a as never)}`);
-    for (const e of after?.excluded ?? []) say(`  · 跳过 ${e.resource}（槽位 ${e.slot} 未绑定）`);
+    for (const e of after?.excluded ?? []) {
+      say(`  · 跳过 ${e.resource}${e.slot ? `（槽位 ${e.slot}）` : ''}：${e.reason}`);
+    }
     say(`planHash ${after?.planHash.slice(0, 22) ?? '—'}…`);
   },
 });

@@ -8,7 +8,7 @@ const entry = {
   title: 'MCP Filesystem',
   description: '把目录暴露给 agent',
   keywords: ['mcp', 'files'],
-  provides: ['tool:repo_search'],
+  provides: ['tool/repo-search@1'],
 };
 
 describe('资源目录', () => {

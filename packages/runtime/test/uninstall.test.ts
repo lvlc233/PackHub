@@ -58,7 +58,7 @@ describe('卸载不破坏共享配置', () => {
       join(dir, 'packhub.yaml'),
       `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/share, version: 0.0.1, targets: [dir, claude-code] }
+metadata: { name: demo/share, version: 0.0.1 }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: pack-search
@@ -99,7 +99,7 @@ describe('撤销负载只在 PLAN_OPS 表里定义一次', () => {
       join(dir, 'packhub.yaml'),
       `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/share, version: 0.0.1, targets: [claude-code] }
+metadata: { name: demo/share, version: 0.0.1 }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: pack-search

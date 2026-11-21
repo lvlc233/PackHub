@@ -17,7 +17,7 @@ function pack(manifest: string, files: Record<string, string> = {}): string {
 
 const BODY = (resources: string): string => `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/platform, version: 0.0.1, targets: [dir] }
+metadata: { name: demo/platform, version: 0.0.1 }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
 ${resources}`;

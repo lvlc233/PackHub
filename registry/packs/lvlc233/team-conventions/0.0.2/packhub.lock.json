@@ -7,23 +7,23 @@
       "type": "knowledge",
       "source": "./resources/style-guide.md",
       "integrity": null,
-      "resolvedAt": "2026-11-18T10:49:15.632Z"
+      "resolvedAt": "2026-11-21T19:56:17.970Z"
     },
     {
       "id": "commit-rules",
       "type": "prompt",
       "source": "./resources/commit-rules.md",
       "integrity": null,
-      "resolvedAt": "2026-11-18T10:49:15.632Z"
+      "resolvedAt": "2026-11-21T19:56:17.970Z"
     },
     {
       "id": "editor-config",
       "type": "config",
       "source": "./fragments/editorconfig.yaml",
       "integrity": null,
-      "resolvedAt": "2026-11-18T10:49:15.632Z"
+      "resolvedAt": "2026-11-21T19:56:17.970Z"
     }
   ],
-  "contentHash": "sha256-OBoyac7ow6Oopvj3JzVG14KrGzKzeAmMuOKd2c2gQrQ=",
+  "contentHash": "sha256-SJk1L+j4lxeqAClX5M93lHdRb0rPhfxEORWdOLFx68E=",
   "generatedBy": "packhub/0.0.1"
 }

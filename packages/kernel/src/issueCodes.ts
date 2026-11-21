@@ -28,7 +28,6 @@ export const ISSUE_CODES = {
   localOverrides: 'local-overrides',
   manifestMissing: 'manifest-missing',
   manifestUnreadable: 'manifest-unreadable',
-  missingDependency: 'missing-dependency',
   modifyAnchorAmbiguous: 'modify-anchor-ambiguous',
   modifyAnchorMissing: 'modify-anchor-missing',
   modifyConflict: 'modify-conflict',

@@ -71,19 +71,28 @@
     },
     "slots": {
       "type": "object",
-      "description": "可替换位：每个槽位声明契约，资源用 slot 占位，bindings 决定装哪个",
+      "description": "可替换位：每个槽位声明契约，资源用 slot 占位；bindings 或 slots[].default 决定装哪个",
       "additionalProperties": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "contract": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+          "contract": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "^(tool|skill|content|config)/[a-z][a-z0-9-]*@[1-9][0-9]*$" },
+            "uniqueItems": true
+          },
+          "default": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$",
+            "description": "不写 bindings 时用这个实现（资源 id）；写了 bindings 就以 bindings 为准"
+          },
           "note": { "type": "string", "maxLength": 200 }
         }
       }
     },
     "bindings": {
       "type": "object",
-      "description": "槽位 → 资源 id；只有被绑定的实现会被安装",
+      "description": "槽位 → 资源 id；不写时用 slots[].default；只有选中的实现会被安装",
       "additionalProperties": { "type": "string" }
     },
     "state": {
@@ -184,10 +193,6 @@
         "config": { "type": "object" },
         "provides": { "$ref": "#/definitions/capabilities" },
         "needs": { "$ref": "#/definitions/capabilities" },
-        "dependsOn": {
-          "type": "array",
-          "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" }
-        },
         "targets": {
           "type": "array",
           "description": "只在这些 target 上安装；不写就全部安装",
@@ -236,10 +241,11 @@
       }
     },
     "capabilities": {
+      "$comment": "能力令牌 `<form>/<name>@<major>`：form 是消费形态的闭集，major 从 1 起。kernel 从这个 pattern 建 CAPABILITY_TOKEN_PATTERN（packages/kernel/src/capability.ts），改这里就行，别在 TS 里另写正则。",
       "type": "array",
       "items": {
         "type": "string",
-        "pattern": "^[a-z][a-z0-9-]*:[a-z0-9_.]+$"
+        "pattern": "^(tool|skill|content|config)/[a-z][a-z0-9-]*@[1-9][0-9]*$"
       },
       "uniqueItems": true
     },

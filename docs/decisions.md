@@ -1,7 +1,7 @@
 ---
 kind: decision
 summary: 有意为之的取舍
-verified: 2026-11-18
+verified: 2026-11-22
 decay: 365
 review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增删、锁形状或签名载荷变化、命令层再出现例外、加 mac 门禁、命令面收缩）
 ---
@@ -15,6 +15,16 @@ review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增
 没选另一条：跨包引用要先定包身份、传递安装语义与锁的跨包表达——谁负责装被引用的包、两个包要不同版本怎么办、跨包的版本对齐怎么进计划。这些都得在格式 v0 的锁格式里留位置；格式没稳定之前先定，会把形状钉死。
 
 代价：包只能自包含，或所有来源都能在安装时远程取到；reference 模式打包时含本地来源直接失败（`pack` 的 `LocalSourceNotVendoredError`）。复用只能靠重新发布成资源，或让多个包引同一份远程上游。
+
+### 能力用接口令牌命名，接线从 needs 派生
+
+能力名是接口，不是资源类别：`<form>/<name>@<major>`，`form` 闭集 `tool` / `skill` / `content` / `config`（消费形态：工具调用、技能、可读内容、配置），`name` 是 kebab-case 的功能名，`@major` 是接口主版本、从 1 起，不同主版本就是互不满足的两种能力。资源类型（`mcp` / `tool2` / `skill` / `prompt` / `knowledge` / `config`）继续管落点与执行，但不出现在能力名里。接线不再有单独的 `dependsOn`：`needs` 既是能力依赖也决定安装顺序（每个 provider 到 consumer 一条边，成环仍报 `dependency-cycle`）；槽位加 `default`，不写 `bindings` 时用 default，`bindings` 只做覆盖。清单仍是接线的唯一来源——`plan` 打印的接线图由 kernel 的 `describeComposition` 从清单现算，没有 `composition` 块，也不落盘。
+
+没选另一条：继续用 `类型:名字`（`audio:speak`、`tool:repo_search`）；保留 `dependsOn`；给能力加语义命名空间（如 `docs/lint@1`）而不是 form。
+
+`类型:名字` 把资源类型和功能分类混进同一个命名空间：`audio:speak` 的 `audio` 是功能，`tool:repo_search` 的 `tool` 是类型，读令牌的人分不清该按哪种契约匹配，schema 也只能放宽成自由字符串。form 是有限、正交于资源类型的维度，能进 schema 的枚举，读方还能按消费形态分组。保留 `dependsOn` 则纯顺序关系要作者再声明一遍，而能力依赖已经蕴含了这条边；两份声明冲突时还要定优先级，且没有东西检查它们一致。语义命名空间随功能无限分裂，形不成闭集，也没法在计划里按维度分组。槽位同理：`bindings` 给每个槽位抄一遍实现是噪音，把「默认用哪个」写进槽位声明、`bindings` 只在换实现时出现，清单才读得出作者改了什么。
+
+代价：主版本只有整数、没有范围匹配——`needs tool/lint@1` 不满足 `tool/lint@2`，接口升级要所有提供方与消费方同时改；删掉 `dependsOn` 后，两个没有能力关系但必须先写谁的资源没有表达方式，只能靠输出冲突在计划里暴露，或在 `needs` 里编一个假能力来拉边；`form` 让 `knowledge` / `prompt` 在能力层合并成 `content`，落点仍由资源类型决定，两者对不上（如 `prompt` 资源 provides `tool/*`）schema 不拦，靠作者自律；改名是破坏性变更，registry 里已发布的清单要原地迁移并重锁。
 
 ### target 退出内容层，清单也不再声明支持集
 

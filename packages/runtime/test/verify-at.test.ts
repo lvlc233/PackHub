@@ -13,7 +13,7 @@ function pack(name = 'demo/inst'): string {
     join(dir, 'packhub.yaml'),
     `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: ${name}, version: 0.0.1, targets: [dir] }
+metadata: { name: ${name}, version: 0.0.1 }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: rules
@@ -86,7 +86,7 @@ describe('verifyAt：模式判定与两种模式的结果形状', () => {
       join(project, 'packhub.yaml'),
       `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/proj, version: 0.0.1, targets: [dir] }
+metadata: { name: demo/proj, version: 0.0.1 }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: mine
@@ -122,14 +122,15 @@ verify:
     rmSync(empty, { recursive: true, force: true });
   });
 
-  it('Pack 模式下 target 未声明：ready=false，问题来自 planFor 的同一条判据', async () => {
+  it('Pack 模式：target 只决定落点，没有声明门（metadata.targets 已删）', async () => {
     const src = pack();
 
     const res = await verifyAt(src, { target: 'claude-code' });
     expect(res.mode).toBe('pack');
-    expect(res.ready).toBe(false);
-    expect(res.results).toEqual([]);
-    expect(res.issues.some((i) => i.message.includes('没有声明 target claude-code'))).toBe(true);
+    // 计划按传入的 target 现算；清单没有「声明过的 target」这回事，缺文件才算失败
+    expect(res.ready).toBe(true);
+    expect(res.planHash).toBe(planFor(loadPack(src), { target: 'claude-code' }).plan!.planHash);
+    expect(res.results.map((r) => r.status)).toEqual(['fail']);
 
     rmSync(src, { recursive: true, force: true });
   });

@@ -11,7 +11,7 @@ function scaffold(version: string, body: string): string {
     join(dir, 'packhub.yaml'),
     `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/hardlink, version: ${version}, targets: [dir] }
+metadata: { name: demo/hardlink, version: ${version} }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: rules

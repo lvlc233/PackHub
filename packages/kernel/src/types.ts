@@ -81,9 +81,10 @@ export interface ResourceSpec {
   env?: Record<string, string>;
   /** 占用哪个可替换位（slot）；未绑定的候选不进计划 */
   slot?: string;
+  /** 这个资源提供的能力令牌（`<form>/<name>@<major>`） */
   provides?: string[];
+  /** 这个资源需要的能力令牌；安装顺序由它派生 */
   needs?: string[];
-  dependsOn?: string[];
   /** 只在这些 target 上安装；不写就是全部（client / server 裁剪靠它） */
   targets?: TargetId[];
   optional?: boolean;
@@ -157,8 +158,10 @@ export type VerifyCheck =
     };
 
 export interface SlotSpec {
-  /** 占位实现必须提供的能力 */
+  /** 占位实现必须提供的能力令牌 */
   contract?: string[];
+  /** 不写 bindings 时用这个实现（资源 id）；写了 bindings 就以 bindings 为准 */
+  default?: string;
   note?: string;
 }
 
@@ -252,16 +255,13 @@ export type PlanOp =
   | { op: 'state.dir'; to: string; retain: 'keep' | 'remove' }
 
 /** 把元数据分配到 union 的每个成员上（交叉类型不会自动分配，会导致 Omit 丢掉变体字段）。 */
-type WithMeta<T> = T extends unknown
-  ? T & { actionId: string; resource?: string; dependsOn?: string[] }
-  : never;
+type WithMeta<T> = T extends unknown ? T & { actionId: string; resource?: string } : never;
 
 export type PlanAction = WithMeta<PlanOp>;
 /** 生成阶段允许省略 actionId（由 push 自动编号）。 */
 export type PlanActionInput = PlanOp & {
   actionId?: string;
   resource?: string;
-  dependsOn?: string[];
 };
 
 export interface Plan {

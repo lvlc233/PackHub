@@ -11,7 +11,6 @@ metadata:
   name: demo/projection
   version: 0.0.1
   title: 投影测试
-  targets: [dir, claude-code, dsh]
 requires:
   packhub: ">=0.0.1 <0.1"
 resources:

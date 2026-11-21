@@ -8,7 +8,7 @@ import { updatePack } from '../src/index.ts';
 
 const MANIFEST = (version: string, resources: string): string => `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/prune, version: ${version}, targets: [dir] }
+metadata: { name: demo/prune, version: ${version} }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
 ${resources}`;

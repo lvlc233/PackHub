@@ -4,13 +4,13 @@ import resourcesSchema from '../../../schema/resources.v0.schema.json' with { ty
 import { HARNESS_IDS, TARGET_IDS } from '../src/types.ts';
 import { TARGET_VARS } from '../src/targets.ts';
 
-/** 安装 target 只有一份 TS 常量；schema 的 enum 与落点表用这个测试盯着。 */
-function manifestTargets(): string[] {
-  return (packhubSchema as unknown as {
-    properties: { metadata: { properties: { targets: { items: { enum: string[] } } } } };
-  }).properties.metadata.properties.targets.items.enum;
-}
-
+/**
+ * 安装 target 只有一份 TS 常量；schema 的 enum 与落点表用这个测试盯着。
+ *
+ * 清单级（`metadata.targets`）的声明已经没了：target 退出内容层之后，清单只在
+ * **资源级** `resources[].targets` 上声明支持集，schema 的 metadata 段也收紧了
+ * （`additionalProperties: false`）。所以这里只比资源级与目录级两处 enum。
+ */
 function resourceTargets(): string[] {
   return (packhubSchema as unknown as {
     definitions: { resource: { properties: { targets: { items: { enum: string[] } } } } };
@@ -29,8 +29,14 @@ describe('安装 target 单源', () => {
     expect(HARNESS_IDS).not.toContain('dir');
   });
 
-  it('schema 的三处 target enum 与 TARGET_IDS 一致', () => {
-    expect(manifestTargets()).toEqual([...TARGET_IDS]);
+  it('metadata 不再声明 targets（target 已退出内容层）', () => {
+    const metadata = (packhubSchema as unknown as {
+      properties: { metadata: { properties: Record<string, unknown> } };
+    }).properties.metadata;
+    expect(Object.keys(metadata.properties)).not.toContain('targets');
+  });
+
+  it('schema 的两处 target enum 与 TARGET_IDS 一致', () => {
     expect(resourceTargets()).toEqual([...TARGET_IDS]);
     expect(catalogTargets()).toEqual([...TARGET_IDS]);
   });

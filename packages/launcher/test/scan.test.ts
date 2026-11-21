@@ -11,7 +11,6 @@ kind: Pack
 metadata:
   name: demo/scan-pack
   version: 0.1.0
-  targets: [dir, dsh]
 resources:
   - id: rules
     type: knowledge
@@ -20,7 +19,7 @@ resources:
 
 const FLOW_MANIFEST = `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/flow-pack, version: 0.2.0, targets: [dsh] }
+metadata: { name: demo/flow-pack, version: 0.2.0 }
 resources:
   - id: rules
     type: knowledge
@@ -33,7 +32,6 @@ kind: Pack
 metadata: &identity
   name: demo/anchored
   version: 0.3.0
-  targets: [dir]
 resources:
   - id: rules
     type: knowledge

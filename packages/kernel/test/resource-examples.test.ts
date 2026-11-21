@@ -17,13 +17,13 @@ const SNIPPETS: Record<string, string> = {
   config:
     command: npx
     args: ["-y", "@modelcontextprotocol/server-everything@0.6.2"]
-  provides: [tool:repo_search]
+  provides: [tool/repo-search@1]
 `,
   skill: `
 - id: review-rules
   type: skill
   source: github:lvlc233/skill-hub/skills/code-review@9f2c1ab7d4e5f60718293a4b5c6d7e8f90123456
-  provides: [skill:code_review]
+  provides: [skill/code-review@1]
 `,
   prompt: `
 - id: commit-rules
@@ -59,7 +59,6 @@ kind: Pack
 metadata:
   name: test/example
   version: 0.0.1
-  targets: [dir]
 resources:${resources}
 `;
 }

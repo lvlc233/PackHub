@@ -1,7 +1,7 @@
 ---
 kind: concept
 summary: 术语与边界（Pack / 资源 / 计划 / Target / 实例 / 隔离）
-verified: 2026-11-18
+verified: 2026-11-22
 decay: 365
 review: 实例模型或安装流程改动后
 ---
@@ -32,6 +32,8 @@ Pack 不是资源的压缩包，哪怕有依赖关系也不自动成为有机整
 
 Pack 里的一条能力声明，它相对于 Agent，而不是相对于整个 harness。所以它可以是 SKILL、工具、脚本、提示词……只要能让 Agent 稳定表现出某种能力；界面优化这类不算。
 
+资源提供或需要的能力写成令牌，见 Composition 词条。
+
 ### Source（来源）
 
 来源是资源对内容的引用：指向内容所在的位置，并且能取回来。
@@ -40,9 +42,15 @@ Pack 里的一条能力声明，它相对于 Agent，而不是相对于整个 ha
 
 ### Composition（接线）
 
-接线是资源之间的一组声明关系：谁提供什么能力、谁需要什么能力、谁占用哪个可替换位、谁依赖谁。
+接线是资源之间的约束：谁提供什么能力（`provides`）、谁需要什么能力（`needs`）、哪个实现占用可替换位（`slots` 与 `bindings`）。
 
-它只描述约束，由资源级的 `provides` / `needs` / `dependsOn` 与包级的 `slots` / `bindings` 承载，没有单独的 `composition` 块。
+能力写成令牌 `<form>/<name>@<major>`（`tool/repo-search@1`、`skill/doc-review@1`）。`form` 是闭集 `tool` / `skill` / `content` / `config`，表示能力被消费的形态——工具调用、技能、可读内容、配置——**不是资源类型**：`mcp` / `tool2` 通常给 `tool/*`，`skill` 给 `skill/*`，`prompt` / `knowledge` 给 `content/*`，`config` 给 `config/*`。名字只描述能做什么，不泄漏资源类型；`@` 后是接口主版本（不小于 1 的整数），主版本不同就是两种能力。
+
+`needs` 同时是能力依赖和安装顺序：每个被需要的令牌，其所有 provider 都排在消费者之前，成环报错。没有单独的 `dependsOn`。
+
+槽位的选择是「`bindings` 覆盖 `slots.<槽位>.default`」：`default` 是不写 `bindings` 时用的实现，`bindings` 只做覆盖；两者都必须是占用该槽位、满足 `contract` 的资源，其余候选进 `excluded`，都没有就是 `slot-unbound`。
+
+没有 `composition` 块：接线由 `provides` / `needs` / `slots` / `bindings` 承载，再声明一份等于第二真相。接线图在计划期从清单派生（kernel 的 `describeComposition`，`plan` 打印出来），不落盘。
 
 ### Manifest（清单）
 

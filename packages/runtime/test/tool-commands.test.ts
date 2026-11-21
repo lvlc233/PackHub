@@ -20,7 +20,6 @@ kind: Pack
 metadata:
   name: demo/tool
   version: 0.0.1
-  targets: [dir]
 requires:
   packhub: ">=0.0.1 <0.1"
 resources:
@@ -130,7 +129,7 @@ describe('工具：目录 + 多条命令', () => {
     const dir = pack({
       'packhub.yaml': `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/tool, version: 0.0.1, targets: [dir] }
+metadata: { name: demo/tool, version: 0.0.1 }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: kit
@@ -164,7 +163,7 @@ describe('工具：环境变量', () => {
     const dir = pack({
       'packhub.yaml': `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/tool, version: 0.0.1, targets: [dir] }
+metadata: { name: demo/tool, version: 0.0.1 }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: kit
@@ -196,7 +195,7 @@ resources:
     const dir = pack({
       'packhub.yaml': `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/tool, version: 0.0.1, targets: [dir] }
+metadata: { name: demo/tool, version: 0.0.1 }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: kit

@@ -124,7 +124,7 @@ function brokenPack(dir: string): string {
     join(dir, 'packhub.yaml'),
     `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/broken, version: 0.1.0, targets: [dir] }
+metadata: { name: demo/broken, version: 0.1.0 }
 resources:
   - id: gone
     type: skill
@@ -156,7 +156,7 @@ function knowledgePack(dir: string, version: string, files: Record<string, strin
     join(dir, 'packhub.yaml'),
     `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/guard, version: ${version}, targets: [dir] }
+metadata: { name: demo/guard, version: ${version} }
 resources:
 ${resources}`,
     'utf8',
@@ -1089,7 +1089,7 @@ describe('实例配置', () => {
       join(v1, 'packhub.yaml'),
       `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/upd, version: 0.1.0, targets: [dir] }
+metadata: { name: demo/upd, version: 0.1.0 }
 resources:
   - id: a
     type: knowledge
@@ -1113,7 +1113,7 @@ resources:
       join(v2, 'packhub.yaml'),
       `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/upd, version: 0.2.0, targets: [dir] }
+metadata: { name: demo/upd, version: 0.2.0 }
 resources:
   - id: a
     type: knowledge

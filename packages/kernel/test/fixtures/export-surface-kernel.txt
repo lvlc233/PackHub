@@ -1,10 +1,17 @@
 ActionDiff
+CAPABILITY_FORMS
+CAPABILITY_TOKEN_PATTERN
 CODEX_SKILL_YAML
+CapabilityForm
 CatalogEntry
 CatalogHit
+Composition
+CompositionContext
+CompositionSlot
 DIR_TARGET_VARS
 ExecSpec
 Graph
+GraphEdge
 HARNESS_IDS
 HarnessId
 INDEX_API_VERSION
@@ -25,6 +32,7 @@ PACK_NAME_PATTERN
 PACK_VERSION_PATTERN
 PLAN_OPS
 PackContext
+ParsedCapability
 ParsedSource
 Plan
 PlanAction
@@ -76,9 +84,11 @@ checkSource
 contentHashOf
 deepMerge
 describeAction
+describeComposition
 diffActions
 execWrapperPath
 interpolate
+isCapabilityToken
 isHarnessId
 isPlainObject
 isResourceType
@@ -87,6 +97,7 @@ isVolatilePin
 loadManifest
 loadPack
 mergeLocalOverrides
+parseCapabilityToken
 parseCatalog
 parseManifest
 parseSource

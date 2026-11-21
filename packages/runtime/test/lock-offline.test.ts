@@ -8,7 +8,7 @@ import { lockPack } from '../src/index.ts';
 // https 引用按 schema 必须自带 integrity，离线没得解析，这里改用 npm / github 两种
 const MANIFEST = `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/offline, version: 0.0.1, targets: [dir] }
+metadata: { name: demo/offline, version: 0.0.1 }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: rules

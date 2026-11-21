@@ -1,7 +1,7 @@
 ---
 kind: contract
 summary: 格式 v0 的数据形状与格式层不变量
-verified: 2026-11-18
+verified: 2026-11-22
 decay: 365
 review: 格式升版、字段增删、apiVersion 变化时
 ---
@@ -65,6 +65,7 @@ review: 格式升版、字段增删、apiVersion 变化时
 ```
 
 1. `planHash` = 计划自身的哈希，用于确保版本一致性。
+2. `plan --json` 在计划对象外带一份 `wiring`：`describeComposition` 从清单派生的接线（能力令牌 → provider、`needs` 边、槽位解析）。它是 CLI 输出，不进 `planHash`、不进锁，也不进 state 里的计划快照。
 
 每个 op 的路径、来源基准、撤销方式、撤销载荷、共享判定与派生输出都在 `packages/kernel/src/plan-ops.ts` 的 `PLAN_OPS` 表里（单点；执行器与清理侧都从它派生）：
 
@@ -97,9 +98,9 @@ review: 格式升版、字段增删、apiVersion 变化时
 - `state.dir` 只建目录；清单里的 `state` 块决定路径与 `retain`，目录不参与 `written`、不随快照回滚删除。
 - `exec` 带 `command/args/cwd/env/timeout` 与 `approval: required`：计划里永远标待批准，执行层必须显式 `--allow-exec` 才跑。退出码非零算失败，触发整次安装回滚。`undo` 目前只作记录，不自动执行。
 
-`excluded` 记录没进计划的候选，`reason` 四种：`unbound-slot`（槽位没绑定）、`target-mismatch`（资源级 target 不匹配）、`optional-unmet`（可选资源缺依赖，级联跳过）、`host-managed`（同步时由宿主管理、不进安装计划）。它们不进动作列表，但必须在计划里可见，否则「为什么没装」无从查起。
+`excluded` 记录没进计划的候选，`reason` 四种：`unbound-slot`（槽位没选中它：没写 `bindings` 也没有 `default`，或被别的实现覆盖）、`target-mismatch`（资源级 target 不匹配）、`optional-unmet`（可选资源缺依赖，级联跳过）、`host-managed`（同步时由宿主管理、不进安装计划）。它们不进动作列表，但必须在计划里可见，否则「为什么没装」无从查起。
 
-能力名统一写成 `命名空间:名字`（`audio:speak`、`tool:repo_search`），槽位契约与 `provides` / `needs` 共用这套写法。
+能力令牌统一写成 `<form>/<name>@<major>`：`form` 是闭集 `tool` / `skill` / `content` / `config`，表示能力的消费形态、不是资源类型；`name` 匹配 `[a-z][a-z0-9-]*`，只描述能做什么；`major` 是从 1 起的正整数，主版本不同就视为不兼容的两种能力（目前只有精确匹配，没有范围）。`provides` / `needs` 与槽位的 `contract` 共用这套写法，schema 用同一个正则 `^(tool|skill|content|config)/[a-z][a-z0-9-]*@[1-9][0-9]*$`。
 
 ## 2 Lock（`packhub.dev/lock/v0`）
 

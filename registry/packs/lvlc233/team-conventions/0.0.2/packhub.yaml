@@ -23,7 +23,7 @@ resources:
   - id: commit-rules
     type: prompt
     source: ./resources/commit-rules.md
-    provides: [prompt:commit_message]
+    provides: [content/commit-message@1]
 
   - id: editor-config
     type: config

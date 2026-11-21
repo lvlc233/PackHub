@@ -12,7 +12,7 @@ function makePack(root: string, name: string, content: string): string {
     join(root, 'packhub.yaml'),
     `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: ${name}, version: 0.0.1, targets: [dir] }
+metadata: { name: ${name}, version: 0.0.1 }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: rules
@@ -56,7 +56,7 @@ describe('项目级所有权', () => {
         join(dir, 'packhub.yaml'),
         `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/${name}, version: 0.0.1, targets: [dir] }
+metadata: { name: demo/${name}, version: 0.0.1 }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: cfg
