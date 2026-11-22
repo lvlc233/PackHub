@@ -1,40 +1,24 @@
 import { isAbsolute, relative } from 'node:path';
-import type { HarnessId, LayoutVars } from '@packhub/kernel';
+import {
+  HARNESSES,
+  type HarnessId,
+  type LayoutVars,
+  type StartTemplate,
+} from '@packhub/kernel';
 
 /**
- * 实例形态：`dir` 是普通项目目录实例（不是宿主），其余三种是宿主名。
+ * 实例形态：`dir` 是普通项目目录实例（不是宿主），其余是宿主名。
  *
  * 这几个值是 PAL 自己的概念，不是 kernel 的安装参数枚举——kernel 的 `--harness`
  * 只有宿主名；PAL 在建实例时把 `dir` 映射成「不传 harness（平铺目录）」。
+ * 宿主名单从 kernel 的 `HARNESSES` 表派生：加宿主只改表。
  */
-export const INSTANCE_KINDS = ['dir', 'dsh', 'claude-code', 'codex'] as const satisfies readonly (
-  | 'dir'
-  | HarnessId
-)[];
-export type InstanceKind = (typeof INSTANCE_KINDS)[number];
+export type InstanceKind = 'dir' | HarnessId;
 
-/** 启动时能拿到的上下文，交给适配器拼参数。 */
-export interface StartContext {
-  /** 本次分配的端口；宿主必须监听它 */
-  port: number;
-  /** 实例根 */
-  root: string;
-  /** 实例自己的 home 段（宿主没有则为 undefined） */
-  home?: string;
-  /** dsh 这类宿主的额外补丁文件（MCP 接线用） */
-  patchFile?: string;
-}
-
-export interface StartTemplate {
-  /** 可执行文件名（走 PATH 发现，或 PAL_<HARNESS>_BIN 覆盖） */
-  command: string;
-  /** 由上下文拼参数；不经过 shell */
-  args: (ctx: StartContext) => string[];
-  /** 从启动输出里认地址 */
-  url: RegExp;
-  /** 等地址的默认超时 */
-  readyTimeoutMs?: number;
-}
+export const INSTANCE_KINDS: readonly InstanceKind[] = [
+  'dir',
+  ...(Object.keys(HARNESSES) as HarnessId[]),
+];
 
 /** 每个宿主在实例根里怎么放 home 段、用哪个环境变量指过去、能不能直接起。 */
 export interface HarnessAdapter {
@@ -61,64 +45,33 @@ export interface HarnessAdapter {
 }
 
 /**
- * 拼 dsh 的启动参数。profile 由适配器的 startProfile 决定，不写死在闭包里；
- * --patch 必须在子命令之前：之后会被当成 web app 自己的参数。
+ * 由 kernel 的宿主描述表派生一个适配器：PAL 只把它拍平成
+ * homeDir / homeEnv 这类字段，值本身不在 launcher 再抄一遍。
  */
-export function dshStartArgs(
-  ctx: StartContext,
-  adapter: Pick<HarnessAdapter, 'startProfile'>,
-): string[] {
-  return [
-    ...(adapter.startProfile ? ['--profile', adapter.startProfile] : []),
-    ...(ctx.patchFile ? ['--patch', ctx.patchFile] : []),
-    '--no-open',
-    '--port',
-    String(ctx.port),
-  ];
+function adapterFrom(id: HarnessId): HarnessAdapter {
+  const harness = HARNESSES[id];
+  return {
+    label: harness.label,
+    ...(harness.home ? { homeDir: harness.home.dir, homeEnv: harness.home.env } : {}),
+    ...(harness.startProfile ? { startProfile: harness.startProfile } : {}),
+    ...(harness.executable ? { executable: harness.executable } : {}),
+    ...(harness.versionArgs ? { versionArgs: [...harness.versionArgs] } : {}),
+    ...(harness.credentialFiles ? { credentialFiles: [...harness.credentialFiles] } : {}),
+    ...(harness.start ? { start: harness.start } : {}),
+    ...(harness.noStartReason ? { noStartReason: harness.noStartReason } : {}),
+  };
 }
 
-// start.args 要读适配器自己的 startProfile，所以模板挂在具名常量上（闭包自引用）。
-const dshAdapter: HarnessAdapter = {
-  label: 'DeepSeek Harness',
-  homeDir: 'home/dsh',
-  homeEnv: 'DSH_HOME',
-  startProfile: 'web',
-  executable: 'dsh',
-  versionArgs: ['--version'],
-  credentialFiles: ['.credentials.yaml', 'auth.json'],
-  start: {
-    command: 'dsh',
-    args: (ctx) => dshStartArgs(ctx, dshAdapter),
-    url: /(https?:\/\/\S+)/,
-    readyTimeoutMs: 30_000,
-  },
-};
+const HOST_ADAPTERS = Object.fromEntries(
+  (Object.keys(HARNESSES) as HarnessId[]).map((id) => [id, adapterFrom(id)]),
+) as Record<HarnessId, HarnessAdapter>;
 
 export const ADAPTERS: Record<InstanceKind, HarnessAdapter> = {
   dir: {
     label: '普通项目',
     noStartReason: 'dir 实例是一个项目目录，没有可启动的宿主进程；用 packhub 直接在这个目录里工作。',
   },
-  dsh: dshAdapter,
-  'claude-code': {
-    label: 'Claude Code',
-    homeDir: 'home/claude',
-    homeEnv: 'CLAUDE_CONFIG_DIR',
-    executable: 'claude',
-    versionArgs: ['--version'],
-    credentialFiles: ['auth.json', '.credentials.json'],
-    noStartReason:
-      'Claude Code 是终端交互程序，没有可托管的常驻服务；PAL 只负责给它装配 home（技能、MCP、指令）。',
-  },
-  codex: {
-    label: 'Codex',
-    homeDir: 'home/codex',
-    homeEnv: 'CODEX_HOME',
-    executable: 'codex',
-    versionArgs: ['--version'],
-    credentialFiles: ['auth.json'],
-    noStartReason: 'Codex 是终端交互程序，没有可托管的常驻服务；PAL 只负责给它装配 home。',
-  },
+  ...HOST_ADAPTERS,
 };
 
 export function isInstanceKind(value: string): value is InstanceKind {

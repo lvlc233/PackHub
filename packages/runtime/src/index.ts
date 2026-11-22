@@ -77,7 +77,6 @@ export {
   type ProbeOptions,
   type ProbeResult,
   type SkillProbeOptions,
-  type HarnessTarget,
   type Runner,
   type RunnerResult,
 } from './harness-probe.ts';

@@ -3,6 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { extractMarker, probeHarness, probeSkill, type Runner } from '../src/index.ts';
+// askHarness 不是公共导出面（scenario 内部用），测试直接读模块
+import { askHarness } from '../src/harness-probe.ts';
 
 const AGENTS = `用户自己的说明。
 
@@ -127,28 +129,49 @@ describe('dsh 探针参数', () => {
   });
 });
 
-describe('opencode 目标', () => {
-  it('读 AGENTS.md，去掉 ANSI 控制符后比对标记', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'packhub-probe-oc-'));
-    writeFileSync(join(dir, 'AGENTS.md'), AGENTS, 'utf8');
-    const runner: Runner = () => ({
-      status: 0,
-      stdout: '\u001b[0m> build · deepseek-v4.1-flash\n\u001b[0m这个项目装了一个整合包：**测试包标题**（0.0.1）。\n',
-      stderr: '',
-    });
-    const res = probeHarness({ target: 'opencode', projectDir: dir, runner });
-    expect(res.ok).toBe(true);
-    expect(res.answer).not.toContain('\u001b[');
-    expect(res.command).toContain('opencode run --model');
+describe('未知宿主被回绝', () => {
+  it('opencode 不再是宿主：probeHarness 回绝、不执行命令、原因点明未知宿主', () => {
+    const dir = project();
+    let called = false;
+    const runner: Runner = () => {
+      called = true;
+      return { status: 0, stdout: '这个项目装了一个整合包：**测试包标题**（0.0.1）。\n', stderr: '' };
+    };
+    const res = probeHarness({ target: 'opencode' as never, projectDir: dir, runner });
+    expect(res.ok).toBe(false);
+    expect(called, '不认识的宿主不该被执行').toBe(false);
+    expect(res.command).toBe('');
+    expect(res.reason).toContain('未知宿主');
+    expect(res.reason).toContain('opencode');
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('opencode 失败时给出退出码原因', () => {
+  it('probeSkill 同样回绝未知宿主，不跑命令', () => {
     const dir = project();
-    const runner: Runner = () => ({ status: 2, stdout: '', stderr: 'Insufficient Balance' });
-    const res = probeHarness({ target: 'opencode', projectDir: dir, runner });
+    let called = false;
+    const runner: Runner = () => {
+      called = true;
+      return { status: 0, stdout: 'hello\n', stderr: '' };
+    };
+    const res = probeSkill({ target: 'opencode' as never, projectDir: dir, skill: 'hello', runner });
     expect(res.ok).toBe(false);
-    expect(res.reason).toMatch(/退出码 2/);
+    expect(called).toBe(false);
+    expect(res.reason).toContain('未知宿主');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('askHarness 也回绝未知宿主（scenario 的 harness 来自清单数据）', () => {
+    const dir = project();
+    let called = false;
+    const runner: Runner = () => {
+      called = true;
+      return { status: 0, stdout: '', stderr: '' };
+    };
+    const res = askHarness({ target: 'opencode' as never, projectDir: dir, prompt: 'hi', runner });
+    expect(res.ok).toBe(false);
+    expect(called).toBe(false);
+    expect(res.command).toBe('');
+    expect(res.reason).toContain('未知宿主');
     rmSync(dir, { recursive: true, force: true });
   });
 });

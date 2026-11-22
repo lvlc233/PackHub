@@ -1,20 +1,24 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { PACKHUB_ENV, quoteArg } from '@packhub/kernel';
+import {
+  HARNESSES,
+  HARNESS_IDS,
+  PACKHUB_ENV,
+  isHarnessId,
+  quoteArg,
+  type HarnessId,
+} from '@packhub/kernel';
 
 /**
- * 指令文件名：装到项目里那份项目说明叫什么。
- *
- * 探针要按宿主找到「包写进去的指令块」在哪个文件里；这张表覆盖全部 `HarnessTarget`
- * （含只在探针里的 opencode）。
+ * 探针只认可安装的宿主（kernel 的 `HARNESSES` 表）。
+ * 指令文件名这类静态知识从表里取；怎么拼 headless 命令仍是探针自己的配方，留在本文件。
  */
-const INSTRUCTION_FILE: Record<HarnessTarget, string> = {
-  dsh: 'AGENTS.md',
-  'claude-code': 'CLAUDE.md',
-  codex: 'AGENTS.md',
-  opencode: 'AGENTS.md',
-};
+
+/** 探针对一个不认识的名字的统一回绝：列出可选的宿主，不静默当别的东西跑。 */
+function unknownHarnessReason(target: unknown): string {
+  return `未知宿主：${String(target)}（可选 ${HARNESS_IDS.join(' / ')}；探针只认可安装的宿主）`;
+}
 
 /**
  * dsh 探针固定用到的命令与开关。
@@ -26,8 +30,6 @@ const DSH_PROBE_PROFILE = 'headless';
 const DSH_PROFILE_FLAG = '--profile';
 const DSH_PATCH_FLAG = '--patch';
 const DSH_JSON_FLAG = '--json';
-
-export type HarnessTarget = 'dsh' | 'claude-code' | 'opencode' | 'codex';
 
 export interface RunnerResult {
   status: number | null;
@@ -43,19 +45,19 @@ export type Runner = (
 ) => RunnerResult;
 
 export interface ProbeOptions {
-  target: HarnessTarget;
+  target: HarnessId;
   projectDir: string;
   timeoutMs?: number;
   /** dsh 用的额外 patch 层（配置 provider 等），可省 */
   patchFile?: string;
-  /** opencode / codex 用的模型；默认 opencode-go 免费档 / codex 原生 gpt-5.6-sol */
+  /** codex 用的模型；默认原生 gpt-5.6-sol（其它宿主的配方不带 -m） */
   model?: string;
   /** 测试注入用；默认 spawnSync */
   runner?: Runner;
 }
 
 export interface AskOptions {
-  target: HarnessTarget;
+  target: HarnessId;
   projectDir: string;
   /** 要发给 harness 的一句话 */
   prompt: string;
@@ -77,7 +79,7 @@ export interface AskResult {
 
 export interface ProbeResult {
   ok: boolean;
-  harness: HarnessTarget;
+  harness: HarnessId;
   /** 实际执行的命令（给用户看） */
   command: string;
   /** agent 的最终回答 */
@@ -110,7 +112,7 @@ const SKILL_QUESTION =
   '只做一件事：列出你当前可用的 skill 名称，一行一个；不要解释，没有就只回答「没有」。';
 
 export interface SkillProbeOptions {
-  target: HarnessTarget;
+  target: HarnessId;
   projectDir: string;
   /** 期望出现在选择器里的 skill 名 */
   skill: string;
@@ -153,19 +155,28 @@ export function probeSkill(opts: SkillProbeOptions): ProbeResult {
 
 /** 跑一次 harness headless 并把最终回答取出来；probe 与 scenario 共用。 */
 export function askHarness(opts: AskOptions): AskResult {
+  // 类型上已收窄，但 scenario 的 harness 来自清单数据：运行期兜住不认识的名字
+  if (!isHarnessId(opts.target)) {
+    return {
+      ok: false,
+      answer: '',
+      command: '',
+      status: null,
+      stdout: '',
+      stderr: '',
+      reason: unknownHarnessReason(opts.target),
+    };
+  }
   const runner = opts.runner ?? DEFAULT_RUNNER;
-  const model =
-    opts.model ??
-    (opts.target === 'codex' ? 'gpt-5.6-sol' : 'opencode-go/deepseek-v4.1-flash');
+  // 只有 codex 的配方读模型参数；其余宿主的命令不带 -m
+  const model = opts.model ?? 'gpt-5.6-sol';
   const prompt = opts.prompt;
   const command =
     opts.target === 'dsh'
       ? `${DSH_PROBE_COMMAND} ${DSH_PROFILE_FLAG} ${DSH_PROBE_PROFILE}${opts.patchFile ? ` ${DSH_PATCH_FLAG} ${opts.patchFile}` : ''} ${DSH_JSON_FLAG} "<prompt>"`
-      : opts.target === 'opencode'
-        ? `opencode run --model ${model} "<prompt>"`
-        : opts.target === 'codex'
-          ? `codex exec --skip-git-repo-check --sandbox read-only -m ${model} "<prompt>"`
-          : 'claude -p "<prompt>" --max-budget-usd 0.05 --no-session-persistence';
+      : opts.target === 'codex'
+        ? `codex exec --skip-git-repo-check --sandbox read-only -m ${model} "<prompt>"`
+        : 'claude -p "<prompt>" --max-budget-usd 0.05 --no-session-persistence';
 
   const argv =
     opts.target === 'dsh'
@@ -176,12 +187,11 @@ export function askHarness(opts: AskOptions): AskResult {
           DSH_JSON_FLAG,
           prompt,
         ]
-      : opts.target === 'opencode'
-        ? ['run', '--model', model, prompt]
-        : opts.target === 'codex'
-          ? ['exec', '--skip-git-repo-check', '--sandbox', 'read-only', '-m', model, prompt]
-          : ['-p', prompt, '--max-budget-usd', '0.05', '--no-session-persistence'];
-  const exe = opts.target === 'dsh' ? DSH_PROBE_COMMAND : opts.target === 'opencode' ? 'opencode' : opts.target === 'codex' ? 'codex' : 'claude';
+      : opts.target === 'codex'
+        ? ['exec', '--skip-git-repo-check', '--sandbox', 'read-only', '-m', model, prompt]
+        : ['-p', prompt, '--max-budget-usd', '0.05', '--no-session-persistence'];
+  const exe =
+    opts.target === 'dsh' ? DSH_PROBE_COMMAND : opts.target === 'codex' ? 'codex' : 'claude';
   // timeoutMs 真的生效：显式注入的毫秒数交给 runner（默认 runner 用它设 spawnSync.timeout）
   const runOpts = opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : undefined;
   const res = runner(exe, argv, opts.projectDir, runOpts);
@@ -258,8 +268,6 @@ function parseDshFinal(stdout: string): string {
  * 声明式检查做不到这件事——只有真跑一次才知道 harness 有没有读。
  */
 export function probeHarness(opts: ProbeOptions): ProbeResult {
-  const instructionFile = INSTRUCTION_FILE[opts.target];
-  const file = join(opts.projectDir, instructionFile);
   const base: ProbeResult = {
     ok: false,
     harness: opts.target,
@@ -267,6 +275,13 @@ export function probeHarness(opts: ProbeOptions): ProbeResult {
     answer: '',
     marker: null,
   };
+  // 探针只认可安装宿主；不认识的名字直接回绝，不去猜指令文件
+  if (!isHarnessId(opts.target)) {
+    return { ...base, reason: unknownHarnessReason(opts.target) };
+  }
+  // 指令文件名是宿主静态知识，从 kernel 的表取
+  const instructionFile = HARNESSES[opts.target].instructionFile;
+  const file = join(opts.projectDir, instructionFile);
 
   if (!existsSync(file)) {
     return {

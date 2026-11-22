@@ -279,7 +279,7 @@
         "equals": { "type": ["string", "number", "boolean"] },
         "resource": { "type": "string" },
         "integrity": { "type": "string" },
-        "harness": { "enum": ["dsh", "claude-code", "opencode", "codex"] },
+        "harness": { "enum": ["dsh", "claude-code", "codex"] },
         "prompt": { "type": "string" },
         "expectOutput": {
           "oneOf": [

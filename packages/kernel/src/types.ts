@@ -4,23 +4,14 @@
  * 由 `test/resource-types.test.ts` 比对 schema 的 enum 兜底。改 Schema 时必须同步改这里。
  */
 
+import type { HarnessId } from './harness.ts';
+
 /** 资源类型的唯一来源：CLI、资源目录、面板都从这里取，不要再各写一份。 */
 export const RESOURCE_TYPES = ['mcp', 'skill', 'prompt', 'knowledge', 'config', 'tool2'] as const;
 export type ResourceType = (typeof RESOURCE_TYPES)[number];
 
 export function isResourceType(value: unknown): value is ResourceType {
   return typeof value === 'string' && (RESOURCE_TYPES as readonly string[]).includes(value);
-}
-
-/**
- * 宿主（harness）名的唯一来源。不写宿主 = 平铺到项目里，那不是某个宿主，所以不在这个名单里。
- * 加宿主：这里加一个名字；落点表（layout.ts）与 launcher 适配器都按 HarnessId 建 Record，缺一条编译不过。
- */
-export const HARNESS_IDS = ['dsh', 'claude-code', 'codex'] as const;
-export type HarnessId = (typeof HARNESS_IDS)[number];
-
-export function isHarnessId(value: unknown): value is HarnessId {
-  return typeof value === 'string' && (HARNESS_IDS as readonly string[]).includes(value);
 }
 
 /** 执行一条工具用的解释器；binary 表示直接执行，不加前缀。 */
@@ -133,7 +124,8 @@ export type VerifyCheck =
   | {
       type: 'scenario';
       run?: string[];
-      harness?: 'dsh' | 'claude-code' | 'opencode' | 'codex';
+      /** 用哪个宿主 headless 跑一句话；只认可安装的宿主（平铺目录没有可跑的宿主） */
+      harness?: HarnessId;
       prompt?: string;
       expectExit?: number;
       /** 回答/输出里必须出现的子串；写数组时全部都要出现 */

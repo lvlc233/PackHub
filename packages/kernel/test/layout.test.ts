@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import packhubSchema from '../../../schema/packhub.v0.schema.json' with { type: 'json' };
-import { HARNESS_IDS } from '../src/types.ts';
+import { HARNESSES, HARNESS_IDS } from '../src/harness.ts';
 import { DIR_LAYOUT_VARS, LAYOUT_VARS, layoutFor } from '../src/layout.ts';
 
 /**
@@ -10,9 +10,15 @@ import { DIR_LAYOUT_VARS, LAYOUT_VARS, layoutFor } from '../src/layout.ts';
  * 所以宿主名单里没有 `dir`。安装形态也不进内容层：schema 的 metadata 里没有 targets。
  */
 describe('宿主与落点名单源', () => {
-  it('HARNESS_IDS 里没有 dir：不选宿主就是平铺目录', () => {
+  it('HARNESS_IDS 里没有 dir / opencode：不选宿主就是平铺目录', () => {
     expect(HARNESS_IDS.length).toBeGreaterThan(0);
     expect(HARNESS_IDS).not.toContain('dir');
+    // opencode 不再是可以安装/探测的宿主（探针也回绝它）
+    expect(HARNESS_IDS).not.toContain('opencode');
+  });
+
+  it('HARNESS_IDS 就是宿主表的键（唯一来源）', () => {
+    expect([...HARNESS_IDS]).toEqual(Object.keys(HARNESSES));
   });
 
   it('LAYOUT_VARS 覆盖且只覆盖 HARNESS_IDS', () => {
@@ -25,6 +31,8 @@ describe('宿主与落点名单源', () => {
     for (const id of HARNESS_IDS) {
       expect(layoutFor(id)).toBe(LAYOUT_VARS[id]);
       expect(layoutFor(id).instructionFile).toBeTruthy();
+      // 落点表的差量与宿主表里的 layout 是同一份知识
+      expect(LAYOUT_VARS[id]).toMatchObject(HARNESSES[id].layout);
     }
   });
 
@@ -33,5 +41,13 @@ describe('宿主与落点名单源', () => {
       properties: { metadata: { properties: Record<string, unknown> } };
     }).properties.metadata;
     expect(Object.keys(metadata.properties)).not.toContain('targets');
+  });
+
+  it('schema 的 scenario.harness enum 与宿主表同为三值（opencode 已删）', () => {
+    const enumValues = (packhubSchema as unknown as {
+      definitions: { check: { properties: { harness: { enum: string[] } } } };
+    }).definitions.check.properties.harness.enum;
+    expect(enumValues).toEqual([...HARNESS_IDS]);
+    expect(enumValues).not.toContain('opencode');
   });
 });

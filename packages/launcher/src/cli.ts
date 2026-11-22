@@ -1,5 +1,5 @@
 import { defineCommand } from 'citty';
-import { PACKHUB_ENV } from '@packhub/kernel';
+import { PACKHUB_ENV, HARNESS_IDS, type HarnessId } from '@packhub/kernel';
 import { auditPath, readAudit } from '@packhub/runtime';
 import pkg from '../package.json' with { type: 'json' };
 import { createInterface } from 'node:readline/promises';
@@ -115,8 +115,8 @@ async function confirm(question: string, yes: boolean): Promise<boolean> {
   }
 }
 
-/** pal create 能建的实例形态：只有宿主；dir 是项目目录形态，走 adopt / install。 */
-const CREATE_KINDS = ['dsh', 'claude-code', 'codex'] as const;
+/** pal create 能建的实例形态：只有宿主；dir 是项目目录形态，走 adopt / install。清单从 kernel 表派生。 */
+const CREATE_KINDS: readonly HarnessId[] = HARNESS_IDS;
 
 function createKindOf(raw: unknown): InstanceRecord['harness'] {
   const value = String(raw ?? 'dsh');
@@ -145,8 +145,7 @@ const create = defineCommand({
     kind: {
       type: 'string',
       default: 'dsh',
-      description:
-        '实例形态：dsh | claude-code | codex（只有宿主才建实例）。目录形态用 pal adopt；装进已有目录用 pal install',
+      description: `实例形态：${HARNESS_IDS.join(' | ')}（只有宿主才建实例）。目录形态用 pal adopt；装进已有目录用 pal install`,
     },
     index: { type: 'string', description: `registry 索引（路径或 URL；也可用 ${PACKHUB_ENV.index}）` },
     'from-home': {
@@ -965,7 +964,7 @@ const adopt = defineCommand({
     kind: {
       type: 'string',
       default: 'dsh',
-      description: '实例形态：dir（项目目录实例，不是宿主）| dsh | claude-code | codex',
+      description: `实例形态：dir（项目目录实例，不是宿主）| ${HARNESS_IDS.join(' | ')}`,
     },
     json: { type: 'boolean', default: false },
   },

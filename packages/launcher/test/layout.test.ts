@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { ADAPTERS, dshStartArgs, parseStartUrl, layoutVarsFor, type HarnessAdapter } from '../src/layout.ts';
+import { HARNESSES } from '@packhub/kernel';
+import { ADAPTERS, parseStartUrl, layoutVarsFor } from '../src/layout.ts';
 
 const CTX = { port: 51_234, root: 'G:/tmp/pal-instance' };
 
@@ -20,17 +21,31 @@ describe('宿主适配', () => {
     expect(parseStartUrl('nothing here', 'dsh')).toBeUndefined();
   });
 
-  it('dsh 的启动参数用适配表的 startProfile 拼出 --profile web', () => {
-    // 生产代码（start.ts）走的就是 adapter.start.args
-    const args = ADAPTERS.dsh.start!.args(CTX);
-    expect(args).toEqual(['--profile', 'web', '--no-open', '--port', '51234']);
+  it('dsh 的启动参数来自宿主表：--profile web → --patch → --no-open → --port', () => {
+    // 启动模板只有一份（kernel 的 HARNESSES）；PAL 的适配器原样透传
+    const start = HARNESSES.dsh.start!;
+    expect(start.args({ ...CTX, patchFile: 'patch.yml' })).toEqual([
+      '--profile',
+      'web',
+      '--patch',
+      'patch.yml',
+      '--no-open',
+      '--port',
+      '51234',
+    ]);
+    // 没有 patch 时不带空参数
+    expect(start.args(CTX)).toEqual(['--profile', 'web', '--no-open', '--port', '51234']);
+    // 适配器拿到的就是同一份模板
+    expect(ADAPTERS.dsh.start).toBe(start);
   });
 
-  it('适配器没有 startProfile 时就不带 --profile', () => {
-    // 临时适配器只改 startProfile，不真起进程
-    const bare: HarnessAdapter = { label: 'dsh', startProfile: undefined };
-    const args = dshStartArgs(CTX, bare);
-    expect(args).not.toContain('--profile');
-    expect(args).toEqual(['--no-open', '--port', '51234']);
+  it('只有能托管的宿主有启动模板；其余给能力说明而不是空模板', () => {
+    expect(HARNESSES.dsh.start).toBeTruthy();
+    expect(HARNESSES['claude-code'].start).toBeUndefined();
+    expect(HARNESSES.codex.start).toBeUndefined();
+    expect(HARNESSES['claude-code'].noStartReason).toContain('Claude Code');
+    expect(HARNESSES.codex.noStartReason).toContain('Codex');
+    expect(ADAPTERS['claude-code'].start).toBeUndefined();
+    expect(ADAPTERS.codex.noStartReason).toBeTruthy();
   });
 });

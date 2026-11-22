@@ -52,6 +52,14 @@ review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增
 
 代价：`plan` 与 `PlanSnapshot` 的形状变了（`target` 换成可选的 `harness`），`planHash` 随之变化——registry 里已发布的包要重锁、重跑 verify 并重建索引，否则锁、报告与当前代码算出的计划对不上。同一轮把清单插值命名空间从 `${target.*}` 改成 `${layout.*}`：旧写法在计划期找不到键，报 `undefined-variable`，已发布清单要原地改并重锁。两个命令族各用一套词，文档与 `--help` 要各讲一次，从 `--harness` 切到 PAL 的人得换一个词。
 
+### 宿主是代码里的描述表，不做插件加载
+
+一个宿主要回答的问题分散在几处：落点表（文件写到哪）、实例 home 与环境变量、可执行名与版本参数、凭据文件与指令文件名、启动模板。以前这些分别住在 kernel 的落点表、launcher 的适配器与 runtime 的探针里，加一个宿主要在几处各补一段，漏一处就要么装不了、要么探针不认识。现在收进 kernel 的 `HARNESSES` 一张表：`HARNESS_IDS` 与 `LAYOUT_VARS` 从它派生，加一个宿主 = 表里加一行（落点 + home + 可执行/版本 + 启动或不可启动原因 + 指令文件），`Record<HarnessId, …>` / `keyof` 在编译期卡完备性。探针也从同一份名单取，只认可安装的宿主——曾经只在探针里出现的 `opencode` 已删掉，不再有「探针认识、安装不认识」的半插件裂缝。
+
+没选另一条：让宿主在 runtime 里以插件加载（`import()` 第三方模块），或把宿主描述作为 registry 里的数据下发。插件要定加载时机、失败隔离、版本兼容与信任，等于在 kernel 里再开一个执行面；数据描述则把「怎么装」变成可远程改的输入，签名与信任链要跟着长，而落点表里还有只能写成代码的行为（启动模板、不可启动原因、平台差异）。宿主是产品支持集，不是用户扩展点。
+
+代价：第三方宿主不能自己加——想支持一个新宿主必须改 kernel 表并随 packhub / pal 发版；表在 kernel，CLI 与 launcher 都只是读它，加字段或改词要一起升级。探针的配方仍留在 runtime：表里给的是可执行名、版本参数与启动模板，真正起进程 / 发请求的逻辑不属于数据。将来真要第三方，只能走声明式描述（目录约定、可执行、参数模板、正则）并配信任与钉版本，不是现在的表。
+
 ### 资源级 targets 与 requires.agent 删除
 
 `resources[].targets` 与清单的 `requires.agent` 都删了：schema 里资源条目不接受 `targets`，`requires` 只剩 `packhub`；registry 索引的 `requiresAgent` 展示字段一起删，`target-mismatch` 与 `agent-target-mismatch` / `unknown-agent` 三个码也不再出现。

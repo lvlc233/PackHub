@@ -1,4 +1,4 @@
-import type { HarnessId } from './types.ts';
+import { HARNESSES, type HarnessId } from './harness.ts';
 import { STATE_DIR } from './files.ts';
 
 /**
@@ -40,22 +40,13 @@ const withDefaults = (patch: Partial<LayoutVars>): LayoutVars => ({ ...BASE_LAYO
 /** 平铺目录的落点表：不指定宿主时用它。 */
 export const DIR_LAYOUT_VARS: LayoutVars = withDefaults({});
 
-/** 各宿主的落点：从「物化」变成「接进 agent 会读的位置」。 */
-export const LAYOUT_VARS = {
-  dsh: withDefaults({
-    // DSH 的 skills 与 MCP 目前挂在 profile（全局），项目级只做「指路」
-    instructionFile: 'AGENTS.md',
-  }),
-  'claude-code': withDefaults({
-    skillsDir: '.claude/skills',
-    configFile: '.mcp.json',
-    instructionFile: 'CLAUDE.md',
-  }),
-  codex: withDefaults({
-    skillsDir: '.codex/skills',
-    instructionFile: 'AGENTS.md',
-  }),
-} satisfies Record<HarnessId, LayoutVars>;
+/**
+ * 各宿主的落点：从 `HARNESSES` 表里的 `layout` 差量派生。
+ * 加宿主只改表，这里跟着长出来，不再手写第二份落点表。
+ */
+export const LAYOUT_VARS = Object.fromEntries(
+  (Object.keys(HARNESSES) as HarnessId[]).map((id) => [id, withDefaults(HARNESSES[id].layout)]),
+) as Record<HarnessId, LayoutVars>;
 
 /** 选落点表：不传宿主 = 平铺目录（DIR_LAYOUT_VARS）。 */
 export function layoutFor(harness?: HarnessId): LayoutVars {

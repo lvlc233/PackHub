@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type { Issue, Manifest, Plan } from './types.ts';
-import { HARNESS_IDS, isHarnessId } from './types.ts';
+import { HARNESS_IDS, isHarnessId } from './harness.ts';
 import { loadManifest } from './manifest.ts';
 import { MANIFEST_FILE, STATE_DIR } from './files.ts';
 import { validateGraph, type Graph } from './graph.ts';
@@ -12,6 +12,7 @@ import { buildPlan, type PlanOptions } from './plan.ts';
 import { ISSUE_CODES } from './issueCodes.ts';
 
 export * from './types.ts';
+export * from './harness.ts';
 export { MANIFEST_FILE, LOCK_FILE, STATE_DIR, STATE_FILE } from './files.ts';
 export { PACKHUB_ENV } from './env.ts';
 export { ISSUE_CODES, type IssueCode } from './issueCodes.ts';

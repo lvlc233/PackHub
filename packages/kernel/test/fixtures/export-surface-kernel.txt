@@ -11,7 +11,9 @@ DIR_LAYOUT_VARS
 ExecSpec
 Graph
 GraphEdge
+HARNESSES
 HARNESS_IDS
+HarnessDescriptor
 HarnessId
 INDEX_API_VERSION
 ISSUE_CODES
@@ -62,6 +64,8 @@ STATE_DIR
 STATE_FILE
 Severity
 SourceKind
+StartContext
+StartTemplate
 StateDirSpec
 TOOL_RUNTIMES
 ToolCommand

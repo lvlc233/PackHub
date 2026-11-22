@@ -104,6 +104,8 @@ Pack 里的一条能力声明，它相对于 Agent，而不是相对于整个 ha
 
 它在 `pal install` 上是**安装参数**；`packhub plan` / `packhub verify` 只拿它算预览与检查计划，不产生安装。它不是 Pack 属性：不进锁、不进内容哈希，`pack` 与 `lock` 都不接受它；同一个 Pack 装到不同宿主，锁与签名不变，变的只是落点与计划（`planFor` 现算）。清单与资源也都不声明安装形态——旧清单带 `targets` 会被判 schema error。
 
+宿主的全部知识只有一份：kernel 的 `HARNESSES` 表。落点差异、实例 home 与环境变量、可执行名与版本参数、凭据文件、指令文件名、启动模板都在同一行里；`HARNESS_IDS` 与 `LAYOUT_VARS` 从表派生。加一个宿主 = 表里加一行（落点 + home + 可执行/版本 + 启动或不可启动原因 + 指令文件），`Record` / `keyof` 在编译期卡完备性。宿主是代码里的闭集，不是可注册的数据；探针也只认可安装宿主，第三方宿主现在不支持（见 decisions）。
+
 `--harness` 只决定目录内的落点形态，不等于有了一份宿主环境：home、进程、端口都不在目录里，装完只得到一份文件；要跑起来用实例（见 Launcher 词条）。
 
 启动器的实例形态用 `pal … --kind` 选：`create` 只接受宿主名（`dsh` / `claude-code` / `codex`）；目录形态的实例由 `pal adopt` 接管已有目录产生。`dir` 是实例形态（项目目录实例），属于 PAL，不是宿主；`instance.json` 仍记 `harness` 字段（值含 `dir`）。

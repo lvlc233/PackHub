@@ -1,8 +1,7 @@
-﻿import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { resolve, sep } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type {
-  HarnessId,
   Issue,
   Manifest,
   Plan,
@@ -12,6 +11,7 @@ import type {
   ResourceType,
   VerifyCheck,
 } from './types.ts';
+import type { HarnessId } from './harness.ts';
 import { interpolate, isPlainObject, canonicalize, sha256 } from './util.ts';
 import { STATE_DIR } from './files.ts';
 import { actionPaths, actionUndo } from './plan-ops.ts';

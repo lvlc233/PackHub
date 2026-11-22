@@ -17,7 +17,6 @@ DoctorReport
 DriftFinding
 FetchError
 FetchResult
-HarnessTarget
 HostMcpResult
 HostMcpSpec
 IndexEntry
