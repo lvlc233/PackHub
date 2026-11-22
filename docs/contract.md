@@ -75,9 +75,9 @@ resources:
   "pack": { "name": "lvlc233/team-conventions", "version": "0.0.1" },
   "target": "dir",
   "actions": [
-    { "actionId": "write#1", "op": "write", "to": ".packhub/knowledge/style-guide.md", "from": "./resources/style-guide.md", "resource": "style-guide" }
+    { "actionId": "write#1", "op": "write", "to": ".packhub/knowledge/style-guide.md", "from": "./resources/style-guide.md", "integrity": "sha256-…", "resource": "style-guide" }
   ],
-  "verify": [{ "type": "file-exists", "path": ".packhub/knowledge/style-guide.md" }],
+  "verify": [{ "type": "command", "run": ["node", "scripts/self-test.mjs"] }],
   "excluded": [{ "resource": "tts-a", "reason": "optional-unmet" }],
   "planHash": "sha256-…"
 }
@@ -95,7 +95,7 @@ resources:
 | `fetch` | 无（`uri`） | `dest` | 删文件 | — | 否 | 下载物进缓存，进快照/版本镜像 |
 | `unpack` | 安装根（`root`） | `to` | 删文件 | — | 否 | 读 fetch 实际写盘的位置 |
 | `copy` | Pack（`pack`） | `to` | 删文件 | — | 否 | 本地工具执行体整份复制 |
-| `write` | Pack（`pack`），内联内容可省 | `to` | 删文件 | — | 否 | 二进制也走它 |
+| `write` | Pack（`pack`），内联内容可省 | `to` | 删文件 | — | 否 | 二进制也走它；清单声明 `integrity` 时带上（verify 据此派生哈希校验） |
 | `delete` | 无 | `to`（被删对象） | 不撤销 | — | 否 | 目标不存在算 `noop`，不进 `written` |
 | `link.skill` | 本地 `pack` / 远程 `root` | `to` | 删文件 | — | 否 | codex 额外派生 `<to>/agents/openai.yaml` |
 | `link.exec` | 无（`entry` / `module` 相对安装根） | `to`、`to.cmd` | 删文件 | — | 否 | `.cmd` 只在 win32 生成；`platforms` 不匹配由执行器 `skipped` |
@@ -246,7 +246,7 @@ registry 的索引，`search` / `install` / `update` 只读它。
   "planHash": "sha256-…",
   "ok": true,
   "signatures": [{ "key": "…", "ok": true }],
-  "checks": [{ "index": 0, "type": "file-exists", "status": "pass", "detail": "…" }],
+  "checks": [{ "index": 0, "type": "knowledge-integrity", "status": "pass", "detail": "…" }],
   "outcomes": [{ "actionId": "write#1", "op": "write", "status": "done" }],
   "verifiedAt": "…",
   "env": { "node": "v22.15.0", "platform": "win32", "arch": "x64" }
@@ -255,7 +255,15 @@ registry 的索引，`search` / `install` / `update` 只读它。
 
 - `ok`：每一步都是 `done` / `noop`，且每项检查都是 `pass`。`skipped`、`needs-approval`、`failed` 都算未完成。
 - 报告与 `contentHash` 绑定：它证明的是「这份内容（清单 + 解析后的引用）」跑得通；内容变了报告不作数（索引会降为 `community`）。`planHash` 记的是 runner 实际跑的那份 dir 计划的哈希，是安装期派生值，不是锁的内容。
-- 检查类型与判定细节见 `packages/runtime/src/verify.ts` 与 `packages/runner/src/run.ts`。
+- 检查类型与判定细节见 `packages/runtime/src/verify.ts`、`packages/runtime/src/derived-checks.ts` 与 `packages/runner/src/run.ts`。
+
+检查从哪来：
+
+- **漂移段**：`verify` 在项目根按 state 里的安装记录查磁盘现状——写过的文件/链接在不在、指令托管块、配置里的 `mcpServers` 条目、宿主侧 MCP 登记、`state` 目录、激活指针。不读清单，也不需要作者声明。
+- **自动派生**：检查段从计划自动生成——带 `integrity` 的 `write` 动作生成一条 `knowledge-integrity`；`verify --probe-mcp` 时每个 `register.mcp` 生成一条 `mcp-ready`。派生项排在作者 `verify` 项之后；`knowledge-integrity` 与作者写了同一 `resource` + `integrity` 的项不重复，`mcp-ready` 按 resource 去重。
+- **作者声明**：清单 `verify` 数组只写计划推不出来的检查——`command`（脚本 self-test）与 `scenario`（宿主语义，要真跑一次）。`file-exists` / `config-key` 仍支持，但它们的覆盖与漂移段重叠，属于重复兜底，不再推荐手写；`knowledge-integrity` / `mcp-ready` 字段仍在 schema 里，通常也不用写（期望哈希来自资源声明的 `integrity`，MCP 规格来自计划）。
+- `install` 装后自动复核包含派生项（只读）；`publish` 门禁照旧在干净目录里跑清单里的全部检查（不受装后只读子集的限制）。
+- `--probe-mcp` 只影响这一次 `verify`：对计划里每个 MCP server 真发一次 `initialize`（stdio 起进程 / http 发请求），默认关闭——起进程或联网有副作用与耗时。
 
 ## 6 签名旁挂（`packhub.dev/signatures/v0`）
 

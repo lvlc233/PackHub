@@ -7,30 +7,30 @@
       "type": "mcp",
       "source": "npm:@dougis/markdown-lint-mcp@1.0.5",
       "integrity": null,
-      "resolvedAt": "2026-11-22T12:53:17.565Z"
+      "resolvedAt": "2026-11-22T16:48:16.525Z"
     },
     {
       "id": "review-rubric",
       "type": "knowledge",
       "source": "./resources/review-rubric.md",
       "integrity": null,
-      "resolvedAt": "2026-11-22T12:53:17.565Z"
+      "resolvedAt": "2026-11-22T16:48:16.525Z"
     },
     {
       "id": "reader-brief",
       "type": "prompt",
       "source": "./resources/reader-brief.md",
       "integrity": null,
-      "resolvedAt": "2026-11-22T12:53:17.565Z"
+      "resolvedAt": "2026-11-22T16:48:16.525Z"
     },
     {
       "id": "doc-review",
       "type": "skill",
       "source": "./skills/doc-review",
       "integrity": null,
-      "resolvedAt": "2026-11-22T12:53:17.565Z"
+      "resolvedAt": "2026-11-22T16:48:16.525Z"
     }
   ],
-  "contentHash": "sha256-PalDN+ku+EX6fFQg3aOU2fPvcyJZUTmvPSFlehW76gA=",
+  "contentHash": "sha256-QlPKYL3WxuGLr0go7bFPub5mHJc/GsN45QOG0F2x3wo=",
   "generatedBy": "packhub/0.0.1"
 }

@@ -209,7 +209,15 @@ export type PlanOp =
       auth?: { env: string; scheme?: 'bearer' | 'token' | 'basic' };
     }
   | { op: 'unpack'; from: string; to: string; strip?: number; fromBase?: PlanActionFromBase }
-  | { op: 'write'; to: string; from?: string; content?: string; fromBase?: PlanActionFromBase }
+  | {
+      op: 'write';
+      to: string;
+      from?: string;
+      content?: string;
+      /** 资源在清单里声明了 integrity 时带上：verify 段据此派生哈希校验 */
+      integrity?: string;
+      fromBase?: PlanActionFromBase;
+    }
   | { op: 'copy'; from: string; to: string; fromBase?: PlanActionFromBase }
   | {
       op: 'link.exec';

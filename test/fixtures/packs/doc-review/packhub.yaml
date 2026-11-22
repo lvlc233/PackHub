@@ -40,26 +40,8 @@ resources:
     provides: [skill/doc-review@1]
 
 verify:
-  - type: file-exists
-    path: "${target.skillsDir}/doc-review/SKILL.md"
-
-  - type: file-exists
-    path: "${target.skillsDir}/doc-review/scripts/check-structure.mjs"
-
-  - type: file-exists
-    path: "${target.skillsDir}/doc-review/scripts/check-links.mjs"
-
-  - type: file-exists
-    path: "${target.knowledgeDir}/review-rubric.md"
-
-  - type: file-exists
-    path: "${target.promptsDir}/reader-brief.md"
-
-  - type: config-key
-    path: "${target.configFile}"
-    key: "mcpServers.markdownlint.command"
-    equals: npx
-
+  # 落盘文件的哈希由计划里的 write.integrity 自动派生，门禁项不靠作者手写。
+  # 作者只留推不出来的：两份脚本各自跑一次 --self-test。
   - type: command
     run: ["node", "${target.skillsDir}/doc-review/scripts/check-structure.mjs", "--self-test"]
 

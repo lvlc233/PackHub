@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -687,7 +688,7 @@ verify:
     rmSync(packDir, { recursive: true, force: true });
   });
 
-  it('项目模式下已装文件被删：退出 1，失败计数含整包一条', () => {
+  it('项目模式下已装文件被删：漂移判失败退出 1，检查段没有作者项就是 0 项', () => {
     const project = mkdtempSync(join(tmpdir(), 'packhub-cli-verifyfail-'));
     const env = { PACKHUB_INDEX: join(ROOT, 'registry/index.json') };
     expect(run(['install', 'lvlc233/team-conventions', '--dir', project], env).status).toBe(0);
@@ -695,10 +696,47 @@ verify:
 
     const res = run(['verify', project]);
     expect(res.status).toBe(1);
-    // 1 项 fail + 这个包 ok=false 的 1 条：与旧命令层的计数逐字一致
-    expect(res.out).toContain('1 个包：2 项失败 / 0 项跳过');
+    // 这个包没有 verify 项、资源也没声明 integrity：检查段是 0 项；删掉的文件由漂移段点出来
+    expect(res.out).toContain('文件不见了：.packhub/knowledge/style-guide.md');
+    expect(res.out).toContain('1 个包：0 项失败 / 0 项跳过');
 
     rmSync(project, { recursive: true, force: true });
+  });
+
+  it('verify 自动带上 integrity 派生项：装好 pass，改过落盘文件之后 fail 且退出 1', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'packhub-cli-derived-'));
+    const content = '# rules\n';
+    const integrity = `sha256-${createHash('sha256').update(content).digest('base64')}`;
+    // 作者只声明 integrity，不写任何 verify 项：检查由计划里的 write.integrity 派生
+    writeFileSync(
+      join(dir, 'packhub.yaml'),
+      `apiVersion: packhub.dev/v0
+kind: Pack
+metadata: { name: demo/derived, version: 0.0.1 }
+requires: { packhub: ">=0.0.1 <0.1" }
+resources:
+  - id: rules
+    type: knowledge
+    source: ./rules.md
+    integrity: ${integrity}
+`,
+      'utf8',
+    );
+    writeFileSync(join(dir, 'rules.md'), content, 'utf8');
+    expect(run(['install', dir, '--dir', dir]).status).toBe(0);
+
+    const ok = run(['verify', dir]);
+    expect(ok.status).toBe(0);
+    expect(ok.out).toContain('knowledge-integrity');
+    expect(ok.out).toContain('1 项：1 通过 / 0 失败 / 0 跳过');
+
+    writeFileSync(join(dir, '.packhub/knowledge/rules.md'), '# tampered\n', 'utf8');
+    const bad = run(['verify', dir]);
+    expect(bad.status).toBe(1);
+    expect(bad.out).toContain('knowledge-integrity');
+    expect(bad.out).toContain('1 项：0 通过 / 1 失败 / 0 跳过');
+
+    rmSync(dir, { recursive: true, force: true });
   });
 
   it('既没清单也没已装包：退出 2，报 manifest-missing', () => {

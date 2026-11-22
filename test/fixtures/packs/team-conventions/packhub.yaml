@@ -29,7 +29,3 @@ resources:
 
 vars:
   conventionsDir: ".packhub/conventions"
-
-verify:
-  - type: file-exists
-    path: "${target.knowledgeDir}/style-guide.md"

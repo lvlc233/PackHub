@@ -145,6 +145,7 @@ export {
   type TokenInfo,
 } from './credentials.ts';
 export { runChecks, verifyPack, type CheckResult, type CheckStatus, type VerifyOptions } from './verify.ts';
+export { derivedChecks, mcpProbeChecks } from './derived-checks.ts';
 export {
   verifyAt,
   type VerifyAtOptions,

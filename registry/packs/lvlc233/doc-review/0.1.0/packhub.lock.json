@@ -7,30 +7,30 @@
       "type": "mcp",
       "source": "npm:@dougis/markdown-lint-mcp@1.0.5",
       "integrity": "sha512-iTgEVu7K9hu+Ovu6k13xp5XYJWAHyUl9N0428QchgWShTY7F5JeDEGZHzfzYU0/7ysNL/S1x+DxPAcnRvwzsWg==",
-      "resolvedAt": "2026-11-22T11:42:41.887Z"
+      "resolvedAt": "2026-11-22T16:42:28.384Z"
     },
     {
       "id": "review-rubric",
       "type": "knowledge",
       "source": "./resources/review-rubric.md",
       "integrity": null,
-      "resolvedAt": "2026-11-22T11:42:41.887Z"
+      "resolvedAt": "2026-11-22T16:42:28.384Z"
     },
     {
       "id": "reader-brief",
       "type": "prompt",
       "source": "./resources/reader-brief.md",
       "integrity": null,
-      "resolvedAt": "2026-11-22T11:42:41.887Z"
+      "resolvedAt": "2026-11-22T16:42:28.384Z"
     },
     {
       "id": "doc-review",
       "type": "skill",
       "source": "./skills/doc-review",
       "integrity": null,
-      "resolvedAt": "2026-11-22T11:42:41.887Z"
+      "resolvedAt": "2026-11-22T16:42:28.384Z"
     }
   ],
-  "contentHash": "sha256-326UXswzDf9e2CJqdprmzcLldSaRo3xXQMCepDtGOzc=",
+  "contentHash": "sha256-b6JkVCvtBNekNYwhTo/fXjh+K8DMMv0Wl28Z4h3SiE8=",
   "generatedBy": "packhub/0.0.1"
 }

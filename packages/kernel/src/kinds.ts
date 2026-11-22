@@ -118,7 +118,14 @@ function materializeContent(ctx: KindContext, res: ResourceSpec): void {
   const dir = res.type === 'knowledge' ? ctx.targetVars.knowledgeDir : ctx.targetVars.promptsDir;
   const name = fileNameOf(parsed.locator);
   if (parsed.kind === 'local') {
-    ctx.push({ op: 'write', from: parsed.locator, to: `${dir}/${name}`, resource: id });
+    ctx.push({
+      op: 'write',
+      from: parsed.locator,
+      to: `${dir}/${name}`,
+      // 声明了 integrity 就随 write 带上：verify 段据此派生知识文件的哈希校验
+      ...(res.integrity ? { integrity: res.integrity } : {}),
+      resource: id,
+    });
     ctx.installed.set(id, { type: res.type, kind: 'file', to: `${dir}/${name}`, from: parsed.locator });
   } else {
     ctx.push({
@@ -140,7 +147,13 @@ function materializeConfig(ctx: KindContext, res: ResourceSpec): void {
   const dir = ctx.targetVars.configDir;
   const name = fileNameOf(parsed.locator);
   if (parsed.kind === 'local') {
-    ctx.push({ op: 'write', from: parsed.locator, to: `${dir}/${name}`, resource: id });
+    ctx.push({
+      op: 'write',
+      from: parsed.locator,
+      to: `${dir}/${name}`,
+      ...(res.integrity ? { integrity: res.integrity } : {}),
+      resource: id,
+    });
     ctx.installed.set(id, { type: res.type, kind: 'file', to: `${dir}/${name}`, from: parsed.locator });
   } else {
     ctx.push({

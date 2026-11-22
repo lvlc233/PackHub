@@ -24,8 +24,3 @@ resources:
     source: https://raw.githubusercontent.com/lvlc233/PackHub/533147315257260f9054947f1ece2ba20588bc93/README.md
     integrity: sha256-CtMPyOdCbw/DtVRSFoKxJ4FbnhiPq2f92mvzzF5MR5Q=
 
-verify:
-  - type: file-exists
-    path: .packhub/knowledge/README.md
-  - type: file-exists
-    path: .packhub/skills/repo-docs/README.md

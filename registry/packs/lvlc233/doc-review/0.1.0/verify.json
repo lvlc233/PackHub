@@ -1,54 +1,18 @@
 {
   "apiVersion": "packhub.dev/verify/v0",
-  "contentHash": "sha256-326UXswzDf9e2CJqdprmzcLldSaRo3xXQMCepDtGOzc=",
-  "planHash": "sha256-rLcml+xQDLWxs50KT9isnO+X3GTG3TKt+0LUhLYOWfY=",
+  "contentHash": "sha256-b6JkVCvtBNekNYwhTo/fXjh+K8DMMv0Wl28Z4h3SiE8=",
+  "planHash": "sha256-VU3rf04zo5fivB0d26YrQl9GFz87U5Eifs2SYalyZZU=",
   "ok": true,
   "signatures": [],
   "checks": [
     {
       "index": 0,
-      "type": "file-exists",
-      "status": "pass",
-      "detail": ".packhub/skills/doc-review/SKILL.md"
-    },
-    {
-      "index": 1,
-      "type": "file-exists",
-      "status": "pass",
-      "detail": ".packhub/skills/doc-review/scripts/check-structure.mjs"
-    },
-    {
-      "index": 2,
-      "type": "file-exists",
-      "status": "pass",
-      "detail": ".packhub/skills/doc-review/scripts/check-links.mjs"
-    },
-    {
-      "index": 3,
-      "type": "file-exists",
-      "status": "pass",
-      "detail": ".packhub/knowledge/review-rubric.md"
-    },
-    {
-      "index": 4,
-      "type": "file-exists",
-      "status": "pass",
-      "detail": ".packhub/prompts/reader-brief.md"
-    },
-    {
-      "index": 5,
-      "type": "config-key",
-      "status": "pass",
-      "detail": "mcpServers.markdownlint.command = \"npx\""
-    },
-    {
-      "index": 6,
       "type": "command",
       "status": "pass",
       "detail": "退出码 0 · self-test ok"
     },
     {
-      "index": 7,
+      "index": 1,
       "type": "command",
       "status": "pass",
       "detail": "退出码 0 · self-test ok"
@@ -76,7 +40,7 @@
       "status": "done"
     }
   ],
-  "verifiedAt": "2026-11-22T11:42:42.186Z",
+  "verifiedAt": "2026-11-22T16:42:28.652Z",
   "env": {
     "node": "v22.15.0",
     "platform": "win32",

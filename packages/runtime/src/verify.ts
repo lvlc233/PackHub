@@ -7,6 +7,7 @@ import type { Plan, PlanShape, VerifyCheck } from '@packhub/kernel';
 import { STATE_DIR } from '@packhub/kernel';
 import pkg from '../../../package.json' with { type: 'json' };
 import { askHarness } from './harness-probe.ts';
+import { checksWithDerived } from './derived-checks.ts';
 import { resolveWithin } from './pathSafety.ts';
 
 export type CheckStatus = 'pass' | 'fail' | 'skipped';
@@ -35,7 +36,8 @@ export function serverSpecs(plan: PlanShape): Record<string, unknown> {
 
 /** 按计划里的 verify 跑一遍检查：根是这个 Pack 的目录，MCP 启动规格也从计划里取。 */
 export function verifyPack(dir: string, plan: Plan): Promise<CheckResult[]> {
-  return runChecks(plan.verify, { root: resolve(dir), servers: serverSpecs(plan) });
+  // 发布门禁也吃派生段：清单里能推导出来的（写入产物的哈希）不靠作者手写
+  return runChecks(checksWithDerived(plan, plan.verify), { root: resolve(dir), servers: serverSpecs(plan) });
 }
 
 export async function runChecks(checks: VerifyCheck[], opts: VerifyOptions): Promise<CheckResult[]> {

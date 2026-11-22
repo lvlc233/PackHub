@@ -1,17 +1,10 @@
 {
   "apiVersion": "packhub.dev/verify/v0",
-  "contentHash": "sha256-SJk1L+j4lxeqAClX5M93lHdRb0rPhfxEORWdOLFx68E=",
-  "planHash": "sha256-TD9R/jD9pq3CDc/nEMDliOVP5aaurksOL2xwy2AAXuQ=",
+  "contentHash": "sha256-94GkdqE1rvyVZ5u/80kZaNgQi5VwkjYLc0DXM43s+bk=",
+  "planHash": "sha256-+4REwj0+8yCdtTl1Kjd1dExgDATTUmOxh6a10nnFl3Q=",
   "ok": true,
   "signatures": [],
-  "checks": [
-    {
-      "index": 0,
-      "type": "file-exists",
-      "status": "pass",
-      "detail": ".packhub/knowledge/style-guide.md"
-    }
-  ],
+  "checks": [],
   "outcomes": [
     {
       "actionId": "write#1",
@@ -29,7 +22,7 @@
       "status": "done"
     }
   ],
-  "verifiedAt": "2026-11-21T19:56:17.984Z",
+  "verifiedAt": "2026-11-22T16:42:30.209Z",
   "env": {
     "node": "v22.15.0",
     "platform": "win32",

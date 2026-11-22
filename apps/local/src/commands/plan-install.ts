@@ -65,7 +65,8 @@ function isProbeTarget(value: string): value is HarnessTarget {
 export const verify = command({
   meta: {
     name: 'verify',
-    description: '体检一个目录：已装文件有没有被外部改写（漂移）+ 清单里的检查；--probe 再跑一次真机',
+    description:
+      '体检一个目录：已装文件有没有被外部改写（漂移）+ 清单检查与计划派生检查；--probe 再跑一次真机，--probe-mcp 逐个握手 MCP',
   },
   args: {
     dir: { type: 'positional', required: false, default: '.', description: '要体检的目录（项目根或 Pack 目录）' },
@@ -79,6 +80,11 @@ export const verify = command({
       type: 'boolean',
       default: false,
       description: '再跑一次真机探针：看宿主有没有真读到包写进去的指令',
+    },
+    'probe-mcp': {
+      type: 'boolean',
+      default: false,
+      description: '对计划里每个 MCP server 真发一次 initialize（会起进程 / 联网；不可达记 fail）',
     },
     patch: { type: 'string', description: 'dsh 的 --patch 层（配置 provider / 模型；配合 --probe）' },
     skill: {
@@ -128,10 +134,11 @@ export const verify = command({
     const res = await verifyAt(dir, {
       ...(args.pack ? { pack: String(args.pack) } : {}),
       ...(checksTarget ? { target: checksTarget } : {}),
+      ...(args['probe-mcp'] ? { probeMcp: true } : {}),
     });
     if (res.issues.length > 0) reportIssues(res.issues);
     sayLine('');
-    sayLine('检查：清单里的 verify 项');
+    sayLine('检查：清单 verify 项 + 从计划派生的项');
     if (!res.ready) {
       sayLine('  跳过（清单或计划有问题，见上面的错误）');
     } else if (res.mode === 'installed') {

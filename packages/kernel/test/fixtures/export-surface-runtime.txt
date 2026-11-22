@@ -82,6 +82,7 @@ configPath
 contentHashFor
 credentialsPath
 defaultRegistryIndex
+derivedChecks
 doctorPack
 download
 evaluateLicense
@@ -106,6 +107,7 @@ loadState
 localSources
 lockPack
 mask
+mcpProbeChecks
 npmLicense
 packArchive
 pickSdist

@@ -74,6 +74,8 @@ describe('install + verify 闭环（本地资源，离线）', () => {
     const ctx = loadPack(work);
     const { plan } = planFor(ctx);
     expect(plan).toBeDefined();
+    // 夹具没有作者 verify 项、资源也没声明 integrity：作者项与派生项都是 0
+    expect(plan!.verify).toEqual([]);
 
     const first = await installPack(ctx, plan!);
     expect(first.outcomes.filter((o) => o.status === 'failed')).toEqual([]);
@@ -81,7 +83,7 @@ describe('install + verify 闭环（本地资源，离线）', () => {
     expect(existsSync(join(work, '.packhub/knowledge/style-guide.md'))).toBe(true);
 
     const results = await verifyPack(ctx.dir, plan!);
-    expect(results.filter((r) => r.status === 'fail')).toEqual([]);
+    expect(results).toEqual([]);
 
     const second = await installPack(ctx, plan!);
     expect(second.outcomes.some((o) => o.status === 'noop')).toBe(true);

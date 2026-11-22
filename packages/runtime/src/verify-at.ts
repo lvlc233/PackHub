@@ -1,8 +1,9 @@
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { loadPack, planFor, MANIFEST_FILE, type Issue, type Plan, type TargetId } from '@packhub/kernel';
+import { checksWithDerived } from './derived-checks.ts';
 import { hasInstalledPacks, verifyInstalled, type InstalledVerifyReport } from './installed.ts';
-import { verifyPack, type CheckResult } from './verify.ts';
+import { runChecks, serverSpecs, type CheckResult } from './verify.ts';
 
 /** verify 走哪条路：项目模式（state 里的已装包）还是 Pack 模式（目录里的清单）。 */
 export type VerifyMode = 'installed' | 'pack';
@@ -12,6 +13,8 @@ export interface VerifyAtOptions {
   pack?: string;
   /** Pack 模式的 target；项目模式不看它（计划来自 state 快照） */
   target?: TargetId;
+  /** 再对计划里的每个 MCP server 真发一次 initialize；会起进程 / 联网，默认关 */
+  probeMcp?: boolean;
 }
 
 /**
@@ -49,7 +52,10 @@ export async function verifyAt(root: string, opts: VerifyAtOptions = {}): Promis
   const dir = resolve(root);
 
   if (!existsSync(join(dir, MANIFEST_FILE)) && hasInstalledPacks(dir)) {
-    const reports = await verifyInstalled(dir, opts.pack ? { pack: opts.pack } : {});
+    const reports = await verifyInstalled(dir, {
+      ...(opts.pack ? { pack: opts.pack } : {}),
+      ...(opts.probeMcp ? { probeMcp: true } : {}),
+    });
     let failed = 0;
     let skipped = 0;
     for (const report of reports) {
@@ -91,7 +97,10 @@ export async function verifyAt(root: string, opts: VerifyAtOptions = {}): Promis
     };
   }
 
-  const results = await verifyPack(ctx.dir, plan);
+  // 作者写的检查 + 从计划派生出来的（带 integrity 的 write → knowledge-integrity）；
+  // --probe-mcp 时再追加 MCP 探活
+  const checks = checksWithDerived(plan, plan.verify, opts.probeMcp ? { probeMcp: true } : {});
+  const results = await runChecks(checks, { root: ctx.dir, servers: serverSpecs(plan) });
   return {
     mode: 'pack',
     issues,

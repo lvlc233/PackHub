@@ -7,16 +7,16 @@
       "type": "skill",
       "source": "github:lvlc233/PackHub@533147315257260f9054947f1ece2ba20588bc93",
       "integrity": "sha256-3QPgfioYgh/3iNzTAhWXsFEoeCoq57lpwhdfaYo8Kmg=",
-      "resolvedAt": "2026-11-21T19:58:06.402Z"
+      "resolvedAt": "2026-11-22T16:42:29.139Z"
     },
     {
       "id": "readme",
       "type": "knowledge",
       "source": "https://raw.githubusercontent.com/lvlc233/PackHub/533147315257260f9054947f1ece2ba20588bc93/README.md",
       "integrity": "sha256-CtMPyOdCbw/DtVRSFoKxJ4FbnhiPq2f92mvzzF5MR5Q=",
-      "resolvedAt": "2026-11-21T19:58:06.402Z"
+      "resolvedAt": "2026-11-22T16:42:29.139Z"
     }
   ],
-  "contentHash": "sha256-9a9q4URXs5Fi9eoR4DAaSAuCBMCTgM6uiEB0IerHW98=",
+  "contentHash": "sha256-yKIGcq1a+OPcNmBjPZPPynOOYsv+iAyQWrvr5AXHKDE=",
   "generatedBy": "packhub/0.0.1"
 }

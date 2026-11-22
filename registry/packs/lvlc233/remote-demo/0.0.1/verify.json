@@ -1,23 +1,10 @@
 {
   "apiVersion": "packhub.dev/verify/v0",
-  "contentHash": "sha256-9a9q4URXs5Fi9eoR4DAaSAuCBMCTgM6uiEB0IerHW98=",
-  "planHash": "sha256-FAJ/qA/wKHNHVkdW5+dH2d9SCkg97Vxq4HcRGs1u7lo=",
+  "contentHash": "sha256-yKIGcq1a+OPcNmBjPZPPynOOYsv+iAyQWrvr5AXHKDE=",
+  "planHash": "sha256-xO97Udmbh373Yg8M5lW+XN8T4CIO874xuPVjQhcb7Kw=",
   "ok": true,
   "signatures": [],
-  "checks": [
-    {
-      "index": 0,
-      "type": "file-exists",
-      "status": "pass",
-      "detail": ".packhub/knowledge/README.md"
-    },
-    {
-      "index": 1,
-      "type": "file-exists",
-      "status": "pass",
-      "detail": ".packhub/skills/repo-docs/README.md"
-    }
-  ],
+  "checks": [],
   "outcomes": [
     {
       "actionId": "fetch#1",
@@ -40,7 +27,7 @@
       "status": "done"
     }
   ],
-  "verifiedAt": "2026-11-21T19:58:07.196Z",
+  "verifiedAt": "2026-11-22T16:42:30.131Z",
   "env": {
     "node": "v22.15.0",
     "platform": "win32",

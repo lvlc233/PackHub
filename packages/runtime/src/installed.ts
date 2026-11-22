@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PlanSnapshot, VerifyCheck } from '@packhub/kernel';
 import { STATE_FILE } from '@packhub/kernel';
+import { checksWithDerived } from './derived-checks.ts';
 import { loadState } from './install.ts';
 import { runChecks, serverSpecs, type CheckResult } from './verify.ts';
 
@@ -20,6 +21,8 @@ export interface InstalledVerifyOptions {
   pack?: string;
   /** 只跑这些检查类型；安装后自动复核默认只跑只读的三类 */
   types?: VerifyCheck['type'][];
+  /** 再对计划里的每个 MCP server 真发一次 initialize；会起进程 / 联网，默认关 */
+  probeMcp?: boolean;
 }
 
 /**
@@ -73,9 +76,10 @@ export async function verifyInstalled(
       continue;
     }
 
-    const checks = opts.types
-      ? plan.verify.filter((c) => opts.types!.includes(c.type))
-      : plan.verify;
+    // 作者写的检查 + 从计划派生的（带 integrity 的 write → knowledge-integrity）。
+    // 安装后的自动复核也走这里，于是它自动带上只读的派生项，作者不用手写。
+    const all = checksWithDerived(plan, plan.verify, opts.probeMcp ? { probeMcp: true } : {});
+    const checks = opts.types ? all.filter((c) => opts.types!.includes(c.type)) : all;
     const results = await runChecks(checks, { root, servers: serverSpecs(plan) });
     out.push({
       pack: key,
