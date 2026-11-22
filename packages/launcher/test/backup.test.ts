@@ -13,7 +13,7 @@ import {
 import { backupsRoot, instancesRoot } from '../src/paths.ts';
 import { isPalError } from '../src/errors.ts';
 
-const PACK = 'examples/doc-review';
+const PACK = 'test/fixtures/packs/doc-review';
 
 let tmp: string;
 

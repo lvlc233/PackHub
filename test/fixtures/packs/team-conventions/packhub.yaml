@@ -1,0 +1,35 @@
+apiVersion: packhub.dev/v0
+kind: Pack
+
+metadata:
+  name: lvlc233/team-conventions
+  version: 0.0.2
+  title: 团队约定包
+  description: 一份团队代码规范、一套提交信息约定、一个 EditorConfig 片段。装完即可被 Agent 引用。
+  license: CC-BY-4.0
+  keywords: [conventions, knowledge, config]
+  visibility: public
+
+requires:
+  packhub: ">=0.0.1 <0.1"
+
+resources:
+  - id: style-guide
+    type: knowledge
+    source: ./resources/style-guide.md
+
+  - id: commit-rules
+    type: prompt
+    source: ./resources/commit-rules.md
+    provides: [content/commit-message@1]
+
+  - id: editor-config
+    type: config
+    source: ./fragments/editorconfig.yaml
+
+vars:
+  conventionsDir: ".packhub/conventions"
+
+verify:
+  - type: file-exists
+    path: "${target.knowledgeDir}/style-guide.md"

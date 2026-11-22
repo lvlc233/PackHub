@@ -103,7 +103,7 @@ describe('updateFromRef', () => {
   });
 });
 
-/** 本地 registry：索引 + 两个真归档（0.1.0 / 0.2.0），版本号从 examples 的清单上改。 */
+/** 本地 registry：索引 + 两个真归档（0.1.0 / 0.2.0），版本号从夹具的清单上改。 */
 async function makeRegistry(): Promise<string> {
   const root = join(tmp, 'reg');
   const dir = join(root, 'packs', 'testorg', 'service-demo');
@@ -122,10 +122,10 @@ async function makeRegistry(): Promise<string> {
   return file;
 }
 
-/** 复制一份 examples/doc-review，改清单版本后打成 .phub。 */
+/** 复制一份 test/fixtures/packs/doc-review，改清单版本后打成 .phub。 */
 async function packVersion(version: string, out: string): Promise<void> {
   const src = join(tmp, 'src', version);
-  cpSync('examples/doc-review', src, { recursive: true });
+  cpSync('test/fixtures/packs/doc-review', src, { recursive: true });
   const manifest = join(src, 'packhub.yaml');
   writeFileSync(
     manifest,

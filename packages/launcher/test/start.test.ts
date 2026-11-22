@@ -213,7 +213,7 @@ describe('宿主环境（纯函数）', () => {
 
 describe('实例启动', () => {
   it('dsh 实例的技能装进实例自己的 home', async () => {
-    const rec = await createInstance({ name: 'dsh-home', harness: 'dsh', packDir: 'examples/doc-review' });
+    const rec = await createInstance({ name: 'dsh-home', harness: 'dsh', packDir: 'test/fixtures/packs/doc-review' });
     expect(rec.home).toBe(join(rec.root, 'home', 'dsh'));
     expect(existsSync(join(rec.root, 'home', 'dsh', 'skills', 'doc-review', 'SKILL.md'))).toBe(true);
   });
@@ -223,7 +223,7 @@ describe('实例启动', () => {
     process.env.OPENAI_API_KEY = 'sk-pal-should-not-leak';
     process.env.ANTHROPIC_API_KEY = 'sk-ant-should-not-leak';
     process.env.HTTPS_PROXY = 'http://pal-proxy:7890';
-    const inst = await createInstance({ name: 'dsh-run', harness: 'dsh', packDir: 'examples/doc-review' });
+    const inst = await createInstance({ name: 'dsh-run', harness: 'dsh', packDir: 'test/fixtures/packs/doc-review' });
     const seen: Seen = {};
     const spawn = fakeSpawn(seen, 'dsh web: http://127.0.0.1:51234/?token=abc\n');
 
@@ -275,7 +275,7 @@ describe('实例启动', () => {
 
   it('调用方显式给的 env 会到宿主，仍不含 PAL 的密钥', async () => {
     process.env.OPENAI_API_KEY = 'sk-pal-should-not-leak';
-    await createInstance({ name: 'dsh-extra-env', harness: 'dsh', packDir: 'examples/doc-review' });
+    await createInstance({ name: 'dsh-extra-env', harness: 'dsh', packDir: 'test/fixtures/packs/doc-review' });
     const seen: Seen = {};
 
     await startInstanceDetailed('dsh-extra-env', {
@@ -319,7 +319,7 @@ describe('实例启动', () => {
   });
 
   it('已经在跑就不再起第二个', async () => {
-    const rec = await createInstance({ name: 'twice', harness: 'dsh', packDir: 'examples/doc-review' });
+    const rec = await createInstance({ name: 'twice', harness: 'dsh', packDir: 'test/fixtures/packs/doc-review' });
     const seen: Seen = {};
     await startInstance('twice', {
       spawn: fakeSpawn(seen, 'http://127.0.0.1:51236/\n'),
@@ -373,7 +373,7 @@ resources:
   });
 
   it('等不到地址时把日志尾部贴进错误，并把实例标成异常', async () => {
-    const inst = await createInstance({ name: 'slow', harness: 'dsh', packDir: 'examples/doc-review' });
+    const inst = await createInstance({ name: 'slow', harness: 'dsh', packDir: 'test/fixtures/packs/doc-review' });
     const spawn = fakeSpawn({}, 'booting the harness...\n');
     let caught: unknown;
     try {
@@ -389,7 +389,7 @@ resources:
   });
 
   it('日志超过 1MB、地址在末尾：仍能等到地址（只读尾部窗口）', async () => {
-    const inst = await createInstance({ name: 'big-log', harness: 'dsh', packDir: 'examples/doc-review' });
+    const inst = await createInstance({ name: 'big-log', harness: 'dsh', packDir: 'test/fixtures/packs/doc-review' });
     const noiseLine = `boot: warmup ${'x'.repeat(96)}\n`;
     const noise = noiseLine.repeat(Math.ceil((1.2 * 1024 * 1024) / noiseLine.length));
     const spawn = fakeSpawn({}, `${noise}dsh web: http://127.0.0.1:51290/?token=tail\n`);
@@ -409,7 +409,7 @@ resources:
   });
 
   it('地址在尾部窗口之外（很早的输出里）：不会因为读全文件而提前就绪', async () => {
-    const inst = await createInstance({ name: 'early-url', harness: 'dsh', packDir: 'examples/doc-review' });
+    const inst = await createInstance({ name: 'early-url', harness: 'dsh', packDir: 'test/fixtures/packs/doc-review' });
     const noiseLine = `boot: warmup ${'x'.repeat(96)}\n`;
     // 512KB 噪声是尾部窗口（128KB）的 4 倍：只读尾部就看不到第 1 行的地址
     const noise = noiseLine.repeat(Math.ceil((512 * 1024) / noiseLine.length));
@@ -428,7 +428,7 @@ resources:
   });
 
   it('进程已经不在的记录会被刷新成异常，不会一直显示在跑', async () => {
-    const rec = await createInstance({ name: 'stale', harness: 'dsh', packDir: 'examples/doc-review' });
+    const rec = await createInstance({ name: 'stale', harness: 'dsh', packDir: 'test/fixtures/packs/doc-review' });
     writeInstance({ ...requireInstance(rec.id), status: 'running', pid: 777777, port: 1 });
     const rows = refreshStatuses(() => false);
     expect(rows.find((row) => row.id === rec.id)?.status).toBe('broken');
@@ -458,7 +458,7 @@ resources:
 describe('状态视图（stale 只读不写）', () => {
   /** 把记录改成「说在跑」的现场：pid 给了就带上端口/url，没给就是 pid 缺席。 */
   async function runningRecord(name: string, pid?: number): Promise<{ id: string; file: string; runtimeFile: string }> {
-    const rec = await createInstance({ name, harness: 'dsh', packDir: 'examples/doc-review' });
+    const rec = await createInstance({ name, harness: 'dsh', packDir: 'test/fixtures/packs/doc-review' });
     const file = join(rec.root, 'instance.json');
     const runtimeFile = join(rec.root, 'runtime.json');
     const runtime = pid === undefined ? {} : { pid, port: 5123, url: 'http://127.0.0.1:5123/' };
@@ -611,7 +611,7 @@ describe('主动停止与看护', () => {
   }
 
   it('stop 主动结束的退出不会被看护标成 broken，也不会重起', async () => {
-    const created = await createInstance({ name: 'supervised', harness: 'dsh', packDir: 'examples/doc-review' });
+    const created = await createInstance({ name: 'supervised', harness: 'dsh', packDir: 'test/fixtures/packs/doc-review' });
     const running = runningRecord(requireInstance(created.id), 24680, 51237);
     writeInstance(running);
     blockRealRestart();
@@ -663,7 +663,7 @@ describe('主动停止与看护', () => {
   });
 
   it('标记还在时 onExit 不标 broken、不重起', async () => {
-    const created = await createInstance({ name: 'marked', harness: 'dsh', packDir: 'examples/doc-review' });
+    const created = await createInstance({ name: 'marked', harness: 'dsh', packDir: 'test/fixtures/packs/doc-review' });
     const running = runningRecord(requireInstance(created.id), 13579, 51238);
     writeInstance(running);
     blockRealRestart();
@@ -690,7 +690,7 @@ describe('主动停止与看护', () => {
   });
 
   it('onExit 晚到（标记已清、记录已 stopped）也不写回 broken', async () => {
-    const created = await createInstance({ name: 'late-exit', harness: 'dsh', packDir: 'examples/doc-review' });
+    const created = await createInstance({ name: 'late-exit', harness: 'dsh', packDir: 'test/fixtures/packs/doc-review' });
     const running = runningRecord(requireInstance(created.id), 55555, 51240);
     writeInstance(running);
     blockRealRestart();
@@ -721,7 +721,7 @@ describe('主动停止与看护', () => {
   });
 
   it('停不掉时也要清掉标记，不留下永久抑制', async () => {
-    const created = await createInstance({ name: 'stuck', harness: 'dsh', packDir: 'examples/doc-review' });
+    const created = await createInstance({ name: 'stuck', harness: 'dsh', packDir: 'test/fixtures/packs/doc-review' });
     writeInstance(runningRecord(requireInstance(created.id), 11111, 51239));
 
     let caught: unknown;
@@ -748,7 +748,7 @@ describe('主动停止与看护', () => {
 describe('pid 归属判定（B12：spawnPid 唯一 kill 目标，listenPid 只作证据）', () => {
   /** 造一条「在跑」的记录；不给 spawnPid 就不是一条完整运行记录，用来验证拒杀。 */
   async function runningRecord(name: string, runtime: Partial<InstanceRecord>): Promise<InstanceRecord> {
-    const created = await createInstance({ name, harness: 'dsh', packDir: 'examples/doc-review' });
+    const created = await createInstance({ name, harness: 'dsh', packDir: 'test/fixtures/packs/doc-review' });
     const record: InstanceRecord = {
       ...requireInstance(created.id),
       status: 'running',

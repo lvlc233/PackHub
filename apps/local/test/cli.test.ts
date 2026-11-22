@@ -532,6 +532,37 @@ verify:
 
     rmSync(dir, { recursive: true, force: true });
   });
+
+  it('项目 .packhub/local.yaml 里有已删的 pick：装得成，但打出 local-unknown-key 警告', () => {
+    const pack = mkdtempSync(join(tmpdir(), 'packhub-cli-localunk-pack-'));
+    const project = mkdtempSync(join(tmpdir(), 'packhub-cli-localunk-proj-'));
+    writeFileSync(
+      join(pack, 'packhub.yaml'),
+      `apiVersion: packhub.dev/v0
+kind: Pack
+metadata: { name: demo/local-unknown, version: 0.0.1 }
+requires: { packhub: ">=0.0.1 <0.1" }
+resources:
+  - id: rules
+    type: knowledge
+    source: ./rules.md
+`,
+      'utf8',
+    );
+    writeFileSync(join(pack, 'rules.md'), '# rules\n', 'utf8');
+    mkdirSync(join(project, '.packhub'), { recursive: true });
+    writeFileSync(join(project, '.packhub/local.yaml'), 'pick:\n  lint: rules\n', 'utf8');
+
+    const installed = run(['install', pack, '--dir', project]);
+    expect(installed.status).toBe(0);
+    expect(installed.out).toContain('local-unknown-key');
+    expect(installed.out).toContain('未识别的键：pick');
+    // 警告不挡安装
+    expect(existsSync(join(project, '.packhub/knowledge/rules.md'))).toBe(true);
+
+    rmSync(pack, { recursive: true, force: true });
+    rmSync(project, { recursive: true, force: true });
+  });
 });
 
 describe('cli 端到端：多提供者（能力叠加）', () => {

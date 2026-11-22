@@ -22,8 +22,8 @@ afterEach(() => {
 
 describe('实例切换', () => {
   it('按宿主记住当前实例，不排斥其它实例', async () => {
-    const a = await createInstance({ name: 'a', harness: 'dsh', packDir: 'examples/doc-review' });
-    const b = await createInstance({ name: 'b', harness: 'dsh', packDir: 'examples/doc-review' });
+    const a = await createInstance({ name: 'a', harness: 'dsh', packDir: 'test/fixtures/packs/doc-review' });
+    const b = await createInstance({ name: 'b', harness: 'dsh', packDir: 'test/fixtures/packs/doc-review' });
 
     setActive('a');
     expect(readActive().dsh).toBe(a.id);

@@ -77,7 +77,7 @@ function packManifests(dir: string): string[] {
 }
 
 const REPO_MANIFESTS = [
-  ...packManifests(join(ROOT, 'examples')),
+  ...packManifests(join(ROOT, 'test/fixtures/packs')),
   ...packManifests(join(ROOT, 'registry')),
 ];
 
@@ -104,7 +104,7 @@ describe('resource.source 语法一致性（ref.ts ↔ schema pattern）', () =>
     expect(supported).not.toContain('../');
   });
 
-  it('examples/ 与 registry/ 里现有清单的来源都仍被 schema 与 parseSource 接受', () => {
+  it('test/fixtures/packs/ 与 registry/ 里现有清单的来源都仍被 schema 与 parseSource 接受', () => {
     expect(REPO_MANIFESTS.length).toBeGreaterThan(0);
     const offenders: string[] = [];
     for (const file of REPO_MANIFESTS) {

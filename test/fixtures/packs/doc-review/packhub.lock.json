@@ -1,0 +1,36 @@
+{
+  "apiVersion": "packhub.dev/lock/v0",
+  "pack": "lvlc233/doc-review@0.1.0",
+  "resolved": [
+    {
+      "id": "markdownlint",
+      "type": "mcp",
+      "source": "npm:@dougis/markdown-lint-mcp@1.0.5",
+      "integrity": null,
+      "resolvedAt": "2026-11-22T12:53:17.565Z"
+    },
+    {
+      "id": "review-rubric",
+      "type": "knowledge",
+      "source": "./resources/review-rubric.md",
+      "integrity": null,
+      "resolvedAt": "2026-11-22T12:53:17.565Z"
+    },
+    {
+      "id": "reader-brief",
+      "type": "prompt",
+      "source": "./resources/reader-brief.md",
+      "integrity": null,
+      "resolvedAt": "2026-11-22T12:53:17.565Z"
+    },
+    {
+      "id": "doc-review",
+      "type": "skill",
+      "source": "./skills/doc-review",
+      "integrity": null,
+      "resolvedAt": "2026-11-22T12:53:17.565Z"
+    }
+  ],
+  "contentHash": "sha256-PalDN+ku+EX6fFQg3aOU2fPvcyJZUTmvPSFlehW76gA=",
+  "generatedBy": "packhub/0.0.1"
+}

@@ -26,7 +26,7 @@ beforeEach(async () => {
   delete process.env.PACKHUB_INDEX;
   // 打一个真 .phub：取包路径要按真归档走
   const out = join(tmp, 'pack.phub');
-  await packArchive('examples/doc-review', { vendored: true, out });
+  await packArchive('test/fixtures/packs/doc-review', { vendored: true, out });
   archive = out;
   index = await makeRegistry();
 });
@@ -39,8 +39,8 @@ afterEach(() => {
 
 describe('Pack 取用', () => {
   it('本地目录直接用，不复制', async () => {
-    const dir = await materializePack('examples/doc-review');
-    expect(dir).toMatch(/examples[\\/]doc-review$/);
+    const dir = await materializePack('test/fixtures/packs/doc-review');
+    expect(dir).toMatch(/test[\\/]fixtures[\\/]packs[\\/]doc-review$/);
   });
 
   it('registry 名没有索引时报错，并给出替代做法', async () => {
@@ -133,7 +133,7 @@ describe('缓存元数据', () => {
   });
 
   it('本地目录直接用时不写 meta（不污染源目录）', async () => {
-    const dir = await materializePack('examples/doc-review');
+    const dir = await materializePack('test/fixtures/packs/doc-review');
     expect(existsSync(join(dir, CACHE_META))).toBe(false);
   });
 
@@ -290,7 +290,7 @@ async function makeRegistry(): Promise<string> {
   const root = join(tmp, 'reg');
   const dir = join(root, 'packs', 'testorg', 'cache-demo');
   mkdirSync(dir, { recursive: true });
-  await packArchive('examples/doc-review', { vendored: true, out: join(dir, '0.1.0.phub') });
+  await packArchive('test/fixtures/packs/doc-review', { vendored: true, out: join(dir, '0.1.0.phub') });
   const file = join(root, 'index.json');
   writeFileSync(
     file,

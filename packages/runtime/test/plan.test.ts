@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { planFor } from '@packhub/kernel';
 import { installPack, loadPack, verifyPack } from '../src/index.ts';
 
-const EXAMPLE_DIR = fileURLToPath(new URL('../../../examples/team-conventions/', import.meta.url));
+const EXAMPLE_DIR = fileURLToPath(new URL('../../../test/fixtures/packs/team-conventions/', import.meta.url));
 
 let work: string;
 beforeEach(() => {

@@ -82,6 +82,9 @@ interface CommonInstall {
 
 /** 本地 Pack 目录：清单在目录里，作者流不设锁/签名门。 */
 async function installLocal(sourceDir: string, opts: CommonInstall): Promise<void> {
+  // 本地目录这条路不消费 local.yaml，但旧字段（如已删的 pick）要让人看见，不能静默
+  const local = readLocalOverrides(opts.projectDir);
+  if (local.issues.length > 0) reportIssues(local.issues, 'packhub install（local.yaml）');
   const packRoot = resolve(sourceDir);
   const ctx = loadPack(packRoot);
   if (reportIssues(ctx.issues)) stop(EXIT.USAGE);
@@ -265,8 +268,8 @@ async function installExternal(opts: ExternalInstall): Promise<void> {
     const merged = mergeLocalOverrides(ctx.manifest, local.file);
     const validated = validateGraph(merged.manifest);
     const localIssues = [...local.issues, ...merged.issues, ...validated.issues];
+    if (localIssues.length > 0) reportIssues(localIssues, 'packhub install（local.yaml）');
     if (localIssues.some((i) => i.severity === 'error')) {
-      reportIssues(localIssues, 'packhub install（local.yaml）');
       stop(EXIT.USAGE);
     }
     ctx = {

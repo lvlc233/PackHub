@@ -1,0 +1,7 @@
+# EditorConfig 片段（示例）
+editorconfig:
+  indent_style: space
+  indent_size: 2
+  end_of_line: lf
+  insert_final_newline: true
+  charset: utf-8

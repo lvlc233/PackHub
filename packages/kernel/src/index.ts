@@ -135,6 +135,9 @@ export interface LocalOverrides {
   vars?: Record<string, string | number | boolean>;
 }
 
+/** `.packhub/local.yaml` 只认这两个键；别的键一律警告并忽略（旧字段被删后要靠这条提醒）。 */
+const LOCAL_OVERRIDE_KEYS = new Set(['modify', 'vars']);
+
 function parseLocalOverrides(file: string): LocalOverrides {
   return (parseYaml(readFileSync(file, 'utf8')) ?? {}) as LocalOverrides;
 }
@@ -144,7 +147,17 @@ export function readLocalOverrides(root: string): { file?: LocalOverrides; issue
   const file = join(resolve(root), STATE_DIR, 'local.yaml');
   if (!existsSync(file)) return { issues: [] };
   try {
-    return { file: parseLocalOverrides(file), issues: [] };
+    const raw = parseLocalOverrides(file);
+    const unknown =
+      raw && typeof raw === 'object'
+        ? Object.keys(raw as Record<string, unknown>).filter((k) => !LOCAL_OVERRIDE_KEYS.has(k))
+        : [];
+    const issues = unknown.map<Issue>((key) => ({
+      code: ISSUE_CODES.localUnknownKey,
+      severity: 'warning',
+      message: `${STATE_DIR}/local.yaml 有未识别的键：${key}（已忽略）；local.yaml 只接受 modify / vars`,
+    }));
+    return { file: raw, issues };
   } catch (err) {
     return {
       issues: [{ code: ISSUE_CODES.localOverrides, severity: 'error', message: `读不了 ${file}：${(err as Error).message}` }],

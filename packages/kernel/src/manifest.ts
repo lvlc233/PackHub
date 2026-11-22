@@ -67,6 +67,93 @@ export function loadManifest(file: string): LoadResult {
   return parseManifest(text, file);
 }
 
+/**
+ * 已经从格式里删掉的字段：给出点名报错，而不是让 ajv 报一句「additional properties」。
+ *
+ * 形如 `{ where, keys, message }`：where 决定去哪一层找键。只列已删除、且曾经有人写过的字段。
+ */
+const REMOVED_FIELDS: { where: 'top' | 'resource' | 'requires'; keys: string[]; message: string }[] = [
+  {
+    where: 'top',
+    keys: ['alternatives', 'pick'],
+    message: '已删除：同一能力的多个实现现在全部安装（能力叠加），不再二选一。删掉这个键。',
+  },
+  {
+    where: 'top',
+    keys: ['slots', 'bindings', 'roles'],
+    message: '已删除：可替换位/备选组模型已移除；依赖关系用资源级 provides / needs 表达。删掉这个键。',
+  },
+  {
+    where: 'resource',
+    keys: ['targets'],
+    message: '已删除：资源不再声明安装形态，装到哪个 target 由安装时的 --target 决定。删掉这个键。',
+  },
+  {
+    where: 'resource',
+    keys: ['slot', 'role'],
+    message: '已删除：资源不再声明槽位/角色。删掉这个键。',
+  },
+  {
+    where: 'resource',
+    keys: ['dependsOn'],
+    message: '已删除：needs 同时决定安装顺序，不再需要 dependsOn。删掉这个键。',
+  },
+  {
+    where: 'requires',
+    keys: ['agent'],
+    message: '已删除：requires 只剩 packhub；宿主偏好由安装时选 target 决定。删掉这个键。',
+  },
+];
+
+function findRemovedFields(data: unknown): Issue[] {
+  if (!data || typeof data !== 'object') return [];
+  const root = data as Record<string, unknown>;
+  const issues: Issue[] = [];
+  for (const rule of REMOVED_FIELDS) {
+    if (rule.where === 'top') {
+      for (const key of rule.keys) {
+        if (key in root) {
+          issues.push({ code: ISSUE_CODES.removedField, severity: 'error', message: `${key}：${rule.message}`, path: `/${key}` });
+        }
+      }
+      continue;
+    }
+    if (rule.where === 'requires') {
+      const requires = root.requires;
+      if (requires && typeof requires === 'object') {
+        for (const key of rule.keys) {
+          if (key in (requires as Record<string, unknown>)) {
+            issues.push({
+              code: ISSUE_CODES.removedField,
+              severity: 'error',
+              message: `requires.${key}：${rule.message}`,
+              path: `/requires/${key}`,
+            });
+          }
+        }
+      }
+      continue;
+    }
+    const resources = root.resources;
+    if (Array.isArray(resources)) {
+      resources.forEach((res, i) => {
+        if (!res || typeof res !== 'object') return;
+        for (const key of rule.keys) {
+          if (key in (res as Record<string, unknown>)) {
+            issues.push({
+              code: ISSUE_CODES.removedField,
+              severity: 'error',
+              message: `resources[${i}].${key}：${rule.message}`,
+              path: `/resources/${i}/${key}`,
+            });
+          }
+        }
+      });
+    }
+  }
+  return issues;
+}
+
 export function parseManifest(text: string, file = '<inline>'): LoadResult {
   let data: unknown;
   try {
@@ -84,7 +171,12 @@ export function parseManifest(text: string, file = '<inline>'): LoadResult {
     };
   }
 
+  // 先点名已删除的字段：schema 只会说「additional properties」，旧清单的作者看不出该删什么
+  const removed = findRemovedFields(data);
+  if (removed.length > 0) return { issues: removed, text };
+
   const validate = validator();
+
   if (!validate(data)) {
     const issues = (validate.errors ?? []).map<Issue>((e) => ({
       code: ISSUE_CODES.schema,

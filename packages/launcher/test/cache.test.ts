@@ -27,7 +27,7 @@ beforeEach(async () => {
   process.env.PACKHUB_INSTANCES = join(tmp, 'instances');
   delete process.env.PACKHUB_INDEX;
   archive = join(tmp, 'pack.phub');
-  await packArchive('examples/doc-review', { vendored: true, out: archive });
+  await packArchive('test/fixtures/packs/doc-review', { vendored: true, out: archive });
   // 同一份内容换个文件名：引用不同 → slug 不同 → 两条独立缓存
   other = join(tmp, 'other.phub');
   copyFileSync(archive, other);

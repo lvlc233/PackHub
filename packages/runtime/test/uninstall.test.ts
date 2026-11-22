@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { actionUndoPayload, planFor } from '@packhub/kernel';
 import { installPack, loadPack, removePack } from '../src/index.ts';
 
-const EXAMPLE = fileURLToPath(new URL('../../../examples/team-conventions/', import.meta.url));
+const EXAMPLE = fileURLToPath(new URL('../../../test/fixtures/packs/team-conventions/', import.meta.url));
 
 function work(): string {
   const dir = mkdtempSync(join(tmpdir(), 'packhub-rm-'));

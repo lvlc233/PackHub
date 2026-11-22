@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { buildLock, diffActions, loadPack, planFor } from '../src/index.ts';
 import type { PlanAction } from '../src/index.ts';
 
-const EXAMPLE = fileURLToPath(new URL('../../../examples/team-conventions/', import.meta.url));
+const EXAMPLE = fileURLToPath(new URL('../../../test/fixtures/packs/team-conventions/', import.meta.url));
 
 const action = (over: Record<string, unknown>): PlanAction =>
   ({ actionId: 'x#1', ...over }) as unknown as PlanAction;

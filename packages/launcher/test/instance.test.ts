@@ -39,7 +39,7 @@ import { isStopping, stoppingMarkFile } from '../src/stopMark.ts';
 import { baselineDrift } from '../src/health.ts';
 import { archiveRoot, failedRoot, palConfigFile, quarantineRoot } from '../src/paths.ts';
 
-const PACK = 'examples/doc-review';
+const PACK = 'test/fixtures/packs/doc-review';
 
 /**
  * 删根失败的现场：只拦「指向指定根的 rmSync/renameSync」，其他路径照常落到真实 fs。
@@ -1247,13 +1247,13 @@ resources:
   });
 
   it('运行中的实例拒绝更新', async () => {
-    const rec = await createInstance({ name: 'run-upd', harness: 'dsh', packDir: 'examples/doc-review' });
+    const rec = await createInstance({ name: 'run-upd', harness: 'dsh', packDir: 'test/fixtures/packs/doc-review' });
     writeInstance({ ...readInstance(rec.id)!, status: 'running', pid: process.pid });
-    await expect(updateInstance('run-upd', { packDir: 'examples/doc-review' })).rejects.toThrow('先停掉再更新');
+    await expect(updateInstance('run-upd', { packDir: 'test/fixtures/packs/doc-review' })).rejects.toThrow('先停掉再更新');
   });
 
   it('重新基准化：本地改动被接受，漂移消失', async () => {
-    const rec = await createInstance({ name: 'base', harness: 'dir', packDir: 'examples/doc-review' });
+    const rec = await createInstance({ name: 'base', harness: 'dir', packDir: 'test/fixtures/packs/doc-review' });
     const baseline = readBaseline(rec.root)!;
     const file = join(rec.root, baseline.files[0]!.path);
     writeFileSync(file, 'locally edited', 'utf8');
@@ -1311,7 +1311,7 @@ resources:
     const record = await createInstance({
       name: 'seeded',
       harness: 'dsh',
-      packDir: 'examples/doc-review',
+      packDir: 'test/fixtures/packs/doc-review',
       seedFrom: source,
     });
     const home = record.home!;
@@ -1333,7 +1333,7 @@ resources:
     const record = await createInstance({
       name: 'seeded-fail',
       harness: 'dsh',
-      packDir: 'examples/doc-review',
+      packDir: 'test/fixtures/packs/doc-review',
       seedFrom: source,
       onWarn: (line) => warns.push(line),
     });
@@ -1359,7 +1359,7 @@ resources:
     const record = await createInstance({
       name: 'seeded-ok',
       harness: 'dsh',
-      packDir: 'examples/doc-review',
+      packDir: 'test/fixtures/packs/doc-review',
       seedFrom: source,
       onWarn: (line) => warns.push(line),
     });

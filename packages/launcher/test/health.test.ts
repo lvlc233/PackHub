@@ -21,7 +21,7 @@ afterEach(() => {
 
 describe('实例体检', () => {
   it('基线一致时算健康；改过/删掉 Pack 文件会被指出来', async () => {
-    const rec = await createInstance({ name: 'h1', harness: 'dir', packDir: 'examples/doc-review' });
+    const rec = await createInstance({ name: 'h1', harness: 'dir', packDir: 'test/fixtures/packs/doc-review' });
     const baseline = readBaseline(rec.root)!;
     expect(baseline.files.length).toBeGreaterThan(0);
 
@@ -44,7 +44,7 @@ describe('实例体检', () => {
   });
 
   it('home 不见了算故障', async () => {
-    const rec = await createInstance({ name: 'h2', harness: 'dsh', packDir: 'examples/doc-review' });
+    const rec = await createInstance({ name: 'h2', harness: 'dsh', packDir: 'test/fixtures/packs/doc-review' });
     rmSync(rec.home!, { recursive: true, force: true });
     const report = await checkInstance('h2');
     expect(report.ok).toBe(false);
@@ -58,7 +58,7 @@ describe('实例体检', () => {
 
 describe('运行时版本可见（A11）', () => {
   it('新基线记下写盘时的 node 版本', async () => {
-    const rec = await createInstance({ name: 'r1', harness: 'dir', packDir: 'examples/doc-review' });
+    const rec = await createInstance({ name: 'r1', harness: 'dir', packDir: 'test/fixtures/packs/doc-review' });
     expect(readBaseline(rec.root)?.runtime).toBe(process.version);
   });
 
@@ -96,7 +96,7 @@ describe('运行时版本可见（A11）', () => {
   });
 
   it('版本不一致给 warn 且不阻断；一致时 ok', async () => {
-    await createInstance({ name: 'r2', harness: 'dir', packDir: 'examples/doc-review' });
+    await createInstance({ name: 'r2', harness: 'dir', packDir: 'test/fixtures/packs/doc-review' });
 
     const same = await checkInstance('r2');
     expect(same.checks.find((check) => check.name === 'runtime')?.status).toBe('ok');
