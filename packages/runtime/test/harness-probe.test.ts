@@ -129,6 +129,33 @@ describe('dsh 探针参数', () => {
   });
 });
 
+describe('claude-code 目标（走注册表里的配方）', () => {
+  it('命令是 claude -p，剥掉 ANSI 后比对标记', () => {
+    // claude-code 的指令文件是 CLAUDE.md（注册表里的 instructionFile）
+    const dir = mkdtempSync(join(tmpdir(), 'packhub-probe-cc-'));
+    writeFileSync(join(dir, 'CLAUDE.md'), AGENTS, 'utf8');
+    const seen: { command?: string; args?: string[] } = {};
+    const runner: Runner = (command, args) => {
+      seen.command = command;
+      seen.args = args;
+      return {
+        status: 0,
+        stdout: '\u001b[0m这个项目装了一个整合包：**测试包标题**（0.0.1）。\n',
+        stderr: '',
+      };
+    };
+    const res = probeHarness({ target: 'claude-code', projectDir: dir, runner });
+    expect(res.ok).toBe(true);
+    expect(res.answer).not.toContain('\u001b[');
+    expect(seen.command).toBe('claude');
+    expect(seen.args?.slice(0, 2)).toEqual(['-p', expect.any(String)]);
+    expect(res.command).toBe(
+      'claude -p "<prompt>" --max-budget-usd 0.05 --no-session-persistence',
+    );
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
 describe('未知宿主被回绝', () => {
   it('opencode 不再是宿主：probeHarness 回绝、不执行命令、原因点明未知宿主', () => {
     const dir = project();
@@ -137,7 +164,7 @@ describe('未知宿主被回绝', () => {
       called = true;
       return { status: 0, stdout: '这个项目装了一个整合包：**测试包标题**（0.0.1）。\n', stderr: '' };
     };
-    const res = probeHarness({ target: 'opencode' as never, projectDir: dir, runner });
+    const res = probeHarness({ target: 'opencode', projectDir: dir, runner });
     expect(res.ok).toBe(false);
     expect(called, '不认识的宿主不该被执行').toBe(false);
     expect(res.command).toBe('');
@@ -153,7 +180,7 @@ describe('未知宿主被回绝', () => {
       called = true;
       return { status: 0, stdout: 'hello\n', stderr: '' };
     };
-    const res = probeSkill({ target: 'opencode' as never, projectDir: dir, skill: 'hello', runner });
+    const res = probeSkill({ target: 'opencode', projectDir: dir, skill: 'hello', runner });
     expect(res.ok).toBe(false);
     expect(called).toBe(false);
     expect(res.reason).toContain('未知宿主');
@@ -167,7 +194,7 @@ describe('未知宿主被回绝', () => {
       called = true;
       return { status: 0, stdout: '', stderr: '' };
     };
-    const res = askHarness({ target: 'opencode' as never, projectDir: dir, prompt: 'hi', runner });
+    const res = askHarness({ target: 'opencode', projectDir: dir, prompt: 'hi', runner });
     expect(res.ok).toBe(false);
     expect(called).toBe(false);
     expect(res.command).toBe('');

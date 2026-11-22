@@ -125,7 +125,7 @@ describe('整实例备份', () => {
     expect(existsSync(join(out, '.pal-stopping'))).toBe(false);
   });
 
-  it('宿主凭据文件按 ADAPTERS.credentialFiles 剥离：默认不带，includeSecrets 才带', async () => {
+  it('宿主凭据文件按宿主适配表的 credentialFiles 剥离：默认不带，includeSecrets 才带', async () => {
     const source = await makeSource();
     const home = source.home!;
     writeFileSync(join(home, 'auth.json'), JSON.stringify({ token: 'host-token' }), 'utf8');

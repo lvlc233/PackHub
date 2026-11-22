@@ -1,4 +1,4 @@
-import { existsSync, rmSync } from 'node:fs';
+﻿import { existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { STATE_DIR } from '@packhub/kernel';
 import { loadState, removePack } from '@packhub/runtime';
@@ -47,7 +47,7 @@ async function removeTreeWithRetry(dir: string, tries = 6): Promise<{ removed: b
 export interface RemoveOptions {
   /**
    * 保留数据：先按 state 卸掉 Pack 装进去的文件，删掉根里的 secrets.json 与宿主凭据文件
-   * （`ADAPTERS.credentialFiles`），再把实例根（剩下的 home / 会话）移进 .archive，记录从列表里去掉。
+   * （`适配器的 credentialFiles（由宿主注册表派生）`），再把实例根（剩下的 home / 会话）移进 .archive，记录从列表里去掉。
    * 不传则直接删根。
    */
   keepData?: boolean;
@@ -174,7 +174,7 @@ export async function removeInstance(
       }
       // 归档是长期留着的东西，不是这次删除的替代品：凭据先删掉，
       // 免得实例根里的 PAL token 跟着进 .archive（copy 策略下它是这份实例独有的）。
-      // 宿主自己的凭据文件（ADAPTERS.credentialFiles）同理：按 layout 给的清单删，
+      // 宿主自己的凭据文件（适配器的 credentialFiles（由宿主注册表派生））同理：按 layout 给的清单删，
       // 只落在适配器 home 段内，实例根上或别的子目录里的同名文件不碰。
       // 删不掉不阻断归档：目录里还会带着它，但至少要让人从 stderr 看到。
       const secrets = join(record.root, 'secrets.json');

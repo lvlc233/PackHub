@@ -1,4 +1,4 @@
-// 目录对象命令：install / uninstall / verify / rollback 作用于「一个已存在的目录」，
+﻿// 目录对象命令：install / uninstall / verify / rollback 作用于「一个已存在的目录」，
 // 不创建 PAL 实例记录。新建实例仍走 create（pal create）。
 //
 // 与实例路径的分工：
@@ -8,9 +8,10 @@ import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { defineCommand } from 'citty';
 import {
-  HARNESS_IDS,
   PACKHUB_ENV,
   STATE_FILE,
+  harnessIds,
+  isHarnessId,
   type HarnessId,
   type Issue,
   type Plan,
@@ -29,16 +30,19 @@ import {
 } from '@packhub/runtime';
 import { PalError } from './errors.ts';
 
-const HARNESS_HINT = `${HARNESS_IDS.join(' / ')}（安装参数；不用 dir）`;
+/** --harness 的可选名单：现查宿主注册表（加宿主不用改 launcher）。 */
+function harnessHint(): string {
+  return `${harnessIds().join(' / ')}（安装参数；不用 dir）`;
+}
 const INSTANCE_HINT = '已存在的目录用这些命令；新建实例用 pal create。';
 
 /** 解析 --harness：只认宿主名（dir 是 PAL 的实例形态，不是安装参数）。 */
 function parseInstallHarness(raw: unknown): HarnessId {
   const value = String(raw ?? '');
-  if (!(HARNESS_IDS as readonly string[]).includes(value)) {
+  if (!isHarnessId(value)) {
     throw new PalError('invalid-input', `未知宿主：${value}`, {
-      hint: `可选 ${HARNESS_HINT}`,
-      details: { harness: value, choices: HARNESS_IDS },
+      hint: `可选 ${harnessHint()}`,
+      details: { harness: value, choices: harnessIds() },
     });
   }
   return value as HarnessId;
@@ -90,7 +94,7 @@ export const installDir = defineCommand({
       description: 'Pack 目录、.phub、git+https，或配合 --index 用 registry 名（name 或 name@version）',
     },
     into: { type: 'string', default: '.', description: '装到哪个目录（默认当前目录；不存在会创建）' },
-    harness: { type: 'string', description: HARNESS_HINT },
+    harness: { type: 'string', description: harnessHint() },
     index: { type: 'string', description: `registry 索引（路径或 URL；也可用 ${PACKHUB_ENV.index}）` },
     'dry-run': { type: 'boolean', default: false, description: '只算计划，不落盘' },
     overwrite: { type: 'boolean', default: false, description: '允许覆盖别的包写过的普通文件' },
@@ -109,7 +113,7 @@ export const installDir = defineCommand({
     // 必填但手动校验：citty 的 required 缺失走 internal（退出 1），这里按用法错退出 2
     if (args.harness === undefined) {
       throw new PalError('invalid-input', '缺少 --harness', {
-        hint: `必须指定按哪个宿主的落点表物化：${HARNESS_HINT}；装进已有目录用 pal install，新建实例用 pal create。`,
+        hint: `必须指定按哪个宿主的落点表物化：${harnessHint()}；装进已有目录用 pal install，新建实例用 pal create。`,
       });
     }
     const harness = parseInstallHarness(args.harness);

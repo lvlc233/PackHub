@@ -11,11 +11,12 @@ import type {
   ResourceType,
   VerifyCheck,
 } from './types.ts';
-import type { HarnessId } from './harness.ts';
+import type { HarnessId } from './harness/contract.ts';
 import { interpolate, isPlainObject, canonicalize, sha256 } from './util.ts';
 import { STATE_DIR } from './files.ts';
 import { actionPaths, actionUndo } from './plan-ops.ts';
-import { layoutFor, type LayoutVars } from './layout.ts';
+import { type LayoutVars } from './layout.ts';
+import { layoutFor } from './harness/contract.ts';
 import type { Graph } from './graph.ts';
 import { RESOURCE_KINDS, fileNameOf, type InstalledResource, type KindContext } from './kinds.ts';
 import { ISSUE_CODES } from './issueCodes.ts';

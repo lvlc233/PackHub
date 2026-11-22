@@ -70,7 +70,7 @@ resources:
 清单里会变成路径或命令的字符串支持 `${...}` 插值：`state[].path`、`install.exec` 的各字段与 `verify` 项。可用命名空间只有三个：
 
 - `${vars.<键>}`：清单的 `vars`；
-- `${layout.<字段>}`：这次安装按 `--harness` 选的落点表——`root` / `cacheDir` / `skillsDir` / `knowledgeDir` / `promptsDir` / `binDir` / `configDir` / `configFile` / `instructionFile`；平铺目录用 `DIR_LAYOUT_VARS`，它没有 `instructionFile`，写了会报 `undefined-variable`；
+- `${layout.<字段>}`：这次安装按 `--harness` 选的落点表——`root` / `cacheDir` / `skillsDir` / `knowledgeDir` / `promptsDir` / `binDir` / `configDir` / `configFile` / `instructionFile`；平铺目录用平铺落点表，它没有 `instructionFile`，写了会报 `undefined-variable`；
 - `${state.<id>}`：清单 `state` 块声明的持久目录。
 
 找不到的键报 `undefined-variable`。落点变量的命名空间是 `layout`，不留别名；旧命名空间下的写法会被当成找不到的键，计划期直接报错。
@@ -275,6 +275,7 @@ registry 的索引，`search` / `install` / `update` 只读它。
 - **漂移段（`pal verify`）**：在已装目录里按 state 里的安装记录查磁盘现状——写过的文件/链接在不在、指令托管块、配置里的 `mcpServers` 条目、宿主侧 MCP 登记、`state` 目录、激活指针。不读清单，也不需要作者声明。
 - **自动派生**：检查段从计划自动生成——带 `integrity` 的 `write` 动作生成一条 `knowledge-integrity`；`packhub verify --probe-mcp` 时每个 `register.mcp` 生成一条 `mcp-ready`。派生项排在作者 `verify` 项之后；`knowledge-integrity` 与作者写了同一 `resource` + `integrity` 的项不重复，`mcp-ready` 按 resource 去重。
 - **作者声明**：清单 `verify` 数组只写计划推不出来的检查——`command`（脚本 self-test）与 `scenario`（宿主语义，要真跑一次）。`file-exists` / `config-key` 仍支持，但它们的覆盖与漂移段重叠，属于重复兜底，不再推荐手写；`knowledge-integrity` / `mcp-ready` 字段仍在 schema 里，通常也不用写（期望哈希来自资源声明的 `integrity`，MCP 规格来自计划）。
+- `scenario.harness` 是运行期注册的宿主 id，形状匹配 `^[a-z][a-z0-9-]*$`。schema 不静态列宿主名单；实际能选哪些由 kernel 的注册表决定，没注册的 id 在计划 / 检查期报错。
 - `pal install` 装后自动复核包含派生项（只读）；`publish` 门禁在干净目录里跑清单检查 + 派生段（不受装后只读子集的限制）。
 - `--probe-mcp` 只影响这一次 `packhub verify`：对计划里每个 MCP server 真发一次 `initialize`（stdio 起进程 / http 发请求），默认关闭——起进程或联网有副作用与耗时。
 

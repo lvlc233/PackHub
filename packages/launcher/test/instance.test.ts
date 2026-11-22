@@ -616,7 +616,7 @@ describe('实例配置', () => {
     expect(listInstances()).toEqual([]);
   });
 
-  it('keepData 归档：宿主凭据文件按 ADAPTERS.credentialFiles 剥离，业务数据留下', async () => {
+  it('keepData 归档：宿主凭据文件按宿主适配表的 credentialFiles 剥离，业务数据留下', async () => {
     const record = await createInstance({ name: 'archive-cred', harness: 'dsh', packDir: PACK });
     const home = join(record.root, 'home', 'dsh');
     mkdirSync(home, { recursive: true });

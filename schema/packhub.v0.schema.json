@@ -279,7 +279,11 @@
         "equals": { "type": ["string", "number", "boolean"] },
         "resource": { "type": "string" },
         "integrity": { "type": "string" },
-        "harness": { "enum": ["dsh", "claude-code", "codex"] },
+        "harness": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "description": "用哪个宿主 headless 跑 scenario；宿主名单是运行期注册表（kernel 的 harnessIds()），schema 不再静态列出"
+        },
         "prompt": { "type": "string" },
         "expectOutput": {
           "oneOf": [

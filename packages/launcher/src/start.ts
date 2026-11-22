@@ -1,4 +1,4 @@
-import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process';
+﻿import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process';
 import {
   closeSync,
   existsSync,
@@ -8,7 +8,7 @@ import {
   readSync,
 } from 'node:fs';
 import { extname, join } from 'node:path';
-import { ADAPTERS, parseStartUrl, type HarnessAdapter } from './layout.ts';
+import { parseStartUrl, requireAdapter, type HarnessAdapter } from './layout.ts';
 import { listInstances, readInstance, requireInstance, writeInstance, nowIso, type InstanceRecord } from './index.ts';
 import { mergeRecord, partitionRecord } from './records.ts';
 import { PalError } from './errors.ts';
@@ -264,7 +264,7 @@ export async function startInstanceDetailed(
   opts: StartOptions = {},
 ): Promise<StartResult> {
   const rec = requireInstance(idOrName);
-  const adapter = ADAPTERS[rec.harness];
+  const adapter = requireAdapter(rec.harness);
   if (!adapter.start) {
     throw new PalError('not-startable', `${adapter.label} 没有可启动的常驻服务`, {
       hint: adapter.noStartReason ?? '这个宿主只支持装配 home，PAL 不托管它的进程',

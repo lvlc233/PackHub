@@ -1,5 +1,5 @@
-import { defineCommand } from 'citty';
-import { PACKHUB_ENV, HARNESS_IDS, type HarnessId } from '@packhub/kernel';
+﻿import { defineCommand } from 'citty';
+import { PACKHUB_ENV, harnessIds, isHarnessId, type HarnessId } from '@packhub/kernel';
 import { auditPath, readAudit } from '@packhub/runtime';
 import pkg from '../package.json' with { type: 'json' };
 import { createInterface } from 'node:readline/promises';
@@ -115,9 +115,7 @@ async function confirm(question: string, yes: boolean): Promise<boolean> {
   }
 }
 
-/** pal create 能建的实例形态：只有宿主；dir 是项目目录形态，走 adopt / install。清单从 kernel 表派生。 */
-const CREATE_KINDS: readonly HarnessId[] = HARNESS_IDS;
-
+/** pal create 能建的实例形态：只有宿主；dir 是项目目录形态，走 adopt / install。名单现查注册表。 */
 function createKindOf(raw: unknown): InstanceRecord['harness'] {
   const value = String(raw ?? 'dsh');
   if (value === 'dir') {
@@ -125,9 +123,9 @@ function createKindOf(raw: unknown): InstanceRecord['harness'] {
       hint: '目录形态用 pal adopt 接管已有目录；装进已有目录用 pal install；新建宿主实例才用 pal create。',
     });
   }
-  if (!(CREATE_KINDS as readonly string[]).includes(value)) {
+  if (!isHarnessId(value)) {
     throw new PalError('invalid-input', `未知实例形态：${value}`, {
-      hint: `可选 ${CREATE_KINDS.join(' / ')}；目录形态用 pal adopt / pal install。`,
+      hint: `可选 ${harnessIds().join(' / ')}；目录形态用 pal adopt / pal install。`,
     });
   }
   return value as InstanceRecord['harness'];
@@ -145,7 +143,7 @@ const create = defineCommand({
     kind: {
       type: 'string',
       default: 'dsh',
-      description: `实例形态：${HARNESS_IDS.join(' | ')}（只有宿主才建实例）。目录形态用 pal adopt；装进已有目录用 pal install`,
+      description: `实例形态：${harnessIds().join(' | ')}（只有宿主才建实例）。目录形态用 pal adopt；装进已有目录用 pal install`,
     },
     index: { type: 'string', description: `registry 索引（路径或 URL；也可用 ${PACKHUB_ENV.index}）` },
     'from-home': {
@@ -964,7 +962,7 @@ const adopt = defineCommand({
     kind: {
       type: 'string',
       default: 'dsh',
-      description: `实例形态：dir（项目目录实例，不是宿主）| ${HARNESS_IDS.join(' | ')}`,
+      description: `实例形态：dir（项目目录实例，不是宿主）| ${harnessIds().join(' | ')}`,
     },
     json: { type: 'boolean', default: false },
   },

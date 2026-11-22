@@ -1,7 +1,11 @@
 import { isAbsolute, relative } from 'node:path';
 import {
-  HARNESSES,
+  harness,
+  harnesses,
+  harnessIds,
+  isHarnessId,
   type HarnessId,
+  type HarnessSpec,
   type LayoutVars,
   type StartTemplate,
 } from '@packhub/kernel';
@@ -9,16 +13,20 @@ import {
 /**
  * 实例形态：`dir` 是普通项目目录实例（不是宿主），其余是宿主名。
  *
- * 这几个值是 PAL 自己的概念，不是 kernel 的安装参数枚举——kernel 的 `--harness`
- * 只有宿主名；PAL 在建实例时把 `dir` 映射成「不传 harness（平铺目录）」。
- * 宿主名单从 kernel 的 `HARNESSES` 表派生：加宿主只改表。
+ * 这些是 PAL 自己的概念：kernel 的 `--harness` 只有宿主名，PAL 建实例时把 `dir`
+ * 映射成「不传 harness（平铺目录）」。宿主名单是运行期注册表（kernel 的 harnessIds()），
+ * 加宿主只在 kernel 加模块，launcher 不改。
  */
 export type InstanceKind = 'dir' | HarnessId;
 
-export const INSTANCE_KINDS: readonly InstanceKind[] = [
-  'dir',
-  ...(Object.keys(HARNESSES) as HarnessId[]),
-];
+/** 当前能建的实例形态：dir + 注册表里的宿主（每次现查，不在模块加载时冻结）。 */
+export function instanceKinds(): InstanceKind[] {
+  return ['dir', ...harnessIds()];
+}
+
+export function isInstanceKind(value: string): value is InstanceKind {
+  return value === 'dir' || isHarnessId(value);
+}
 
 /** 每个宿主在实例根里怎么放 home 段、用哪个环境变量指过去、能不能直接起。 */
 export interface HarnessAdapter {
@@ -44,50 +52,49 @@ export interface HarnessAdapter {
   noStartReason?: string;
 }
 
-/**
- * 由 kernel 的宿主描述表派生一个适配器：PAL 只把它拍平成
- * homeDir / homeEnv 这类字段，值本身不在 launcher 再抄一遍。
- */
-function adapterFrom(id: HarnessId): HarnessAdapter {
-  const harness = HARNESSES[id];
+/** dir 实例不是宿主：没有 home、没有启动模板，只有一句能力说明。 */
+const DIR_ADAPTER: HarnessAdapter = {
+  label: '普通项目',
+  noStartReason: 'dir 实例是一个项目目录，没有可启动的宿主进程；用 packhub 直接在这个目录里工作。',
+};
+
+/** 由注册表里的宿主描述派生适配器：PAL 只把它拍平成 homeDir / homeEnv 这类字段。 */
+function adapterFromSpec(spec: HarnessSpec): HarnessAdapter {
   return {
-    label: harness.label,
-    ...(harness.home ? { homeDir: harness.home.dir, homeEnv: harness.home.env } : {}),
-    ...(harness.startProfile ? { startProfile: harness.startProfile } : {}),
-    ...(harness.executable ? { executable: harness.executable } : {}),
-    ...(harness.versionArgs ? { versionArgs: [...harness.versionArgs] } : {}),
-    ...(harness.credentialFiles ? { credentialFiles: [...harness.credentialFiles] } : {}),
-    ...(harness.start ? { start: harness.start } : {}),
-    ...(harness.noStartReason ? { noStartReason: harness.noStartReason } : {}),
+    label: spec.label,
+    ...(spec.home ? { homeDir: spec.home.dir, homeEnv: spec.home.env } : {}),
+    ...(spec.startProfile ? { startProfile: spec.startProfile } : {}),
+    ...(spec.executable ? { executable: spec.executable } : {}),
+    ...(spec.versionArgs ? { versionArgs: [...spec.versionArgs] } : {}),
+    ...(spec.credentialFiles ? { credentialFiles: [...spec.credentialFiles] } : {}),
+    ...(spec.start ? { start: spec.start } : {}),
+    ...(spec.noStartReason ? { noStartReason: spec.noStartReason } : {}),
   };
 }
 
-const HOST_ADAPTERS = Object.fromEntries(
-  (Object.keys(HARNESSES) as HarnessId[]).map((id) => [id, adapterFrom(id)]),
-) as Record<HarnessId, HarnessAdapter>;
+/** 查一个实例形态的适配器；未注册/未知返回 undefined（调用方决定报错方式）。 */
+export function adapterFor(kind: InstanceKind): HarnessAdapter | undefined {
+  if (kind === 'dir') return DIR_ADAPTER;
+  const spec = harness(kind);
+  return spec ? adapterFromSpec(spec) : undefined;
+}
 
-export const ADAPTERS: Record<InstanceKind, HarnessAdapter> = {
-  dir: {
-    label: '普通项目',
-    noStartReason: 'dir 实例是一个项目目录，没有可启动的宿主进程；用 packhub 直接在这个目录里工作。',
-  },
-  ...HOST_ADAPTERS,
-};
-
-export function isInstanceKind(value: string): value is InstanceKind {
-  return (INSTANCE_KINDS as readonly string[]).includes(value);
+/** 查一个实例形态的适配器；没有就抛错（PAL 只在已校验的形态上调用它）。 */
+export function requireAdapter(kind: InstanceKind): HarnessAdapter {
+  const adapter = adapterFor(kind);
+  if (!adapter) throw new Error(`未知实例形态：${kind}（可选 ${instanceKinds().join(' / ')}）`);
+  return adapter;
 }
 
 /**
  * 装进实例时把资源落到实例自己的 home 段，而不是项目内的 .packhub/。
  * 这样宿主读的是这个实例的 skills，不是全局那一份。`dir` 实例没有 home 段，返回 undefined。
  *
- * 返回值直接作为 kernel `planFor(ctx, { layoutVars })` 的落点覆盖；键必须是 LayoutVars 的键，
- * 名字也只留一份（旧的 targetVars 键 kernel 已不认，传了会被静默忽略）。
+ * 返回值直接作为 kernel `planFor(ctx, { layoutVars })` 的落点覆盖；键必须是 LayoutVars 的键。
  */
 export function layoutVarsFor(kind: InstanceKind): Partial<LayoutVars> | undefined {
-  const adapter = ADAPTERS[kind];
-  if (!adapter.homeDir) return undefined;
+  const adapter = adapterFor(kind);
+  if (!adapter?.homeDir) return undefined;
   return {
     skillsDir: `${adapter.homeDir}/skills`,
     knowledgeDir: `${adapter.homeDir}/knowledge`,
@@ -104,7 +111,7 @@ export function instanceHomeRel(kind: InstanceKind, root: string, home?: string)
     const rel = relative(root, home).replace(/\\/g, '/').replace(/\/+$/, '');
     if (rel && rel !== '..' && !rel.startsWith('../') && !isAbsolute(rel)) return rel;
   }
-  return ADAPTERS[kind].homeDir;
+  return adapterFor(kind)?.homeDir;
 }
 
 /**
@@ -113,7 +120,7 @@ export function instanceHomeRel(kind: InstanceKind, root: string, home?: string)
  * 只按适配器的 home 段匹配：实例根上或别的子目录里的同名文件不在范围里。
  */
 export function credentialRels(kind: InstanceKind, root: string, home?: string): string[] {
-  const files = ADAPTERS[kind].credentialFiles ?? [];
+  const files = adapterFor(kind)?.credentialFiles ?? [];
   const dir = instanceHomeRel(kind, root, home);
   if (!dir) return [];
   return files.map((file) => `${dir}/${file.replace(/\\/g, '/').replace(/^\.?\//, '')}`);
@@ -121,7 +128,7 @@ export function credentialRels(kind: InstanceKind, root: string, home?: string):
 
 /** 从启动输出里取 URL 与端口；取不到就返回 undefined。 */
 export function parseStartUrl(text: string, kind: InstanceKind): { url: string; port?: number } | undefined {
-  const pattern = ADAPTERS[kind].start?.url;
+  const pattern = adapterFor(kind)?.start?.url;
   if (!pattern) return undefined;
   const hit = text.match(pattern);
   if (!hit?.[1]) return undefined;
@@ -132,4 +139,9 @@ export function parseStartUrl(text: string, kind: InstanceKind): { url: string; 
   } catch {
     return { url };
   }
+}
+
+/** 注册表里的全部宿主描述（诊断/帮助用；顺序即注册顺序）。 */
+export function registeredHarnesses(): readonly HarnessSpec[] {
+  return harnesses();
 }

@@ -1,35 +1,26 @@
+// 真机探针：调宿主的 headless 入口问一句话。
+//
+// 本文件只留通用部分（找指令文件、问题文案、跑一次、判回答）；每个宿主「怎么跑」是
+// kernel 注册表里的 ProbeRecipe（命令、参数、命令行预览、stdout 解析、凭证提示），
+// 这里查表执行，不再按宿主分叉。
+
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  HARNESSES,
-  HARNESS_IDS,
   PACKHUB_ENV,
+  harness,
+  harnessIds,
+  instructionFileFor,
   isHarnessId,
   quoteArg,
   type HarnessId,
 } from '@packhub/kernel';
 
-/**
- * 探针只认可安装的宿主（kernel 的 `HARNESSES` 表）。
- * 指令文件名这类静态知识从表里取；怎么拼 headless 命令仍是探针自己的配方，留在本文件。
- */
-
-/** 探针对一个不认识的名字的统一回绝：列出可选的宿主，不静默当别的东西跑。 */
+/** 探针对一个不认识的名字的统一回绝：列出注册表里可选的宿主，不静默当别的东西跑。 */
 function unknownHarnessReason(target: unknown): string {
-  return `未知宿主：${String(target)}（可选 ${HARNESS_IDS.join(' / ')}；探针只认可安装的宿主）`;
+  return `未知宿主：${String(target)}（可选 ${harnessIds().join(' / ')}；探针只认可安装的宿主）`;
 }
-
-/**
- * dsh 探针固定用到的命令与开关。
- * `--profile headless` 是 dsh 的无头探针 profile（一次性问答，不进 web 壳）；
- * 命令预览和真实 argv 都从这些常量取，免得同一个值在两处各写一份。
- */
-const DSH_PROBE_COMMAND = 'dsh';
-const DSH_PROBE_PROFILE = 'headless';
-const DSH_PROFILE_FLAG = '--profile';
-const DSH_PATCH_FLAG = '--patch';
-const DSH_JSON_FLAG = '--json';
 
 export interface RunnerResult {
   status: number | null;
@@ -50,7 +41,7 @@ export interface ProbeOptions {
   timeoutMs?: number;
   /** dsh 用的额外 patch 层（配置 provider 等），可省 */
   patchFile?: string;
-  /** codex 用的模型；默认原生 gpt-5.6-sol（其它宿主的配方不带 -m） */
+  /** 调用方指定的模型；只有配方里带 -m 的宿主会用到 */
   model?: string;
   /** 测试注入用；默认 spawnSync */
   runner?: Runner;
@@ -155,8 +146,9 @@ export function probeSkill(opts: SkillProbeOptions): ProbeResult {
 
 /** 跑一次 harness headless 并把最终回答取出来；probe 与 scenario 共用。 */
 export function askHarness(opts: AskOptions): AskResult {
-  // 类型上已收窄，但 scenario 的 harness 来自清单数据：运行期兜住不认识的名字
-  if (!isHarnessId(opts.target)) {
+  const spec = harness(opts.target);
+  // 类型上是字符串（注册表运行期决定），清单里来的值也要能回绝
+  if (!spec) {
     return {
       ok: false,
       answer: '',
@@ -167,40 +159,22 @@ export function askHarness(opts: AskOptions): AskResult {
       reason: unknownHarnessReason(opts.target),
     };
   }
+  const recipe = spec.probe;
   const runner = opts.runner ?? DEFAULT_RUNNER;
-  // 只有 codex 的配方读模型参数；其余宿主的命令不带 -m
+  // 只有配方里带 -m 的宿主（目前 codex）会读它
   const model = opts.model ?? 'gpt-5.6-sol';
-  const prompt = opts.prompt;
-  const command =
-    opts.target === 'dsh'
-      ? `${DSH_PROBE_COMMAND} ${DSH_PROFILE_FLAG} ${DSH_PROBE_PROFILE}${opts.patchFile ? ` ${DSH_PATCH_FLAG} ${opts.patchFile}` : ''} ${DSH_JSON_FLAG} "<prompt>"`
-      : opts.target === 'codex'
-        ? `codex exec --skip-git-repo-check --sandbox read-only -m ${model} "<prompt>"`
-        : 'claude -p "<prompt>" --max-budget-usd 0.05 --no-session-persistence';
-
-  const argv =
-    opts.target === 'dsh'
-      ? [
-          DSH_PROFILE_FLAG,
-          DSH_PROBE_PROFILE,
-          ...(opts.patchFile ? [DSH_PATCH_FLAG, opts.patchFile] : []),
-          DSH_JSON_FLAG,
-          prompt,
-        ]
-      : opts.target === 'codex'
-        ? ['exec', '--skip-git-repo-check', '--sandbox', 'read-only', '-m', model, prompt]
-        : ['-p', prompt, '--max-budget-usd', '0.05', '--no-session-persistence'];
-  const exe =
-    opts.target === 'dsh' ? DSH_PROBE_COMMAND : opts.target === 'codex' ? 'codex' : 'claude';
+  const invocation = {
+    prompt: opts.prompt,
+    model,
+    ...(opts.patchFile ? { patchFile: opts.patchFile } : {}),
+  };
+  const command = recipe.preview(invocation);
+  const argv = recipe.args(invocation);
   // timeoutMs 真的生效：显式注入的毫秒数交给 runner（默认 runner 用它设 spawnSync.timeout）
   const runOpts = opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : undefined;
-  const res = runner(exe, argv, opts.projectDir, runOpts);
+  const res = runner(recipe.executable, argv, opts.projectDir, runOpts);
 
-  const stripAnsi = (s: string): string => s.replace(/\x1B\[[0-9;]*[A-Za-z]/g, '');
-  const answer =
-    opts.target === 'dsh'
-      ? parseDshFinal(res.stdout)
-      : stripAnsi(res.stdout).trim();
+  const answer = recipe.answer(res.stdout);
   const combined = `${res.stdout}\n${res.stderr}`;
   const base = {
     answer,
@@ -209,16 +183,9 @@ export function askHarness(opts: AskOptions): AskResult {
     stdout: res.stdout,
     stderr: res.stderr,
   };
-  if (/MISSING_CREDENTIAL|no API key/i.test(combined)) {
-    return {
-      ...base,
-      ok: false,
-      reason: '缺少凭证：headless 需要环境变量 DEEPSEEK_API_KEY（桌面应用里存的那份读不到）',
-    };
-  }
-  if (/Not logged in/i.test(combined)) {
-    return { ...base, ok: false, reason: 'Claude Code 未登录：先跑 claude 并 /login' };
-  }
+  // 凭证/未登录提示由宿主的配方给：命中就换成人话，不再往下判
+  const hint = recipe.hints?.find((h) => h.test.test(combined));
+  if (hint) return { ...base, ok: false, reason: hint.reason };
   if (res.status !== 0) {
     return {
       ...base,
@@ -250,19 +217,6 @@ export function extractMarker(text: string): string | null {
 const QUESTION =
   '只做一件事：如果项目说明里有一个以 packhub:begin 开头的注释块，把该块内第一行的原文复述出来；找不到就只回答「没有」。不要解释。';
 
-function parseDshFinal(stdout: string): string {
-  const lines = stdout.split(/\r?\n/).filter((l) => l.trim().startsWith('{'));
-  for (let i = lines.length - 1; i >= 0; i--) {
-    try {
-      const event = JSON.parse(lines[i]!) as { type?: string; text?: string };
-      if (event.type === 'final' && typeof event.text === 'string') return event.text;
-    } catch {
-      /* 非 JSON 行，跳过 */
-    }
-  }
-  return stdout.trim();
-}
-
 /**
  * 真机探针：调用目标 harness 的 headless 入口问一句，看它的回答里有没有包写进去的标记。
  * 声明式检查做不到这件事——只有真跑一次才知道 harness 有没有读。
@@ -275,12 +229,12 @@ export function probeHarness(opts: ProbeOptions): ProbeResult {
     answer: '',
     marker: null,
   };
-  // 探针只认可安装宿主；不认识的名字直接回绝，不去猜指令文件
+  // 探针只认可注册表里的宿主；不认识的名字直接回绝，不去猜指令文件
   if (!isHarnessId(opts.target)) {
     return { ...base, reason: unknownHarnessReason(opts.target) };
   }
-  // 指令文件名是宿主静态知识，从 kernel 的表取
-  const instructionFile = HARNESSES[opts.target].instructionFile;
+  // 指令文件名是宿主静态知识，从注册表取
+  const instructionFile = instructionFileFor(opts.target);
   const file = join(opts.projectDir, instructionFile);
 
   if (!existsSync(file)) {

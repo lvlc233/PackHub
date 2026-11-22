@@ -1,4 +1,4 @@
-import {
+﻿import {
   cpSync,
   existsSync,
   mkdirSync,
@@ -13,7 +13,7 @@ import { PalError } from './errors.ts';
 import { API_VERSION, RECORD, RUNTIME, parseConfig, readRecordResult, type InstanceConfig, type InstanceRecord } from './records.ts';
 import { writeInstance } from './recordWrite.ts';
 import { requireInstance } from './catalog.ts';
-import { ADAPTERS, credentialRels, type InstanceKind } from './layout.ts';
+import { credentialRels, requireAdapter, type InstanceKind } from './layout.ts';
 import { LOCK } from './lock.ts';
 import { STOPPING_MARK } from './stopMark.ts';
 import { isPidAlive } from './process.ts';
@@ -25,7 +25,7 @@ import { assertExternalRoot, assertHarness, assertNameFree } from './validators.
  * 整实例备份与恢复：目录快照，不引 tar 依赖。
  *
  * 备份就是「把实例根原样拷一份」：excluded 的只有运行痕迹（锁、停止标记、logs/、runtime.json）与凭据 ——
- * 根里的 secrets.json，以及宿主自己的凭据文件（`ADAPTERS.credentialFiles`，如 auth.json）。
+ * 根里的 secrets.json，以及宿主自己的凭据文件（`适配器的 credentialFiles（由宿主注册表派生）`，如 auth.json）。
  * 凭据默认不带——对齐 A3 的 copy 方向，要带必须显式 includeSecrets；
  * runtime.json 是运行态，不跟凭据走、也不跟着恢复（includeSecrets 也不带）。
  *
@@ -155,7 +155,7 @@ export function backupInstance(idOrName: string, opts: BackupOptions = {}): Back
   }
   // 凭据默认不带：要带必须显式给 includeSecrets
   const includeSecrets = opts.includeSecrets === true;
-  // 宿主凭据文件按 ADAPTERS.credentialFiles 剥离，路径由 layout 统一算，不在这里另立清单
+  // 宿主凭据文件按 适配器的 credentialFiles（由宿主注册表派生） 剥离，路径由 layout 统一算，不在这里另立清单
   const skipCred = includeSecrets
     ? undefined
     : new Set(credentialRels(record.harness, record.root, record.home));
@@ -336,7 +336,7 @@ export function restoreBackup(dir: string, opts: RestoreOptions = {}): InstanceR
   // 不在根内（接管来的外部 home）时按宿主的 homeDir 落到新根里，找不到就不写。
   const relHome = saved.home ? relOf(saved.root, saved.home) : '';
   const insideHome = Boolean(relHome) && !relHome.startsWith('../') && relHome !== '..' && !isAbsolute(relHome);
-  const adapterHomeDir = ADAPTERS[harness].homeDir;
+  const adapterHomeDir = requireAdapter(harness).homeDir;
   const home = insideHome
     ? join(root, relHome)
     : adapterHomeDir && existsSync(join(root, adapterHomeDir))

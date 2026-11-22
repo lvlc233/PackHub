@@ -1,7 +1,7 @@
 // cli.ts 的共享小件：命令文件共用，不带任何命令定义。
 import { EXIT, issueError, issueWarn, problemRaw, say, stop } from '../emit.ts';
 import {
-  HARNESS_IDS,
+  harnessIds,
   isHarnessId,
   type Composition,
   type HarnessId,
@@ -31,7 +31,7 @@ export function reportIssues(issues: Issue[], ctx = 'packhub'): boolean {
 export function parseHarness(raw: string | undefined): HarnessId | undefined {
   if (raw === undefined) return undefined;
   if (!isHarnessId(raw)) {
-    problemRaw(`未知宿主：${raw}（可选 ${HARNESS_IDS.join(' / ')}；不写 = 平铺目录）`);
+    problemRaw(`未知宿主：${raw}（可选 ${harnessIds().join(' / ')}；不写 = 平铺目录）`);
     stop(EXIT.USAGE);
   }
   return raw;

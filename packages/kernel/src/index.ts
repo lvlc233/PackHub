@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type { Issue, Manifest, Plan } from './types.ts';
-import { HARNESS_IDS, isHarnessId } from './harness.ts';
+import { harnessIds, isHarnessId } from './harness/index.ts';
 import { loadManifest } from './manifest.ts';
 import { MANIFEST_FILE, STATE_DIR } from './files.ts';
 import { validateGraph, type Graph } from './graph.ts';
@@ -12,7 +12,9 @@ import { buildPlan, type PlanOptions } from './plan.ts';
 import { ISSUE_CODES } from './issueCodes.ts';
 
 export * from './types.ts';
-export * from './harness.ts';
+// 宿主的注册表：import 这一步就把 harness/<id>.ts 全部注册了（见 harness/index.ts）
+export * from './harness/index.ts';
+
 export { MANIFEST_FILE, LOCK_FILE, STATE_DIR, STATE_FILE } from './files.ts';
 export { PACKHUB_ENV } from './env.ts';
 export { ISSUE_CODES, type IssueCode } from './issueCodes.ts';
@@ -46,7 +48,7 @@ export {
   type ResourceKind,
 } from './kinds.ts';
 export { buildPlan, type PlanOptions } from './plan.ts';
-export { DIR_LAYOUT_VARS, LAYOUT_VARS, layoutFor, type LayoutVars } from './layout.ts';
+export { DIR_LAYOUT_VARS, type LayoutVars } from './layout.ts';
 export { buildLock, contentHashOf } from './lock.ts';
 export {
   PLAN_OPS,
@@ -200,14 +202,14 @@ export function planFor(
   const errors = ctx.issues.filter((i) => i.severity === 'error');
   if (errors.length) return { issues: errors };
   const harness = opts.harness;
-  // 运行期还会从 CLI 传进来字符串：类型上已收窄，这里兜住拼错的宿主名
+  // 宿主是运行期注册表：这里按表校验，拼错的名字给出当前可选的名单
   if (harness !== undefined && !isHarnessId(harness)) {
     return {
       issues: [
         {
           code: ISSUE_CODES.unknownHarness,
           severity: 'error',
-          message: `未知宿主：${String(harness)}（可选 ${HARNESS_IDS.join(' / ')}；不写 = 平铺目录）`,
+          message: `未知宿主：${String(harness)}（可选 ${harnessIds().join(' / ')}；不写 = 平铺目录）`,
         },
       ],
     };

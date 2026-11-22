@@ -1,8 +1,8 @@
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
+﻿import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import { MANIFEST_FILE, planFor, type PackContext, type PlanOptions } from '@packhub/kernel';
 import { installPack, loadLock, loadPack, loadState, withLockPins } from '@packhub/runtime';
-import { ADAPTERS, layoutVarsFor, type InstanceKind } from './layout.ts';
+import { layoutVarsFor, requireAdapter, type InstanceKind } from './layout.ts';
 import { baselineFromState, writeBaseline } from './baseline.ts';
 import { withInstanceLock } from './lock.ts';
 import { API_VERSION, readRecord, recordFile, runtimeFile, type InstanceRecord } from './records.ts';
@@ -207,7 +207,7 @@ export async function createInstance(opts: CreateInstanceOptions): Promise<Insta
     throw new PalError('invalid-input', `清单有问题：${errors.map((i) => i.message).join('; ')}`);
   }
 
-  const adapter = ADAPTERS[kind];
+  const adapter = requireAdapter(kind);
   const layoutVars = layoutVarsFor(kind);
   // dir 是项目目录实例，不是 kernel 的宿主：映射成「不传 harness」（平铺到实例根）。
   // 类型写 Partial<PlanOptions>：键写错（例如旧的 targetVars）会在这里编译报错，而不是被静默忽略。
@@ -352,7 +352,7 @@ export function adoptInstance(opts: AdoptOptions): InstanceRecord {
       details: { dir },
     });
   }
-  const adapter = ADAPTERS[kind];
+  const adapter = requireAdapter(kind);
   const home = adapter.homeDir && existsSync(join(dir, adapter.homeDir)) ? join(dir, adapter.homeDir) : undefined;
   // 身份同样从 state 派生；没有 state / state 里不止一个 Pack 时记 external：
   // 多个 Pack 里「第一个」只是对象顺序，拿来当身份会让记录撒谎，updateInstance 也会把别的 Pack 当成同一个。

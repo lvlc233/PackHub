@@ -4,7 +4,7 @@
  * 由 `test/resource-types.test.ts` 比对 schema 的 enum 兜底。改 Schema 时必须同步改这里。
  */
 
-import type { HarnessId } from './harness.ts';
+import type { HarnessId } from './harness/contract.ts';
 
 /** 资源类型的唯一来源：CLI、资源目录、面板都从这里取，不要再各写一份。 */
 export const RESOURCE_TYPES = ['mcp', 'skill', 'prompt', 'knowledge', 'config', 'tool2'] as const;

@@ -1,4 +1,4 @@
-// 安装编排：从「一个来源」一步装进「一个项目」。
+﻿// 安装编排：从「一个来源」一步装进「一个项目」。
 //
 // 两条流，检查强度不同（与旧 CLI install 一致）：
 // - 本地 Pack 目录：作者流。目录里的清单直接算计划，不要求锁与签名；
@@ -14,7 +14,7 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
-  HARNESS_IDS,
+  harnessIds,
   PACKHUB_ENV,
   STATE_DIR,
   checkLockConsistency,
@@ -212,7 +212,7 @@ export async function installFromSource(opts: InstallFromSourceOptions): Promise
   if (opts.harness !== undefined && !isHarnessId(opts.harness)) {
     throw new InstallSourceError(
       'usage',
-      `未知宿主：${String(opts.harness)}（可选 ${HARNESS_IDS.join(' / ')}；不写 = 平铺目录）`,
+      `未知宿主：${String(opts.harness)}（可选 ${harnessIds().join(' / ')}；不写 = 平铺目录）`,
     );
   }
 

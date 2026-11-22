@@ -6,7 +6,7 @@ packhub 做包与发版，pal 安装与运行。
 
 `packhub` 只碰 Pack 目录：`plan` / `verify` 预览，`lock` / `pack` / `publish` / `sign` 出包与发版。`pal` 负责装和跑：目录侧 `install` / `uninstall` / `verify` / `rollback`（`update` 目录与实例都接），实例侧 `create` / `adopt` 与起停看护，本机状态与审计看 `health` / `audit`。
 
-宿主只有 `dsh` / `claude-code` / `codex`：全部知识在 kernel 的 `HARNESSES` 表里，加宿主是表里加一行，第三方宿主暂不支持（见 [docs/concepts.md](docs/concepts.md) 的 Harness 词条）。
+宿主（`dsh` / `claude-code` / `codex`）在 kernel 的注册表里：每个宿主一个模块，加宿主 = 新模块 + `harness/index.ts` 一行 import；第三方宿主暂不支持（见 [docs/concepts.md](docs/concepts.md) 的 Harness 词条）。
 
 ```bash
 # 装进已有目录

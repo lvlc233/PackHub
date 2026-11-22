@@ -52,13 +52,15 @@ review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增
 
 代价：`plan` 与 `PlanSnapshot` 的形状变了（`target` 换成可选的 `harness`），`planHash` 随之变化——registry 里已发布的包要重锁、重跑 verify 并重建索引，否则锁、报告与当前代码算出的计划对不上。同一轮把清单插值命名空间从 `${target.*}` 改成 `${layout.*}`：旧写法在计划期找不到键，报 `undefined-variable`，已发布清单要原地改并重锁。两个命令族各用一套词，文档与 `--help` 要各讲一次，从 `--harness` 切到 PAL 的人得换一个词。
 
-### 宿主是代码里的描述表，不做插件加载
+### 宿主注册表：核 + 每宿主模块
 
-一个宿主要回答的问题分散在几处：落点表（文件写到哪）、实例 home 与环境变量、可执行名与版本参数、凭据文件与指令文件名、启动模板。以前这些分别住在 kernel 的落点表、launcher 的适配器与 runtime 的探针里，加一个宿主要在几处各补一段，漏一处就要么装不了、要么探针不认识。现在收进 kernel 的 `HARNESSES` 一张表：`HARNESS_IDS` 与 `LAYOUT_VARS` 从它派生，加一个宿主 = 表里加一行（落点 + home + 可执行/版本 + 启动或不可启动原因 + 指令文件），`Record<HarnessId, …>` / `keyof` 在编译期卡完备性。探针也从同一份名单取，只认可安装的宿主——曾经只在探针里出现的 `opencode` 已删掉，不再有「探针认识、安装不认识」的半插件裂缝。
+一个宿主要回答的问题分散在几处：落点表（文件写到哪）、实例 home 与环境变量、可执行名与版本参数、凭据文件、指令文件名、启动模板、探针配方。上一版把静态知识收进 kernel 的一张 `HARNESSES` 大表（`HARNESS_IDS` / `LAYOUT_VARS` 从表派生，加宿主 = 表里加一行、`Record` / `keyof` 编译期卡完备）。表变大之后，所有宿主的启动模板与探针逻辑挤在同一个文件里，改一个宿主也要在同一处翻，而探针配方还留在 runtime——「加宿主」的边界仍然不是一个模块。
 
-没选另一条：让宿主在 runtime 里以插件加载（`import()` 第三方模块），或把宿主描述作为 registry 里的数据下发。插件要定加载时机、失败隔离、版本兼容与信任，等于在 kernel 里再开一个执行面；数据描述则把「怎么装」变成可远程改的输入，签名与信任链要跟着长，而落点表里还有只能写成代码的行为（启动模板、不可启动原因、平台差异）。宿主是产品支持集，不是用户扩展点。
+现在改成运行期注册表：`kernel/src/harness/contract.ts` 定义 `HarnessSpec` / `ProbeRecipe` 与 `registerHarness` / `harnessIds` / `requireHarness` / `layoutFor` 等查表 API；每个宿主一个模块（`dsh.ts` / `claude-code.ts` / `codex.ts`），在自己的文件里 `registerHarness({...})`，探针配方随模块走；`harness/index.ts` import 三个模块完成注册。加宿主 = 新建 `harness/<id>.ts` + index 一行 import，launcher / runtime / 探针都从注册表查，不用改。注册是 import 副作用：重复 id 或非法 id 在注册时抛错。
 
-代价：第三方宿主不能自己加——想支持一个新宿主必须改 kernel 表并随 packhub / pal 发版；表在 kernel，CLI 与 launcher 都只是读它，加字段或改词要一起升级。探针的配方仍留在 runtime：表里给的是可执行名、版本参数与启动模板，真正起进程 / 发请求的逻辑不属于数据。将来真要第三方，只能走声明式描述（目录约定、可执行、参数模板、正则）并配信任与钉版本，不是现在的表。
+没选另一条：保留一张大表，或把宿主描述做成 registry 下发数据 / runtime 插件。大表把一个宿主的全部知识挤在同一个文件里，加宿主改一处但同时改到所有人；数据描述把「怎么装」变成可远程改的输入，要配信任与钉版本，而启动模板、探针配方里还有只能写成代码的行为；runtime 插件要在 kernel 里再开一个执行面（加载时机、失败隔离、版本兼容与信任）。宿主是产品支持集，不是用户扩展点。
+
+代价：`HarnessId` 从编译期联合类型变成运行期 `string`——穷尽性没了，靠 `isHarnessId()` 与 schema 的 `^[a-z][a-z0-9-]*$` pattern 兜底；schema 不能静态枚举宿主名，`scenario.harness` 也只能是 pattern。注册靠 import 副作用：`harness/index.ts` 漏 import 一个模块，那个宿主就不存在，错误只在运行期暴露。第三方宿主仍不能自己加——必须改代码并随 packhub / pal 发版；加宿主仍要动 barrel 的那一行 import。
 
 ### 资源级 targets 与 requires.agent 删除
 
