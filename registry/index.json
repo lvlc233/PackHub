@@ -1,6 +1,6 @@
 {
   "apiVersion": "packhub.dev/index/v0",
-  "generatedAt": "2026-11-22T16:51:47.467Z",
+  "generatedAt": "2026-11-22T19:15:05.150Z",
   "packs": [
     {
       "name": "lvlc233/doc-review",
@@ -11,7 +11,7 @@
         "0.1.0"
       ],
       "trust": "verified",
-      "verifiedAt": "2026-11-22T16:42:28.652Z",
+      "verifiedAt": "2026-11-22T18:51:02.592Z",
       "signers": [],
       "keywords": [
         "documentation",
@@ -34,7 +34,7 @@
         "0.0.1"
       ],
       "trust": "verified",
-      "verifiedAt": "2026-11-22T16:42:30.131Z",
+      "verifiedAt": "2026-11-22T18:51:03.760Z",
       "signers": [],
       "keywords": [
         "demo",
@@ -56,7 +56,7 @@
         "0.0.2"
       ],
       "trust": "verified",
-      "verifiedAt": "2026-11-22T16:42:30.209Z",
+      "verifiedAt": "2026-11-22T18:51:03.793Z",
       "signers": [],
       "keywords": [
         "conventions",
