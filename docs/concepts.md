@@ -52,7 +52,7 @@ Pack 里的一条能力声明，它相对于 Agent，而不是相对于整个 ha
 
 ### Manifest（清单）
 
-清单是 Pack 的书面声明：有哪些资源、彼此怎么接、有哪些约束。它不声明装到哪些 target——那属于安装参数，见 Target 词条。
+清单是 Pack 的书面声明：有哪些资源、彼此怎么接、有哪些约束。它不声明装到哪些 target——那属于安装参数，见 Harness 词条的安装目标段。
 
 它是打包的重要依据。
 
@@ -78,16 +78,6 @@ Pack 里的一条能力声明，它相对于 Agent，而不是相对于整个 ha
 
 计划是**按需现算**的产物：`planFor(ctx, { target })` 在用到它的那一刻按 target 算（不传就是 `dir`）——`plan` 预览、`install`、`diff`、`update`、`verify`、launcher 建/更新实例都各算一份；同一个 Pack 装到不同 target 会得到不同的计划与 `planHash`。锁和内容哈希都不含计划。
 
-### Target（安装目标）
-
-Target 是**安装参数**：决定这次把这份内容落到哪个宿主形态——中性的 `dir`，或某个 harness（`dsh` / `claude-code` / `codex`）；不显式指定时是 `dir`。它由安装时选（`planFor(ctx, { target })`），不是 Pack 自带的属性，打包（`pack`）与锁定（`lock`）都不接受它。
-
-它不属于 Pack 内容、不进锁、不进内容哈希：同一份内容装到不同 target，锁与签名不变；变的是落点与计划（`planFor` 现算）。
-
-清单与资源都不声明安装形态：`schema/packhub.v0.schema.json` 的 `metadata` 只有 `name` / `version` 是必填、`additionalProperties: false`，资源条目也没有 `targets`——旧清单在这两处带 `targets` 会被判 schema error。装到哪个 target 只由安装时选。
-
-`--target` 只决定目录内的落点形态：按哪个宿主的落点表物化文件、指令与 MCP 写法。它不等于有了一份宿主环境——home、进程、端口都不在目录里，装完只得到一份文件；要跑起来用实例（见 Launcher 词条）。
-
 ### Install（安装）
 
 安装把 Pack 落进一个目录的过程：项目目录或实例根。内容展开到文件，登记写进该目录的 state。
@@ -102,13 +92,17 @@ Target 是**安装参数**：决定这次把这份内容落到哪个宿主形态
 
 回滚、卸载、升级清理、漂移检查都读它；它是「装了什么」的唯一真相。
 
-### Harness（宿主）
+### Harness（宿主）与安装目标
 
 宿主是支持 Agent 运行的那一层，是整合包能够运行的底层。如果要比喻，就像 MC 的原版：不同的 harness 是不同实现或版本的 MC。
 
 模型循环、工具执行、上下文、界面都在它那里。
 
-`--target` 只有两类取值：中性的 `dir`，或某个宿主名（`dsh` / `claude-code` / `codex`）。装到宿主上就是按那个宿主的落点表物化；`dir` 不对应任何宿主（见 Target 词条）。
+安装目标（`--target`）只有两类取值：中性的 `dir`，或某个宿主名（`dsh` / `claude-code` / `codex`）；不写默认 `dir`。装到宿主上就是按那个宿主的落点表物化文件、指令与 MCP 写法。
+
+它是安装参数，不是 Pack 属性：不进锁、不进内容哈希，`pack` 与 `lock` 都不接受它；同一个 Pack 装到不同 target，锁与签名不变，变的只是落点与计划（`planFor` 现算）。清单与资源也都不声明安装形态——旧清单带 `targets` 会被判 schema error。
+
+`--target` 只决定目录内的落点形态，不等于有了一份宿主环境：home、进程、端口都不在目录里，装完只得到一份文件；要跑起来用实例（见 Launcher 词条）。
 
 ### Adapter（适配）
 
