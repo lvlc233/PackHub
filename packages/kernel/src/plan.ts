@@ -16,7 +16,7 @@ import { interpolate, isPlainObject, canonicalize, sha256 } from './util.ts';
 import { STATE_DIR } from './files.ts';
 import { actionPaths, actionUndo } from './plan-ops.ts';
 import { TARGET_VARS, type TargetVars } from './targets.ts';
-import type { Graph } from './graph.ts';
+import { alternativeOf, type Graph } from './graph.ts';
 import { RESOURCE_KINDS, fileNameOf, type InstalledResource, type KindContext } from './kinds.ts';
 import { ISSUE_CODES } from './issueCodes.ts';
 
@@ -132,7 +132,7 @@ export function buildPlan(
     const res = graph.resources.get(id);
     if (!res) continue;
     if (opts.skipResourceTypes?.includes(res.type)) {
-      excluded.push({ resource: id, role: res.role ?? '', reason: 'host-managed' });
+      excluded.push({ resource: id, alternative: alternativeOf(manifest, id) ?? '', reason: 'host-managed' });
       continue;
     }
     RESOURCE_KINDS[res.type].materialize(kindCtx, res);

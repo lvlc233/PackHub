@@ -554,7 +554,7 @@ describe('schema ↔ types.ts 镜像', () => {
 
 /**
  * 能力令牌 `<form>/<name>@<major>` 的 pattern 有两份 schema 各写一遍
- * （packhub 的 provides / needs / roles.needs，resources 的 provides），
+ * （packhub 的 provides / needs，resources 的 provides），
  * kernel 又从 packhub 那份建 CAPABILITY_TOKEN_PATTERN。三处必须字面相等：
  * 任何一处单独改都会让「同一个令牌在清单里合法、在目录里非法」这种裂缝出现。
  */
@@ -569,21 +569,8 @@ describe('能力令牌：pattern 单源', () => {
     };
   }).properties.resources.items.properties.provides.items.pattern;
 
-  const roleNeedsToken = (packhubSchema as unknown as {
-    properties: {
-      roles: {
-        additionalProperties: { properties: { needs: { items: { pattern: string } } } };
-      };
-    };
-  }).properties.roles.additionalProperties.properties.needs.items.pattern;
-
   it('两份 schema 的令牌 pattern 相等（packhub ↔ resources）', () => {
     expect(packhubToken).toBe(resourcesToken);
-  });
-
-  it('清单里的三处（provides / needs / roles.needs）用同一条 pattern', () => {
-    // needs 与 provides 共用 definitions.capabilities，这里只额外盯 roles.needs 没走偏
-    expect(roleNeedsToken).toBe(packhubToken);
   });
 
   it('kernel 的 CAPABILITY_TOKEN_PATTERN 就是 schema 那条，不在 TS 里另写正则', () => {
@@ -617,5 +604,31 @@ describe('能力令牌：pattern 单源', () => {
       expect(isCapabilityToken(bad), bad).toBe(false);
       expect(parseCapabilityToken(bad), bad).toBeUndefined();
     }
+  });
+});
+
+/**
+ * 资源 id 的 pattern 也写了好几处：`definitions.resource.id`、`alternatives` 的成员、
+ * `pick` 的值。三处必须同一条，否则「组里合法、pick 里非法」这种清单自己
+ * 自相矛盾的情况只能到运行时才发现。
+ */
+describe('资源 id pattern：单源', () => {
+  const resourceIdPattern = (packhubSchema as unknown as {
+    definitions: { resource: { properties: { id: { pattern: string } } } };
+  }).definitions.resource.properties.id.pattern;
+
+  const alternativeMemberPattern = (packhubSchema as unknown as {
+    properties: {
+      alternatives: { additionalProperties: { items: { pattern: string } } };
+    };
+  }).properties.alternatives.additionalProperties.items.pattern;
+
+  const pickValuePattern = (packhubSchema as unknown as {
+    properties: { pick: { additionalProperties: { pattern: string } } };
+  }).properties.pick.additionalProperties.pattern;
+
+  it('资源 id、alternatives 成员、pick 的值用同一条 pattern', () => {
+    expect(alternativeMemberPattern).toBe(resourceIdPattern);
+    expect(pickValuePattern).toBe(resourceIdPattern);
   });
 });

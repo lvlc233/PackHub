@@ -33,7 +33,7 @@ describe('planFor 转发 skipResourceTypes', () => {
 
     const skipped = planFor(ctx, { target: 'dir', skipResourceTypes: ['mcp'] }).plan!;
     expect(skipped.actions.some((a) => a.op === 'register.mcp')).toBe(false);
-    expect(skipped.excluded).toContainEqual({ resource: 'gh', role: '', reason: 'host-managed' });
+    expect(skipped.excluded).toContainEqual({ resource: 'gh', alternative: '', reason: 'host-managed' });
     // 其他资源照常进计划
     expect(skipped.actions.some((a) => a.op === 'write' && a.to === '.packhub/knowledge/rules.md')).toBe(true);
 

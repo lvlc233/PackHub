@@ -20,147 +20,137 @@ export interface Graph {
   /** 安装顺序（needs 拓扑 + 清单顺序） */
   order: string[];
   resources: Map<string, ResourceSpec>;
-  /** 被角色选用排除的候选：为什么这个实现这次不装 */
-  excluded: { resource: string; role: string; reason: string }[];
+  /** 被备选组排除的成员：为什么这个实现这次不装 */
+  excluded: { resource: string; alternative: string; reason: string }[];
 }
 
-/** 实现的来源：`pick` 显式写、`default` 兜底、`auto` 唯一候选自动选中。 */
-type ImplementationFrom = 'pick' | 'default' | 'auto';
-
-/**
- * 校验一个角色的实现（`pick` 的值、`roles[].default` 或唯一候选）：必须是本清单里的资源、
- * 必须真的占这个角色、必须满足角色声明的 needs。错误码分选错来源，文案点明来源。
- */
-function checkImplementation(
-  manifest: Manifest,
-  role: string,
-  impl: string,
-  from: ImplementationFrom,
-  issues: Issue[],
-): void {
-  const roles = manifest.roles ?? {};
-  const res = manifest.resources.find((r) => r.id === impl);
-  if (!res) {
-    issues.push({
-      code: ISSUE_CODES.pickUnknownResource,
-      severity: 'error',
-      message:
-        from === 'default'
-          ? `角色 ${role} 的 default 指向不存在的资源：${impl}（default 只能写本清单里的资源 id）`
-          : from === 'pick'
-            ? `pick.${role} 指向不存在的资源：${impl}（pick 只能写本清单里的资源 id）`
-            : `角色 ${role} 的唯一候选不存在：${impl}`,
-    });
-    return;
+/** 资源属于哪个备选组（一个合法的清单里只有一个）；不在任何组里返回 undefined。 */
+export function alternativeOf(manifest: Manifest, id: string): string | undefined {
+  for (const [name, members] of Object.entries(manifest.alternatives ?? {})) {
+    if (members.includes(id)) return name;
   }
-  if (res.role !== role) {
-    issues.push({
-      code: ISSUE_CODES.pickWrongRole,
-      severity: 'error',
-      message:
-        from === 'default'
-          ? `角色 ${role} 的 default ${impl} 并不属于这个角色（它属于 ${res.role ?? '无'}）`
-          : from === 'pick'
-            ? `pick.${role} 指向的 ${impl} 并不属于这个角色（它属于 ${res.role ?? '无'}）`
-            : `角色 ${role} 的唯一候选 ${impl} 并不属于这个角色（它属于 ${res.role ?? '无'}）`,
-    });
-    return;
-  }
-  const needs = roles[role]?.needs ?? [];
-  const missing = needs.filter((n) => !(res.provides ?? []).includes(n));
-  if (missing.length > 0) {
-    issues.push({
-      code: ISSUE_CODES.roleNeedsUnmet,
-      severity: 'error',
-      message:
-        from === 'default'
-          ? `角色 ${role} 的 default ${impl} 缺少角色需要的能力：${missing.join(', ')}`
-          : from === 'pick'
-            ? `pick.${role} 选中的 ${impl} 缺少角色需要的能力：${missing.join(', ')}`
-            : `角色 ${role} 的唯一候选 ${impl} 缺少角色需要的能力：${missing.join(', ')}`,
-    });
-  }
+  return undefined;
 }
 
 /**
- * 角色的有效实现 = `pick[role] ?? roles[role].default ?? 唯一候选`。
- * 有多个候选又没人选，就报 role-unfilled——这次装哪个不确定。
+ * 备选组的有效实现 = `pick[组] ?? 组内唯一成员`。
+ * 成员多于一个又没人选，就报 alternative-unpicked——这次装哪个不确定。
  */
-function resolveRoles(
+function resolveAlternatives(
   manifest: Manifest,
   issues: Issue[],
-): { active: Set<string>; excluded: Graph['excluded'] } {
-  const roles = manifest.roles ?? {};
+): { active: Set<string>; excluded: Graph['excluded']; selected: Set<string> } {
+  const groups = manifest.alternatives ?? {};
   const pick = manifest.pick ?? {};
-  const candidates = new Map<string, string[]>();
+  /** 资源 id → 它所在的备选组（正常只有一个；多个就是清单写错了） */
+  const groupsOf = new Map<string, string[]>();
 
-  for (const res of manifest.resources) {
-    if (!res.role) continue;
-    if (!roles[res.role]) {
+  for (const [name, members] of Object.entries(groups)) {
+    const seen = new Set<string>();
+    const duplicates: string[] = [];
+    for (const id of members) {
+      if (seen.has(id)) {
+        if (!duplicates.includes(id)) duplicates.push(id);
+        continue;
+      }
+      seen.add(id);
+      groupsOf.set(id, [...(groupsOf.get(id) ?? []), name]);
+    }
+    if (duplicates.length > 0) {
       issues.push({
-        code: ISSUE_CODES.unknownRole,
+        code: ISSUE_CODES.alternativeDuplicateMember,
         severity: 'error',
-        message: `资源 ${res.id} 占用未声明的角色：${res.role}`,
+        message: `备选组 ${name} 里重复列了资源：${duplicates.join(', ')}（一个资源在组里只能出现一次）`,
+      });
+    }
+  }
+
+  // 成员必须是本清单里的资源
+  for (const [name, members] of Object.entries(groups)) {
+    const missing = [...new Set(members)].filter((id) => !manifest.resources.some((r) => r.id === id));
+    if (missing.length > 0) {
+      issues.push({
+        code: ISSUE_CODES.alternativeUnknownResource,
+        severity: 'error',
+        message: `备选组 ${name} 列了不存在的资源：${missing.join(', ')}（成员只能写本清单里的资源 id）`,
+      });
+    }
+  }
+
+  // 同一个资源只能属于一个备选组：两个组都想装它，清单表达不出选谁
+  for (const [id, names] of groupsOf) {
+    if (names.length > 1) {
+      issues.push({
+        code: ISSUE_CODES.resourceInMultipleAlternatives,
+        severity: 'error',
+        message: `资源 ${id} 同时出现在多个备选组：${names.join(', ')}（一个资源只能占一个组）`,
+      });
+    }
+  }
+
+  for (const [name, impl] of Object.entries(pick)) {
+    const members = groups[name];
+    if (!members) {
+      issues.push({
+        code: ISSUE_CODES.alternativeUnknown,
+        severity: 'error',
+        message: `pick 指向未声明的备选组：${name}`,
       });
       continue;
     }
-    candidates.set(res.role, [...(candidates.get(res.role) ?? []), res.id]);
-  }
-
-  for (const [role, impl] of Object.entries(pick)) {
-    if (!roles[role]) {
+    if (!manifest.resources.some((r) => r.id === impl)) {
       issues.push({
-        code: ISSUE_CODES.pickUnknownRole,
+        code: ISSUE_CODES.pickUnknownResource,
         severity: 'error',
-        message: `pick 指向未声明的角色：${role}`,
+        message: `pick.${name} 指向不存在的资源：${impl}（pick 只能写本清单里的资源 id）`,
       });
       continue;
     }
-    checkImplementation(manifest, role, impl, 'pick', issues);
+    if (!members.includes(impl)) {
+      issues.push({
+        code: ISSUE_CODES.pickNotInAlternatives,
+        severity: 'error',
+        message: `pick.${name} 指向的 ${impl} 不是这个组的成员（成员：${[...new Set(members)].join(', ') || '无'}）`,
+      });
+    }
   }
 
-  // default 被 pick 覆盖时也校验：清单里的死配置不该靠「这次恰好写了 pick」藏着
-  for (const [role, spec] of Object.entries(roles)) {
-    if (spec.default === undefined) continue;
-    checkImplementation(manifest, role, spec.default, 'default', issues);
-  }
-
-  /** pick → default → 唯一候选；都没有就是 undefined。 */
-  const effectiveOf = (role: string): string | undefined => {
-    const explicit = pick[role] ?? roles[role]?.default;
+  /** 有效实现：pick 优先，其次组内唯一成员；都定不下来就是 undefined。 */
+  const effectiveOf = (name: string): string | undefined => {
+    const explicit = pick[name];
     if (explicit !== undefined) return explicit;
-    const ids = candidates.get(role) ?? [];
-    return ids.length === 1 ? ids[0] : undefined;
+    const members = [...new Set(groups[name] ?? [])];
+    return members.length === 1 ? members[0] : undefined;
   };
 
-  // 自动选中不等于免检：唯一候选也要满足角色声明的 needs
-  for (const [role, ids] of candidates) {
-    if (pick[role] !== undefined || roles[role]?.default !== undefined) continue;
-    const only = ids.length === 1 ? ids[0] : undefined;
-    if (only !== undefined) checkImplementation(manifest, role, only, 'auto', issues);
-  }
-
-  for (const [role, ids] of candidates) {
-    if (effectiveOf(role) !== undefined) continue;
+  for (const [name, members] of Object.entries(groups)) {
+    if (effectiveOf(name) !== undefined) continue;
+    if (members.length < 2) continue; // 空组 / 唯一成员：没得选，不算「该选没选」
     issues.push({
-      code: ISSUE_CODES.roleUnfilled,
+      code: ISSUE_CODES.alternativeUnpicked,
       severity: 'error',
-      message: `角色 ${role} 有 ${ids.length} 个候选（${ids.join(', ')}）但没有选中任何一个：写 roles.${role}.default，或用 --pick 指定`,
+      message: `备选组 ${name} 有 ${members.length} 个成员（${members.join(', ')}）但没有选中任何一个：写 pick.${name}，或用 --pick ${name}=<资源 id> 指定`,
     });
   }
 
   const active = new Set<string>();
   const excluded: Graph['excluded'] = [];
   for (const res of manifest.resources) {
-    if (!res.role) {
+    const names = groupsOf.get(res.id) ?? [];
+    if (names.length === 0 || names.some((name) => effectiveOf(name) === res.id)) {
       active.add(res.id);
-    } else if (effectiveOf(res.role) === res.id) {
-      active.add(res.id);
-    } else {
-      excluded.push({ resource: res.id, role: res.role, reason: 'not-selected' });
+      continue;
     }
+    excluded.push({ resource: res.id, alternative: names[0] ?? '', reason: 'not-selected' });
   }
-  return { active, excluded };
+
+  // 「显式选择」= pick 写明，或组内唯一成员自动选中：optional 不该把它静默裁掉
+  const selected = new Set<string>();
+  for (const name of Object.keys(groups)) {
+    const effective = effectiveOf(name);
+    if (effective !== undefined) selected.add(effective);
+  }
+  return { active, excluded, selected };
 }
 
 /** 资源与接线校验：这是 Pack 区别于「资源合集」的硬门槛。 */
@@ -190,9 +180,9 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
       }
     }
   }
-  const { active, excluded } = resolveRoles(manifest, issues);
+  const { active, excluded, selected } = resolveAlternatives(manifest, issues);
 
-  // 重复 id 在所有资源上查（包括没被选中的候选）
+  // 重复 id 在所有资源上查（包括没被选中的成员）
   const seen = new Set<string>();
   for (const r of manifest.resources) {
     if (seen.has(r.id)) {
@@ -237,7 +227,7 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
             },
           }
         : { ...raw, config: deepMerge(raw.config ?? {}, patch) as Record<string, unknown> };
-    // 没被选中的角色候选：只做结构检查，不进依赖图、不进计划
+    // 没被选中的备选组成员：只做结构检查，不进依赖图、不进计划
     if (!active.has(res.id)) return;
     resources.set(res.id, res);
     const parsed = parseSource(res.source);
@@ -245,12 +235,7 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
   });
 
   // optional 资源：needs 在当前集合里无人提供时自动跳过（级联：跳过后它 provides 的能力也消失）。
-  // 作者点名的实现（pick 或 roles[].default）不自动跳过——点名要它，缺能力应当报错而不是静默换掉。
-  const explicitlyPicked = (res: ResourceSpec): boolean =>
-    Boolean(
-      res.role &&
-        (manifest.pick?.[res.role] === res.id || manifest.roles?.[res.role]?.default === res.id),
-    );
+  // 被选中的实现（pick 写明，或组内唯一成员自动选中）不自动跳过——选了它，缺能力应当报错而不是静默换掉。
   const providersOf = (set: Map<string, ResourceSpec>): Map<string, string[]> => {
     const map = new Map<string, string[]>();
     for (const res of set.values()) {
@@ -265,13 +250,17 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
     const drop = [...resources.values()].filter(
       (res) =>
         res.optional === true &&
-        !explicitlyPicked(res) &&
+        !selected.has(res.id) &&
         (res.needs ?? []).some((need) => (available.get(need) ?? []).filter((id) => id !== res.id).length === 0),
     );
     if (drop.length === 0) break;
     for (const res of drop) {
       resources.delete(res.id);
-      excluded.push({ resource: res.id, role: res.role ?? '', reason: 'optional-unmet' });
+      excluded.push({
+        resource: res.id,
+        alternative: alternativeOf(manifest, res.id) ?? '',
+        reason: 'optional-unmet',
+      });
     }
   }
 

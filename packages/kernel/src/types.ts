@@ -79,8 +79,6 @@ export interface ResourceSpec {
   commands?: ToolCommand[];
   /** 工具：资源级环境变量；命令级同名覆盖 */
   env?: Record<string, string>;
-  /** 占哪个角色；未被选中的候选不进计划 */
-  role?: string;
   /** 这个资源提供的能力令牌（`<form>/<name>@<major>`） */
   provides?: string[];
   /** 这个资源需要的能力令牌；安装顺序由它派生 */
@@ -155,14 +153,6 @@ export type VerifyCheck =
       timeout?: number;
     };
 
-export interface RoleSpec {
-  /** 占位实现必须提供的能力令牌 */
-  needs?: string[];
-  /** 不写 pick 时用这个实现（资源 id）；写了 pick 就以 pick 为准 */
-  default?: string;
-  note?: string;
-}
-
 // 清单
 export interface Manifest {
   apiVersion: 'packhub.dev/v0';
@@ -189,9 +179,9 @@ export interface Manifest {
   context?: string;
   vars?: Record<string, string | number | boolean>;
   resources: ResourceSpec[];
-  /** 可替换位：角色名 → 需要的能力 */
-  roles?: Record<string, RoleSpec>;
-  /** 角色 → 资源 id；只有被选中的实现会进计划 */
+  /** 备选组：组名 → 资源 id 列表；组内成员互斥，最后只装选中的那个 */
+  alternatives?: Record<string, string[]>;
+  /** 备选组 → 资源 id；成员多于一个时必须写，只有被选中的成员会进计划 */
   pick?: Record<string, string>;
   /** 持久状态目录；资源里用 ${state.<id>} 引用 */
   state?: StateDirSpec[];
@@ -268,8 +258,8 @@ export interface Plan {
   target: TargetId;
   actions: PlanAction[];
   verify: VerifyCheck[];
-  /** 被角色选用排除的候选：说明为什么没装 */
-  excluded: { resource: string; role: string; reason: string }[];
+  /** 被备选组排除的成员：说明为什么没装 */
+  excluded: { resource: string; alternative: string; reason: string }[];
   /** 计划内容的规范化哈希：同输入必须同哈希 */
   planHash: string;
 }

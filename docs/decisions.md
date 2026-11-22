@@ -3,7 +3,7 @@ kind: decision
 summary: 有意为之的取舍
 verified: 2026-11-22
 decay: 365
-review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增删、锁形状或签名载荷变化、角色/选用规则再变、命令层再出现例外、加 mac 门禁、命令面收缩）
+review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增删、锁形状或签名载荷变化、备选/选用规则再变、命令层再出现例外、加 mac 门禁、命令面收缩）
 ---
 
 # PackHub 的取舍
@@ -18,23 +18,27 @@ review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增
 
 ### 能力用接口令牌命名，接线从 needs 派生
 
-能力名是接口，不是资源类别：`<form>/<name>@<major>`，`form` 闭集 `tool` / `skill` / `content` / `config`（消费形态：工具调用、技能、可读内容、配置），`name` 是 kebab-case 的功能名，`@major` 是接口主版本、从 1 起，不同主版本就是互不满足的两种能力。资源类型（`mcp` / `tool2` / `skill` / `prompt` / `knowledge` / `config`）继续管落点与执行，但不出现在能力名里。接线不再有单独的 `dependsOn`：`needs` 既是能力依赖也决定安装顺序（每个 provider 到 consumer 一条边，成环仍报 `dependency-cycle`）；角色加 `default`，不写 `pick` 时用 default，`pick` 只做覆盖。清单仍是接线的唯一来源——`plan` 打印的接线图由 kernel 的 `describeComposition` 从清单现算，没有 `composition` 块，也不落盘。
+能力名是接口，不是资源类别：`<form>/<name>@<major>`，`form` 闭集 `tool` / `skill` / `content` / `config`（消费形态：工具调用、技能、可读内容、配置），`name` 是 kebab-case 的功能名，`@major` 是接口主版本、从 1 起，不同主版本就是互不满足的两种能力。资源类型（`mcp` / `tool2` / `skill` / `prompt` / `knowledge` / `config`）继续管落点与执行，但不出现在能力名里。接线不再有单独的 `dependsOn`：`needs` 既是能力依赖也决定安装顺序（每个 provider 到 consumer 一条边，成环仍报 `dependency-cycle`）；备选组里的成员由 `pick` 指定这次装哪个，只有一个成员时自动选中。清单仍是接线的唯一来源——`plan` 打印的接线图由 kernel 的 `describeComposition` 从清单现算，没有 `composition` 块，也不落盘。
 
 没选另一条：继续用 `类型:名字`（`audio:speak`、`tool:repo_search`）；保留 `dependsOn`；给能力加语义命名空间（如 `docs/lint@1`）而不是 form。
 
-`类型:名字` 把资源类型和功能分类混进同一个命名空间：`audio:speak` 的 `audio` 是功能，`tool:repo_search` 的 `tool` 是类型，读令牌的人分不清该按哪种契约匹配，schema 也只能放宽成自由字符串。form 是有限、正交于资源类型的维度，能进 schema 的枚举，读方还能按消费形态分组。保留 `dependsOn` 则纯顺序关系要作者再声明一遍，而能力依赖已经蕴含了这条边；两份声明冲突时还要定优先级，且没有东西检查它们一致。语义命名空间随功能无限分裂，形不成闭集，也没法在计划里按维度分组。可替换位同理：把「默认用哪个」写进角色声明、`pick` 只在换实现时出现，清单才读得出作者改了什么。
+`类型:名字` 把资源类型和功能分类混进同一个命名空间：`audio:speak` 的 `audio` 是功能，`tool:repo_search` 的 `tool` 是类型，读令牌的人分不清该按哪种契约匹配，schema 也只能放宽成自由字符串。form 是有限、正交于资源类型的维度，能进 schema 的枚举，读方还能按消费形态分组。保留 `dependsOn` 则纯顺序关系要作者再声明一遍，而能力依赖已经蕴含了这条边；两份声明冲突时还要定优先级，且没有东西检查它们一致。语义命名空间随功能无限分裂，形不成闭集，也没法在计划里按维度分组。可替换实现同理：`alternatives` 只列互为备选的资源 id、`pick` 说这次装哪个，清单才读得出哪些实现可以互换。
 
 代价：主版本只有整数、没有范围匹配——`needs tool/lint@1` 不满足 `tool/lint@2`，接口升级要所有提供方与消费方同时改；删掉 `dependsOn` 后，两个没有能力关系但必须先写谁的资源没有表达方式，只能靠输出冲突在计划里暴露，或在 `needs` 里编一个假能力来拉边；`form` 让 `knowledge` / `prompt` 在能力层合并成 `content`，落点仍由资源类型决定，两者对不上（如 `prompt` 资源 provides `tool/*`）schema 不拦，靠作者自律；改名是破坏性变更，registry 里已发布的清单要原地迁移并重锁。
 
-### 用角色代替槽位：命名与使用面
+### 用备选表达可替换实现：alternatives + pick
 
-清单里原本是 `slots` / `contract` / `bindings` / 资源的 `slot`，一套只在写清单时才碰得到的行话；换个实现要么写 `bindings`，要么在 `slots` 里补 `default`，角色只有一个实现时也得抄一遍。现在改成角色（`roles`）、需要（`needs`）、选用（`pick`）：`slots` → `roles`，角色的 `contract` → `needs`（与资源 `needs` 同一套能力令牌），`bindings` → `pick`，资源的 `slot` → `role`。选谁不再依赖显式声明：`pick` 覆盖 `default`，角色下只有一个候选时自动选它；候选多于一个又没写 `pick` / `default` 时报 `role-unfilled`，提示写 `roles.<角色>.default` 或 `--pick`。
+上一版把可替换实现叫角色（`roles` / 资源的 `role` / 组内 `needs` / `default`）。这套词有两个问题：`role` 在 Agent 与外设语境里先被读成权限角色（RBAC），作者得先纠正一次理解；方向也是反的——「哪几个实现可以互换」本来是资源之间的编排，角色却先让每个资源声明自己属于谁，再让组反向声明需要什么能力，两处信息必须互相吻合，而真正该约束的只是「选中的实现对消费方来说供得上」。
 
-使用面跟着改：`packhub plan` / `packhub install` 加 `--pick <角色>=<资源>`，覆盖只作用于这一次运行，不写回清单；项目内的长期覆盖写 `.packhub/local.yaml` 的 `pick`，不必先改作者清单。错误码与排除原因一起改名（`unknown-role` / `pick-unknown-role` / `pick-unknown-resource` / `pick-wrong-role` / `role-needs-unmet` / `role-unfilled`，excluded reason `not-selected`），旧名一次删干净，不留别名。
+现在改成备选：`alternatives: { <组名>: [<资源 id>, …] }` 直接列互斥成员，`pick: { <组名>: <资源 id> }` 是作者的默认选择。资源不再声明任何可替换归属。组里也不写 `needs`：选中实现要真能供上消费方的 `needs`，`provides` / `needs` 已经能证明这件事；组里再写一份需求声明，只会和消费方的 `needs` 形成第二真相，两份对不上时还得决定听谁的。组名只是逻辑名字，不参与能力匹配。
 
-没选另一条：保留 `slot` / `contract` / `bindings` 旧名，只加一套 CLI 覆盖入口。名字和使用面是同一件事：行话不改，作者仍要读「槽位 + 契约 + 绑定」才能写一行清单；只加 CLI 则文档要同时解释两套词，读者还得自己判断哪套是现在该写的。格式 v0 本来就不承诺兼容，留旧名换不到任何稳定性，只换来一次更长的并行期。
+为什么限「一个资源最多进一个组」：同一资源如果同时属于两个组，就可能在一个组里被选中、在另一个组里落选，装不装取决于哪一组先算，出现「选中 / 未选中」之间的中间态；这条互斥关系必须在清单层唯一，不能让计划期去猜。
 
-代价：破坏性改名——registry 里已发布的清单要原地迁移（`slots` / `contract` / `bindings` / `slot`）并重锁，旧字段在这版直接判 schema error，没有过渡期；`--pick` 不持久，要长期换实现仍得写 `.packhub/local.yaml` 或改清单，没有一条命令能把偏好持久化。
+选择与覆盖：`pick` 优先；组里只有一个成员时自动选中；成员多于一个又没写 `pick` 报 `alternative-unpicked`。使用者换实现有两条路——`--pick <组>=<资源>` 只覆盖这一次 `plan` / `install`，项目内长期覆盖写 `.packhub/local.yaml` 的 `pick`；作者改默认用 `packhub alternative swap <组> <资源>` 写回清单。错误码按备选改名（`alternative-unknown` / `alternative-unpicked` / `alternative-unknown-resource` / `alternative-duplicate-member` / `resource-in-multiple-alternatives` / `pick-unknown-resource` / `pick-not-in-alternatives`），excluded 的字段是 `alternative`、原因仍是 `not-selected`。
+
+没选另一条：保留 role 字段（资源自报角色、组再声明 `needs` / `default`）。那要求角色声明与资源声明两侧保持一致，schema 查不出它们是否吻合；组里重复的能力需求也和消费方的 `needs` 形成第二真相。另一条是按能力令牌键选（`pick: { tool/lint@1: markdownlint }`）：这会把「替换实现」和「满足依赖」混成一件事——一个实现可以同时提供多种能力，一个能力也可以有多个提供方，而「互为备选」是作者的编排意图，能力系统本身不知道哪些实现可以互换。
+
+代价：组名与能力解耦后，「组内实现真的可替换」只能靠作者人工保证——schema 能查成员存在、成员不重复、资源不跨组，查不出两个实现的行为是否等价；选错时问题要到消费方的 `unmet-need` 或运行时才暴露。改名仍是破坏性的：`roles` / `role` / 组内 `needs` / `default` 与配套错误码一起删，已发布清单要原地迁移到 `alternatives` / `pick` 并重锁，格式 v0 不给过渡期；`--pick` 不持久，长期换实现仍要写 `.packhub/local.yaml` 或改清单。
 
 ### target 退出内容层，清单也不再声明支持集
 

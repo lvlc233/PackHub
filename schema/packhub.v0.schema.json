@@ -68,30 +68,19 @@
       "minItems": 1,
       "items": { "$ref": "#/definitions/resource" }
     },
-    "roles": {
+    "alternatives": {
       "type": "object",
-      "description": "可替换角色：每个角色声明需要的能力，资源用 role 占位；pick 或 roles[].default 决定装哪个，唯一候选自动选中",
+      "description": "备选组：组名 → 成员资源 id 列表；组内成员互斥，只装选中的那个（pick 决定，唯一成员自动选中）",
       "additionalProperties": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "needs": {
-            "type": "array",
-            "items": { "type": "string", "pattern": "^(tool|skill|content|config)/[a-z][a-z0-9-]*@[1-9][0-9]*$" },
-            "uniqueItems": true
-          },
-          "default": {
-            "type": "string",
-            "pattern": "^[a-z][a-z0-9-]*$",
-            "description": "不写 pick 时用这个实现（资源 id）；写了 pick 就以 pick 为准"
-          },
-          "note": { "type": "string", "maxLength": 200 }
-        }
+        "type": "array",
+        "minItems": 1,
+        "uniqueItems": true,
+        "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" }
       }
     },
     "pick": {
       "type": "object",
-      "description": "角色 → 资源 id；不写时用 roles[].default，唯一候选自动选中；只有选中的实现会被安装",
+      "description": "备选组 → 成员资源 id；成员多于一个时必须写（或用 --pick）；只有选中的成员会被安装",
       "additionalProperties": {
         "type": "string",
         "pattern": "^[a-z][a-z0-9-]*$"
@@ -163,11 +152,6 @@
             "env": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]*$" },
             "scheme": { "enum": ["bearer", "token", "basic"], "default": "bearer" }
           }
-        },
-        "role": {
-          "type": "string",
-          "pattern": "^[a-z][a-z0-9-]*$",
-          "description": "占哪个角色；同一角色可有多个候选，选中哪个由 pick / roles[].default / 唯一候选决定"
         },
         "transport": { "enum": ["stdio", "http"] },
         "shim": {

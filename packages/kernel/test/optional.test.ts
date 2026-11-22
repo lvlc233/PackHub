@@ -36,7 +36,7 @@ describe('optional 资源', () => {
     expect(graph.resources.has('optional-skill')).toBe(false);
     expect(graph.excluded).toContainEqual({
       resource: 'optional-skill',
-      role: '',
+      alternative: '',
       reason: 'optional-unmet',
     });
     expect(graph.order).toEqual(['plain']);
@@ -74,6 +74,24 @@ describe('optional 资源', () => {
     expect(validateGraph(manifest).issues.map((i) => i.code)).toContain('unmet-need');
   });
 
+  it('组内唯一成员（自动选中）的 optional 不自动跳过', () => {
+    const manifest = base({
+      resources: [
+        {
+          id: 'impl',
+          type: 'skill',
+          source: './skills/x',
+          needs: ['tool/missing@1'],
+          optional: true,
+        },
+      ],
+      alternatives: { search: ['impl'] },
+    });
+    const { graph, issues } = validateGraph(manifest);
+    expect(graph.resources.has('impl')).toBe(true);
+    expect(issues.map((i) => i.code)).toContain('unmet-need');
+  });
+
   it('被 pick 显式选中的 optional 不自动跳过', () => {
     const manifest = base({
       resources: [
@@ -81,17 +99,17 @@ describe('optional 资源', () => {
           id: 'impl',
           type: 'skill',
           source: './skills/x',
-          role: 'search',
-          provides: ['skill/search@1'],
           needs: ['tool/missing@1'],
           optional: true,
         },
+        { id: 'other', type: 'skill', source: './skills/y' },
       ],
-      roles: { search: { needs: ['skill/search@1'] } },
+      alternatives: { search: ['impl', 'other'] },
       pick: { search: 'impl' },
     });
     const { graph, issues } = validateGraph(manifest);
     expect(graph.resources.has('impl')).toBe(true);
+    expect(graph.resources.has('other')).toBe(false);
     expect(issues.map((i) => i.code)).toContain('unmet-need');
   });
 });

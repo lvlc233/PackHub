@@ -41,7 +41,7 @@ export const plan = command({
     target: { type: 'string', default: 'dir', description: `${TARGET_IDS.join(' | ')}` },
     pick: {
       type: 'string',
-      description: '本次覆盖角色实现：role=resource[,role=resource]（只影响这次运行，不写回清单）',
+      description: '本次覆盖备选组实现：组=资源[,组=资源]（只影响这次运行，不写回清单）',
     },
   },
   run({ args }) {

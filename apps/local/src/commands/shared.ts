@@ -32,41 +32,33 @@ export function reportIssues(issues: Issue[], ctx = 'packhub'): boolean {
 }
 
 /**
- * 解析 `--pick`：`role=resource[,role=resource]`，只影响本次运行，不写回清单。
+ * 解析 `--pick`：`组=资源[,组=资源]`，只影响本次运行，不写回清单。
  *
- * 三种输入错都在这里按用法错退出（2），并把这个清单里可用的角色名打出来：
- * 格式不对、角色没声明、资源不存在。选中的资源是否真的占这个角色、是否满足角色的
- * needs，仍交给 `validateGraph`（合并后重新校验那一步）。
+ * 这里只判两件事：格式不对、组名不在清单的 `alternatives` 里——两种都按用法错退出（2），
+ * 并把清单里可用的备选组打出来。资源不存在、资源不在组内仍交给 kernel 的 `validateGraph`
+ * （pick-unknown-resource / pick-not-in-alternatives），错误码与文案只留一处。
  */
 export function parsePick(raw: string, manifest: Manifest): Record<string, string> {
-  const roles = Object.keys(manifest.roles ?? {});
-  const hint = roles.length > 0 ? roles.join(', ') : '（清单里没有声明任何角色）';
+  const groups = Object.keys(manifest.alternatives ?? {});
+  const hint = groups.length > 0 ? groups.join(', ') : '（清单里没有声明任何备选组）';
   const fail = (message: string): never => {
     problemRaw(`--pick ${message}`);
-    problemRaw(`  可用角色：${hint}`);
+    problemRaw(`  可用备选：${hint}`);
     stop(EXIT.USAGE);
   };
 
   const pick: Record<string, string> = {};
   for (const item of raw.split(',')) {
     const part = item.trim();
-    if (part === '') fail(`格式错：${JSON.stringify(raw)}（写成 role=resource[,role=resource]）`);
+    if (part === '') fail(`格式错：${JSON.stringify(raw)}（写成 组=资源[,组=资源]）`);
     const eq = part.indexOf('=');
-    const role = eq > 0 ? part.slice(0, eq).trim() : '';
+    const alternative = eq > 0 ? part.slice(0, eq).trim() : '';
     const resource = eq > 0 ? part.slice(eq + 1).trim() : '';
-    if (role === '' || resource === '' || resource.includes('=')) {
-      fail(`格式错：${part}（写成 role=resource[,role=resource]）`);
+    if (alternative === '' || resource === '' || resource.includes('=')) {
+      fail(`格式错：${part}（写成 组=资源[,组=资源]）`);
     }
-    if (manifest.roles?.[role] === undefined) fail(`角色不存在：${role}`);
-    const found = manifest.resources.some((r) => r.id === resource);
-    if (!found) {
-      const candidates = manifest.resources.filter((r) => r.role === role).map((r) => r.id);
-      fail(
-        `资源不存在：${resource}` +
-          (candidates.length > 0 ? `（角色 ${role} 的候选：${candidates.join(', ')}）` : ''),
-      );
-    }
-    pick[role] = resource;
+    if (manifest.alternatives?.[alternative] === undefined) fail(`备选组不存在：${alternative}`);
+    pick[alternative] = resource;
   }
   return pick;
 }
@@ -97,7 +89,7 @@ export function applyPick(ctx: PackContext, raw: string): { ctx: PackContext; is
  * 读 Pack 并应用 `--pick` 后重新校验；没有 `--pick` 时就是 `loadPack`。
  *
  * 有 `--pick` 时从清单重读再合并：`loadPack` 已经按未覆盖的清单校验过一遍，
- * 那份结果里可能带着「角色有多个候选但没选中」之类的错误，不能拿来做本次运行的判据。
+ * 那份结果里可能带着「备选组有多个成员但没选中」之类的错误，不能拿来做本次运行的判据。
  * 项目根的 `.packhub/local.yaml` 仍先合并，`--pick` 后合并（优先级更高）。
  */
 export function loadPackWithPick(dir: string, raw: string | undefined): PackContext {
@@ -130,12 +122,12 @@ export function loadPackWithPick(dir: string, raw: string | undefined): PackCont
 }
 
 /**
- * 接线段：能力令牌 → provider、needs 派生的安装边、角色的需要 / 有效实现 /
- * 候选 / 被排除的候选与原因。
+ * 接线段：能力令牌 → provider、needs 派生的安装边、备选组的有效实现 /
+ * 成员 / 被排除的成员与原因。
  *
  * `plan.excluded` 是 `graph.excluded` 的超集（plan 期还多出 host-managed），
  * 所以「为什么没装」以 plan 为准；graph 侧的原因只在这一项计划里没有时兜底。
- * 角色之外的排除（不占角色、被整条计划裁掉）另起一段，不能因为按角色打印就丢掉。
+ * 备选组之外的排除（不属于任何组、被整条计划裁掉）另起一段，不能因为按组打印就丢掉。
  */
 function printWiring(wiring: Composition, planExcluded: Plan['excluded']): void {
   const planReason = new Map(planExcluded.map((e) => [e.resource, e.reason] as const));
@@ -152,41 +144,39 @@ function printWiring(wiring: Composition, planExcluded: Plan['excluded']): void 
     say(`    ${edge.provider} → ${edge.consumer}（${edge.capability}）`);
   }
 
-  say('  角色：');
-  if (wiring.roles.length === 0) say('    （无）');
-  // 被接线段解释过的资源：角色里落选的候选 + 被计划裁掉的有效实现。其余排除另起一段。
+  say('  备选：');
+  if (wiring.alternatives.length === 0) say('    （无）');
+  // 被接线段解释过的资源：备选组里落选的成员 + 被计划裁掉的有效实现。其余排除另起一段。
   const covered = new Set<string>();
-  for (const role of wiring.roles) {
+  for (const alternative of wiring.alternatives) {
     const from =
-      role.picked !== undefined
-        ? `pick${role.default !== undefined ? `，覆盖 default ${role.default}` : ''}`
-        : role.default !== undefined
-          ? 'default'
-          : role.effective !== undefined
-            ? '唯一候选'
-            : '未指定';
-    const needs = role.needs.length > 0 ? role.needs.join(', ') : '（无）';
-    say(`    ${role.name}：需要 ${needs} · effective ${role.effective ?? '（无）'}（${from}）`);
+      alternative.picked !== undefined
+        ? 'pick'
+        : alternative.effective !== undefined
+          ? '唯一候选'
+          : '未指定';
+    say(`    ${alternative.name}：effective ${alternative.effective ?? '（无）'}（${from}）`);
     // 有效实现也可能被 plan 期规则裁掉（例如 pick 指向只给某个 target 的资源）：原因要露出来
-    const effectiveReason = role.effective !== undefined ? planReason.get(role.effective) : undefined;
-    if (role.effective !== undefined && effectiveReason !== undefined) {
-      say(`      ! ${role.effective}：${effectiveReason}（这次不会装）`);
-      covered.add(role.effective);
+    const effectiveReason =
+      alternative.effective !== undefined ? planReason.get(alternative.effective) : undefined;
+    if (alternative.effective !== undefined && effectiveReason !== undefined) {
+      say(`      ! ${alternative.effective}：${effectiveReason}（这次不会装）`);
+      covered.add(alternative.effective);
     }
-    say(`      候选：${role.candidates.length > 0 ? role.candidates.join(', ') : '（无）'}`);
-    for (const candidate of role.excluded) {
-      const reason = planReason.get(candidate.resource) ?? candidate.reason;
-      say(`      - ${candidate.resource}：${reason}`);
-      covered.add(candidate.resource);
+    say(`      成员：${alternative.members.length > 0 ? alternative.members.join(', ') : '（无）'}`);
+    for (const member of alternative.excluded) {
+      const reason = planReason.get(member.resource) ?? member.reason;
+      say(`      - ${member.resource}：${reason}`);
+      covered.add(member.resource);
     }
   }
 
-  // 不占角色、或者被 plan 期规则整条裁掉的资源也要露出原因（target 裁剪、宿主托管、可选级联）
+  // 不属于任何备选组、或者被 plan 期规则整条裁掉的资源也要露出原因（target 裁剪、宿主托管、可选级联）
   const unplaced = planExcluded.filter((e) => !covered.has(e.resource));
   if (unplaced.length > 0) {
     say('  未装（计划期排除）：');
     for (const e of unplaced) {
-      say(`    - ${e.resource}${e.role ? `（角色 ${e.role}）` : ''}：${e.reason}`);
+      say(`    - ${e.resource}${e.alternative ? `（备选组 ${e.alternative}）` : ''}：${e.reason}`);
     }
   }
 }

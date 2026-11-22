@@ -48,34 +48,29 @@ review: 格式升版、字段增删、apiVersion 变化时
 
 ## 1 Manifest（`packhub.dev/v0`）
 
-清单 `packhub.yaml` 的完整形状由 schema 给出（`schema/packhub.v0.schema.json`）；这里只记角色与选用这一组字段：
+清单 `packhub.yaml` 的完整形状由 schema 给出（`schema/packhub.v0.schema.json`）；这里只记备选与选用这一组字段：
 
 ```yaml
-roles:
-  lint:
-    needs: [tool/lint@1]   # 占位实现必须提供的能力令牌
-    default: markdownlint  # 可省略：候选恰好一个时自动选它
-    note: 可选说明
+alternatives:
+  lint: [markdownlint, eslint-lint]   # 组名 → 互斥实现（资源 id），只装一个
 pick:
-  lint: eslint-lint        # 覆盖 default；值必须是本清单里占用该角色的资源 id
+  lint: markdownlint                  # 作者默认；消费者可覆盖
 resources:
   - id: markdownlint
     type: tool2
-    role: lint             # 资源占用哪个角色
     provides: [tool/lint@1]
-  - id: eslint-lint        # 同一角色的另一个候选，被 pick 选中
+  - id: eslint-lint
     type: tool2
-    role: lint
     provides: [tool/lint@1]
 ```
 
 不变量：
 
-1. `roles` 的键是角色名（`[a-z][a-z0-9-]*`），`needs` 与资源的 `provides` / `needs` 用同一套能力令牌写法；`default` 与 `pick` 的值都是本清单里的资源 id。
-2. 选择次序：`pick` → `roles.<角色>.default` → 唯一候选。`pick` 覆盖 `default`；只有一个候选时不用写 `default`；候选多于一个且 `pick` / `default` 都没写，报 `role-unfilled`；角色下没有候选就是没人占它，不报错。
-3. `pick` 与 `default` 指向的实现必须存在、确实占用该角色、提供角色的全部 `needs`；`default` 即使被 `pick` 覆盖也照样校验，唯一候选自动选中时也照样校验——清单里的死配置不能靠这一次恰好写了 `pick` 藏住。
-4. 角色之外，使用者还有两处覆盖，都不写进清单：`--pick <角色>=<资源>` 只作用于这一次 `plan` / `install`；`.packhub/local.yaml` 的 `pick` 只作用于这个项目，它不改清单文件，也不进锁与签名。
-5. 错误码：`unknown-role`（资源的 `role` 指向未声明的角色）、`pick-unknown-role`（`pick` 的键不是已声明的角色）、`pick-unknown-resource`（`pick` / `default` 指向不存在的资源）、`pick-wrong-role`（`pick` / `default` 指向的资源不占该角色）、`role-needs-unmet`（选中的实现缺角色的 `needs`）、`role-unfilled`（角色有候选但定不下装哪个）。
+1. `alternatives` 的每个组至少一个成员、成员不重复（schema 的 `minItems: 1` / `uniqueItems`；内核另行报 `alternative-duplicate-member`）；成员值必须是本清单里的资源 id；同一个资源最多出现在一个组里，不在任何组里的资源照常安装。
+2. 选择次序：`pick.<组>` → 唯一成员。`pick` 优先；组里只有一个成员时自动选中；成员多于一个又没写 `pick`，报 `alternative-unpicked`。
+3. 组里不写 `needs`：选中的实现要真能供上消费方需要的能力，由 `provides` / `needs` 自然校验（没人提供就报 `unmet-need`）；组名只是逻辑名字，不参与能力匹配。
+4. 两处使用者覆盖都不写回清单：`--pick <组>=<资源>` 只作用于这一次 `plan` / `install`；`.packhub/local.yaml` 的 `pick` 只作用于这个项目，它不改清单文件，也不进锁与签名。作者改默认用 `packhub alternative swap <组> <资源> --dir <pack>`，写回清单的 `pick` 一行。
+5. 错误码：`alternative-unknown`（`pick` 的键不是已声明的组）、`alternative-unpicked`（组内成员多于一个且没有 `pick`）、`alternative-unknown-resource`（组成员不是本清单的资源）、`alternative-duplicate-member`（同一组里成员重复）、`resource-in-multiple-alternatives`（同一资源出现在多个组）、`pick-unknown-resource`（`pick` 指向不存在的资源）、`pick-not-in-alternatives`（`pick` 指向的资源不在该组）。
 
 ## 2 Plan（`packhub.dev/plan/v0`）
 
@@ -90,15 +85,15 @@ resources:
     { "actionId": "write#1", "op": "write", "to": ".packhub/knowledge/style-guide.md", "from": "./resources/style-guide.md", "resource": "style-guide" }
   ],
   "verify": [{ "type": "file-exists", "path": ".packhub/knowledge/style-guide.md" }],
-  "excluded": [{ "resource": "tts-a", "role": "voice", "reason": "not-selected" }],
+  "excluded": [{ "resource": "tts-a", "alternative": "voice", "reason": "not-selected" }],
   "planHash": "sha256-…"
 }
 ```
 
 1. `planHash` = 计划自身的哈希，用于确保版本一致性。
-2. `plan --json` 在计划对象外带一份 `wiring`：`describeComposition` 从清单派生的接线（能力令牌 → provider、`needs` 边、角色解析）。它是 CLI 输出，不进 `planHash`、不进锁，也不进 state 里的计划快照。
+2. `plan --json` 在计划对象外带一份 `wiring`：`describeComposition` 从清单派生的接线（能力令牌 → provider、`needs` 边、备选解析）。它是 CLI 输出，不进 `planHash`、不进锁，也不进 state 里的计划快照。
 
-   接线里 `roles` 每项是 `{ name, needs, default?, picked?, effective?, candidates, excluded }`：`needs` 是占位实现必须提供的能力，`picked` 是这次生效的 `pick` 值，`effective` 是这次实际装的实现（也可能是唯一候选自动选出的），`excluded` 是该角色下没选中的候选与原因（`not-selected`）。
+   接线里 `alternatives` 每项是 `{ name, members, picked?, effective?, excluded: [{ resource, reason }] }`：`members` 是组内全部资源 id，`picked` 是这次生效的 `pick` 值，`effective` 是这次实际装的实现（也可能是唯一成员自动选出的），`excluded` 是组内没选中的成员与原因（`not-selected`）。
 
 动作原语：`fetch`、`unpack`、`copy`、`write`、`delete`、`link.skill`、`link.exec`、`register.mcp`、`exec`、`instruction`、`state.dir`。
 
@@ -133,9 +128,9 @@ resources:
 - `state.dir` 只建目录；清单里的 `state` 块决定路径与 `retain`，目录不参与 `written`、不随快照回滚删除。
 - `exec` 带 `command/args/cwd/env/timeout` 与 `approval: required`：计划里永远标待批准，执行层必须显式 `--allow-exec` 才跑。退出码非零算失败，触发整次安装回滚。`undo` 目前只作记录，不自动执行。
 
-`excluded` 记录没进计划的候选，`reason` 三种：`not-selected`（角色没选中它：另有实现被 `pick` / `default` / 唯一候选选中）、`optional-unmet`（可选资源缺依赖，级联跳过）、`host-managed`（调用方按资源类型跳过，不进安装计划）。它们不进动作列表，但必须在计划里可见，否则「为什么没装」无从查起。
+`excluded` 记录没进计划的候选，`reason` 三种：`not-selected`（备选组没选中它：同组另有成员被 `pick` 选中，或唯一成员自动选中）、`optional-unmet`（可选资源缺依赖，级联跳过）、`host-managed`（调用方按资源类型跳过，不进安装计划）。它们不进动作列表，但必须在计划里可见，否则「为什么没装」无从查起。
 
-能力令牌统一写成 `<form>/<name>@<major>`：`form` 是闭集 `tool` / `skill` / `content` / `config`，表示能力的消费形态、不是资源类型；`name` 匹配 `[a-z][a-z0-9-]*`，只描述能做什么；`major` 是从 1 起的正整数，主版本不同就视为不兼容的两种能力（目前只有精确匹配，没有范围）。资源的 `provides` / `needs` 与角色的 `needs` 共用这套写法，schema 用同一个正则 `^(tool|skill|content|config)/[a-z][a-z0-9-]*@[1-9][0-9]*$`。
+能力令牌统一写成 `<form>/<name>@<major>`：`form` 是闭集 `tool` / `skill` / `content` / `config`，表示能力的消费形态、不是资源类型；`name` 匹配 `[a-z][a-z0-9-]*`，只描述能做什么；`major` 是从 1 起的正整数，主版本不同就视为不兼容的两种能力（目前只有精确匹配，没有范围）。资源的 `provides` / `needs` 共用这套写法，schema 用同一个正则 `^(tool|skill|content|config)/[a-z][a-z0-9-]*@[1-9][0-9]*$`；备选组不声明能力，组内实现是否可替换由消费侧的 `needs` 与 `provides` 校验。
 
 ## 3 Lock（`packhub.dev/lock/v0`）
 

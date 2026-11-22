@@ -37,7 +37,7 @@ export {
   describeComposition,
   type Composition,
   type CompositionContext,
-  type CompositionRole,
+  type CompositionAlternative,
 } from './composition.ts';
 export {
   RESOURCE_KINDS,

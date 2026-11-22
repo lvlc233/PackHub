@@ -1,4 +1,4 @@
-// 由 cli.ts 拆分：resourceAdd / resource / roleSwap / role
+// 由 cli.ts 拆分：resourceAdd / resource / alternativeSwap / alternative
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { EXIT, command, issueError, problemRaw, say, stop } from '../emit.ts';
@@ -63,11 +63,11 @@ export const resource = command({
   subCommands: { add: resourceAdd },
 });
 
-export const roleSwap = command({
-  meta: { name: 'swap', description: '换某个角色的实现（只改 pick 一行）' },
+export const alternativeSwap = command({
+  meta: { name: 'swap', description: '换某个备选组的实现（只改 pick 一行）' },
   args: {
-    role: { type: 'positional', required: true, description: '要换实现的角色名' },
-    resource: { type: 'positional', required: true, description: '占该角色的资源 id' },
+    alternative: { type: 'positional', required: true, description: '要换实现的备选组名' },
+    resource: { type: 'positional', required: true, description: '组内要选中的资源 id' },
     dir: { type: 'string', default: '.' },
     target: { type: 'string', default: 'dir' },
   },
@@ -80,8 +80,8 @@ export const roleSwap = command({
     }
     const before = planFor(loadPack(dir)).plan;
 
-    setPick(file, String(args.role), String(args.resource));
-    say(`✓ pick.${String(args.role)} → ${String(args.resource)}`);
+    setPick(file, String(args.alternative), String(args.resource));
+    say(`✓ pick.${String(args.alternative)} → ${String(args.resource)}`);
 
     const ctx = loadPack(dir);
     const errors = ctx.issues.filter((i) => i.severity === 'error');
@@ -91,7 +91,7 @@ export const roleSwap = command({
     }
     const { plan, issues } = planFor(ctx, { target: String(args.target ?? 'dir') as never });
     if (!plan) {
-      reportIssues(issues, 'packhub role swap');
+      reportIssues(issues, 'packhub alternative swap');
       stop(EXIT.RUNTIME);
     }
     const after = plan;
@@ -110,13 +110,13 @@ export const roleSwap = command({
     for (const a of removed) say(`  - ${describe(a as never)}`);
     for (const a of added) say(`  + ${describe(a as never)}`);
     for (const e of after?.excluded ?? []) {
-      say(`  · 跳过 ${e.resource}${e.role ? `（角色 ${e.role}）` : ''}：${e.reason}`);
+      say(`  · 跳过 ${e.resource}${e.alternative ? `（备选组 ${e.alternative}）` : ''}：${e.reason}`);
     }
     say(`planHash ${after?.planHash.slice(0, 22) ?? '—'}…`);
   },
 });
 
-export const role = command({
-  meta: { name: 'role', description: '角色操作（可替换的实现）' },
-  subCommands: { swap: roleSwap },
+export const alternative = command({
+  meta: { name: 'alternative', description: '备选组操作（可替换的实现）' },
+  subCommands: { swap: alternativeSwap },
 });

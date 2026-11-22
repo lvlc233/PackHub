@@ -77,24 +77,22 @@ describe('addResource', () => {
 });
 
 describe('setPick（换实现）', () => {
-  const withRoles = `# 头部注释
+  const withAlternatives = `# 头部注释
 apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/roles, version: 0.0.1 }
+metadata: { name: demo/alternatives, version: 0.0.1 }
 requires: { packhub: ">=0.0.1 <0.1" }
-roles:
-  voice: { needs: [tool/speak@1] }
+alternatives:
+  voice: [tts-a, tts-b]
 resources:
   - id: tts-a
     type: mcp
     transport: stdio
-    role: voice
     source: npm:tts-a@1.2.0
     provides: [tool/speak@1]
   - id: tts-b
     type: mcp
     transport: stdio
-    role: voice
     source: npm:tts-b@0.4.0
     provides: [tool/speak@1]
   - id: k
@@ -107,7 +105,7 @@ pick:
   function fixture(): { dir: string; file: string } {
     const dir = mkdtempSync(join(tmpdir(), 'packhub-pick-'));
     const file = join(dir, 'packhub.yaml');
-    writeFileSync(file, withRoles, 'utf8');
+    writeFileSync(file, withAlternatives, 'utf8');
     return { dir, file };
   }
 
@@ -121,10 +119,11 @@ pick:
     expect(text).toContain('tts-a');
   });
 
-  it('角色不存在、资源不存在、资源不占该角色都要报错', () => {
+  it('备选组没声明、资源不存在、资源不在组内都要报错', () => {
     const { file } = fixture();
-    expect(() => setPick(file, 'nope', 'tts-a')).toThrow(/没有声明角色/);
+    expect(() => setPick(file, 'nope', 'tts-a')).toThrow(/没有声明备选组/);
     expect(() => setPick(file, 'voice', 'nope')).toThrow(/没有这个资源/);
-    expect(() => setPick(file, 'voice', 'k')).toThrow(/不占角色 voice/);
+    // 资源存在但不在组里：报错要点明组的成员，别让作者猜
+    expect(() => setPick(file, 'voice', 'k')).toThrow(/不在备选组 voice（成员：tts-a, tts-b）/);
   });
 });

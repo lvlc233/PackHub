@@ -78,14 +78,14 @@ interface CommonInstall {
   allowExec: boolean;
   jsonOut: boolean;
   sayLine: Say;
-  /** --pick：本次运行的角色覆盖，不写回清单 */
+  /** --pick：本次运行的备选组覆盖，不写回清单 */
   pick?: string;
 }
 
 /** 本地 Pack 目录：清单在目录里，作者流不设锁/签名门。 */
 async function installLocal(sourceDir: string, opts: CommonInstall): Promise<void> {
   const packRoot = resolve(sourceDir);
-  // --pick 要在校验前合并：多候选没选中的目录，靠它这次才能算得出计划
+  // --pick 要在校验前合并：多成员组没选中的目录，靠它这次才能算得出计划
   const ctx = loadPackWithPick(packRoot, opts.pick);
   if (reportIssues(ctx.issues)) stop(EXIT.USAGE);
   const { plan: p, issues } = planFor(ctx, { target: opts.target as never });
@@ -384,7 +384,7 @@ export const install = command({
     target: { type: 'string', default: 'dir', description: `${TARGET_IDS.join(' | ')}` },
     pick: {
       type: 'string',
-      description: '本次覆盖角色实现：role=resource[,role=resource]（只影响这次运行，不写回清单）',
+      description: '本次覆盖备选组实现：组=资源[,组=资源]（只影响这次运行，不写回清单）',
     },
     'dry-run': { type: 'boolean', default: false, description: '只打印计划，不落盘' },
     overwrite: { type: 'boolean', default: false, description: '允许覆盖别的包写过的文件' },

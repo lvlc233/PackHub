@@ -6,8 +6,8 @@ CapabilityForm
 CatalogEntry
 CatalogHit
 Composition
+CompositionAlternative
 CompositionContext
-CompositionRole
 DIR_TARGET_VARS
 ExecSpec
 Graph
@@ -57,7 +57,6 @@ ResourceCatalog
 ResourceKind
 ResourceSpec
 ResourceType
-RoleSpec
 STATE_DIR
 STATE_FILE
 Severity
