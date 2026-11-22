@@ -1,6 +1,6 @@
 {
   "apiVersion": "packhub.dev/index/v0",
-  "generatedAt": "2026-11-21T22:56:20.829Z",
+  "generatedAt": "2026-11-22T11:22:44.365Z",
   "packs": [
     {
       "name": "lvlc233/doc-review",
@@ -11,7 +11,7 @@
         "0.1.0"
       ],
       "trust": "verified",
-      "verifiedAt": "2026-11-21T19:54:09.013Z",
+      "verifiedAt": "2026-11-22T11:02:50.455Z",
       "signers": [],
       "keywords": [
         "documentation",
