@@ -1,10 +1,9 @@
-// 由 cli.ts 拆分：resourceAdd / resource / alternativeSwap / alternative
+// 由 cli.ts 拆分：resourceAdd / resource
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { EXIT, command, issueError, problemRaw, say, stop } from '../emit.ts';
 import { MANIFEST_FILE, loadPack, planFor, RESOURCE_TYPES, TARGET_IDS } from '@packhub/kernel';
-import { addResource, setPick } from '@packhub/runtime';
-import { reportIssues } from './shared.ts';
+import { addResource } from '@packhub/runtime';
 
 export const resourceAdd = command({
   meta: { name: 'add', description: `往 ${MANIFEST_FILE} 追加一个资源（结构化编辑，保留注释）` },
@@ -61,62 +60,4 @@ export const resourceAdd = command({
 export const resource = command({
   meta: { name: 'resource', description: '资源编辑' },
   subCommands: { add: resourceAdd },
-});
-
-export const alternativeSwap = command({
-  meta: { name: 'swap', description: '换某个备选组的实现（只改 pick 一行）' },
-  args: {
-    alternative: { type: 'positional', required: true, description: '要换实现的备选组名' },
-    resource: { type: 'positional', required: true, description: '组内要选中的资源 id' },
-    dir: { type: 'string', default: '.' },
-    target: { type: 'string', default: 'dir' },
-  },
-  async run({ args }) {
-    const dir = resolve(String(args.dir));
-    const file = join(dir, MANIFEST_FILE);
-    if (!existsSync(file)) {
-      problemRaw(`没有 ${MANIFEST_FILE}：${file}`);
-      stop(EXIT.USAGE);
-    }
-    const before = planFor(loadPack(dir)).plan;
-
-    setPick(file, String(args.alternative), String(args.resource));
-    say(`✓ pick.${String(args.alternative)} → ${String(args.resource)}`);
-
-    const ctx = loadPack(dir);
-    const errors = ctx.issues.filter((i) => i.severity === 'error');
-    if (errors.length) {
-      for (const e of errors) issueError(e.code, e.message);
-      stop(EXIT.RUNTIME);
-    }
-    const { plan, issues } = planFor(ctx, { target: String(args.target ?? 'dir') as never });
-    if (!plan) {
-      reportIssues(issues, 'packhub alternative swap');
-      stop(EXIT.RUNTIME);
-    }
-    const after = plan;
-    // 换实现时 actionId（fetch#1）不变，必须按内容比，否则看不出换了什么
-    const fp = (a: { op: string } & Record<string, unknown>): string =>
-      JSON.stringify({ ...a, actionId: undefined });
-    const beforeSet = new Set((before?.actions ?? []).map((a) => fp(a as never)));
-    const afterSet = new Set((after?.actions ?? []).map((a) => fp(a as never)));
-    const describe = (a: { op: string } & Record<string, unknown>): string => {
-      const target = (a.to ?? a.dest ?? a.path ?? a.uri ?? a.resource ?? '') as string;
-      return `${a.op} ${target}`.trim();
-    };
-    const removed = (before?.actions ?? []).filter((a) => !afterSet.has(fp(a as never)));
-    const added = (after?.actions ?? []).filter((a) => !beforeSet.has(fp(a as never)));
-    say(`计划：${after?.actions.length ?? 0} 个动作（+${added.length} / -${removed.length}）`);
-    for (const a of removed) say(`  - ${describe(a as never)}`);
-    for (const a of added) say(`  + ${describe(a as never)}`);
-    for (const e of after?.excluded ?? []) {
-      say(`  · 跳过 ${e.resource}${e.alternative ? `（备选组 ${e.alternative}）` : ''}：${e.reason}`);
-    }
-    say(`planHash ${after?.planHash.slice(0, 22) ?? '—'}…`);
-  },
-});
-
-export const alternative = command({
-  meta: { name: 'alternative', description: '备选组操作（可替换的实现）' },
-  subCommands: { swap: alternativeSwap },
 });

@@ -32,7 +32,7 @@ Pack 不是资源的压缩包，哪怕有依赖关系也不自动成为有机整
 
 Pack 里的一条能力声明，它相对于 Agent，而不是相对于整个 harness。所以它可以是 SKILL、工具、脚本、提示词……只要能让 Agent 稳定表现出某种能力；界面优化这类不算。
 
-资源提供或需要的能力写成令牌，见 Composition 词条。资源本身不声明自己可以被替换；哪几个实现互为备选由清单的 `alternatives` 组声明（见 Composition 词条）。
+资源提供或需要的能力写成令牌，见 Composition 词条。
 
 ### Source（来源）
 
@@ -40,21 +40,15 @@ Pack 里的一条能力声明，它相对于 Agent，而不是相对于整个 ha
 
 可以指向包内文件、代码仓库、包管理器或 URL。
 
-### Composition（接线）
+### Composition（能力接线）
 
-接线是资源之间的约束：谁提供什么能力（`provides`）、谁需要什么能力（`needs`）、哪几个实现互为备选、这次装哪个（`alternatives` 与 `pick`）。
+接线是资源之间的约束：谁提供什么能力（`provides`）、谁需要什么能力（`needs`）。这是清单里唯一的接线关系：没有互斥组，也没有「这次只装其中一个实现」的选择。
 
 能力写成令牌 `<form>/<name>@<major>`（`tool/repo-search@1`、`skill/doc-review@1`）。`form` 是闭集 `tool` / `skill` / `content` / `config`，表示能力被消费的形态——工具调用、技能、可读内容、配置——**不是资源类型**：`mcp` / `tool2` 通常给 `tool/*`，`skill` 给 `skill/*`，`prompt` / `knowledge` 给 `content/*`，`config` 给 `config/*`。名字只描述能做什么，不泄漏资源类型；`@` 后是接口主版本（不小于 1 的整数），主版本不同就是两种能力。
 
-`needs` 同时是能力依赖和安装顺序：每个被需要的令牌，其所有 provider 都排在消费者之前，成环报错。没有单独的 `dependsOn`。
+`needs` 同时是能力依赖和安装顺序：多个资源可以 `provides` 同一令牌（能力叠加），它们全部安装、不互斥；消费者的每个 `needs` 只要至少有一个 provider 就算满足。所有 provider 都排在消费者之前，成环报错。没有单独的 `dependsOn`。
 
-备选（alternatives）是一组互斥的可替换实现：清单用 `alternatives.<组名>` 列出若干资源 id，一个组只装一个。这次装哪个按 `pick.<组名>` → 唯一成员 定：`pick` 优先；组里只有一个成员时自动选它；成员多于一个又没写 `pick`，报 `alternative-unpicked`，提示写 `pick.<组名>` 或用 `--pick 组=资源`。一个资源最多进一个组；组内落选的成员进计划的 `excluded`（字段 `alternative`，原因 `not-selected`），不在任何组里的资源照常安装。
-
-组里不写这些实现需要什么能力：选中的实现要真能供上消费方的 `needs`，由 `provides` / `needs` 自然校验——没人提供就报 `unmet-need`。组名只是逻辑名字，不参与能力匹配。
-
-使用者可以在不改作者清单的前提下换实现：`packhub plan` / `packhub install` 的 `--pick <组>=<资源>` 只覆盖这一次运行；项目内的长期覆盖写安装根 `.packhub/local.yaml` 的 `pick`，只影响这个项目，不写回清单，也不进锁与签名。作者要改默认，用 `packhub alternative swap <组> <资源> --dir <pack>`，它把一行 `pick` 写回清单。
-
-没有 `composition` 块：接线由 `provides` / `needs` / `alternatives` / `pick` 承载，再声明一份等于第二真相。接线图在计划期从清单派生（kernel 的 `describeComposition`，`plan` 打印出来），不落盘。
+没有 `composition` 块：接线由 `provides` / `needs` 承载，再声明一份等于第二真相。接线图在计划期从清单派生（kernel 的 `describeComposition`，`plan` 打印出来），不落盘。
 
 ### Manifest（清单）
 

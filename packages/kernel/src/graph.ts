@@ -20,143 +20,15 @@ export interface Graph {
   /** 安装顺序（needs 拓扑 + 清单顺序） */
   order: string[];
   resources: Map<string, ResourceSpec>;
-  /** 被备选组排除的成员：为什么这个实现这次不装 */
-  excluded: { resource: string; alternative: string; reason: string }[];
-}
-
-/** 资源属于哪个备选组（一个合法的清单里只有一个）；不在任何组里返回 undefined。 */
-export function alternativeOf(manifest: Manifest, id: string): string | undefined {
-  for (const [name, members] of Object.entries(manifest.alternatives ?? {})) {
-    if (members.includes(id)) return name;
-  }
-  return undefined;
-}
-
-/**
- * 备选组的有效实现 = `pick[组] ?? 组内唯一成员`。
- * 成员多于一个又没人选，就报 alternative-unpicked——这次装哪个不确定。
- */
-function resolveAlternatives(
-  manifest: Manifest,
-  issues: Issue[],
-): { active: Set<string>; excluded: Graph['excluded']; selected: Set<string> } {
-  const groups = manifest.alternatives ?? {};
-  const pick = manifest.pick ?? {};
-  /** 资源 id → 它所在的备选组（正常只有一个；多个就是清单写错了） */
-  const groupsOf = new Map<string, string[]>();
-
-  for (const [name, members] of Object.entries(groups)) {
-    const seen = new Set<string>();
-    const duplicates: string[] = [];
-    for (const id of members) {
-      if (seen.has(id)) {
-        if (!duplicates.includes(id)) duplicates.push(id);
-        continue;
-      }
-      seen.add(id);
-      groupsOf.set(id, [...(groupsOf.get(id) ?? []), name]);
-    }
-    if (duplicates.length > 0) {
-      issues.push({
-        code: ISSUE_CODES.alternativeDuplicateMember,
-        severity: 'error',
-        message: `备选组 ${name} 里重复列了资源：${duplicates.join(', ')}（一个资源在组里只能出现一次）`,
-      });
-    }
-  }
-
-  // 成员必须是本清单里的资源
-  for (const [name, members] of Object.entries(groups)) {
-    const missing = [...new Set(members)].filter((id) => !manifest.resources.some((r) => r.id === id));
-    if (missing.length > 0) {
-      issues.push({
-        code: ISSUE_CODES.alternativeUnknownResource,
-        severity: 'error',
-        message: `备选组 ${name} 列了不存在的资源：${missing.join(', ')}（成员只能写本清单里的资源 id）`,
-      });
-    }
-  }
-
-  // 同一个资源只能属于一个备选组：两个组都想装它，清单表达不出选谁
-  for (const [id, names] of groupsOf) {
-    if (names.length > 1) {
-      issues.push({
-        code: ISSUE_CODES.resourceInMultipleAlternatives,
-        severity: 'error',
-        message: `资源 ${id} 同时出现在多个备选组：${names.join(', ')}（一个资源只能占一个组）`,
-      });
-    }
-  }
-
-  for (const [name, impl] of Object.entries(pick)) {
-    const members = groups[name];
-    if (!members) {
-      issues.push({
-        code: ISSUE_CODES.alternativeUnknown,
-        severity: 'error',
-        message: `pick 指向未声明的备选组：${name}`,
-      });
-      continue;
-    }
-    if (!manifest.resources.some((r) => r.id === impl)) {
-      issues.push({
-        code: ISSUE_CODES.pickUnknownResource,
-        severity: 'error',
-        message: `pick.${name} 指向不存在的资源：${impl}（pick 只能写本清单里的资源 id）`,
-      });
-      continue;
-    }
-    if (!members.includes(impl)) {
-      issues.push({
-        code: ISSUE_CODES.pickNotInAlternatives,
-        severity: 'error',
-        message: `pick.${name} 指向的 ${impl} 不是这个组的成员（成员：${[...new Set(members)].join(', ') || '无'}）`,
-      });
-    }
-  }
-
-  /** 有效实现：pick 优先，其次组内唯一成员；都定不下来就是 undefined。 */
-  const effectiveOf = (name: string): string | undefined => {
-    const explicit = pick[name];
-    if (explicit !== undefined) return explicit;
-    const members = [...new Set(groups[name] ?? [])];
-    return members.length === 1 ? members[0] : undefined;
-  };
-
-  for (const [name, members] of Object.entries(groups)) {
-    if (effectiveOf(name) !== undefined) continue;
-    if (members.length < 2) continue; // 空组 / 唯一成员：没得选，不算「该选没选」
-    issues.push({
-      code: ISSUE_CODES.alternativeUnpicked,
-      severity: 'error',
-      message: `备选组 ${name} 有 ${members.length} 个成员（${members.join(', ')}）但没有选中任何一个：写 pick.${name}，或用 --pick ${name}=<资源 id> 指定`,
-    });
-  }
-
-  const active = new Set<string>();
-  const excluded: Graph['excluded'] = [];
-  for (const res of manifest.resources) {
-    const names = groupsOf.get(res.id) ?? [];
-    if (names.length === 0 || names.some((name) => effectiveOf(name) === res.id)) {
-      active.add(res.id);
-      continue;
-    }
-    excluded.push({ resource: res.id, alternative: names[0] ?? '', reason: 'not-selected' });
-  }
-
-  // 「显式选择」= pick 写明，或组内唯一成员自动选中：optional 不该把它静默裁掉
-  const selected = new Set<string>();
-  for (const name of Object.keys(groups)) {
-    const effective = effectiveOf(name);
-    if (effective !== undefined) selected.add(effective);
-  }
-  return { active, excluded, selected };
+  /** 没进计划的资源：为什么这次不装（只有 optional 裁剪与宿主托管两种） */
+  excluded: { resource: string; reason: string }[];
 }
 
 /** 资源与接线校验：这是 Pack 区别于「资源合集」的硬门槛。 */
 export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue[] } {
   const issues: Issue[] = [];
   const resources = new Map<string, ResourceSpec>();
+  const excluded: Graph['excluded'] = [];
 
   // 补丁必须指向真实存在的资源，否则写了等于没写
   for (const [i, m] of (manifest.modify ?? []).entries()) {
@@ -180,9 +52,8 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
       }
     }
   }
-  const { active, excluded, selected } = resolveAlternatives(manifest, issues);
 
-  // 重复 id 在所有资源上查（包括没被选中的成员）
+  // 重复 id 在所有资源上查
   const seen = new Set<string>();
   for (const r of manifest.resources) {
     if (seen.has(r.id)) {
@@ -227,15 +98,12 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
             },
           }
         : { ...raw, config: deepMerge(raw.config ?? {}, patch) as Record<string, unknown> };
-    // 没被选中的备选组成员：只做结构检查，不进依赖图、不进计划
-    if (!active.has(res.id)) return;
     resources.set(res.id, res);
     const parsed = parseSource(res.source);
     issues.push(...checkSource(parsed, res.integrity, `${at}.source`));
   });
 
   // optional 资源：needs 在当前集合里无人提供时自动跳过（级联：跳过后它 provides 的能力也消失）。
-  // 被选中的实现（pick 写明，或组内唯一成员自动选中）不自动跳过——选了它，缺能力应当报错而不是静默换掉。
   const providersOf = (set: Map<string, ResourceSpec>): Map<string, string[]> => {
     const map = new Map<string, string[]>();
     for (const res of set.values()) {
@@ -250,17 +118,12 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
     const drop = [...resources.values()].filter(
       (res) =>
         res.optional === true &&
-        !selected.has(res.id) &&
         (res.needs ?? []).some((need) => (available.get(need) ?? []).filter((id) => id !== res.id).length === 0),
     );
     if (drop.length === 0) break;
     for (const res of drop) {
       resources.delete(res.id);
-      excluded.push({
-        resource: res.id,
-        alternative: alternativeOf(manifest, res.id) ?? '',
-        reason: 'optional-unmet',
-      });
+      excluded.push({ resource: res.id, reason: 'optional-unmet' });
     }
   }
 

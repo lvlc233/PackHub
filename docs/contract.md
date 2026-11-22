@@ -48,29 +48,22 @@ review: 格式升版、字段增删、apiVersion 变化时
 
 ## 1 Manifest（`packhub.dev/v0`）
 
-清单 `packhub.yaml` 的完整形状由 schema 给出（`schema/packhub.v0.schema.json`）；这里只记备选与选用这一组字段：
+清单 `packhub.yaml` 的形状由 schema 给出（`schema/packhub.v0.schema.json`）。顶层字段是 `apiVersion` / `kind` / `metadata` / `requires` / `vars` / `context` / `resources` / `state` / `modify` / `signatures` / `install` / `verify`；接线不占顶层字段，写在资源自己的 `provides` / `needs` 上：
 
 ```yaml
-alternatives:
-  lint: [markdownlint, eslint-lint]   # 组名 → 互斥实现（资源 id），只装一个
-pick:
-  lint: markdownlint                  # 作者默认；消费者可覆盖
 resources:
   - id: markdownlint
     type: tool2
     provides: [tool/lint@1]
-  - id: eslint-lint
-    type: tool2
-    provides: [tool/lint@1]
+  - id: doc-review
+    type: skill
+    needs: [tool/lint@1]
 ```
 
 不变量：
 
-1. `alternatives` 的每个组至少一个成员、成员不重复（schema 的 `minItems: 1` / `uniqueItems`；内核另行报 `alternative-duplicate-member`）；成员值必须是本清单里的资源 id；同一个资源最多出现在一个组里，不在任何组里的资源照常安装。
-2. 选择次序：`pick.<组>` → 唯一成员。`pick` 优先；组里只有一个成员时自动选中；成员多于一个又没写 `pick`，报 `alternative-unpicked`。
-3. 组里不写 `needs`：选中的实现要真能供上消费方需要的能力，由 `provides` / `needs` 自然校验（没人提供就报 `unmet-need`）；组名只是逻辑名字，不参与能力匹配。
-4. 两处使用者覆盖都不写回清单：`--pick <组>=<资源>` 只作用于这一次 `plan` / `install`；`.packhub/local.yaml` 的 `pick` 只作用于这个项目，它不改清单文件，也不进锁与签名。作者改默认用 `packhub alternative swap <组> <资源> --dir <pack>`，写回清单的 `pick` 一行。
-5. 错误码：`alternative-unknown`（`pick` 的键不是已声明的组）、`alternative-unpicked`（组内成员多于一个且没有 `pick`）、`alternative-unknown-resource`（组成员不是本清单的资源）、`alternative-duplicate-member`（同一组里成员重复）、`resource-in-multiple-alternatives`（同一资源出现在多个组）、`pick-unknown-resource`（`pick` 指向不存在的资源）、`pick-not-in-alternatives`（`pick` 指向的资源不在该组）。
+1. `provides` / `needs` 都写成能力令牌（写法见 §2）。同一令牌允许多个 provider：它们全部安装、不互斥，消费者的每个 `needs` 只要至少有一个 provider 就算满足。
+2. 清单不声明「只装其中一个实现」：没有互斥组，也没有选择字段；`additionalProperties: false`，schema 没定义的字段判 schema error。
 
 ## 2 Plan（`packhub.dev/plan/v0`）
 
@@ -85,15 +78,13 @@ resources:
     { "actionId": "write#1", "op": "write", "to": ".packhub/knowledge/style-guide.md", "from": "./resources/style-guide.md", "resource": "style-guide" }
   ],
   "verify": [{ "type": "file-exists", "path": ".packhub/knowledge/style-guide.md" }],
-  "excluded": [{ "resource": "tts-a", "alternative": "voice", "reason": "not-selected" }],
+  "excluded": [{ "resource": "tts-a", "reason": "optional-unmet" }],
   "planHash": "sha256-…"
 }
 ```
 
 1. `planHash` = 计划自身的哈希，用于确保版本一致性。
-2. `plan --json` 在计划对象外带一份 `wiring`：`describeComposition` 从清单派生的接线（能力令牌 → provider、`needs` 边、备选解析）。它是 CLI 输出，不进 `planHash`、不进锁，也不进 state 里的计划快照。
-
-   接线里 `alternatives` 每项是 `{ name, members, picked?, effective?, excluded: [{ resource, reason }] }`：`members` 是组内全部资源 id，`picked` 是这次生效的 `pick` 值，`effective` 是这次实际装的实现（也可能是唯一成员自动选出的），`excluded` 是组内没选中的成员与原因（`not-selected`）。
+2. `plan --json` 在计划对象外带一份 `wiring`：`describeComposition` 从清单派生的接线，只有两组——`capabilities`（能力令牌 → provider 列表，按令牌排序）与 `edges`（`needs` 派生的 provider → consumer 边）。它是 CLI 输出，不进 `planHash`、不进锁，也不进 state 里的计划快照。
 
 动作原语：`fetch`、`unpack`、`copy`、`write`、`delete`、`link.skill`、`link.exec`、`register.mcp`、`exec`、`instruction`、`state.dir`。
 
@@ -128,9 +119,9 @@ resources:
 - `state.dir` 只建目录；清单里的 `state` 块决定路径与 `retain`，目录不参与 `written`、不随快照回滚删除。
 - `exec` 带 `command/args/cwd/env/timeout` 与 `approval: required`：计划里永远标待批准，执行层必须显式 `--allow-exec` 才跑。退出码非零算失败，触发整次安装回滚。`undo` 目前只作记录，不自动执行。
 
-`excluded` 记录没进计划的候选，`reason` 三种：`not-selected`（备选组没选中它：同组另有成员被 `pick` 选中，或唯一成员自动选中）、`optional-unmet`（可选资源缺依赖，级联跳过）、`host-managed`（调用方按资源类型跳过，不进安装计划）。它们不进动作列表，但必须在计划里可见，否则「为什么没装」无从查起。
+`excluded` 记录没进计划的资源，`reason` 两种：`optional-unmet`（可选资源缺依赖，级联跳过）、`host-managed`（调用方按资源类型跳过，不进安装计划）。它们不进动作列表，但必须在计划里可见，否则「为什么没装」无从查起。
 
-能力令牌统一写成 `<form>/<name>@<major>`：`form` 是闭集 `tool` / `skill` / `content` / `config`，表示能力的消费形态、不是资源类型；`name` 匹配 `[a-z][a-z0-9-]*`，只描述能做什么；`major` 是从 1 起的正整数，主版本不同就视为不兼容的两种能力（目前只有精确匹配，没有范围）。资源的 `provides` / `needs` 共用这套写法，schema 用同一个正则 `^(tool|skill|content|config)/[a-z][a-z0-9-]*@[1-9][0-9]*$`；备选组不声明能力，组内实现是否可替换由消费侧的 `needs` 与 `provides` 校验。
+能力令牌统一写成 `<form>/<name>@<major>`：`form` 是闭集 `tool` / `skill` / `content` / `config`，表示能力的消费形态、不是资源类型；`name` 匹配 `[a-z][a-z0-9-]*`，只描述能做什么；`major` 是从 1 起的正整数，主版本不同就视为不兼容的两种能力（目前只有精确匹配，没有范围）。资源的 `provides` / `needs` 共用这套写法，schema 用同一个正则 `^(tool|skill|content|config)/[a-z][a-z0-9-]*@[1-9][0-9]*$`。
 
 ## 3 Lock（`packhub.dev/lock/v0`）
 

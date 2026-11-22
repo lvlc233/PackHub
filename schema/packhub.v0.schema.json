@@ -68,24 +68,6 @@
       "minItems": 1,
       "items": { "$ref": "#/definitions/resource" }
     },
-    "alternatives": {
-      "type": "object",
-      "description": "备选组：组名 → 成员资源 id 列表；组内成员互斥，只装选中的那个（pick 决定，唯一成员自动选中）",
-      "additionalProperties": {
-        "type": "array",
-        "minItems": 1,
-        "uniqueItems": true,
-        "items": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" }
-      }
-    },
-    "pick": {
-      "type": "object",
-      "description": "备选组 → 成员资源 id；成员多于一个时必须写（或用 --pick）；只有选中的成员会被安装",
-      "additionalProperties": {
-        "type": "string",
-        "pattern": "^[a-z][a-z0-9-]*$"
-      }
-    },
     "state": {
       "type": "array",
       "description": "持久状态目录：安装时创建，升级与卸载默认保留（记忆、索引、会话存档）；资源里用 ${state.<id>} 引用",

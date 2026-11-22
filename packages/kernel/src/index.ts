@@ -37,7 +37,6 @@ export {
   describeComposition,
   type Composition,
   type CompositionContext,
-  type CompositionAlternative,
 } from './composition.ts';
 export {
   RESOURCE_KINDS,
@@ -133,7 +132,6 @@ export function loadPack(dir: string): PackContext {
 
 export interface LocalOverrides {
   modify?: Manifest['modify'];
-  pick?: Record<string, string>;
   vars?: Record<string, string | number | boolean>;
 }
 
@@ -174,7 +172,6 @@ export function mergeLocalOverrides(
     manifest: {
       ...manifest,
       modify: [...(manifest.modify ?? []), ...modify],
-      pick: { ...(manifest.pick ?? {}), ...(raw.pick ?? {}) },
       vars: { ...(manifest.vars ?? {}), ...(raw.vars ?? {}) },
     },
     issues,

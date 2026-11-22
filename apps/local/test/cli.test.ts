@@ -246,7 +246,7 @@ resources:
     rmSync(pack, { recursive: true, force: true });
   });
 
-  it('plan 打接线：能力令牌 → provider、needs 边、备选组解析（--json 里是 wiring）', () => {
+  it('plan 打接线：能力令牌 → provider、needs 边、同一令牌的多个 provider 全列出（--json 里是 wiring）', () => {
     const base = mkdtempSync(join(tmpdir(), 'packhub-cli-wiring-'));
     const pack = join(base, 'pack');
     mkdirSync(pack, { recursive: true });
@@ -257,10 +257,6 @@ resources:
 kind: Pack
 metadata: { name: demo/wiring, version: 0.0.1 }
 requires: { packhub: ">=0.0.1 <0.1" }
-alternatives:
-  review: [linter-a, linter-b]
-pick:
-  review: linter-a
 resources:
   - id: linter-a
     type: mcp
@@ -288,46 +284,29 @@ resources:
       wiring: {
         capabilities: Record<string, string[]>;
         edges: { provider: string; consumer: string; capability: string }[];
-        alternatives: {
-          name: string;
-          members: string[];
-          picked?: string;
-          effective?: string;
-          excluded: { resource: string; reason: string }[];
-        }[];
       };
     };
     expect(body.planHash).toBeTruthy();
-    // 能力：令牌是键，provider 按清单顺序；落选的成员不进图（它这次不装）
+    // 能力：令牌是键，provider 按清单顺序；同一令牌的多个 provider 全部列出
     expect(body.wiring.capabilities).toEqual({
       'skill/review@1': ['reviewer'],
-      'tool/lint@1': ['linter-a'],
+      'tool/lint@1': ['linter-a', 'linter-b'],
     });
-    // 边由 needs 派生：provider 先装
+    // 边由 needs 派生：两个 provider 都先装
     expect(body.wiring.edges).toEqual([
       { provider: 'linter-a', consumer: 'reviewer', capability: 'tool/lint@1' },
-    ]);
-    // 备选组：pick 生效，未选中的成员带原因
-    expect(body.wiring.alternatives).toEqual([
-      {
-        name: 'review',
-        members: ['linter-a', 'linter-b'],
-        picked: 'linter-a',
-        effective: 'linter-a',
-        excluded: [{ resource: 'linter-b', reason: 'not-selected' }],
-      },
+      { provider: 'linter-b', consumer: 'reviewer', capability: 'tool/lint@1' },
     ]);
 
     // 文本模式同一份接线；顺序是「provider 先装」的证据
     const printed = run(['plan', pack]);
     expect(printed.status).toBe(0);
     expect(printed.out).toContain('接线：');
-    expect(printed.out).toContain('tool/lint@1 → linter-a');
+    expect(printed.out).toContain('tool/lint@1 → linter-a, linter-b');
     expect(printed.out).toContain('linter-a → reviewer（tool/lint@1）');
-    expect(printed.out).toContain('备选：');
-    expect(printed.out).toContain('review：effective linter-a（pick）');
-    expect(printed.out).toContain('成员：linter-a, linter-b');
-    expect(printed.out).toContain('linter-b：not-selected');
+    expect(printed.out).toContain('linter-b → reviewer（tool/lint@1）');
+    // 接线只描述能力与依赖：没有选择语义，不该出现「未装（计划期排除）」那一段
+    expect(printed.out).not.toContain('未装（计划期排除）');
 
     rmSync(base, { recursive: true, force: true });
   });
@@ -555,17 +534,15 @@ verify:
   });
 });
 
-describe('cli 端到端：备选组选用（--pick / alternative swap）', () => {
-  /** 两个成员的 rules 组：不选就 alternative-unpicked，靠 pick / --pick 才装得成。 */
-  const makeAlternativesPack = (dir: string, extra = ''): void => {
+describe('cli 端到端：多提供者（能力叠加）', () => {
+  /** 两个提供者给同一令牌：两个都装，consumer 的 needs 由任一满足。 */
+  const makeMultiProviderPack = (dir: string): void => {
     writeFileSync(
       join(dir, 'packhub.yaml'),
       `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/alternatives, version: 0.0.1 }
+metadata: { name: demo/multi-provider, version: 0.0.1 }
 requires: { packhub: ">=0.0.1 <0.1" }
-alternatives:
-  rules: [rules-a, rules-b]
 resources:
   - id: rules-a
     type: knowledge
@@ -575,154 +552,51 @@ resources:
     type: knowledge
     source: ./b.md
     provides: [content/rules@1]
-${extra}`,
-      'utf8',
-    );
-    writeFileSync(join(dir, 'a.md'), '# a\n', 'utf8');
-    writeFileSync(join(dir, 'b.md'), '# b\n', 'utf8');
-  };
-
-  /** 单成员组：不写 pick 时自动选中，不需要 --pick。 */
-  const makeSingleMemberPack = (dir: string): void => {
-    writeFileSync(
-      join(dir, 'packhub.yaml'),
-      `apiVersion: packhub.dev/v0
-kind: Pack
-metadata: { name: demo/one-member, version: 0.0.1 }
-requires: { packhub: ">=0.0.1 <0.1" }
-alternatives:
-  rules: [rules-a]
-resources:
-  - id: rules-a
+  - id: consumer
     type: knowledge
-    source: ./a.md
-    provides: [content/rules@1]
+    source: ./c.md
+    needs: [content/rules@1]
 `,
       'utf8',
     );
     writeFileSync(join(dir, 'a.md'), '# a\n', 'utf8');
+    writeFileSync(join(dir, 'b.md'), '# b\n', 'utf8');
+    writeFileSync(join(dir, 'c.md'), '# c\n', 'utf8');
   };
 
-  it('单成员组不用选：plan 直接算出来，接线里写「唯一候选」', () => {
-    const base = mkdtempSync(join(tmpdir(), 'packhub-cli-altsingle-'));
+  it('plan：两个提供者都进计划，接线里全部列出，两条边都在', () => {
+    const base = mkdtempSync(join(tmpdir(), 'packhub-cli-multi-plan-'));
     const pack = join(base, 'pack');
     mkdirSync(pack, { recursive: true });
-    makeSingleMemberPack(pack);
+    makeMultiProviderPack(pack);
 
     const planned = run(['plan', pack]);
     expect(planned.status).toBe(0);
-    expect(planned.out).toContain('rules：effective rules-a（唯一候选）');
-    expect(planned.out).not.toContain('not-selected');
+    expect(planned.out).toContain('content/rules@1 → rules-a, rules-b');
+    expect(planned.out).toContain('rules-a → consumer（content/rules@1）');
+    expect(planned.out).toContain('rules-b → consumer（content/rules@1）');
+    // 两个提供者的文件都出现在动作列表里，没有谁被裁掉
+    expect(planned.out).toContain('.packhub/knowledge/a.md');
+    expect(planned.out).toContain('.packhub/knowledge/b.md');
+    expect(planned.out).toContain('.packhub/knowledge/c.md');
+    expect(planned.out).not.toContain('未装（计划期排除）');
 
     rmSync(base, { recursive: true, force: true });
   });
 
-  it('--pick 只覆盖本次 plan：清单不写回 pick', () => {
-    const base = mkdtempSync(join(tmpdir(), 'packhub-cli-pickplan-'));
-    const pack = join(base, 'pack');
-    mkdirSync(pack, { recursive: true });
-    makeAlternativesPack(pack);
-
-    // 两个成员、没人选：没有 --pick 时算不出计划
-    const unresolved = run(['plan', pack]);
-    expect(unresolved.status).toBe(2);
-    expect(unresolved.out).toContain('alternative-unpicked');
-
-    const picked = run(['plan', pack, '--pick', 'rules=rules-b']);
-    expect(picked.status).toBe(0);
-    expect(picked.out).toContain('rules：effective rules-b（pick）');
-    expect(picked.out).toContain('rules-a：not-selected');
-    // --pick 只影响这次运行：清单文件没有被加上 pick
-    expect(readFileSync(join(pack, 'packhub.yaml'), 'utf8')).not.toContain('pick:');
-
-    rmSync(base, { recursive: true, force: true });
-  });
-
-  it('--pick 覆盖清单里已有的 pick：命令行优先，清单保持原样', () => {
-    const base = mkdtempSync(join(tmpdir(), 'packhub-cli-pickcover-'));
-    const pack = join(base, 'pack');
-    mkdirSync(pack, { recursive: true });
-    makeAlternativesPack(pack, 'pick:\n  rules: rules-a\n');
-
-    const asWritten = run(['plan', pack]);
-    expect(asWritten.status).toBe(0);
-    expect(asWritten.out).toContain('effective rules-a（pick）');
-
-    const overridden = run(['plan', pack, '--pick', 'rules=rules-b']);
-    expect(overridden.status).toBe(0);
-    expect(overridden.out).toContain('effective rules-b（pick）');
-    expect(overridden.out).not.toContain('effective rules-a');
-    expect(readFileSync(join(pack, 'packhub.yaml'), 'utf8')).toMatch(/pick:\s*\n\s*rules: rules-a/);
-
-    rmSync(base, { recursive: true, force: true });
-  });
-
-  it('--pick 只覆盖本次 install：装的是选中的成员，清单不动', () => {
-    const base = mkdtempSync(join(tmpdir(), 'packhub-cli-pickinstall-'));
+  it('install：同一令牌的两个提供者都落盘', () => {
+    const base = mkdtempSync(join(tmpdir(), 'packhub-cli-multi-install-'));
     const pack = join(base, 'pack');
     const project = join(base, 'project');
     mkdirSync(pack, { recursive: true });
     mkdirSync(project, { recursive: true });
-    makeAlternativesPack(pack);
+    makeMultiProviderPack(pack);
 
-    const unresolved = run(['install', pack, '--dir', project]);
-    expect(unresolved.status).toBe(2);
-    expect(unresolved.out).toContain('alternative-unpicked');
-    expect(existsSync(join(project, '.packhub/knowledge/a.md'))).toBe(false);
-    expect(existsSync(join(project, '.packhub/knowledge/b.md'))).toBe(false);
-
-    const picked = run(['install', pack, '--dir', project, '--pick', 'rules=rules-b']);
-    expect(picked.status).toBe(0);
-    expect(existsSync(join(project, '.packhub/knowledge/b.md'))).toBe(true);
-    expect(existsSync(join(project, '.packhub/knowledge/a.md'))).toBe(false);
-    expect(readFileSync(join(pack, 'packhub.yaml'), 'utf8')).not.toContain('pick:');
-
-    rmSync(base, { recursive: true, force: true });
-  });
-
-  it('坏 --pick 退出 2：坏组名/坏格式打「可用备选」，坏资源落 kernel 的错误码', () => {
-    const base = mkdtempSync(join(tmpdir(), 'packhub-cli-pickbad-'));
-    const pack = join(base, 'pack');
-    mkdirSync(pack, { recursive: true });
-    makeAlternativesPack(pack);
-
-    const badGroup = run(['plan', pack, '--pick', 'ghost=rules-a']);
-    expect(badGroup.status).toBe(2);
-    expect(badGroup.out).toContain('备选组不存在：ghost');
-    expect(badGroup.out).toContain('可用备选：rules');
-
-    const badFormat = run(['plan', pack, '--pick', 'rules']);
-    expect(badFormat.status).toBe(2);
-    expect(badFormat.out).toContain('格式错');
-    expect(badFormat.out).toContain('可用备选：rules');
-
-    // 资源不存在不再是用法错：交给 kernel 的 validateGraph，错误码只留一处
-    const badResource = run(['plan', pack, '--pick', 'rules=nope']);
-    expect(badResource.status).toBe(2);
-    expect(badResource.out).toContain('pick-unknown-resource');
-    expect(badResource.out).toContain('nope');
-
-    rmSync(base, { recursive: true, force: true });
-  });
-
-  it('alternative swap 把 pick 写进清单，计划随之换成新实现', () => {
-    const base = mkdtempSync(join(tmpdir(), 'packhub-cli-altswap-'));
-    const pack = join(base, 'pack');
-    mkdirSync(pack, { recursive: true });
-    makeAlternativesPack(pack);
-
-    const swapped = run(['alternative', 'swap', 'rules', 'rules-b', '--dir', pack]);
-    expect(swapped.status).toBe(0);
-    expect(swapped.out).toContain('✓ pick.rules → rules-b');
-    expect(swapped.out).toContain('· 跳过 rules-a（备选组 rules）：not-selected');
-    // 换实现 = 清单里多一行 pick，原始清单其它内容不动
-    const manifest = readFileSync(join(pack, 'packhub.yaml'), 'utf8');
-    expect(manifest).toMatch(/pick:\s*\n\s*rules: rules-b/);
-    expect(manifest).toContain('source: ./a.md');
-
-    const planned = run(['plan', pack]);
-    expect(planned.status).toBe(0);
-    expect(planned.out).toContain('effective rules-b（pick）');
+    const installed = run(['install', pack, '--dir', project]);
+    expect(installed.status).toBe(0);
+    expect(readFileSync(join(project, '.packhub/knowledge/a.md'), 'utf8')).toBe('# a\n');
+    expect(readFileSync(join(project, '.packhub/knowledge/b.md'), 'utf8')).toBe('# b\n');
+    expect(readFileSync(join(project, '.packhub/knowledge/c.md'), 'utf8')).toBe('# c\n');
 
     rmSync(base, { recursive: true, force: true });
   });

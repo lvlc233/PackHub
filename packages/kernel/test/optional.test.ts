@@ -36,7 +36,6 @@ describe('optional 资源', () => {
     expect(graph.resources.has('optional-skill')).toBe(false);
     expect(graph.excluded).toContainEqual({
       resource: 'optional-skill',
-      alternative: '',
       reason: 'optional-unmet',
     });
     expect(graph.order).toEqual(['plain']);
@@ -74,42 +73,24 @@ describe('optional 资源', () => {
     expect(validateGraph(manifest).issues.map((i) => i.code)).toContain('unmet-need');
   });
 
-  it('组内唯一成员（自动选中）的 optional 不自动跳过', () => {
+  it('needs 由任一 provider 满足：optional 不跳过，excluded 空', () => {
     const manifest = base({
       resources: [
+        { id: 'rules-a', type: 'knowledge', source: './a.md', provides: ['content/rules@1'] },
+        { id: 'rules-b', type: 'knowledge', source: './b.md', provides: ['content/rules@1'] },
         {
-          id: 'impl',
+          id: 'opt',
           type: 'skill',
-          source: './skills/x',
-          needs: ['tool/missing@1'],
+          source: './skills/o',
+          needs: ['content/rules@1'],
           optional: true,
         },
       ],
-      alternatives: { search: ['impl'] },
     });
     const { graph, issues } = validateGraph(manifest);
-    expect(graph.resources.has('impl')).toBe(true);
-    expect(issues.map((i) => i.code)).toContain('unmet-need');
-  });
-
-  it('被 pick 显式选中的 optional 不自动跳过', () => {
-    const manifest = base({
-      resources: [
-        {
-          id: 'impl',
-          type: 'skill',
-          source: './skills/x',
-          needs: ['tool/missing@1'],
-          optional: true,
-        },
-        { id: 'other', type: 'skill', source: './skills/y' },
-      ],
-      alternatives: { search: ['impl', 'other'] },
-      pick: { search: 'impl' },
-    });
-    const { graph, issues } = validateGraph(manifest);
-    expect(graph.resources.has('impl')).toBe(true);
-    expect(graph.resources.has('other')).toBe(false);
-    expect(issues.map((i) => i.code)).toContain('unmet-need');
+    expect(issues.filter((i) => i.severity === 'error')).toEqual([]);
+    expect(graph.resources.has('opt')).toBe(true);
+    expect(graph.providers.get('content/rules@1')).toEqual(['rules-a', 'rules-b']);
+    expect(graph.excluded).toEqual([]);
   });
 });

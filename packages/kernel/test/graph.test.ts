@@ -45,7 +45,7 @@ describe('validateGraph', () => {
     expect(validateGraph(manifest).graph.order).toEqual(['tool-a', 'skill-b']);
   });
 
-  it('同一令牌有多个 provider：全部先于 consumer，彼此按清单顺序', () => {
+  it('同一令牌有多个 provider：全部进图，needs 任一满足，excluded 空', () => {
     const manifest = load(
       base({
         resources: [
@@ -57,10 +57,18 @@ describe('validateGraph', () => {
     );
     const { graph, issues } = validateGraph(manifest);
     expect(issues.filter((i) => i.severity === 'error')).toEqual([]);
-    expect(graph.order.indexOf('rules-b')).toBeLessThan(graph.order.indexOf('consumer'));
-    expect(graph.order.indexOf('rules-a')).toBeLessThan(graph.order.indexOf('consumer'));
-    // 没有依赖的两个 provider 之间按清单顺序
-    expect(graph.order.indexOf('rules-b')).toBeLessThan(graph.order.indexOf('rules-a'));
+    // 能力叠加：两个 provider 都留下，不选边
+    expect([...graph.resources.keys()]).toEqual(['consumer', 'rules-b', 'rules-a']);
+    expect(graph.providers.get('content/rules@1')).toEqual(['rules-b', 'rules-a']);
+    // consumer 的那条 needs 由两个 provider 都满足：两条边都派生
+    expect(graph.edges).toEqual([
+      { provider: 'rules-b', consumer: 'consumer', capability: 'content/rules@1' },
+      { provider: 'rules-a', consumer: 'consumer', capability: 'content/rules@1' },
+    ]);
+    // 没有可选裁剪、没有宿主托管：excluded 是空的
+    expect(graph.excluded).toEqual([]);
+    // 顺序：两个 provider 都在 consumer 之前，彼此按清单顺序
+    expect(graph.order).toEqual(['rules-b', 'rules-a', 'consumer']);
   });
 
   it('needs 无人提供时报错', () => {
@@ -124,10 +132,6 @@ describe('describeComposition', () => {
 kind: Pack
 metadata: { name: a/b, version: 0.0.1 }
 requires: { packhub: ">=0.0.1 <0.1" }
-alternatives:
-  review: [linter-a, linter-b]
-pick:
-  review: linter-a
 resources:
   - id: linter-a
     type: mcp
@@ -146,65 +150,21 @@ resources:
     provides: [skill/review@1]
 `);
 
-  it('能力按令牌排序、边按 needs、备选组给出 pick 与落选原因', () => {
+  it('能力按令牌排序，同一令牌的多个 provider 全部列出，边按 needs 派生', () => {
     const m = manifest();
     const { graph } = validateGraph(m);
-    // 落选的成员不进图（这次不装，也就不供能力），但会出现在 alternatives[].excluded 里
     expect(describeComposition({ manifest: m, graph })).toEqual({
       capabilities: {
         'skill/review@1': ['reviewer'],
-        'tool/lint@1': ['linter-a'],
+        'tool/lint@1': ['linter-a', 'linter-b'],
       },
       edges: [
         { provider: 'linter-a', consumer: 'reviewer', capability: 'tool/lint@1' },
-      ],
-      alternatives: [
-        {
-          name: 'review',
-          members: ['linter-a', 'linter-b'],
-          picked: 'linter-a',
-          effective: 'linter-a',
-          excluded: [{ resource: 'linter-b', reason: 'not-selected' }],
-        },
+        { provider: 'linter-b', consumer: 'reviewer', capability: 'tool/lint@1' },
       ],
     });
-  });
-
-  it('换 pick：effective 跟着换成另一个成员，原成员进 excluded', () => {
-    const m = manifest();
-    m.pick = { review: 'linter-b' };
-    const { graph } = validateGraph(m);
-    const alternative = describeComposition({ manifest: m, graph }).alternatives[0]!;
-    expect(alternative).toMatchObject({
-      members: ['linter-a', 'linter-b'],
-      picked: 'linter-b',
-      effective: 'linter-b',
-      excluded: [{ resource: 'linter-a', reason: 'not-selected' }],
-    });
-  });
-
-  it('组内唯一成员自动选中：effective 是那个成员，没有落选的人', () => {
-    const m = load(`apiVersion: packhub.dev/v0
-kind: Pack
-metadata: { name: a/b, version: 0.0.1 }
-requires: { packhub: ">=0.0.1 <0.1" }
-alternatives:
-  review: [linter-a]
-resources:
-  - id: linter-a
-    type: mcp
-    transport: stdio
-    source: npm:linter-a@1.0.0
-    provides: [tool/lint@1]
-`);
-    const { graph, issues } = validateGraph(m);
-    expect(issues.filter((i) => i.severity === 'error')).toEqual([]);
-    const alternative = describeComposition({ manifest: m, graph }).alternatives[0]!;
-    expect(alternative).toMatchObject({
-      members: ['linter-a'],
-      effective: 'linter-a',
-      excluded: [],
-    });
-    expect(alternative.picked).toBeUndefined();
+    // 接线只是派生视图：全部资源都在图里，没有东西被排除
+    expect(graph.excluded).toEqual([]);
+    expect([...graph.resources.keys()]).toEqual(['linter-a', 'linter-b', 'reviewer']);
   });
 });

@@ -606,29 +606,3 @@ describe('能力令牌：pattern 单源', () => {
     }
   });
 });
-
-/**
- * 资源 id 的 pattern 也写了好几处：`definitions.resource.id`、`alternatives` 的成员、
- * `pick` 的值。三处必须同一条，否则「组里合法、pick 里非法」这种清单自己
- * 自相矛盾的情况只能到运行时才发现。
- */
-describe('资源 id pattern：单源', () => {
-  const resourceIdPattern = (packhubSchema as unknown as {
-    definitions: { resource: { properties: { id: { pattern: string } } } };
-  }).definitions.resource.properties.id.pattern;
-
-  const alternativeMemberPattern = (packhubSchema as unknown as {
-    properties: {
-      alternatives: { additionalProperties: { items: { pattern: string } } };
-    };
-  }).properties.alternatives.additionalProperties.items.pattern;
-
-  const pickValuePattern = (packhubSchema as unknown as {
-    properties: { pick: { additionalProperties: { pattern: string } } };
-  }).properties.pick.additionalProperties.pattern;
-
-  it('资源 id、alternatives 成员、pick 的值用同一条 pattern', () => {
-    expect(alternativeMemberPattern).toBe(resourceIdPattern);
-    expect(pickValuePattern).toBe(resourceIdPattern);
-  });
-});

@@ -31,7 +31,7 @@ import {
   probeSkill,
   type HarnessTarget,
 } from '@packhub/runtime';
-import { reportIssues, printPlan, loadPackWithPick } from './shared.ts';
+import { reportIssues, printPlan } from './shared.ts';
 
 export const plan = command({
   meta: { name: 'plan', description: '解析 Pack 并打印安装计划（不落盘）' },
@@ -39,13 +39,9 @@ export const plan = command({
     dir: { type: 'positional', required: false, default: '.' },
     json: { type: 'boolean', default: false },
     target: { type: 'string', default: 'dir', description: `${TARGET_IDS.join(' | ')}` },
-    pick: {
-      type: 'string',
-      description: '本次覆盖备选组实现：组=资源[,组=资源]（只影响这次运行，不写回清单）',
-    },
   },
   run({ args }) {
-    const ctx = loadPackWithPick(String(args.dir), args.pick === undefined ? undefined : String(args.pick));
+    const ctx = loadPack(String(args.dir));
     if (reportIssues(ctx.issues)) stop(EXIT.USAGE);
     const { plan: p, issues } = planFor(ctx, { target: String(args.target ?? 'dir') as never });
     if (!p) {

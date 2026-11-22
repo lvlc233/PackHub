@@ -74,38 +74,6 @@ export function addResource(manifestPath: string, input: AddResourceInput): AddR
   return { id, manifest: doc.toJS() as Manifest };
 }
 
-/**
- * 改备选组实现：只动 pick.<组> 一个键，其它内容与注释保持原样。
- * 换实现 = 一行，这是「快速替换」的入口。
- */
-export function setPick(manifestPath: string, alternative: string, resourceId: string): AddResourceResult {
-  const text = readFileSync(manifestPath, 'utf8');
-  const doc = parseDocument(text);
-  if (doc.errors.length > 0) {
-    throw new Error(`${MANIFEST_FILE} 解析失败：${doc.errors[0]?.message ?? '未知错误'}`);
-  }
-  const current = doc.toJS() as Manifest;
-  const groups = current.alternatives ?? {};
-  const members = groups[alternative];
-  if (!members) throw new Error(`没有声明备选组：${alternative}`);
-  if (!current.resources.some((r) => r.id === resourceId)) {
-    throw new Error(`没有这个资源：${resourceId}`);
-  }
-  if (!members.includes(resourceId)) {
-    throw new Error(
-      `资源 ${resourceId} 不在备选组 ${alternative}（成员：${[...new Set(members)].join(', ') || '无'}）`,
-    );
-  }
-
-  if (doc.has('pick')) {
-    doc.setIn(['pick', alternative], resourceId);
-  } else {
-    doc.set('pick', { [alternative]: resourceId });
-  }
-  writeFileSync(manifestPath, doc.toString({ lineWidth: 100 }), 'utf8');
-  return { id: resourceId, manifest: doc.toJS() as Manifest };
-}
-
 /** 追加一条签名（保留注释与格式），同一 key 覆盖旧的。 */
 export function addSignature(
   manifestPath: string,

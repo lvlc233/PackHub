@@ -179,10 +179,6 @@ export interface Manifest {
   context?: string;
   vars?: Record<string, string | number | boolean>;
   resources: ResourceSpec[];
-  /** 备选组：组名 → 资源 id 列表；组内成员互斥，最后只装选中的那个 */
-  alternatives?: Record<string, string[]>;
-  /** 备选组 → 资源 id；成员多于一个时必须写，只有被选中的成员会进计划 */
-  pick?: Record<string, string>;
   /** 持久状态目录；资源里用 ${state.<id>} 引用 */
   state?: StateDirSpec[];
   /** 按资源做二次修改（整文件 / 一段 / 删掉 / 改参数） */
@@ -258,8 +254,8 @@ export interface Plan {
   target: TargetId;
   actions: PlanAction[];
   verify: VerifyCheck[];
-  /** 被备选组排除的成员：说明为什么没装 */
-  excluded: { resource: string; alternative: string; reason: string }[];
+  /** 没进计划的资源：说明为什么没装 */
+  excluded: { resource: string; reason: string }[];
   /** 计划内容的规范化哈希：同输入必须同哈希 */
   planHash: string;
 }

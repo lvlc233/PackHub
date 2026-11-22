@@ -6,7 +6,6 @@ CapabilityForm
 CatalogEntry
 CatalogHit
 Composition
-CompositionAlternative
 CompositionContext
 DIR_TARGET_VARS
 ExecSpec

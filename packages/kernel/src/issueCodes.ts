@@ -7,10 +7,6 @@
  * 新增码：在这里加一条，用 `ISSUE_CODES.<key>` 引用；键名是码值的驼峰写法。
  */
 export const ISSUE_CODES = {
-  alternativeDuplicateMember: 'alternative-duplicate-member',
-  alternativeUnknown: 'alternative-unknown',
-  alternativeUnknownResource: 'alternative-unknown-resource',
-  alternativeUnpicked: 'alternative-unpicked',
   badStatePath: 'bad-state-path',
   catalogDuplicate: 'catalog-duplicate',
   catalogEntry: 'catalog-entry',
@@ -44,10 +40,7 @@ export const ISSUE_CODES = {
   modifySourceMissing: 'modify-source-missing',
   modifyUnknownResource: 'modify-unknown-resource',
   outputConflict: 'output-conflict',
-  pickNotInAlternatives: 'pick-not-in-alternatives',
-  pickUnknownResource: 'pick-unknown-resource',
   pinConflict: 'pin-conflict',
-  resourceInMultipleAlternatives: 'resource-in-multiple-alternatives',
   schema: 'schema',
   sourceNotArchive: 'source-not-archive',
   toolBinaryWithoutPlatforms: 'tool-binary-without-platforms',
