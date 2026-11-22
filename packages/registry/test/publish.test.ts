@@ -88,6 +88,7 @@ describe('publish', () => {
         license: string | null;
         homepage: string | null;
         authors: { name: string }[];
+        install?: string;
       }[];
     };
     expect(index.packs[0]!.name).toBe('demo/published');
@@ -96,6 +97,8 @@ describe('publish', () => {
     expect(index.packs[0]!.license).toBe('MIT');
     expect(index.packs[0]!.homepage).toBe('https://example.com/demo');
     expect(index.packs[0]!.authors[0]!.name).toBe('测试作者');
+    // 安装归 pal：索引里的安装提示必须指向 pal，不能还写着 packhub 的旧命令
+    expect(index.packs[0]!.install).toBe('pal install demo/published');
     rmSync(pack, { recursive: true, force: true });
     rmSync(reg, { recursive: true, force: true });
   });

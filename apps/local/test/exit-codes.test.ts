@@ -117,10 +117,18 @@ const CASES: {
     quietStdout: true,
   },
   {
-    name: '前置条件：diff 没有锁',
-    args: (base) => ['diff', base],
+    name: '前置条件：verify 的目标不是 Pack 目录（没有清单）',
+    args: (base) => ['verify', base],
     code: 2,
-    stderr: /^没有 packhub\.lock\.json：先跑 packhub lock$/m,
+    stderr: /^verify 只验 Pack 目录：.+里没有 packhub\.yaml；已安装项目的检查归 pal$/m,
+    quietStdout: true,
+  },
+  {
+    name: '坏参数：verify 的 --pack 已删（已装包的过滤归 pal）',
+    args: (base) => ['verify', base, '--pack', 'demo/exit@0.0.1'],
+    prepare: (base) => makePack(base),
+    code: 2,
+    stderr: /^x 未知参数 --pack（verify）；用 packhub verify --help 看可用参数$/m,
     quietStdout: true,
   },
   {
@@ -128,13 +136,6 @@ const CASES: {
     args: () => ['search', 'conventions'],
     code: 2,
     stderr: /^没有索引：加 --index/m,
-    quietStdout: true,
-  },
-  {
-    name: '前置条件：install 用 registry 名称但没配索引',
-    args: (base) => ['install', 'lvlc233/team-conventions', '--dir', base],
-    code: 2,
-    stderr: /^用 registry 名称安装需要一个索引/m,
     quietStdout: true,
   },
   {

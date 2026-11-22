@@ -9,9 +9,6 @@ import {
   type Plan,
 } from '@packhub/kernel';
 
-/** 安装后自动复核只跑只读检查；command / mcp-ready 会执行包里的命令，必须显式 --deep-verify。 */
-export const SAFE_CHECKS = ['file-exists', 'config-key', 'knowledge-integrity'] as const;
-
 export function reportIssues(issues: Issue[], ctx = 'packhub'): boolean {
   const errors = issues.filter((i) => i.severity === 'error');
   const warnings = issues.filter((i) => i.severity === 'warning');

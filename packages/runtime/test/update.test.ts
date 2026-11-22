@@ -167,14 +167,12 @@ ${extra}`;
     return root;
   }
 
-  it('锁过期时默认拒绝（文案不变），传 allowStaleLock 才继续', async () => {
+  it('锁过期时默认拒绝，显式 allowStaleLock 才继续（这是 runtime 选项，CLI 不提供这个口子）', async () => {
     const reg = await staleLockRegistry();
     const project = mkdtempSync(join(tmpdir(), 'packhub-upd-stale-proj-'));
     const opts = { name: 'demo/stale', index: join(reg, 'index.json'), projectDir: project };
 
-    await expect(updatePack(opts)).rejects.toThrow(
-      '新版本的锁与清单对不上（清单在锁定后被改过）；确认后用 --allow-stale-lock 继续',
-    );
+    await expect(updatePack(opts)).rejects.toThrow(/锁与清单对不上/);
     // 拒绝发生在安装之前：一个文件都不该写
     expect(existsSync(join(project, '.packhub/state.json'))).toBe(false);
     expect(existsSync(join(project, '.packhub/knowledge/rules.md'))).toBe(false);

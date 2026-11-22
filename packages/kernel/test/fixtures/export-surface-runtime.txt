@@ -22,6 +22,11 @@ HostMcpResult
 HostMcpSpec
 IndexEntry
 InspectionIssue
+InstallFromSourceOptions
+InstallFromSourceResult
+InstallSourceError
+InstallSourceFailure
+InstallSourceFlow
 InstalledVerifyOptions
 InstalledVerifyReport
 KeyPair
@@ -49,6 +54,7 @@ ResolvedSource
 RollbackResult
 Runner
 RunnerResult
+SAFE_CHECK_TYPES
 SIGNATURE_FILE
 STATE_API_VERSION
 SignatureCheck
@@ -95,6 +101,7 @@ inferId
 inspectCache
 inspectLicenses
 inspectPack
+installFromSource
 installPack
 isSafeArchiveEntry
 keyIdFromPem
@@ -143,6 +150,7 @@ setToken
 signContentHash
 signablePayload
 signaturePolicy
+sourceKindOf
 trustPath
 trustedKeyIds
 unpackArchive

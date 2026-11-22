@@ -26,7 +26,7 @@ function short(hash: unknown): string {
  * 也不存在「锁里没有这个宿主的计划快照」这种状态——计划由安装期按宿主现算。
  * 锁没有 contentHash 就是无效锁，按 mismatch 报，提示重跑 lock；不做旧形状特判。
  *
- * 只做判定，放行与否由调用方决定（`--allow-stale-lock` 之类）。
+ * 只做判定，放行与否由调用方决定（install 编排那边默认硬拒，要求重新生成锁）。
  */
 export function checkLockConsistency(
   lock: LockFile | null | undefined,
@@ -53,7 +53,7 @@ export function checkLockConsistency(
       status: 'mismatch',
       expected: stored,
       actual,
-      message: `锁与清单对不上（lock=${short(stored)}… content=${short(actual)}…）；清单在锁定后被改过，确认来源后加 --allow-stale-lock 才装`,
+      message: `锁与清单对不上（lock=${short(stored)}… content=${short(actual)}…）；清单在锁定后被改过，确认来源后重新生成锁（packhub lock）后再装`,
     };
   }
 

@@ -1,17 +1,7 @@
 import pkg from '../../../package.json' with { type: 'json' };
 import type { CommandDef } from 'citty';
 import { EXIT, command, problemRaw, say, stop } from './emit.ts';
-import {
-  plan,
-  verify,
-  lock,
-  init,
-  rollback,
-  uninstall,
-  diff,
-} from './commands/plan-install.ts';
-import { install } from './commands/install.ts';
-import { update } from './commands/update.ts';
+import { plan, verify, lock, init } from './commands/plan-install.ts';
 import { publish, pack } from './commands/pack.ts';
 import {
   trustAdd,
@@ -157,14 +147,10 @@ export function unknownFlag(argv: string[]): string | undefined {
 export const main: CommandDef = command({
   // 版本号只认仓库根 package.json 一份，别在这里手写第二份。
   meta: { name: 'packhub', version: pkg.version, description: 'Agent 能力的整合包工具' },
-  // 命令面按「对象」划分：packhub 只碰 Pack 目录与项目目录，pal 只碰实例。
-  // 安装只发生在目录（install 的 SOURCE 是装什么，--dir 是装到哪），要跑起来用 pal create。
+  // 命令面按「对象」划分：packhub 只做生产（Pack 目录：清单 / 锁 / 打包 / 发布 / 签名），
+  // 安装与运行归 pal（安装进项目、起实例都不在这里）。
   subCommands: {
     plan,
-    install,
-    uninstall,
-    rollback,
-    update,
     verify,
     lock,
     init,
@@ -172,7 +158,6 @@ export const main: CommandDef = command({
     discover,
     cache,
     resource,
-    diff,
     pack,
     publish,
     licenses,

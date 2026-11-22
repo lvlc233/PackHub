@@ -165,7 +165,7 @@ export const discover = command({
       const added = addResource(file, { type: pick.type, source: pick.source });
       say(`✓ 已追加资源 ${added.id}（${pick.type}）→ ${file}`);
       say(`  source: ${pick.source}`);
-      say('下一步：packhub install . --dry-run 看计划');
+      say('下一步：packhub plan 看计划（装到项目里用 pal install）');
       return;
     }
 

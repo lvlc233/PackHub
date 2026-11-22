@@ -1,12 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildLock, loadPack } from '@packhub/kernel';
-import { packArchive } from '@packhub/runtime';
 
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url));
 const BIN = join(ROOT, 'apps/local/src/bin.ts');
@@ -20,6 +18,8 @@ function run(args: string[], env: Record<string, string> = {}): { status: number
   });
   return { status: res.status, out: `${res.stdout ?? ''}${res.stderr ?? ''}` };
 }
+
+const hash = (s: string): string => `sha256-${createHash('sha256').update(s).digest('base64')}`;
 
 describe('cli 端到端：pack / publish', () => {
   const makePack = (dir: string, name = 'me/e2e', version = '0.1.0'): void => {
@@ -76,6 +76,11 @@ verify:
     expect(body.indexed).toBe(true);
     expect(existsSync(join(registry, 'packs/me/e2e/0.1.0/packhub.yaml'))).toBe(true);
     expect(existsSync(join(registry, 'index.json'))).toBe(true);
+    // 索引里的安装提示归 pal（安装不是 packhub 的事）
+    const index = JSON.parse(readFileSync(join(registry, 'index.json'), 'utf8')) as {
+      packs: { install?: string }[];
+    };
+    expect(index.packs[0]!.install).toBe('pal install me/e2e');
 
     rmSync(packDir, { recursive: true, force: true });
     rmSync(registry, { recursive: true, force: true });
@@ -99,131 +104,34 @@ verify:
     rmSync(packDir, { recursive: true, force: true });
     rmSync(registry, { recursive: true, force: true });
   });
-
 });
 
-describe('cli 端到端：install → verify → uninstall', () => {
-  it('没有索引时明确报错；配了 PACKHUB_INDEX 就能装、能验、能卸', () => {
-    const project = mkdtempSync(join(tmpdir(), 'packhub-cli-'));
-    mkdirSync(project, { recursive: true });
-
-    const noIndex = run(['install', 'lvlc233/team-conventions', '--dir', project]);
-    expect(noIndex.status).toBe(2);
-    expect(noIndex.out).toContain('需要一个索引');
-
-    const index = join(ROOT, 'registry/index.json');
-    const added = run(['install', 'lvlc233/team-conventions', '--dir', project], { PACKHUB_INDEX: index });
-    expect(added.status).toBe(0);
-    expect(added.out).toContain('装上');
-    expect(existsSync(join(project, '.packhub/knowledge/style-guide.md'))).toBe(true);
-
-    const jsonProject = mkdtempSync(join(tmpdir(), 'packhub-cli-addjson-'));
-    const addedJson = run(
-      ['install', 'lvlc233/team-conventions', '--dir', jsonProject, '--json'],
-      { PACKHUB_INDEX: index },
-    );
-    expect(addedJson.status).toBe(0);
-    const addedBody = JSON.parse(
-      addedJson.out.slice(addedJson.out.indexOf('{'), addedJson.out.lastIndexOf('}') + 1),
-    ) as { installed: boolean; label: string; verification?: unknown[] };
-    expect(addedBody.installed).toBe(true);
-    expect(addedBody.label).toContain('lvlc233/team-conventions');
-    expect(addedBody.verification?.length).toBe(1);
-    rmSync(jsonProject, { recursive: true, force: true });
-
-    const verified = run(['verify', project]);
-    expect(verified.status).toBe(0);
-    expect(verified.out).toContain('1 个包');
-    expect(verified.out).toContain('0 项失败');
-
-    const verifiedJson = run(['verify', project, '--json']);
-    expect(verifiedJson.status).toBe(0);
-    const parsed = JSON.parse(
-      verifiedJson.out.slice(verifiedJson.out.indexOf('{'), verifiedJson.out.lastIndexOf('}') + 1),
-    ) as { checks: { installed: { pack: string }[] } };
-    expect(parsed.checks.installed[0]?.pack).toContain('lvlc233/team-conventions');
-
-    expect(existsSync(join(project, '.packhub/packs/lvlc233/team-conventions/packhub.yaml'))).toBe(true);
-    const removed = run(['uninstall', project]);
-    expect(removed.status).toBe(0);
-    expect(existsSync(join(project, '.packhub/knowledge/style-guide.md'))).toBe(false);
-    expect(existsSync(join(project, '.packhub/packs/lvlc233/team-conventions'))).toBe(false);
-
-    rmSync(project, { recursive: true, force: true });
+describe('cli 命令面：只做生产，安装归 pal', () => {
+  it('--help 列 18 个命令，且没有 install / uninstall / update / rollback / diff', () => {
+    const help = run(['--help']);
+    expect(help.status).toBe(0);
+    const usage = /USAGE ([^\r\n]+)/.exec(help.out)?.[1] ?? '';
+    expect(usage.startsWith('packhub ')).toBe(true);
+    const names = usage.replace(/^packhub\s+/, '').split('|');
+    expect(names).toHaveLength(18);
+    expect(new Set(names).size).toBe(18);
+    expect(names).toContain('verify');
+    expect(names).toContain('completion');
+    for (const removed of ['install', 'uninstall', 'update', 'rollback', 'diff']) {
+      expect(names, `packhub 不该再有 ${removed}`).not.toContain(removed);
+    }
   });
 
-  it('配置了信任列表后无签名包默认被拒，--allow-unsigned 才能装', () => {
-    const home = mkdtempSync(join(tmpdir(), 'packhub-cli-trust-'));
-    writeFileSync(
-      join(home, 'trust.json'),
-      JSON.stringify({ apiVersion: 'packhub.dev/trust/v0', keys: [{ key: 'abc', addedAt: new Date().toISOString() }] }),
-      'utf8',
-    );
-    const project = mkdtempSync(join(tmpdir(), 'packhub-cli-trust-proj-'));
-    const denied = run(['install', 'lvlc233/team-conventions', '--dir', project], {
-      PACKHUB_INDEX: join(ROOT, 'registry/index.json'),
-      PACKHUB_HOME: home,
-    });
-    expect(denied.status).toBe(2);
-    expect(denied.out).toMatch(/信任列表|签名/);
-
-    const allowed = run(['install', 'lvlc233/team-conventions', '--dir', project, '--allow-unsigned'], {
-      PACKHUB_INDEX: join(ROOT, 'registry/index.json'),
-      PACKHUB_HOME: home,
-    });
-    expect(allowed.status).toBe(0);
-    expect(existsSync(join(project, '.packhub/knowledge/style-guide.md'))).toBe(true);
-    rmSync(home, { recursive: true, force: true });
-    rmSync(project, { recursive: true, force: true });
+  it('已删的安装类命令按未知命令拒绝', () => {
+    for (const removed of ['install', 'uninstall', 'update', 'rollback', 'diff']) {
+      const res = run([removed, '.']);
+      expect(res.status, `${removed} 应该被 CITTY 当未知命令`).toBe(1);
+      expect(res.out).toContain(`Unknown command ${removed}`);
+    }
   });
+});
 
-  it('trust require on/off 切强制签名，不用手改 trust.json', () => {
-    const home = mkdtempSync(join(tmpdir(), 'packhub-cli-trustreq-'));
-    const project = mkdtempSync(join(tmpdir(), 'packhub-cli-trustreq-proj-'));
-    const env = { PACKHUB_INDEX: join(ROOT, 'registry/index.json'), PACKHUB_HOME: home };
-
-    const on = run(['trust', 'require', 'on'], env);
-    expect(on.status).toBe(0);
-    expect(JSON.parse(readFileSync(join(home, 'trust.json'), 'utf8')).requireSignature).toBe(true);
-
-    const denied = run(['install', 'lvlc233/team-conventions', '--dir', project], env);
-    expect(denied.status).toBe(2);
-    expect(denied.out).toMatch(/签名/);
-
-    const off = run(['trust', 'require', 'off'], env);
-    expect(off.status).toBe(0);
-    expect(JSON.parse(readFileSync(join(home, 'trust.json'), 'utf8')).requireSignature).toBe(false);
-
-    const allowed = run(['install', 'lvlc233/team-conventions', '--dir', project], env);
-    expect(allowed.status).toBe(0);
-    expect(existsSync(join(project, '.packhub/knowledge/style-guide.md'))).toBe(true);
-
-    const bad = run(['trust', 'require', 'maybe'], env);
-    expect(bad.status).toBe(2);
-    expect(bad.out).toContain('只认 on 或 off');
-
-    rmSync(home, { recursive: true, force: true });
-    rmSync(project, { recursive: true, force: true });
-  });
-
-  it('search 能读索引并按关键词过滤', () => {
-    const index = join(ROOT, 'registry/index.json');
-    const res = run(['search', 'conventions', '--index', index]);
-    expect(res.status).toBe(0);
-    expect(res.out).toContain('lvlc233/team-conventions');
-  });
-
-  it('install --dry-run 不往项目里写任何东西', () => {
-    const project = mkdtempSync(join(tmpdir(), 'packhub-cli-dry-'));
-    const res = run(['install', 'lvlc233/team-conventions', '--dir', project, '--dry-run'], {
-      PACKHUB_INDEX: join(ROOT, 'registry/index.json'),
-    });
-    expect(res.status).toBe(0);
-    expect(res.out).toContain('planHash');
-    expect(existsSync(join(project, '.packhub'))).toBe(false);
-    rmSync(project, { recursive: true, force: true });
-  });
-
+describe('cli 端到端：plan', () => {
   it('落点只由命令行选：清单不声明安装形态', () => {
     const pack = mkdtempSync(join(tmpdir(), 'packhub-cli-harness-'));
     writeFileSync(
@@ -316,18 +224,59 @@ resources:
     rmSync(base, { recursive: true, force: true });
   });
 
-  it('退出码：缺清单/坏参数是 2，校验失败是 1，提示可执行', () => {
-    const missing = run(['plan', join(tmpdir(), 'packhub-no-such-pack')]);
-    expect(missing.status).toBe(2);
-    expect(missing.out).toContain('manifest-missing');
-    expect(missing.out).toContain('packhub init');
-
-    const pack = mkdtempSync(join(tmpdir(), 'packhub-cli-exit-'));
+  it('两个提供者同一令牌：都进计划，没有谁被裁掉', () => {
+    const base = mkdtempSync(join(tmpdir(), 'packhub-cli-multi-plan-'));
+    const pack = join(base, 'pack');
+    mkdirSync(pack, { recursive: true });
     writeFileSync(
       join(pack, 'packhub.yaml'),
       `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/exit, version: 0.0.1 }
+metadata: { name: demo/multi-provider, version: 0.0.1 }
+requires: { packhub: ">=0.0.1 <0.1" }
+resources:
+  - id: rules-a
+    type: knowledge
+    source: ./a.md
+    provides: [content/rules@1]
+  - id: rules-b
+    type: knowledge
+    source: ./b.md
+    provides: [content/rules@1]
+  - id: consumer
+    type: knowledge
+    source: ./c.md
+    needs: [content/rules@1]
+`,
+      'utf8',
+    );
+    writeFileSync(join(pack, 'a.md'), '# a\n', 'utf8');
+    writeFileSync(join(pack, 'b.md'), '# b\n', 'utf8');
+    writeFileSync(join(pack, 'c.md'), '# c\n', 'utf8');
+
+    const planned = run(['plan', pack]);
+    expect(planned.status).toBe(0);
+    expect(planned.out).toContain('content/rules@1 → rules-a, rules-b');
+    expect(planned.out).toContain('rules-a → consumer（content/rules@1）');
+    expect(planned.out).toContain('rules-b → consumer（content/rules@1）');
+    expect(planned.out).toContain('.packhub/knowledge/a.md');
+    expect(planned.out).toContain('.packhub/knowledge/b.md');
+    expect(planned.out).toContain('.packhub/knowledge/c.md');
+    expect(planned.out).not.toContain('未装（计划期排除）');
+
+    rmSync(base, { recursive: true, force: true });
+  });
+});
+
+describe('cli 端到端：verify 只验 Pack 目录', () => {
+  /** 一个 Pack 目录：verify 检查 rules.md 就在目录里（不涉及安装产物）。 */
+  function pack(verifyPath = 'rules.md'): string {
+    const dir = mkdtempSync(join(tmpdir(), 'packhub-cli-verify-'));
+    writeFileSync(
+      join(dir, 'packhub.yaml'),
+      `apiVersion: packhub.dev/v0
+kind: Pack
+metadata: { name: demo/verify, version: 0.0.1 }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: rules
@@ -335,17 +284,131 @@ resources:
     source: ./rules.md
 verify:
   - type: file-exists
-    path: "\${target.knowledgeDir}/rules.md"
+    path: ${verifyPath}
 `,
       'utf8',
     );
-    writeFileSync(join(pack, 'rules.md'), '# rules\n', 'utf8');
-    const failed = run(['verify', pack]);
-    expect(failed.status).toBe(1);
-    expect(failed.out).toContain('fail');
-    rmSync(pack, { recursive: true, force: true });
+    writeFileSync(join(dir, 'rules.md'), '# rules\n', 'utf8');
+    return dir;
+  }
+
+  it('--json 只有 checks 一段：mode / planHash / results，没有漂移或已装包', () => {
+    const dir = pack();
+    const res = run(['verify', dir, '--json']);
+    expect(res.status).toBe(0);
+    const body = JSON.parse(res.out.slice(res.out.indexOf('{'), res.out.lastIndexOf('}') + 1)) as {
+      checks: { mode: string; planHash: string; results: { status: string }[]; failed: number };
+    };
+    expect(Object.keys(body).sort()).toEqual(['checks']);
+    expect(body.checks.mode).toBe('pack');
+    expect(body.checks.planHash).toMatch(/^sha256-/);
+    expect(body.checks.failed).toBe(0);
+    expect(body.checks.results.map((r) => r.status)).toEqual(['pass']);
+
+    const text = run(['verify', dir]);
+    expect(text.status).toBe(0);
+    expect(text.out).toContain('检查：清单 verify 项 + 从计划派生的项');
+    expect(text.out).toContain('1 项：1 通过 / 0 失败 / 0 跳过');
+    // 漂移是已安装项目的事，Pack 目录模式不该出现
+    expect(text.out).not.toContain('漂移');
+    rmSync(dir, { recursive: true, force: true });
   });
 
+  it('检查不过退出 1，逐项列出 fail', () => {
+    const dir = pack('nope.md');
+    const res = run(['verify', dir]);
+    expect(res.status).toBe(1);
+    expect(res.out).toContain('fail');
+    expect(res.out).toContain('1 项：0 通过 / 1 失败 / 0 跳过');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('对已安装项目（只有 state 没有清单）：退出 2，指向 pal', () => {
+    const project = mkdtempSync(join(tmpdir(), 'packhub-cli-verifyproj-'));
+    mkdirSync(join(project, '.packhub'), { recursive: true });
+    writeFileSync(
+      join(project, '.packhub/state.json'),
+      JSON.stringify({ apiVersion: 'packhub.dev/state/v0', packs: {} }, null, 2),
+      'utf8',
+    );
+    const res = run(['verify', project]);
+    expect(res.status).toBe(2);
+    expect(res.out).toContain('verify 只验 Pack 目录');
+    expect(res.out).toContain('已安装项目的检查归 pal');
+    rmSync(project, { recursive: true, force: true });
+  });
+
+  it('--pack 不再是 verify 的参数（已装包的过滤归 pal）', () => {
+    const dir = pack();
+    const res = run(['verify', dir, '--pack', 'demo/verify@0.0.1']);
+    expect(res.status).toBe(2);
+    expect(res.out).toContain('未知参数 --pack');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('integrity 派生项：产物在位 pass，被改过 fail', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'packhub-cli-derived-'));
+    const content = '# rules\n';
+    // 作者只声明 integrity，不写任何 verify 项：检查由计划里的 write.integrity 派生
+    writeFileSync(
+      join(dir, 'packhub.yaml'),
+      `apiVersion: packhub.dev/v0
+kind: Pack
+metadata: { name: demo/derived, version: 0.0.1 }
+requires: { packhub: ">=0.0.1 <0.1" }
+resources:
+  - id: rules
+    type: knowledge
+    source: ./rules.md
+    integrity: ${hash(content)}
+`,
+      'utf8',
+    );
+    writeFileSync(join(dir, 'rules.md'), content, 'utf8');
+    mkdirSync(join(dir, '.packhub/knowledge'), { recursive: true });
+    writeFileSync(join(dir, '.packhub/knowledge/rules.md'), content, 'utf8');
+
+    const ok = run(['verify', dir]);
+    expect(ok.status).toBe(0);
+    expect(ok.out).toContain('knowledge-integrity');
+    expect(ok.out).toContain('1 项：1 通过 / 0 失败 / 0 跳过');
+
+    writeFileSync(join(dir, '.packhub/knowledge/rules.md'), '# tampered\n', 'utf8');
+    const bad = run(['verify', dir]);
+    expect(bad.status).toBe(1);
+    expect(bad.out).toContain('knowledge-integrity');
+    expect(bad.out).toContain('1 项：0 通过 / 1 失败 / 0 跳过');
+
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe('cli 端到端：search / trust / init / discover', () => {
+  it('search 能读索引并按关键词过滤', () => {
+    const index = join(ROOT, 'registry/index.json');
+    const res = run(['search', 'conventions', '--index', index]);
+    expect(res.status).toBe(0);
+    expect(res.out).toContain('lvlc233/team-conventions');
+  });
+
+  it('trust require on/off 切强制签名，不用手改 trust.json', () => {
+    const home = mkdtempSync(join(tmpdir(), 'packhub-cli-trustreq-'));
+    const env = { PACKHUB_HOME: home };
+
+    const on = run(['trust', 'require', 'on'], env);
+    expect(on.status).toBe(0);
+    expect(JSON.parse(readFileSync(join(home, 'trust.json'), 'utf8')).requireSignature).toBe(true);
+
+    const off = run(['trust', 'require', 'off'], env);
+    expect(off.status).toBe(0);
+    expect(JSON.parse(readFileSync(join(home, 'trust.json'), 'utf8')).requireSignature).toBe(false);
+
+    const bad = run(['trust', 'require', 'maybe'], env);
+    expect(bad.status).toBe(2);
+    expect(bad.out).toContain('只认 on 或 off');
+
+    rmSync(home, { recursive: true, force: true });
+  });
 
   it('未知参数退出 2；init 的私有包发布前被拦且不留半套', () => {
     const badFlag = run(['plan', '.', '--nonsense']);
@@ -353,7 +416,7 @@ verify:
     expect(badFlag.out).toContain('未知参数');
 
     // 位置参数不接受 --dir：以前会被静默忽略，命令跑在 cwd 上
-    const positionalAsFlag = run(['uninstall', '--dir', '.']);
+    const positionalAsFlag = run(['verify', '--dir', '.']);
     expect(positionalAsFlag.status).toBe(2);
     expect(positionalAsFlag.out).toContain('未知参数 --dir');
 
@@ -385,9 +448,12 @@ verify:
     const planned = run(['plan', pack]);
     expect(planned.status).toBe(0);
     expect(planned.out).toContain('demo/first-mile@0.0.1');
+    // init 产出的清单自己也要能被 verify 当成 Pack 目录检查
+    expect(run(['verify', pack]).status).toBe(0);
 
     rmSync(base, { recursive: true, force: true });
   });
+
   it('discover 能按关键词列候选并写进清单', () => {
     const base = mkdtempSync(join(tmpdir(), 'packhub-cli-discover-'));
     const pack = join(base, 'pack');
@@ -449,306 +515,11 @@ resources:
     rmSync(base, { recursive: true, force: true });
   });
 
-  it('清单在锁定后被改过的 .phub 会被拒绝安装', async () => {
-    const src = mkdtempSync(join(tmpdir(), 'packhub-cli-lock-'));
-    writeFileSync(join(src, 'rules.md'), '# one\n', 'utf8');
-    writeFileSync(
-      join(src, 'packhub.yaml'),
-      `apiVersion: packhub.dev/v0
-kind: Pack
-metadata: { name: demo/locked, version: 0.0.1 }
-requires: { packhub: ">=0.0.1 <0.1" }
-resources:
-  - id: rules
-    type: knowledge
-    source: ./rules.md
-`,
-      'utf8',
-    );
-    const ctx = loadPack(src);
-    writeFileSync(
-      join(src, 'packhub.lock.json'),
-      JSON.stringify(buildLock(ctx.manifest!), null, 2),
-      'utf8',
-    );
-    // 锁生成后再往清单里加一个资源：锁与计划就对不上了
-    writeFileSync(join(src, 'more.md'), '# more\n', 'utf8');
-    writeFileSync(
-      join(src, 'packhub.yaml'),
-      `apiVersion: packhub.dev/v0
-kind: Pack
-metadata: { name: demo/locked, version: 0.0.1 }
-requires: { packhub: ">=0.0.1 <0.1" }
-resources:
-  - id: rules
-    type: knowledge
-    source: ./rules.md
-  - id: more
-    type: knowledge
-    source: ./more.md
-`,
-      'utf8',
-    );
-    const archive = join(src, 'pack.phub');
-    await packArchive(src, { vendored: true, out: archive });
-
-    const project = mkdtempSync(join(tmpdir(), 'packhub-cli-lock-proj-'));
-    const res = run(['install', archive, '--dir', project]);
-    expect(res.status).toBe(2);
-    expect(res.out).toContain('lock-mismatch');
-    expect(existsSync(join(project, '.packhub/knowledge/rules.md'))).toBe(false);
-
-    rmSync(src, { recursive: true, force: true });
-    rmSync(project, { recursive: true, force: true });
-  });
-});
-
-describe('cli 端到端：install', () => {
-  it('--dry-run 一个文件都不写，真装才落盘', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'packhub-cli-dry-'));
-    writeFileSync(
-      join(dir, 'packhub.yaml'),
-      `apiVersion: packhub.dev/v0
-kind: Pack
-metadata: { name: demo/dry, version: 0.0.1 }
-requires: { packhub: ">=0.0.1 <0.1" }
-resources:
-  - id: rules
-    type: knowledge
-    source: ./rules.md
-verify:
-  - type: file-exists
-    path: "\${target.knowledgeDir}/rules.md"
-`,
-      'utf8',
-    );
-    writeFileSync(join(dir, 'rules.md'), '# rules\n', 'utf8');
-
-    const dry = run(['install', dir, '--dir', dir, '--dry-run']);
-    expect(dry.status).toBe(0);
-    expect(dry.out).toContain('done');
-    // 计划里写的东西一个都不该出现：没有 .packhub，包目录也没多出文件
-    expect(existsSync(join(dir, '.packhub'))).toBe(false);
-    expect(readdirSync(dir).sort()).toEqual(['packhub.yaml', 'rules.md']);
-
-    const real = run(['install', dir, '--dir', dir]);
-    expect(real.status).toBe(0);
-    expect(readFileSync(join(dir, '.packhub/knowledge/rules.md'), 'utf8')).toBe('# rules\n');
-
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  it('项目 .packhub/local.yaml 里有已删的 pick：装得成，但打出 local-unknown-key 警告', () => {
-    const pack = mkdtempSync(join(tmpdir(), 'packhub-cli-localunk-pack-'));
-    const project = mkdtempSync(join(tmpdir(), 'packhub-cli-localunk-proj-'));
-    writeFileSync(
-      join(pack, 'packhub.yaml'),
-      `apiVersion: packhub.dev/v0
-kind: Pack
-metadata: { name: demo/local-unknown, version: 0.0.1 }
-requires: { packhub: ">=0.0.1 <0.1" }
-resources:
-  - id: rules
-    type: knowledge
-    source: ./rules.md
-`,
-      'utf8',
-    );
-    writeFileSync(join(pack, 'rules.md'), '# rules\n', 'utf8');
-    mkdirSync(join(project, '.packhub'), { recursive: true });
-    writeFileSync(join(project, '.packhub/local.yaml'), 'pick:\n  lint: rules\n', 'utf8');
-
-    const installed = run(['install', pack, '--dir', project]);
-    expect(installed.status).toBe(0);
-    expect(installed.out).toContain('local-unknown-key');
-    expect(installed.out).toContain('未识别的键：pick');
-    // 警告不挡安装
-    expect(existsSync(join(project, '.packhub/knowledge/rules.md'))).toBe(true);
-
-    rmSync(pack, { recursive: true, force: true });
-    rmSync(project, { recursive: true, force: true });
-  });
-});
-
-describe('cli 端到端：多提供者（能力叠加）', () => {
-  /** 两个提供者给同一令牌：两个都装，consumer 的 needs 由任一满足。 */
-  const makeMultiProviderPack = (dir: string): void => {
-    writeFileSync(
-      join(dir, 'packhub.yaml'),
-      `apiVersion: packhub.dev/v0
-kind: Pack
-metadata: { name: demo/multi-provider, version: 0.0.1 }
-requires: { packhub: ">=0.0.1 <0.1" }
-resources:
-  - id: rules-a
-    type: knowledge
-    source: ./a.md
-    provides: [content/rules@1]
-  - id: rules-b
-    type: knowledge
-    source: ./b.md
-    provides: [content/rules@1]
-  - id: consumer
-    type: knowledge
-    source: ./c.md
-    needs: [content/rules@1]
-`,
-      'utf8',
-    );
-    writeFileSync(join(dir, 'a.md'), '# a\n', 'utf8');
-    writeFileSync(join(dir, 'b.md'), '# b\n', 'utf8');
-    writeFileSync(join(dir, 'c.md'), '# c\n', 'utf8');
-  };
-
-  it('plan：两个提供者都进计划，接线里全部列出，两条边都在', () => {
-    const base = mkdtempSync(join(tmpdir(), 'packhub-cli-multi-plan-'));
-    const pack = join(base, 'pack');
-    mkdirSync(pack, { recursive: true });
-    makeMultiProviderPack(pack);
-
-    const planned = run(['plan', pack]);
-    expect(planned.status).toBe(0);
-    expect(planned.out).toContain('content/rules@1 → rules-a, rules-b');
-    expect(planned.out).toContain('rules-a → consumer（content/rules@1）');
-    expect(planned.out).toContain('rules-b → consumer（content/rules@1）');
-    // 两个提供者的文件都出现在动作列表里，没有谁被裁掉
-    expect(planned.out).toContain('.packhub/knowledge/a.md');
-    expect(planned.out).toContain('.packhub/knowledge/b.md');
-    expect(planned.out).toContain('.packhub/knowledge/c.md');
-    expect(planned.out).not.toContain('未装（计划期排除）');
-
-    rmSync(base, { recursive: true, force: true });
-  });
-
-  it('install：同一令牌的两个提供者都落盘', () => {
-    const base = mkdtempSync(join(tmpdir(), 'packhub-cli-multi-install-'));
-    const pack = join(base, 'pack');
-    const project = join(base, 'project');
-    mkdirSync(pack, { recursive: true });
-    mkdirSync(project, { recursive: true });
-    makeMultiProviderPack(pack);
-
-    const installed = run(['install', pack, '--dir', project]);
-    expect(installed.status).toBe(0);
-    expect(readFileSync(join(project, '.packhub/knowledge/a.md'), 'utf8')).toBe('# a\n');
-    expect(readFileSync(join(project, '.packhub/knowledge/b.md'), 'utf8')).toBe('# b\n');
-    expect(readFileSync(join(project, '.packhub/knowledge/c.md'), 'utf8')).toBe('# c\n');
-
-    rmSync(base, { recursive: true, force: true });
-  });
-});
-
-describe('cli 端到端：verify 的两种模式', () => {
-  const parseJson = (out: string): Record<string, unknown> =>
-    JSON.parse(out.slice(out.indexOf('{'), out.lastIndexOf('}') + 1)) as Record<string, unknown>;
-
-  it('--json 给两段：漂移 drift + 检查 checks（项目模式 installed/，Pack 模式 planHash）', () => {
-    // 项目模式：install 装进来的包没有 packhub.yaml，结果按包分组
-    const project = mkdtempSync(join(tmpdir(), 'packhub-cli-verifyproj-'));
-    const env = { PACKHUB_INDEX: join(ROOT, 'registry/index.json') };
-    expect(run(['install', 'lvlc233/team-conventions', '--dir', project], env).status).toBe(0);
-    const installed = run(['verify', project, '--json']);
-    expect(installed.status).toBe(0);
-    const installedBody = parseJson(installed.out);
-    expect(Object.keys(installedBody).sort()).toEqual(['checks', 'drift']);
-    expect((installedBody.drift as { ok: boolean }).ok).toBe(true);
-    const installedChecks = installedBody.checks as Record<string, unknown>;
-    expect(installedChecks.mode).toBe('installed');
-    expect(installedChecks.failed).toBe(0);
-    expect(installedChecks.skipped).toBe(0);
-    expect(Array.isArray(installedChecks.installed)).toBe(true);
-
-    // Pack 模式：原地装一遍再验，planHash 是计划的那一份
-    const packDir = mkdtempSync(join(tmpdir(), 'packhub-cli-verifypack-'));
-    writeFileSync(
-      join(packDir, 'packhub.yaml'),
-      `apiVersion: packhub.dev/v0
-kind: Pack
-metadata: { name: demo/verify, version: 0.0.1 }
-requires: { packhub: ">=0.0.1 <0.1" }
-resources:
-  - id: rules
-    type: knowledge
-    source: ./rules.md
-verify:
-  - type: file-exists
-    path: "\${target.knowledgeDir}/rules.md"
-`,
-      'utf8',
-    );
-    writeFileSync(join(packDir, 'rules.md'), '# rules\n', 'utf8');
-    expect(run(['install', packDir, '--dir', packDir]).status).toBe(0);
-    const packed = run(['verify', packDir, '--json']);
-    expect(packed.status).toBe(0);
-    const packedBody = parseJson(packed.out);
-    expect(Object.keys(packedBody).sort()).toEqual(['checks', 'drift']);
-    const packedChecks = packedBody.checks as Record<string, unknown>;
-    expect(packedChecks.mode).toBe('pack');
-    expect(typeof packedChecks.planHash).toBe('string');
-    expect(packedChecks.failed).toBe(0);
-    expect(packedChecks.skipped).toBe(0);
-
-    rmSync(project, { recursive: true, force: true });
-    rmSync(packDir, { recursive: true, force: true });
-  });
-
-  it('项目模式下已装文件被删：漂移判失败退出 1，检查段没有作者项就是 0 项', () => {
-    const project = mkdtempSync(join(tmpdir(), 'packhub-cli-verifyfail-'));
-    const env = { PACKHUB_INDEX: join(ROOT, 'registry/index.json') };
-    expect(run(['install', 'lvlc233/team-conventions', '--dir', project], env).status).toBe(0);
-    rmSync(join(project, '.packhub/knowledge/style-guide.md'), { force: true });
-
-    const res = run(['verify', project]);
-    expect(res.status).toBe(1);
-    // 这个包没有 verify 项、资源也没声明 integrity：检查段是 0 项；删掉的文件由漂移段点出来
-    expect(res.out).toContain('文件不见了：.packhub/knowledge/style-guide.md');
-    expect(res.out).toContain('1 个包：0 项失败 / 0 项跳过');
-
-    rmSync(project, { recursive: true, force: true });
-  });
-
-  it('verify 自动带上 integrity 派生项：装好 pass，改过落盘文件之后 fail 且退出 1', () => {
-    const dir = mkdtempSync(join(tmpdir(), 'packhub-cli-derived-'));
-    const content = '# rules\n';
-    const integrity = `sha256-${createHash('sha256').update(content).digest('base64')}`;
-    // 作者只声明 integrity，不写任何 verify 项：检查由计划里的 write.integrity 派生
-    writeFileSync(
-      join(dir, 'packhub.yaml'),
-      `apiVersion: packhub.dev/v0
-kind: Pack
-metadata: { name: demo/derived, version: 0.0.1 }
-requires: { packhub: ">=0.0.1 <0.1" }
-resources:
-  - id: rules
-    type: knowledge
-    source: ./rules.md
-    integrity: ${integrity}
-`,
-      'utf8',
-    );
-    writeFileSync(join(dir, 'rules.md'), content, 'utf8');
-    expect(run(['install', dir, '--dir', dir]).status).toBe(0);
-
-    const ok = run(['verify', dir]);
-    expect(ok.status).toBe(0);
-    expect(ok.out).toContain('knowledge-integrity');
-    expect(ok.out).toContain('1 项：1 通过 / 0 失败 / 0 跳过');
-
-    writeFileSync(join(dir, '.packhub/knowledge/rules.md'), '# tampered\n', 'utf8');
-    const bad = run(['verify', dir]);
-    expect(bad.status).toBe(1);
-    expect(bad.out).toContain('knowledge-integrity');
-    expect(bad.out).toContain('1 项：0 通过 / 1 失败 / 0 跳过');
-
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  it('既没清单也没已装包：退出 2，报 manifest-missing', () => {
-    const empty = mkdtempSync(join(tmpdir(), 'packhub-cli-verifyempty-'));
-    const res = run(['verify', empty]);
-    expect(res.status).toBe(2);
-    expect(res.out).toContain('manifest-missing');
-    rmSync(empty, { recursive: true, force: true });
+  it('缺清单/坏参数是 2：plan 报 manifest-missing 并提示可执行', () => {
+    const missing = run(['plan', join(tmpdir(), 'packhub-no-such-pack')]);
+    expect(missing.status).toBe(2);
+    expect(missing.out).toContain('manifest-missing');
+    expect(missing.out).toContain('packhub init');
   });
 });
 

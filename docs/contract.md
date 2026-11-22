@@ -67,7 +67,7 @@ resources:
 
 ## 2 Plan（`packhub.dev/plan/v0`）
 
-内核算出的动作清单。负责确保包资源安装的正确性。
+内核算出的动作清单。负责确保包资源安装的正确性。计划是安装期现算的：`pal install` / `pal update`、launcher 建/更新实例与 publish 门禁里的 runner 各算一份；`packhub plan` / `packhub verify` 只在 Pack 目录里预览，不写用户目录。
 
 ```jsonc
 {
@@ -142,7 +142,7 @@ resources:
 
 不变量：
 
-1. 锁只描述「引用了什么、内容是否完整」：`resolved` + `contentHash`，没有 `plan` / `plans` / `planHash`。装到哪个宿主、计划长什么样，由用到它的调用点（`plan` / `install` / `diff` / `update` / `verify` / launcher）在那一刻用 `planFor(ctx, { harness })` 现算。
+1. 锁只描述「引用了什么、内容是否完整」：`resolved` + `contentHash`，没有 `plan` / `plans` / `planHash`。装到哪个宿主、计划长什么样，由用到它的调用点（`packhub plan` / `packhub verify`、`pal install` / `pal update`、launcher）在那一刻用 `planFor(ctx, { harness })` 现算。
 2. `contentHash` = 清单 + `resolved` 的规范化 sha256；口径只写在 kernel 的 `contentHashOf(manifest, resolved)` 上，写端（`buildLock`）与所有校验端（`checkLockConsistency`、`contentHashFor`、registry 门禁）都调它，不各算一份：
    - 清单先去掉 `signatures`：签名不是内容，而且签名载荷就是这个哈希，含进来会自指；
    - 清单里的资源来源先按 `resolved` 归一（有 pin 过的 source / integrity 就用它），于是「作者清单 + 锁」和「pin 过的清单 + 锁」算出同一个哈希；
@@ -214,7 +214,7 @@ registry 的索引，`search` / `install` / `update` 只读它。
       "signers": [],
       "keywords": ["conventions"],
       "resourceCount": 3,
-      "install": "packhub install lvlc233/team-conventions",
+      "install": "pal install lvlc233/team-conventions",
       "license": "CC-BY-4.0",
       "homepage": "https://example.com/team-conventions",
       "authors": [{ "name": "…", "url": "https://example.com" }]
@@ -260,11 +260,11 @@ registry 的索引，`search` / `install` / `update` 只读它。
 
 检查从哪来：
 
-- **漂移段**：`verify` 在项目根按 state 里的安装记录查磁盘现状——写过的文件/链接在不在、指令托管块、配置里的 `mcpServers` 条目、宿主侧 MCP 登记、`state` 目录、激活指针。不读清单，也不需要作者声明。
-- **自动派生**：检查段从计划自动生成——带 `integrity` 的 `write` 动作生成一条 `knowledge-integrity`；`verify --probe-mcp` 时每个 `register.mcp` 生成一条 `mcp-ready`。派生项排在作者 `verify` 项之后；`knowledge-integrity` 与作者写了同一 `resource` + `integrity` 的项不重复，`mcp-ready` 按 resource 去重。
+- **漂移段（`pal verify`）**：在已装目录里按 state 里的安装记录查磁盘现状——写过的文件/链接在不在、指令托管块、配置里的 `mcpServers` 条目、宿主侧 MCP 登记、`state` 目录、激活指针。不读清单，也不需要作者声明。
+- **自动派生**：检查段从计划自动生成——带 `integrity` 的 `write` 动作生成一条 `knowledge-integrity`；`packhub verify --probe-mcp` 时每个 `register.mcp` 生成一条 `mcp-ready`。派生项排在作者 `verify` 项之后；`knowledge-integrity` 与作者写了同一 `resource` + `integrity` 的项不重复，`mcp-ready` 按 resource 去重。
 - **作者声明**：清单 `verify` 数组只写计划推不出来的检查——`command`（脚本 self-test）与 `scenario`（宿主语义，要真跑一次）。`file-exists` / `config-key` 仍支持，但它们的覆盖与漂移段重叠，属于重复兜底，不再推荐手写；`knowledge-integrity` / `mcp-ready` 字段仍在 schema 里，通常也不用写（期望哈希来自资源声明的 `integrity`，MCP 规格来自计划）。
-- `install` 装后自动复核包含派生项（只读）；`publish` 门禁在干净目录里跑清单检查 + 派生段（不受装后只读子集的限制）。
-- `--probe-mcp` 只影响这一次 `verify`：对计划里每个 MCP server 真发一次 `initialize`（stdio 起进程 / http 发请求），默认关闭——起进程或联网有副作用与耗时。
+- `pal install` 装后自动复核包含派生项（只读）；`publish` 门禁在干净目录里跑清单检查 + 派生段（不受装后只读子集的限制）。
+- `--probe-mcp` 只影响这一次 `packhub verify`：对计划里每个 MCP server 真发一次 `initialize`（stdio 起进程 / http 发请求），默认关闭——起进程或联网有副作用与耗时。
 
 ## 6 签名旁挂（`packhub.dev/signatures/v0`）
 

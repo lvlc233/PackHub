@@ -27,6 +27,16 @@ export {
   type ActionStatus,
 } from './install.ts';
 export {
+  installFromSource,
+  InstallSourceError,
+  SAFE_CHECK_TYPES,
+  sourceKindOf,
+  type InstallFromSourceOptions,
+  type InstallFromSourceResult,
+  type InstallSourceFailure,
+  type InstallSourceFlow,
+} from './install-source.ts';
+export {
   download,
   resolveDownloadUrl,
   resolvePypiSdist,

@@ -154,7 +154,7 @@ verify:
     rmSync(project, { recursive: true, force: true });
   });
 
-  it('项目模式把 --pack 的过滤原样交给 verifyInstalled', async () => {
+  it('项目模式把 pack 过滤原样交给 verifyInstalled（runtime 选项，不是 CLI 参数）', async () => {
     const src = pack();
     const project = tmp('packhub-vat-filter-');
     const ctx = loadPack(src);

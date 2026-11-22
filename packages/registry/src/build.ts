@@ -381,7 +381,7 @@ export function buildIndex(registryRoot: string): BuildResult {
         signers: lead.signers,
         keywords: meta.keywords ?? [],
         resourceCount: (lead.manifest as { resources: unknown[] }).resources.length,
-        install: `packhub install ${packName}`,
+        install: `pal install ${packName}`,
         license: meta.license ?? null,
         homepage: meta.homepage ?? null,
         authors: meta.authors ?? [],

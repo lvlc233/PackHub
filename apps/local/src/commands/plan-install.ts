@@ -1,6 +1,7 @@
-// 由 cli.ts 拆分：plan / verify / lock / init / rollback / uninstall / diff。
-// install 在 install.ts：它要处理多种来源（目录 / .phub / registry / git+https），
-// 比这几条「就地看一个目录」的命令重。
+// 由 cli.ts 拆分：plan / verify / lock / init。
+//
+// 装到项目里归 pal：packhub 只做「生产」（清单、锁、打包、发布、签名）。
+// 所以 verify 在这里只验 Pack 目录（清单 + 计划派生检查），不碰已安装项目的 state 与漂移。
 import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { EXIT, command, json, problemRaw, say, sayUnless, stop, warn } from '../emit.ts';
@@ -8,28 +9,14 @@ import {
   loadPack,
   planFor,
   describeComposition,
-  diffActions,
-  describeAction,
-  checkLockConsistency,
   HARNESS_IDS,
   LOCK_FILE,
   MANIFEST_FILE,
   PACK_NAME_PATTERN,
   STATE_DIR,
 } from '@packhub/kernel';
-import {
-  doctorPack,
-  removePack,
-  rollbackPack,
-  verifyAt,
-  loadLock,
-  withLockPins,
-  loadState,
-  lockPack,
-  probeHarness,
-  probeSkill,
-} from '@packhub/runtime';
-import { describeHarness, parseHarness, reportIssues, printPlan } from './shared.ts';
+import { verifyAt, lockPack, probeHarness, probeSkill } from '@packhub/runtime';
+import { parseHarness, reportIssues, printPlan } from './shared.ts';
 
 export const plan = command({
   meta: { name: 'plan', description: '解析 Pack 并打印安装计划（不落盘）' },
@@ -61,15 +48,14 @@ export const verify = command({
   meta: {
     name: 'verify',
     description:
-      '体检一个目录：已装文件有没有被外部改写（漂移）+ 清单检查与计划派生检查；--probe 再跑一次真机，--probe-mcp 逐个握手 MCP',
+      '体检一个 Pack 目录：清单检查 + 从计划派生的检查（知识文件哈希等）；--probe 再跑一次真机，--probe-mcp 逐个握手 MCP；不碰已安装项目',
   },
   args: {
-    dir: { type: 'positional', required: false, default: '.', description: '要体检的目录（项目根或 Pack 目录）' },
+    dir: { type: 'positional', required: false, default: '.', description: '要体检的 Pack 目录（含清单）' },
     harness: {
       type: 'string',
       description: `安装参数：按哪个宿主的落点表算检查计划（${HARNESS_IDS.join(' / ')}）；不写 = 平铺目录，--probe 时探针默认 dsh`,
     },
-    pack: { type: 'string', description: '检查段只验某个已装的包（name@version）' },
     probe: {
       type: 'boolean',
       default: false,
@@ -85,36 +71,22 @@ export const verify = command({
       type: 'string',
       description: '改问技能选择器：断言这个 skill 名出现在可用列表里（配合 --probe）',
     },
-    json: { type: 'boolean', default: false, description: '输出结构化结果（漂移与检查两段都在）' },
+    json: { type: 'boolean', default: false, description: '输出结构化结果（检查 + 探针两段）' },
   },
   async run({ args }) {
     const dir = resolve(String(args.dir));
+    // 只验 Pack 目录：没有清单就直说是别的东西，别去猜「是不是装过包的项目」
+    if (!existsSync(join(dir, MANIFEST_FILE))) {
+      problemRaw(
+        `verify 只验 Pack 目录：${dir} 里没有 ${MANIFEST_FILE}；已安装项目的检查归 pal`,
+      );
+      stop(EXIT.USAGE);
+    }
     const harness = parseHarness(args.harness === undefined ? undefined : String(args.harness));
     const sayLine = sayUnless(Boolean(args.json));
 
-    // —— 段一：漂移。state 里记下的已装产物 vs 磁盘现状（原 doctor 的目录模式）——
-    const drift = doctorPack(dir);
-    sayLine('漂移：已装记录 vs 磁盘');
-    if (drift.packs.length === 0) {
-      sayLine('  这个目录没有装任何包');
-    } else if (drift.ok) {
-      sayLine(`  ✓ ${drift.packs.length} 个包全部在位`);
-    } else {
-      for (const f of drift.findings) {
-        sayLine(`  x ${f.pack}`);
-        for (const b of f.blocksMissing) sayLine(`      托管块不见了：${b}（可能被宿主工具重新生成覆盖）`);
-        for (const m of f.filesMissing) sayLine(`      文件不见了：${m}`);
-        for (const c of f.configDrift) sayLine(`      配置被改：${c}`);
-        for (const a of f.activeDrift) sayLine(`      激活指针不一致：${a}`);
-        for (const s of f.stateMissing) sayLine(`      状态目录不见了：${s}`);
-        for (const m of f.mcpMissing) sayLine(`      MCP 不见了：${m}`);
-      }
-      sayLine('  重新 install 可以补回缺失的块；宿主会自动重写的指令文件，把 PackHub 的块当成「会被覆盖」的内容对待。');
-    }
-
-    // —— 段二：检查。走项目模式还是 Pack 模式、失败怎么计数，都在 runtime 的 verifyAt 里判 ——
+    // 检查 = 清单 verify 项 + 从计划派生的项（知识文件哈希等）；MCP 握手要显式 --probe-mcp
     const res = await verifyAt(dir, {
-      ...(args.pack ? { pack: String(args.pack) } : {}),
       ...(harness ? { harness } : {}),
       ...(args['probe-mcp'] ? { probeMcp: true } : {}),
     });
@@ -123,16 +95,6 @@ export const verify = command({
     sayLine('检查：清单 verify 项 + 从计划派生的项');
     if (!res.ready) {
       sayLine('  跳过（清单或计划有问题，见上面的错误）');
-    } else if (res.mode === 'installed') {
-      for (const report of res.installed) {
-        sayLine(`  ${report.pack}`);
-        sayLine(`    planHash ${report.planHash}`);
-        for (const r of report.results) {
-          const mark = r.status === 'pass' ? '✓' : r.status === 'fail' ? 'x' : '-';
-          sayLine(`    ${mark} [${r.index}] ${r.type.padEnd(18)} ${r.status.padEnd(8)} ${r.detail}`);
-        }
-      }
-      sayLine(`  ${res.installed.length} 个包：${res.failed} 项失败 / ${res.skipped} 项跳过`);
     } else {
       for (const r of res.results) {
         const mark = r.status === 'pass' ? '✓' : r.status === 'fail' ? 'x' : '-';
@@ -143,7 +105,7 @@ export const verify = command({
       );
     }
 
-    // —— 段三：真机探针。声明式检查证明不了「宿主真读过」，只有跑一次才知道 ——
+    // —— 探针：声明式检查证明不了「宿主真读过」，只有跑一次才知道 ——
     let probe: Awaited<ReturnType<typeof probeHarness>> | undefined;
     if (args.probe) {
       // 不写 --harness 时探针默认 dsh：平铺目录没有宿主指令面，探针只在宿主上才有意义
@@ -166,12 +128,10 @@ export const verify = command({
 
     if (args.json) {
       json({
-        drift,
         checks: res.ready
           ? {
               mode: res.mode,
               planHash: res.planHash,
-              installed: res.installed,
               results: res.results,
               failed: res.failed,
               skipped: res.skipped,
@@ -181,9 +141,9 @@ export const verify = command({
       });
     }
 
-    // 清单坏了 / 算不出计划是前置条件错（2）；漂移、检查、探针没过都是运行失败（1）
+    // 清单坏了 / 算不出计划是前置条件错（2）；检查、探针没过是运行失败（1）
     if (!res.ready) stop(EXIT.USAGE);
-    if (!drift.ok || res.failed > 0 || (probe && !probe.ok)) stop(EXIT.RUNTIME);
+    if (res.failed > 0 || (probe && !probe.ok)) stop(EXIT.RUNTIME);
   },
 });
 
@@ -268,113 +228,5 @@ resources:
     );
     say('要发布到公共 registry 时，把 metadata.visibility 改成 public（或 unlisted 直链分发）');
     say('verify 不是必填：只写程序自己查不了的事——宿主真读到（scenario）、命令真跑通（command）；MCP 握手用 verify --probe-mcp 自动做');
-  },
-});
-
-export const rollback = command({
-  meta: { name: 'rollback', description: '退回上一次安装之前的状态' },
-  args: {
-    dir: { type: 'positional', required: false, default: '.' },
-    generation: { type: 'string', description: '指定 generation（默认最近一次）' },
-    json: { type: 'boolean', default: false },
-  },
-  run({ args }) {
-    const dir = resolve(String(args.dir));
-    const res = rollbackPack(dir, args.generation ? String(args.generation) : undefined);
-    if (args.json) {
-      json(res);
-      return;
-    }
-    say(`回退 ${res.generation}`);
-    for (const r of res.restored) say(`  ↩ ${r}`);
-    for (const r of res.removed) say(`  × ${r}`);
-    say(`\n恢复 ${res.restored.length} 个文件，删除 ${res.removed.length} 个新建文件`);
-  },
-});
-
-export const uninstall = command({
-  meta: { name: 'uninstall', description: '按 state 反向删除已装的文件' },
-  args: {
-    dir: { type: 'positional', required: false, default: '.' },
-    pack: { type: 'string', description: '只卸载这个包（name@version）' },
-    json: { type: 'boolean', default: false },
-  },
-  run({ args }) {
-    const dir = resolve(String(args.dir));
-    const key = args.pack ? String(args.pack) : undefined;
-    const res = removePack(dir, key);
-    if (args.json) {
-      json(res);
-      return;
-    }
-    if (res.removed.length === 0 && res.kept.length === 0) {
-      say('没有可卸载的记录（state 里没有这个包）');
-      return;
-    }
-    for (const r of res.removed) say(`  - ${r}`);
-    for (const r of res.kept) say(`  = 保留 ${r}（还有别的包在用）`);
-    say(`\n移除 ${res.removed.length} 个路径，涉及 ${res.packs.length} 个包`);
-  },
-});
-
-export const diff = command({
-  meta: { name: 'diff', description: '对比已安装的计划快照与当前清单现算的计划' },
-  args: {
-    dir: { type: 'positional', required: false, default: '.' },
-    check: { type: 'boolean', default: false, description: '有差异就以非零码退出（CI 用）' },
-    harness: { type: 'string', description: '默认沿用安装时记录的宿主（平铺目录则沿用平铺）' },
-  },
-  async run({ args }) {
-    const dir = resolve(String(args.dir));
-    const read = loadLock(dir);
-    if (!read.lock) {
-      if (read.problem) {
-        reportIssues([read.problem]);
-      } else {
-        problemRaw(`没有 ${LOCK_FILE}：先跑 packhub lock`);
-      }
-      stop(EXIT.USAGE);
-    }
-    const lock = read.lock;
-    const ctx = withLockPins(loadPack(dir), lock);
-    if (reportIssues(ctx.issues)) stop(EXIT.USAGE);
-    // 旧计划快照只在 state 里（锁只描述内容，不存任何宿主的计划）。
-    // 没有安装记录就直说没装——作者还没安装时想看计划应该用 packhub plan。
-    const pack = ctx.manifest.metadata.name;
-    const state = loadState(dir);
-    const key = Object.keys(state.packs).find((k) => (k.split('@')[0] ?? '') === pack);
-    const snapshot = key ? state.packs[key]?.plan : undefined;
-    if (!snapshot) {
-      problemRaw(`这个包还没装：state 里没有 ${pack} 的安装计划快照；先 packhub install 装上再 diff`);
-      stop(EXIT.USAGE);
-    }
-    // 按安装时的宿主现算计划；显式 --harness 可以看别的宿主会多/少什么。
-    // 更早的快照里字段叫 target（含 dir）：v0 无兼容承诺，读端不认它，一律当平铺目录。
-    const harness = parseHarness(args.harness === undefined ? undefined : String(args.harness)) ?? snapshot.harness;
-    const { plan, issues } = planFor(ctx, harness ? { harness } : {});
-    if (!plan) {
-      reportIssues(issues, 'packhub diff');
-      stop(EXIT.USAGE);
-    }
-    // 「锁 ↔ 清单」是否一致仍走 kernel 的单点判定；它回答的是内容有没有被改过
-    const lockCheck = checkLockConsistency(lock, ctx.manifest);
-    const { added, removed } = diffActions(snapshot.actions, plan.actions);
-    const actionsSame = added.length === 0 && removed.length === 0;
-    if (actionsSame && snapshot.planHash === plan.planHash && lockCheck.status === 'ok') {
-      say('计划无变化');
-      return;
-    }
-
-    say(
-      `planHash ${snapshot.planHash.slice(0, 22)}… → ${plan.planHash.slice(0, 22)}…（已装 ${describeHarness(snapshot.harness)} / 现算 ${describeHarness(plan.harness)}）`,
-    );
-    for (const a of removed) say(`  - ${describeAction(a)}`);
-    for (const a of added) say(`  + ${describeAction(a)}`);
-    if (actionsSame && snapshot.planHash !== plan.planHash) {
-      say('动作没变，但计划里的 verify / excluded 变了（planHash 随之变）');
-    }
-    if (lockCheck.status !== 'ok') warn(lockCheck.message);
-    say(`\n${added.length} 条新增 / ${removed.length} 条移除；锁过期就重跑 packhub lock，内容变了要重新安装`);
-    if (args.check) stop(EXIT.RUNTIME);
   },
 });

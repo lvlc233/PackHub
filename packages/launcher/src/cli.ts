@@ -22,6 +22,13 @@ import {
   type InstanceRecord,
 } from './index.ts';
 import { createFromRef, importFromFile, updateFromRef } from './service.ts';
+import {
+  installDir,
+  rollbackDir,
+  uninstallDir,
+  updateStateDirIfTarget,
+  verifyDir,
+} from './dirCommands.ts';
 import { cacheStats, cleanCache, formatBytes, planClean, scanCache } from './cache.ts';
 import { DEFAULT_SCAN_DEPTH, scanDirectory, type ScanEntry } from './scan.ts';
 import { backupInstance, restoreBackup } from './backup.ts';
@@ -975,19 +982,35 @@ const migrate = defineCommand({
 });
 
 const update = defineCommand({
-  meta: { name: 'update', description: '把实例里的 Pack 换成另一个版本（要求实例已停）' },
+  meta: {
+    name: 'update',
+    description:
+      '把 Pack 换成另一个版本：TARGET 是实例名/id 时更新实例（要求已停）；是含 .packhub/state.json 的目录时按目录更新。已存在的目录也可用 pal install / uninstall / verify / rollback；新建实例用 pal create。',
+  },
   args: {
-    target: { type: 'positional', required: true, description: '实例 id 或名字' },
+    target: {
+      type: 'positional',
+      required: true,
+      description: '实例 id/名字，或一个已装过包的目录（含 .packhub/state.json）',
+    },
     version: { type: 'string', description: 'registry 版本；不写用 latest' },
-    index: { type: 'string', description: 'registry 索引' },
+    index: { type: 'string', description: 'registry 索引（目录模式用；不写用默认索引）' },
     force: {
       type: 'boolean',
       default: false,
-      description: '覆盖本地改过的文件；不带时若 Pack 写过的文件被本地改过就拒绝更新',
+      description: '实例模式：覆盖本地改过的文件；不带时若 Pack 写过的文件被本地改过就拒绝更新',
     },
     json: { type: 'boolean', default: false },
   },
   async run({ args }) {
+    // TARGET 是一个装过包的目录 → 按目录更新（读 state 里的包与上次 harness）
+    const handled = await updateStateDirIfTarget(String(args.target), {
+      ...(args.index ? { index: String(args.index) } : {}),
+      ...(args.version ? { version: String(args.version) } : {}),
+      json: Boolean(args.json),
+    });
+    if (handled) return;
+
     const rec = requireInstance(requireTarget(args.target));
     const ref = rec.pack.ref ?? rec.pack.name;
     const log = (line: string): void => {
@@ -1177,9 +1200,18 @@ function listDir(dir: string): string[] {
 
 export const main = defineCommand({
   // 版本号只认 package.json 一份，别在这里手写第二份。
-  meta: { name: 'pal', version: pkg.version, description: '实例内核：建、起、停、看护、迁移' },
+  meta: {
+    name: 'pal',
+    version: pkg.version,
+    description:
+      '实例内核：建、起、停、看护、迁移；已存在的目录用 pal install / uninstall / verify / rollback / update，新建实例用 pal create',
+  },
   subCommands: {
     create,
+    install: installDir,
+    uninstall: uninstallDir,
+    verify: verifyDir,
+    rollback: rollbackDir,
     config,
     list,
     show,
