@@ -24,7 +24,7 @@ review: 格式升版、字段增删、apiVersion 变化时
 |---|---|---|
 | manifest | `packhub.dev/v0` | `packhub.yaml` |
 | plan | `packhub.dev/plan/v0` | 用到时现算（`--json` 输出；不进锁） |
-| lock | `packhub.dev/lock/v0` | `packhub.lock.json`（形状见 §2：`resolved` + `contentHash`） |
+| lock | `packhub.dev/lock/v0` | `packhub.lock.json`（形状见 §3：`resolved` + `contentHash`） |
 | state | `packhub.dev/state/v0` | `.packhub/state.json` |
 | index | `packhub.dev/index/v0` | `registry/index.json` |
 | verify 报告 | `packhub.dev/verify/v0` | `verify.json` |
@@ -46,7 +46,38 @@ review: 格式升版、字段增删、apiVersion 变化时
 | 持久信任公钥 | `packhub.dev/trust/v0` | `packages/runtime/src/trust.ts` |
 
 
-## 1 Plan（`packhub.dev/plan/v0`）
+## 1 Manifest（`packhub.dev/v0`）
+
+清单 `packhub.yaml` 的完整形状由 schema 给出（`schema/packhub.v0.schema.json`）；这里只记角色与选用这一组字段：
+
+```yaml
+roles:
+  lint:
+    needs: [tool/lint@1]   # 占位实现必须提供的能力令牌
+    default: markdownlint  # 可省略：候选恰好一个时自动选它
+    note: 可选说明
+pick:
+  lint: eslint-lint        # 覆盖 default；值必须是本清单里占用该角色的资源 id
+resources:
+  - id: markdownlint
+    type: tool2
+    role: lint             # 资源占用哪个角色
+    provides: [tool/lint@1]
+  - id: eslint-lint        # 同一角色的另一个候选，被 pick 选中
+    type: tool2
+    role: lint
+    provides: [tool/lint@1]
+```
+
+不变量：
+
+1. `roles` 的键是角色名（`[a-z][a-z0-9-]*`），`needs` 与资源的 `provides` / `needs` 用同一套能力令牌写法；`default` 与 `pick` 的值都是本清单里的资源 id。
+2. 选择次序：`pick` → `roles.<角色>.default` → 唯一候选。`pick` 覆盖 `default`；只有一个候选时不用写 `default`；候选多于一个且 `pick` / `default` 都没写，报 `role-unfilled`；角色下没有候选就是没人占它，不报错。
+3. `pick` 与 `default` 指向的实现必须存在、确实占用该角色、提供角色的全部 `needs`；`default` 即使被 `pick` 覆盖也照样校验，唯一候选自动选中时也照样校验——清单里的死配置不能靠这一次恰好写了 `pick` 藏住。
+4. 角色之外，使用者还有两处覆盖，都不写进清单：`--pick <角色>=<资源>` 只作用于这一次 `plan` / `install`；`.packhub/local.yaml` 的 `pick` 只作用于这个项目，它不改清单文件，也不进锁与签名。
+5. 错误码：`unknown-role`（资源的 `role` 指向未声明的角色）、`pick-unknown-role`（`pick` 的键不是已声明的角色）、`pick-unknown-resource`（`pick` / `default` 指向不存在的资源）、`pick-wrong-role`（`pick` / `default` 指向的资源不占该角色）、`role-needs-unmet`（选中的实现缺角色的 `needs`）、`role-unfilled`（角色有候选但定不下装哪个）。
+
+## 2 Plan（`packhub.dev/plan/v0`）
 
 内核算出的动作清单。负责确保包资源安装的正确性。
 
@@ -59,13 +90,17 @@ review: 格式升版、字段增删、apiVersion 变化时
     { "actionId": "write#1", "op": "write", "to": ".packhub/knowledge/style-guide.md", "from": "./resources/style-guide.md", "resource": "style-guide" }
   ],
   "verify": [{ "type": "file-exists", "path": ".packhub/knowledge/style-guide.md" }],
-  "excluded": [{ "resource": "tts-a", "slot": "voice", "reason": "unbound-slot" }],
+  "excluded": [{ "resource": "tts-a", "role": "voice", "reason": "not-selected" }],
   "planHash": "sha256-…"
 }
 ```
 
 1. `planHash` = 计划自身的哈希，用于确保版本一致性。
-2. `plan --json` 在计划对象外带一份 `wiring`：`describeComposition` 从清单派生的接线（能力令牌 → provider、`needs` 边、槽位解析）。它是 CLI 输出，不进 `planHash`、不进锁，也不进 state 里的计划快照。
+2. `plan --json` 在计划对象外带一份 `wiring`：`describeComposition` 从清单派生的接线（能力令牌 → provider、`needs` 边、角色解析）。它是 CLI 输出，不进 `planHash`、不进锁，也不进 state 里的计划快照。
+
+   接线里 `roles` 每项是 `{ name, needs, default?, picked?, effective?, candidates, excluded }`：`needs` 是占位实现必须提供的能力，`picked` 是这次生效的 `pick` 值，`effective` 是这次实际装的实现（也可能是唯一候选自动选出的），`excluded` 是该角色下没选中的候选与原因（`not-selected`）。
+
+动作原语：`fetch`、`unpack`、`copy`、`write`、`delete`、`link.skill`、`link.exec`、`register.mcp`、`exec`、`instruction`、`state.dir`。
 
 每个 op 的路径、来源基准、撤销方式、撤销载荷、共享判定与派生输出都在 `packages/kernel/src/plan-ops.ts` 的 `PLAN_OPS` 表里（单点；执行器与清理侧都从它派生）：
 
@@ -98,11 +133,11 @@ review: 格式升版、字段增删、apiVersion 变化时
 - `state.dir` 只建目录；清单里的 `state` 块决定路径与 `retain`，目录不参与 `written`、不随快照回滚删除。
 - `exec` 带 `command/args/cwd/env/timeout` 与 `approval: required`：计划里永远标待批准，执行层必须显式 `--allow-exec` 才跑。退出码非零算失败，触发整次安装回滚。`undo` 目前只作记录，不自动执行。
 
-`excluded` 记录没进计划的候选，`reason` 三种：`unbound-slot`（槽位没选中它：没写 `bindings` 也没有 `default`，或被别的实现覆盖）、`optional-unmet`（可选资源缺依赖，级联跳过）、`host-managed`（调用方按资源类型跳过，不进安装计划）。它们不进动作列表，但必须在计划里可见，否则「为什么没装」无从查起。
+`excluded` 记录没进计划的候选，`reason` 三种：`not-selected`（角色没选中它：另有实现被 `pick` / `default` / 唯一候选选中）、`optional-unmet`（可选资源缺依赖，级联跳过）、`host-managed`（调用方按资源类型跳过，不进安装计划）。它们不进动作列表，但必须在计划里可见，否则「为什么没装」无从查起。
 
-能力令牌统一写成 `<form>/<name>@<major>`：`form` 是闭集 `tool` / `skill` / `content` / `config`，表示能力的消费形态、不是资源类型；`name` 匹配 `[a-z][a-z0-9-]*`，只描述能做什么；`major` 是从 1 起的正整数，主版本不同就视为不兼容的两种能力（目前只有精确匹配，没有范围）。`provides` / `needs` 与槽位的 `contract` 共用这套写法，schema 用同一个正则 `^(tool|skill|content|config)/[a-z][a-z0-9-]*@[1-9][0-9]*$`。
+能力令牌统一写成 `<form>/<name>@<major>`：`form` 是闭集 `tool` / `skill` / `content` / `config`，表示能力的消费形态、不是资源类型；`name` 匹配 `[a-z][a-z0-9-]*`，只描述能做什么；`major` 是从 1 起的正整数，主版本不同就视为不兼容的两种能力（目前只有精确匹配，没有范围）。资源的 `provides` / `needs` 与角色的 `needs` 共用这套写法，schema 用同一个正则 `^(tool|skill|content|config)/[a-z][a-z0-9-]*@[1-9][0-9]*$`。
 
-## 2 Lock（`packhub.dev/lock/v0`）
+## 3 Lock（`packhub.dev/lock/v0`）
 
 把一个 Pack 的引用钉死并记下内容哈希，供复现与审查。锁只描述内容，不含任何 target 的计划。
 
@@ -132,7 +167,7 @@ review: 格式升版、字段增删、apiVersion 变化时
 5. `integrity` 来自清单、npm 的 `dist.integrity`、https 下载后的 sha256 或 PyPI 的 sha256；解析不出来就是 `null`，读方不得把 `null` 当「已验证」。
 6. 安装时按 `resolved[]` 替换清单里的引用（`withLockPins`），保证「锁里写什么就装什么」。
 
-## 3 State（`.packhub/state.json`）
+## 4 State（`.packhub/state.json`）
 
 安装结果，落在被安装的目录里，是「装了什么」的唯一真相。
 
@@ -172,7 +207,7 @@ review: 格式升版、字段增删、apiVersion 变化时
 
 装好与否的判定、并发、回退、所有权与卸载顺序是行为，写在 `packages/runtime/src/install.ts`（`applyPlan` / `acquireLock` / `removePack` / `rollbackPack`）。
 
-## 4 Index（`packhub.dev/index/v0`）
+## 5 Index（`packhub.dev/index/v0`）
 
 registry 的索引，`search` / `install` / `update` 只读它。
 
@@ -216,7 +251,7 @@ registry 的索引，`search` / `install` / `update` 只读它。
 
 索引门禁怎么算、`verified` 凭什么给，见 `packages/registry/src/build.ts`。
 
-## 4.5 Verify 报告（`packhub.dev/verify/v0`）
+## 5.5 Verify 报告（`packhub.dev/verify/v0`）
 
 ```jsonc
 {
@@ -236,7 +271,7 @@ registry 的索引，`search` / `install` / `update` 只读它。
 - 报告与 `contentHash` 绑定：它证明的是「这份内容（清单 + 解析后的引用）」跑得通；内容变了报告不作数（索引会降为 `community`）。`planHash` 记的是 runner 实际跑的那份 dir 计划的哈希，是安装期派生值，不是锁的内容。
 - 检查类型与判定细节见 `packages/runtime/src/verify.ts` 与 `packages/runner/src/run.ts`。
 
-## 5 签名旁挂（`packhub.dev/signatures/v0`）
+## 6 签名旁挂（`packhub.dev/signatures/v0`）
 
 ```jsonc
 {
@@ -245,12 +280,12 @@ registry 的索引，`search` / `install` / `update` 只读它。
 }
 ```
 
-- 签的是 `{pack, contentHash}`：`pack` 是 `name@version`，`contentHash` 是清单 + 解析后引用的规范化哈希（口径见 §2 / kernel `lock.ts` 的 `contentHashOf`）。清单里任何影响内容的改动都会让签名失效，改注释不影响；安装 target 不在载荷里——同一份内容装到哪个宿主都是这个签名。
+- 签的是 `{pack, contentHash}`：`pack` 是 `name@version`，`contentHash` 是清单 + 解析后引用的规范化哈希（口径见 §3 / kernel `lock.ts` 的 `contentHashOf`）。清单里任何影响内容的改动都会让签名失效，改注释不影响；安装 target 不在载荷里——同一份内容装到哪个宿主都是这个签名。
 - 放独立文件而不是写进 `packhub.yaml`：版本目录的清单哈希不能因为「补一个签名」而变化。
 - `.phub` 归档会带上这个文件；`verify.json` 里记录每个签名的校验结果。
 - **verified 不证明是谁发的**，签名才回答来源。
 
-## 6 归档（`.phub`）
+## 7 归档（`.phub`）
 
 `.phub` 是包离开作者目录后的样子：一个 tar.gz，解开就是 Pack 根目录。默认 `vendored`，自包含——清单、锁、签名（有的话）加上包目录下所有顶层条目都装进去，`.packhub`、`node_modules`、`.git`、`dist` 和旧归档不装，装的时候不用再取包内容。
 
@@ -262,7 +297,7 @@ registry 的索引，`search` / `install` / `update` 只读它。
 
 解包是最后一道：`..`、绝对路径（含 Windows 盘符）、符号链接、硬链接一律拒绝。
 
-## 7 版本策略
+## 8 版本策略
 
 - `plan` / `lock` / `state` / `index` 各自独立升版本；读方遇到不认识的 `apiVersion` 主版本必须拒绝，不得猜测。`index` 的版本号由 kernel 的 `INDEX_API_VERSION` 单点给出：`readIndex` 比它，遇到不认识的值拒绝。
 - **格式 v0 期间没有任何兼容承诺**：字段可以增、可以改语义、可以删。读方按当前形状严格校验——缺字段、多出字段、缺 `apiVersion`、主版本不认识的文件一律判无效（锁判 `mismatch`、报告判 error、registry 门禁报 error），不做旧形状特判、不写迁移。

@@ -124,21 +124,21 @@ describe('describeComposition', () => {
 kind: Pack
 metadata: { name: a/b, version: 0.0.1 }
 requires: { packhub: ">=0.0.1 <0.1" }
-slots:
+roles:
   review:
-    contract: [tool/lint@1]
+    needs: [tool/lint@1]
     default: linter-a
 resources:
   - id: linter-a
     type: mcp
     transport: stdio
-    slot: review
+    role: review
     source: npm:linter-a@1.0.0
     provides: [tool/lint@1]
   - id: linter-b
     type: mcp
     transport: stdio
-    slot: review
+    role: review
     source: npm:linter-b@1.0.0
     provides: [tool/lint@1]
   - id: reviewer
@@ -148,10 +148,10 @@ resources:
     provides: [skill/review@1]
 `);
 
-  it('能力按令牌排序、边按 needs、槽位给出 default 与落选原因', () => {
+  it('能力按令牌排序、边按 needs、角色给出 default 与落选原因', () => {
     const m = manifest();
     const { graph } = validateGraph(m);
-    // 落选的槽位候选不进图（这次不装，也就不供能力），但会出现在 slots[].excluded 里
+    // 落选的角色候选不进图（这次不装，也就不供能力），但会出现在 roles[].excluded 里
     expect(describeComposition({ manifest: m, graph })).toEqual({
       capabilities: {
         'skill/review@1': ['reviewer'],
@@ -160,29 +160,57 @@ resources:
       edges: [
         { provider: 'linter-a', consumer: 'reviewer', capability: 'tool/lint@1' },
       ],
-      slots: [
+      roles: [
         {
           name: 'review',
-          contract: ['tool/lint@1'],
+          needs: ['tool/lint@1'],
           default: 'linter-a',
           effective: 'linter-a',
           candidates: ['linter-a', 'linter-b'],
-          excluded: [{ resource: 'linter-b', reason: 'unbound-slot' }],
+          excluded: [{ resource: 'linter-b', reason: 'not-selected' }],
         },
       ],
     });
   });
 
-  it('bindings 覆盖 default：effective 是 bound，default 原样露出来给读者看', () => {
+  it('pick 覆盖 default：effective 是 picked，default 原样露出来给读者看', () => {
     const m = manifest();
-    m.bindings = { review: 'linter-b' };
+    m.pick = { review: 'linter-b' };
     const { graph } = validateGraph(m);
-    const slot = describeComposition({ manifest: m, graph }).slots[0]!;
-    expect(slot).toMatchObject({
+    const role = describeComposition({ manifest: m, graph }).roles[0]!;
+    expect(role).toMatchObject({
       default: 'linter-a',
-      bound: 'linter-b',
+      picked: 'linter-b',
       effective: 'linter-b',
-      excluded: [{ resource: 'linter-a', reason: 'unbound-slot' }],
+      excluded: [{ resource: 'linter-a', reason: 'not-selected' }],
     });
+  });
+
+  it('唯一候选自动选中：effective 是那个候选本身，没有落选的人', () => {
+    const m = load(`apiVersion: packhub.dev/v0
+kind: Pack
+metadata: { name: a/b, version: 0.0.1 }
+requires: { packhub: ">=0.0.1 <0.1" }
+roles:
+  review: { needs: [tool/lint@1] }
+resources:
+  - id: linter-a
+    type: mcp
+    transport: stdio
+    role: review
+    source: npm:linter-a@1.0.0
+    provides: [tool/lint@1]
+`);
+    const { graph, issues } = validateGraph(m);
+    expect(issues.filter((i) => i.severity === 'error')).toEqual([]);
+    const role = describeComposition({ manifest: m, graph }).roles[0]!;
+    expect(role).toMatchObject({
+      needs: ['tool/lint@1'],
+      effective: 'linter-a',
+      candidates: ['linter-a'],
+      excluded: [],
+    });
+    expect(role.default).toBeUndefined();
+    expect(role.picked).toBeUndefined();
   });
 });

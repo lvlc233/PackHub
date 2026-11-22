@@ -7,7 +7,7 @@ CatalogEntry
 CatalogHit
 Composition
 CompositionContext
-CompositionSlot
+CompositionRole
 DIR_TARGET_VARS
 ExecSpec
 Graph
@@ -57,10 +57,10 @@ ResourceCatalog
 ResourceKind
 ResourceSpec
 ResourceType
+RoleSpec
 STATE_DIR
 STATE_FILE
 Severity
-SlotSpec
 SourceKind
 StateDirSpec
 TARGET_IDS

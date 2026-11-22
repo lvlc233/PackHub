@@ -79,8 +79,8 @@ export interface ResourceSpec {
   commands?: ToolCommand[];
   /** 工具：资源级环境变量；命令级同名覆盖 */
   env?: Record<string, string>;
-  /** 占用哪个可替换位（slot）；未绑定的候选不进计划 */
-  slot?: string;
+  /** 占哪个角色；未被选中的候选不进计划 */
+  role?: string;
   /** 这个资源提供的能力令牌（`<form>/<name>@<major>`） */
   provides?: string[];
   /** 这个资源需要的能力令牌；安装顺序由它派生 */
@@ -155,10 +155,10 @@ export type VerifyCheck =
       timeout?: number;
     };
 
-export interface SlotSpec {
+export interface RoleSpec {
   /** 占位实现必须提供的能力令牌 */
-  contract?: string[];
-  /** 不写 bindings 时用这个实现（资源 id）；写了 bindings 就以 bindings 为准 */
+  needs?: string[];
+  /** 不写 pick 时用这个实现（资源 id）；写了 pick 就以 pick 为准 */
   default?: string;
   note?: string;
 }
@@ -189,10 +189,10 @@ export interface Manifest {
   context?: string;
   vars?: Record<string, string | number | boolean>;
   resources: ResourceSpec[];
-  /** 可替换位：槽位名 → 契约 */
-  slots?: Record<string, SlotSpec>;
-  /** 槽位 → 资源 id；只有被绑定的实现会进计划 */
-  bindings?: Record<string, string>;
+  /** 可替换位：角色名 → 需要的能力 */
+  roles?: Record<string, RoleSpec>;
+  /** 角色 → 资源 id；只有被选中的实现会进计划 */
+  pick?: Record<string, string>;
   /** 持久状态目录；资源里用 ${state.<id>} 引用 */
   state?: StateDirSpec[];
   /** 按资源做二次修改（整文件 / 一段 / 删掉 / 改参数） */
@@ -268,8 +268,8 @@ export interface Plan {
   target: TargetId;
   actions: PlanAction[];
   verify: VerifyCheck[];
-  /** 被槽位绑定排除的候选：说明为什么没装 */
-  excluded: { resource: string; slot: string; reason: string }[];
+  /** 被角色选用排除的候选：说明为什么没装 */
+  excluded: { resource: string; role: string; reason: string }[];
   /** 计划内容的规范化哈希：同输入必须同哈希 */
   planHash: string;
 }

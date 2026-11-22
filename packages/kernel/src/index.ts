@@ -37,7 +37,7 @@ export {
   describeComposition,
   type Composition,
   type CompositionContext,
-  type CompositionSlot,
+  type CompositionRole,
 } from './composition.ts';
 export {
   RESOURCE_KINDS,
@@ -133,7 +133,7 @@ export function loadPack(dir: string): PackContext {
 
 export interface LocalOverrides {
   modify?: Manifest['modify'];
-  bindings?: Record<string, string>;
+  pick?: Record<string, string>;
   vars?: Record<string, string | number | boolean>;
 }
 
@@ -174,7 +174,7 @@ export function mergeLocalOverrides(
     manifest: {
       ...manifest,
       modify: [...(manifest.modify ?? []), ...modify],
-      bindings: { ...(manifest.bindings ?? {}), ...(raw.bindings ?? {}) },
+      pick: { ...(manifest.pick ?? {}), ...(raw.pick ?? {}) },
       vars: { ...(manifest.vars ?? {}), ...(raw.vars ?? {}) },
     },
     issues,

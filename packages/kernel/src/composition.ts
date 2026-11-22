@@ -1,4 +1,4 @@
-// 接线描述：把 validateGraph 的结果整理成「能力 → 谁提供、谁需要、槽位选了谁」的一份快照。
+// 接线描述：把 validateGraph 的结果整理成「能力 → 谁提供、谁需要、角色选了谁」的一份快照。
 //
 // 只读、纯派生：CLI 的 plan 用它打印接线图，--json 原样塞进 wiring 字段。
 // 顺序规则与 graph.ts 一致（capabilities 按令牌排序，其余按清单顺序）。
@@ -12,17 +12,17 @@ export interface CompositionContext {
   graph: Graph;
 }
 
-export interface CompositionSlot {
+export interface CompositionRole {
   name: string;
-  /** 占位实现必须提供的令牌 */
-  contract: string[];
-  /** slots[].default（资源 id） */
+  /** 这个角色需要的能力令牌 */
+  needs: string[];
+  /** roles[].default（资源 id） */
   default?: string;
-  /** bindings[slot]（资源 id）：显式绑定优先于 default */
-  bound?: string;
-  /** 这次真正装的那个实现 = bound ?? default */
+  /** pick[role]（资源 id）：显式选用优先于 default */
+  picked?: string;
+  /** 这次真正装的那个实现 = picked ?? default ?? 唯一候选 */
   effective?: string;
-  /** 这个槽位下的全部候选（资源 id，按清单顺序） */
+  /** 这个角色下的全部候选（资源 id，按清单顺序） */
   candidates: string[];
   /** 没被选中的候选与原因；effective 之外的候选都在这里 */
   excluded: { resource: string; reason: string }[];
@@ -33,7 +33,7 @@ export interface Composition {
   capabilities: Record<string, string[]>;
   /** needs 派生的安装边：provider 必须先于 consumer */
   edges: GraphEdge[];
-  slots: CompositionSlot[];
+  roles: CompositionRole[];
 }
 
 /**
@@ -41,7 +41,7 @@ export interface Composition {
  *
  * - `capabilities`：只含会被安装的资源；令牌升序。
  * - `edges`：只含当前集合里真的能供上的 needs；provider → consumer。
- * - `slots`：契约、default、bindings、有效实现、候选与排除原因。
+ * - `roles`：需要的能力、default、pick、有效实现、候选与排除原因。
  */
 export function describeComposition(ctx: CompositionContext): Composition {
   const { manifest, graph } = ctx;
@@ -51,29 +51,29 @@ export function describeComposition(ctx: CompositionContext): Composition {
     capabilities[token] = [...(graph.providers.get(token) ?? [])];
   }
 
-  const bindings = manifest.bindings ?? {};
-  const slots: CompositionSlot[] = Object.entries(manifest.slots ?? {}).map(([name, spec]) => {
-    const bound = bindings[name];
+  const pick = manifest.pick ?? {};
+  const roles: CompositionRole[] = Object.entries(manifest.roles ?? {}).map(([name, spec]) => {
+    const picked = pick[name];
     const fallback = spec.default;
-    const effective = bound ?? fallback;
-    const candidates = manifest.resources.filter((r) => r.slot === name).map((r) => r.id);
+    const candidates = manifest.resources.filter((r) => r.role === name).map((r) => r.id);
+    const effective = picked ?? fallback ?? (candidates.length === 1 ? candidates[0] : undefined);
     const excluded = candidates
       .filter((id) => id !== effective)
       .map((id) => ({
         resource: id,
-        // 没被选中就是槽位没选它；被可选裁剪掉的资源在 graph.excluded 里另有原因
-        reason: graph.excluded.find((e) => e.resource === id)?.reason ?? 'unbound-slot',
+        // 没被选中就是这个角色没选它；被可选裁剪掉的资源在 graph.excluded 里另有原因
+        reason: graph.excluded.find((e) => e.resource === id)?.reason ?? 'not-selected',
       }));
     return {
       name,
-      contract: [...(spec.contract ?? [])],
+      needs: [...(spec.needs ?? [])],
       ...(fallback !== undefined ? { default: fallback } : {}),
-      ...(bound !== undefined ? { bound } : {}),
+      ...(picked !== undefined ? { picked } : {}),
       ...(effective !== undefined ? { effective } : {}),
       candidates,
       excluded,
     };
   });
 
-  return { capabilities, edges: graph.edges.map((edge) => ({ ...edge })), slots };
+  return { capabilities, edges: graph.edges.map((edge) => ({ ...edge })), roles };
 }

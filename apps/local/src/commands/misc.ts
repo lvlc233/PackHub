@@ -1,9 +1,9 @@
-// 由 cli.ts 拆分：resourceAdd / resource / slotSwap / slot
+// 由 cli.ts 拆分：resourceAdd / resource / roleSwap / role
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { EXIT, command, issueError, problemRaw, say, stop } from '../emit.ts';
 import { MANIFEST_FILE, loadPack, planFor, RESOURCE_TYPES, TARGET_IDS } from '@packhub/kernel';
-import { addResource, setBinding } from '@packhub/runtime';
+import { addResource, setPick } from '@packhub/runtime';
 import { reportIssues } from './shared.ts';
 
 export const resourceAdd = command({
@@ -63,11 +63,11 @@ export const resource = command({
   subCommands: { add: resourceAdd },
 });
 
-export const slotSwap = command({
-  meta: { name: 'swap', description: '换某个槽位的实现（只改 bindings 一行）' },
+export const roleSwap = command({
+  meta: { name: 'swap', description: '换某个角色的实现（只改 pick 一行）' },
   args: {
-    slot: { type: 'positional', required: true },
-    resource: { type: 'positional', required: true, description: '占该槽位的资源 id' },
+    role: { type: 'positional', required: true, description: '要换实现的角色名' },
+    resource: { type: 'positional', required: true, description: '占该角色的资源 id' },
     dir: { type: 'string', default: '.' },
     target: { type: 'string', default: 'dir' },
   },
@@ -80,8 +80,8 @@ export const slotSwap = command({
     }
     const before = planFor(loadPack(dir)).plan;
 
-    setBinding(file, String(args.slot), String(args.resource));
-    say(`✓ bindings.${String(args.slot)} → ${String(args.resource)}`);
+    setPick(file, String(args.role), String(args.resource));
+    say(`✓ pick.${String(args.role)} → ${String(args.resource)}`);
 
     const ctx = loadPack(dir);
     const errors = ctx.issues.filter((i) => i.severity === 'error');
@@ -91,11 +91,11 @@ export const slotSwap = command({
     }
     const { plan, issues } = planFor(ctx, { target: String(args.target ?? 'dir') as never });
     if (!plan) {
-      reportIssues(issues, 'packhub slot swap');
+      reportIssues(issues, 'packhub role swap');
       stop(EXIT.RUNTIME);
     }
     const after = plan;
-    // 换绑时 actionId（fetch#1）不变，必须按内容比，否则看不出换了什么
+    // 换实现时 actionId（fetch#1）不变，必须按内容比，否则看不出换了什么
     const fp = (a: { op: string } & Record<string, unknown>): string =>
       JSON.stringify({ ...a, actionId: undefined });
     const beforeSet = new Set((before?.actions ?? []).map((a) => fp(a as never)));
@@ -110,13 +110,13 @@ export const slotSwap = command({
     for (const a of removed) say(`  - ${describe(a as never)}`);
     for (const a of added) say(`  + ${describe(a as never)}`);
     for (const e of after?.excluded ?? []) {
-      say(`  · 跳过 ${e.resource}${e.slot ? `（槽位 ${e.slot}）` : ''}：${e.reason}`);
+      say(`  · 跳过 ${e.resource}${e.role ? `（角色 ${e.role}）` : ''}：${e.reason}`);
     }
     say(`planHash ${after?.planHash.slice(0, 22) ?? '—'}…`);
   },
 });
 
-export const slot = command({
-  meta: { name: 'slot', description: '槽位操作（可替换的实现）' },
-  subCommands: { swap: slotSwap },
+export const role = command({
+  meta: { name: 'role', description: '角色操作（可替换的实现）' },
+  subCommands: { swap: roleSwap },
 });

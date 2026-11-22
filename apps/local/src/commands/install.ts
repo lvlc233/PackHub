@@ -45,7 +45,7 @@ import {
   type ActionOutcome,
 } from '@packhub/runtime';
 import { parsePackRef } from '../ref.ts';
-import { reportIssues, printPlan, SAFE_CHECKS } from './shared.ts';
+import { applyPick, loadPackWithPick, reportIssues, printPlan, SAFE_CHECKS } from './shared.ts';
 
 type Say = (line: string) => void;
 
@@ -78,12 +78,15 @@ interface CommonInstall {
   allowExec: boolean;
   jsonOut: boolean;
   sayLine: Say;
+  /** --pick：本次运行的角色覆盖，不写回清单 */
+  pick?: string;
 }
 
 /** 本地 Pack 目录：清单在目录里，作者流不设锁/签名门。 */
 async function installLocal(sourceDir: string, opts: CommonInstall): Promise<void> {
   const packRoot = resolve(sourceDir);
-  const ctx = loadPack(packRoot);
+  // --pick 要在校验前合并：多候选没选中的目录，靠它这次才能算得出计划
+  const ctx = loadPackWithPick(packRoot, opts.pick);
   if (reportIssues(ctx.issues)) stop(EXIT.USAGE);
   const { plan: p, issues } = planFor(ctx, { target: opts.target as never });
   if (!p) {
@@ -259,7 +262,7 @@ async function installExternal(opts: ExternalInstall): Promise<void> {
     sayLine('这个包没有签名（未配置信任列表，按开发者模式继续）');
   }
 
-  // 项目根的 .packhub/local.yaml 只改这次安装：补丁、绑定、变量
+  // 项目根的 .packhub/local.yaml 只改这次安装：补丁、pick、变量
   const local = readLocalOverrides(opts.projectDir);
   if (local.file) {
     const merged = mergeLocalOverrides(ctx.manifest, local.file);
@@ -276,6 +279,16 @@ async function installExternal(opts: ExternalInstall): Promise<void> {
       issues: [...ctx.issues, ...localIssues],
     };
     sayLine('已应用 .packhub/local.yaml 补丁');
+  }
+
+  // --pick 也只影响这次运行；排在 local.yaml 之后合并，命令行优先
+  if (opts.pick !== undefined) {
+    const picked = applyPick(ctx, opts.pick);
+    if (picked.issues.some((i) => i.severity === 'error')) {
+      reportIssues(picked.issues, 'packhub install（--pick）');
+      stop(EXIT.USAGE);
+    }
+    ctx = picked.ctx;
   }
 
   const { plan: p, issues } = planFor(ctx, { target: opts.target as never });
@@ -369,6 +382,10 @@ export const install = command({
     index: { type: 'string', description: `registry 的 index.json（本地路径或 URL；也可用 ${PACKHUB_ENV.index}）` },
     version: { type: 'string', description: 'registry 包的版本，默认 latest；与 name@version 等效' },
     target: { type: 'string', default: 'dir', description: `${TARGET_IDS.join(' | ')}` },
+    pick: {
+      type: 'string',
+      description: '本次覆盖角色实现：role=resource[,role=resource]（只影响这次运行，不写回清单）',
+    },
     'dry-run': { type: 'boolean', default: false, description: '只打印计划，不落盘' },
     overwrite: { type: 'boolean', default: false, description: '允许覆盖别的包写过的文件' },
     'allow-stale-lock': {
@@ -401,6 +418,7 @@ export const install = command({
       allowExec: Boolean(args['allow-exec']),
       jsonOut: Boolean(args.json),
       sayLine: sayUnless(Boolean(args.json)),
+      ...(args.pick !== undefined ? { pick: String(args.pick) } : {}),
     };
     const kind = sourceKind(source);
     if (kind === 'local') {

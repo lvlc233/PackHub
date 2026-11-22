@@ -36,7 +36,7 @@ import {
   discover,
 } from './commands/registry.ts';
 import { audit, licenses } from './commands/doctor-license.ts';
-import { resourceAdd, resource, slotSwap, slot } from './commands/misc.ts';
+import { resourceAdd, resource, roleSwap, role } from './commands/misc.ts';
 
 // completion 要读 main.subCommands，main 又在这里组装：留在同一个文件，避免循环依赖。
 const completion = command({
@@ -172,7 +172,7 @@ export const main: CommandDef = command({
     discover,
     cache,
     resource,
-    slot,
+    role,
     diff,
     pack,
     publish,

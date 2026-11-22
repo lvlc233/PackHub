@@ -16,7 +16,7 @@ export type CapabilityForm = (typeof CAPABILITY_FORMS)[number];
 
 /**
  * 令牌正则的唯一来源是 schema，不在 kernel 另写一份字面量（与 PACK_NAME_PATTERN 同一条约定）。
- * schema 里 `provides` / `needs` / `slots.*.contract` 用的是同一条正则。
+ * schema 里 `provides` / `needs` / `roles.*.needs` 用的是同一条正则。
  */
 export const CAPABILITY_TOKEN_PATTERN = new RegExp(
   (schemaJson as {

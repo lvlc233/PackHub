@@ -13,16 +13,15 @@ metadata:
 requires:
   packhub: ">=0.0.1 <0.1"
 
-slots:
+roles:
   lint:
-    contract: [tool/lint@1]
-    default: markdownlint
-    note: 格式检查实现；当前默认绑定 markdownlint MCP，换实现改 slots.lint.default（或 bindings.lint）。
+    needs: [tool/lint@1]
+    note: 格式检查实现；只有 markdownlint 一个候选，自动选中；换实现时在 resources 里加同角色候选，多个候选用 pick.lint 或 roles.lint.default 指定。
 
 resources:
   - id: markdownlint
     type: mcp
-    slot: lint
+    role: lint
     source: npm:@dougis/markdown-lint-mcp@1.0.5
     transport: stdio
     config:

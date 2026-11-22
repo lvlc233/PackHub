@@ -554,7 +554,7 @@ describe('schema ↔ types.ts 镜像', () => {
 
 /**
  * 能力令牌 `<form>/<name>@<major>` 的 pattern 有两份 schema 各写一遍
- * （packhub 的 provides / needs / slots.contract，resources 的 provides），
+ * （packhub 的 provides / needs / roles.needs，resources 的 provides），
  * kernel 又从 packhub 那份建 CAPABILITY_TOKEN_PATTERN。三处必须字面相等：
  * 任何一处单独改都会让「同一个令牌在清单里合法、在目录里非法」这种裂缝出现。
  */
@@ -569,21 +569,21 @@ describe('能力令牌：pattern 单源', () => {
     };
   }).properties.resources.items.properties.provides.items.pattern;
 
-  const slotContractToken = (packhubSchema as unknown as {
+  const roleNeedsToken = (packhubSchema as unknown as {
     properties: {
-      slots: {
-        additionalProperties: { properties: { contract: { items: { pattern: string } } } };
+      roles: {
+        additionalProperties: { properties: { needs: { items: { pattern: string } } } };
       };
     };
-  }).properties.slots.additionalProperties.properties.contract.items.pattern;
+  }).properties.roles.additionalProperties.properties.needs.items.pattern;
 
   it('两份 schema 的令牌 pattern 相等（packhub ↔ resources）', () => {
     expect(packhubToken).toBe(resourcesToken);
   });
 
-  it('清单里的三处（provides / needs / slots.contract）用同一条 pattern', () => {
-    // needs 与 provides 共用 definitions.capabilities，这里只额外盯 slots.contract 没走偏
-    expect(slotContractToken).toBe(packhubToken);
+  it('清单里的三处（provides / needs / roles.needs）用同一条 pattern', () => {
+    // needs 与 provides 共用 definitions.capabilities，这里只额外盯 roles.needs 没走偏
+    expect(roleNeedsToken).toBe(packhubToken);
   });
 
   it('kernel 的 CAPABILITY_TOKEN_PATTERN 就是 schema 那条，不在 TS 里另写正则', () => {

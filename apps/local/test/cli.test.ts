@@ -246,7 +246,7 @@ resources:
     rmSync(pack, { recursive: true, force: true });
   });
 
-  it('plan 打接线：能力令牌 → provider、needs 边、槽位解析（--json 里是 wiring）', () => {
+  it('plan 打接线：能力令牌 → provider、needs 边、角色解析（--json 里是 wiring）', () => {
     const base = mkdtempSync(join(tmpdir(), 'packhub-cli-wiring-'));
     const pack = join(base, 'pack');
     mkdirSync(pack, { recursive: true });
@@ -257,21 +257,21 @@ resources:
 kind: Pack
 metadata: { name: demo/wiring, version: 0.0.1 }
 requires: { packhub: ">=0.0.1 <0.1" }
-slots:
+roles:
   review:
-    contract: [tool/lint@1]
+    needs: [tool/lint@1]
     default: linter-a
 resources:
   - id: linter-a
     type: mcp
     transport: stdio
-    slot: review
+    role: review
     source: npm:linter-a@1.0.0
     provides: [tool/lint@1]
   - id: linter-b
     type: mcp
     transport: stdio
-    slot: review
+    role: review
     source: npm:linter-b@1.0.0
     provides: [tool/lint@1]
   - id: reviewer
@@ -290,11 +290,11 @@ resources:
       wiring: {
         capabilities: Record<string, string[]>;
         edges: { provider: string; consumer: string; capability: string }[];
-        slots: {
+        roles: {
           name: string;
-          contract: string[];
+          needs: string[];
           default?: string;
-          bound?: string;
+          picked?: string;
           effective?: string;
           candidates: string[];
           excluded: { resource: string; reason: string }[];
@@ -302,7 +302,7 @@ resources:
       };
     };
     expect(body.planHash).toBeTruthy();
-    // 能力：令牌是键，provider 按清单顺序；落选的槽位候选不进图（它这次不装）
+    // 能力：令牌是键，provider 按清单顺序；落选的角色候选不进图（它这次不装）
     expect(body.wiring.capabilities).toEqual({
       'skill/review@1': ['reviewer'],
       'tool/lint@1': ['linter-a'],
@@ -311,15 +311,15 @@ resources:
     expect(body.wiring.edges).toEqual([
       { provider: 'linter-a', consumer: 'reviewer', capability: 'tool/lint@1' },
     ]);
-    // 槽位：default 生效，未选中的候选带原因
-    expect(body.wiring.slots).toEqual([
+    // 角色：default 生效，未选中的候选带原因
+    expect(body.wiring.roles).toEqual([
       {
         name: 'review',
-        contract: ['tool/lint@1'],
+        needs: ['tool/lint@1'],
         default: 'linter-a',
         effective: 'linter-a',
         candidates: ['linter-a', 'linter-b'],
-        excluded: [{ resource: 'linter-b', reason: 'unbound-slot' }],
+        excluded: [{ resource: 'linter-b', reason: 'not-selected' }],
       },
     ]);
 
@@ -329,7 +329,9 @@ resources:
     expect(printed.out).toContain('接线：');
     expect(printed.out).toContain('tool/lint@1 → linter-a');
     expect(printed.out).toContain('linter-a → reviewer（tool/lint@1）');
-    expect(printed.out).toContain('effective linter-a（default）');
+    expect(printed.out).toContain('角色：');
+    expect(printed.out).toContain('review：需要 tool/lint@1 · effective linter-a（default）');
+    expect(printed.out).toContain('linter-b：not-selected');
 
     rmSync(base, { recursive: true, force: true });
   });
@@ -554,6 +556,128 @@ verify:
     expect(readFileSync(join(dir, '.packhub/knowledge/rules.md'), 'utf8')).toBe('# rules\n');
 
     rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe('cli 端到端：角色选用（--pick / role swap）', () => {
+  /** 两个占 rules 角色的候选：不选就 role-unfilled，靠 default / pick / --pick 才装得成。 */
+  const makeRolesPack = (dir: string): void => {
+    writeFileSync(
+      join(dir, 'packhub.yaml'),
+      `apiVersion: packhub.dev/v0
+kind: Pack
+metadata: { name: demo/roles, version: 0.0.1 }
+requires: { packhub: ">=0.0.1 <0.1" }
+roles:
+  rules:
+    needs: [content/rules@1]
+resources:
+  - id: rules-a
+    type: knowledge
+    role: rules
+    source: ./a.md
+    provides: [content/rules@1]
+  - id: rules-b
+    type: knowledge
+    role: rules
+    source: ./b.md
+    provides: [content/rules@1]
+`,
+      'utf8',
+    );
+    writeFileSync(join(dir, 'a.md'), '# a\n', 'utf8');
+    writeFileSync(join(dir, 'b.md'), '# b\n', 'utf8');
+  };
+
+  it('--pick 只覆盖本次 plan：清单不写回 pick', () => {
+    const base = mkdtempSync(join(tmpdir(), 'packhub-cli-pickplan-'));
+    const pack = join(base, 'pack');
+    mkdirSync(pack, { recursive: true });
+    makeRolesPack(pack);
+
+    // 两个候选、没人选：没有 --pick 时算不出计划
+    const unresolved = run(['plan', pack]);
+    expect(unresolved.status).toBe(2);
+    expect(unresolved.out).toContain('role-unfilled');
+
+    const picked = run(['plan', pack, '--pick', 'rules=rules-b']);
+    expect(picked.status).toBe(0);
+    expect(picked.out).toContain('rules：需要 content/rules@1 · effective rules-b（pick）');
+    expect(picked.out).toContain('rules-a：not-selected');
+    // --pick 只影响这次运行：清单文件没有被加上 pick
+    expect(readFileSync(join(pack, 'packhub.yaml'), 'utf8')).not.toContain('pick:');
+
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  it('--pick 只覆盖本次 install：装的是选中的实现，清单不动', () => {
+    const base = mkdtempSync(join(tmpdir(), 'packhub-cli-pickinstall-'));
+    const pack = join(base, 'pack');
+    const project = join(base, 'project');
+    mkdirSync(pack, { recursive: true });
+    mkdirSync(project, { recursive: true });
+    makeRolesPack(pack);
+
+    const unresolved = run(['install', pack, '--dir', project]);
+    expect(unresolved.status).toBe(2);
+    expect(unresolved.out).toContain('role-unfilled');
+    expect(existsSync(join(project, '.packhub/knowledge/a.md'))).toBe(false);
+    expect(existsSync(join(project, '.packhub/knowledge/b.md'))).toBe(false);
+
+    const picked = run(['install', pack, '--dir', project, '--pick', 'rules=rules-b']);
+    expect(picked.status).toBe(0);
+    expect(existsSync(join(project, '.packhub/knowledge/b.md'))).toBe(true);
+    expect(existsSync(join(project, '.packhub/knowledge/a.md'))).toBe(false);
+    expect(readFileSync(join(pack, 'packhub.yaml'), 'utf8')).not.toContain('pick:');
+
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  it('坏 --pick 退出 2，并打出这个清单可用的角色', () => {
+    const base = mkdtempSync(join(tmpdir(), 'packhub-cli-pickbad-'));
+    const pack = join(base, 'pack');
+    mkdirSync(pack, { recursive: true });
+    makeRolesPack(pack);
+
+    const badRole = run(['plan', pack, '--pick', 'ghost=rules-a']);
+    expect(badRole.status).toBe(2);
+    expect(badRole.out).toContain('角色不存在：ghost');
+    expect(badRole.out).toContain('可用角色：rules');
+
+    const badResource = run(['plan', pack, '--pick', 'rules=nope']);
+    expect(badResource.status).toBe(2);
+    expect(badResource.out).toContain('资源不存在：nope');
+    expect(badResource.out).toContain('rules-a, rules-b');
+    expect(badResource.out).toContain('可用角色：rules');
+
+    const badFormat = run(['plan', pack, '--pick', 'rules']);
+    expect(badFormat.status).toBe(2);
+    expect(badFormat.out).toContain('格式错');
+    expect(badFormat.out).toContain('可用角色：rules');
+
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  it('role swap 把 pick 写进清单，计划随之换成新实现', () => {
+    const base = mkdtempSync(join(tmpdir(), 'packhub-cli-roleswap-'));
+    const pack = join(base, 'pack');
+    mkdirSync(pack, { recursive: true });
+    makeRolesPack(pack);
+
+    const swapped = run(['role', 'swap', 'rules', 'rules-b', '--dir', pack]);
+    expect(swapped.status).toBe(0);
+    expect(swapped.out).toContain('✓ pick.rules → rules-b');
+    expect(swapped.out).toContain('· 跳过 rules-a（角色 rules）：not-selected');
+    // 换实现 = 清单里多一行 pick，原始清单其它内容不动
+    const manifest = readFileSync(join(pack, 'packhub.yaml'), 'utf8');
+    expect(manifest).toMatch(/pick:\s*\n\s*rules: rules-b/);
+    expect(manifest).toContain('source: ./a.md');
+
+    const planned = run(['plan', pack]);
+    expect(planned.status).toBe(0);
+    expect(planned.out).toContain('effective rules-b（pick）');
+
+    rmSync(base, { recursive: true, force: true });
   });
 });
 

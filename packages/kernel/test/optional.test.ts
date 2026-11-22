@@ -36,7 +36,7 @@ describe('optional 资源', () => {
     expect(graph.resources.has('optional-skill')).toBe(false);
     expect(graph.excluded).toContainEqual({
       resource: 'optional-skill',
-      slot: '',
+      role: '',
       reason: 'optional-unmet',
     });
     expect(graph.order).toEqual(['plain']);
@@ -74,20 +74,21 @@ describe('optional 资源', () => {
     expect(validateGraph(manifest).issues.map((i) => i.code)).toContain('unmet-need');
   });
 
-  it('显式绑定到槽位的 optional 不自动跳过', () => {
+  it('被 pick 显式选中的 optional 不自动跳过', () => {
     const manifest = base({
       resources: [
         {
           id: 'impl',
           type: 'skill',
           source: './skills/x',
-          slot: 'search',
+          role: 'search',
+          provides: ['skill/search@1'],
           needs: ['tool/missing@1'],
           optional: true,
         },
       ],
-      slots: { search: { contract: ['skill/search@1'] } },
-      bindings: { search: 'impl' },
+      roles: { search: { needs: ['skill/search@1'] } },
+      pick: { search: 'impl' },
     });
     const { graph, issues } = validateGraph(manifest);
     expect(graph.resources.has('impl')).toBe(true);

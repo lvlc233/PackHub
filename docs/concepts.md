@@ -32,7 +32,7 @@ Pack 不是资源的压缩包，哪怕有依赖关系也不自动成为有机整
 
 Pack 里的一条能力声明，它相对于 Agent，而不是相对于整个 harness。所以它可以是 SKILL、工具、脚本、提示词……只要能让 Agent 稳定表现出某种能力；界面优化这类不算。
 
-资源提供或需要的能力写成令牌，见 Composition 词条。
+资源提供或需要的能力写成令牌，见 Composition 词条。资源可以用 `role: <角色名>` 声明自己占一个可替换角色——一个资源最多占一个角色，未选中的角色候选不进计划。
 
 ### Source（来源）
 
@@ -42,15 +42,17 @@ Pack 里的一条能力声明，它相对于 Agent，而不是相对于整个 ha
 
 ### Composition（接线）
 
-接线是资源之间的约束：谁提供什么能力（`provides`）、谁需要什么能力（`needs`）、哪个实现占用可替换位（`slots` 与 `bindings`）。
+接线是资源之间的约束：谁提供什么能力（`provides`）、谁需要什么能力（`needs`）、哪个实现占用可替换角色（`roles` 与 `pick`）。
 
 能力写成令牌 `<form>/<name>@<major>`（`tool/repo-search@1`、`skill/doc-review@1`）。`form` 是闭集 `tool` / `skill` / `content` / `config`，表示能力被消费的形态——工具调用、技能、可读内容、配置——**不是资源类型**：`mcp` / `tool2` 通常给 `tool/*`，`skill` 给 `skill/*`，`prompt` / `knowledge` 给 `content/*`，`config` 给 `config/*`。名字只描述能做什么，不泄漏资源类型；`@` 后是接口主版本（不小于 1 的整数），主版本不同就是两种能力。
 
 `needs` 同时是能力依赖和安装顺序：每个被需要的令牌，其所有 provider 都排在消费者之前，成环报错。没有单独的 `dependsOn`。
 
-槽位的选择是「`bindings` 覆盖 `slots.<槽位>.default`」：`default` 是不写 `bindings` 时用的实现，`bindings` 只做覆盖；两者都必须是占用该槽位、满足 `contract` 的资源，其余候选进 `excluded`，都没有就是 `slot-unbound`。
+一个角色是一个可替换位：清单用 `roles.<角色>.needs` 声明占位实现必须提供的能力，资源用 `role: <角色>` 占位。角色这次装哪个实现按这个次序定：`pick.<角色>` → `roles.<角色>.default` → 唯一候选。`pick` 覆盖 `default`；角色下只有一个候选时自动选它，不必写 `default`；候选多于一个又没写 `pick` / `default`，报 `role-unfilled`，提示写 `roles.<角色>.default` 或 `--pick`；角色下没有候选就是没人占它，不报错。被选中（含唯一候选自动选中）的实现必须存在、确实占用该角色、提供角色的全部 `needs`，否则报错；其余候选进计划的 `excluded`，原因 `not-selected`。
 
-没有 `composition` 块：接线由 `provides` / `needs` / `slots` / `bindings` 承载，再声明一份等于第二真相。接线图在计划期从清单派生（kernel 的 `describeComposition`，`plan` 打印出来），不落盘。
+使用者可以在不改作者清单的前提下换实现：`packhub plan` / `packhub install` 的 `--pick <角色>=<资源>` 只覆盖这一次运行；项目内的长期覆盖写安装根 `.packhub/local.yaml` 的 `pick`，只影响这个项目，不写回清单，也不进锁与签名。
+
+没有 `composition` 块：接线由 `provides` / `needs` / `roles` / `pick` 承载，再声明一份等于第二真相。接线图在计划期从清单派生（kernel 的 `describeComposition`，`plan` 打印出来），不落盘。
 
 ### Manifest（清单）
 

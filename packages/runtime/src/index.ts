@@ -38,7 +38,7 @@ export {
 export {
   addResource,
   addSignature,
-  setBinding,
+  setPick,
   inferId,
   type AddResourceInput,
   type AddResourceResult,

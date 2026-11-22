@@ -132,7 +132,7 @@ export function buildPlan(
     const res = graph.resources.get(id);
     if (!res) continue;
     if (opts.skipResourceTypes?.includes(res.type)) {
-      excluded.push({ resource: id, slot: res.slot ?? '', reason: 'host-managed' });
+      excluded.push({ resource: id, role: res.role ?? '', reason: 'host-managed' });
       continue;
     }
     RESOURCE_KINDS[res.type].materialize(kindCtx, res);

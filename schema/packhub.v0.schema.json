@@ -68,14 +68,14 @@
       "minItems": 1,
       "items": { "$ref": "#/definitions/resource" }
     },
-    "slots": {
+    "roles": {
       "type": "object",
-      "description": "可替换位：每个槽位声明契约，资源用 slot 占位；bindings 或 slots[].default 决定装哪个",
+      "description": "可替换角色：每个角色声明需要的能力，资源用 role 占位；pick 或 roles[].default 决定装哪个，唯一候选自动选中",
       "additionalProperties": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "contract": {
+          "needs": {
             "type": "array",
             "items": { "type": "string", "pattern": "^(tool|skill|content|config)/[a-z][a-z0-9-]*@[1-9][0-9]*$" },
             "uniqueItems": true
@@ -83,16 +83,19 @@
           "default": {
             "type": "string",
             "pattern": "^[a-z][a-z0-9-]*$",
-            "description": "不写 bindings 时用这个实现（资源 id）；写了 bindings 就以 bindings 为准"
+            "description": "不写 pick 时用这个实现（资源 id）；写了 pick 就以 pick 为准"
           },
           "note": { "type": "string", "maxLength": 200 }
         }
       }
     },
-    "bindings": {
+    "pick": {
       "type": "object",
-      "description": "槽位 → 资源 id；不写时用 slots[].default；只有选中的实现会被安装",
-      "additionalProperties": { "type": "string" }
+      "description": "角色 → 资源 id；不写时用 roles[].default，唯一候选自动选中；只有选中的实现会被安装",
+      "additionalProperties": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9-]*$"
+      }
     },
     "state": {
       "type": "array",
@@ -161,7 +164,11 @@
             "scheme": { "enum": ["bearer", "token", "basic"], "default": "bearer" }
           }
         },
-        "slot": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+        "role": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$",
+          "description": "占哪个角色；同一角色可有多个候选，选中哪个由 pick / roles[].default / 唯一候选决定"
+        },
         "transport": { "enum": ["stdio", "http"] },
         "shim": {
           "enum": ["auto", "wrap", "route"],

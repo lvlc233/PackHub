@@ -3,7 +3,7 @@ kind: decision
 summary: 有意为之的取舍
 verified: 2026-11-22
 decay: 365
-review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增删、锁形状或签名载荷变化、命令层再出现例外、加 mac 门禁、命令面收缩）
+review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增删、锁形状或签名载荷变化、角色/选用规则再变、命令层再出现例外、加 mac 门禁、命令面收缩）
 ---
 
 # PackHub 的取舍
@@ -18,13 +18,23 @@ review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增
 
 ### 能力用接口令牌命名，接线从 needs 派生
 
-能力名是接口，不是资源类别：`<form>/<name>@<major>`，`form` 闭集 `tool` / `skill` / `content` / `config`（消费形态：工具调用、技能、可读内容、配置），`name` 是 kebab-case 的功能名，`@major` 是接口主版本、从 1 起，不同主版本就是互不满足的两种能力。资源类型（`mcp` / `tool2` / `skill` / `prompt` / `knowledge` / `config`）继续管落点与执行，但不出现在能力名里。接线不再有单独的 `dependsOn`：`needs` 既是能力依赖也决定安装顺序（每个 provider 到 consumer 一条边，成环仍报 `dependency-cycle`）；槽位加 `default`，不写 `bindings` 时用 default，`bindings` 只做覆盖。清单仍是接线的唯一来源——`plan` 打印的接线图由 kernel 的 `describeComposition` 从清单现算，没有 `composition` 块，也不落盘。
+能力名是接口，不是资源类别：`<form>/<name>@<major>`，`form` 闭集 `tool` / `skill` / `content` / `config`（消费形态：工具调用、技能、可读内容、配置），`name` 是 kebab-case 的功能名，`@major` 是接口主版本、从 1 起，不同主版本就是互不满足的两种能力。资源类型（`mcp` / `tool2` / `skill` / `prompt` / `knowledge` / `config`）继续管落点与执行，但不出现在能力名里。接线不再有单独的 `dependsOn`：`needs` 既是能力依赖也决定安装顺序（每个 provider 到 consumer 一条边，成环仍报 `dependency-cycle`）；角色加 `default`，不写 `pick` 时用 default，`pick` 只做覆盖。清单仍是接线的唯一来源——`plan` 打印的接线图由 kernel 的 `describeComposition` 从清单现算，没有 `composition` 块，也不落盘。
 
 没选另一条：继续用 `类型:名字`（`audio:speak`、`tool:repo_search`）；保留 `dependsOn`；给能力加语义命名空间（如 `docs/lint@1`）而不是 form。
 
-`类型:名字` 把资源类型和功能分类混进同一个命名空间：`audio:speak` 的 `audio` 是功能，`tool:repo_search` 的 `tool` 是类型，读令牌的人分不清该按哪种契约匹配，schema 也只能放宽成自由字符串。form 是有限、正交于资源类型的维度，能进 schema 的枚举，读方还能按消费形态分组。保留 `dependsOn` 则纯顺序关系要作者再声明一遍，而能力依赖已经蕴含了这条边；两份声明冲突时还要定优先级，且没有东西检查它们一致。语义命名空间随功能无限分裂，形不成闭集，也没法在计划里按维度分组。槽位同理：`bindings` 给每个槽位抄一遍实现是噪音，把「默认用哪个」写进槽位声明、`bindings` 只在换实现时出现，清单才读得出作者改了什么。
+`类型:名字` 把资源类型和功能分类混进同一个命名空间：`audio:speak` 的 `audio` 是功能，`tool:repo_search` 的 `tool` 是类型，读令牌的人分不清该按哪种契约匹配，schema 也只能放宽成自由字符串。form 是有限、正交于资源类型的维度，能进 schema 的枚举，读方还能按消费形态分组。保留 `dependsOn` 则纯顺序关系要作者再声明一遍，而能力依赖已经蕴含了这条边；两份声明冲突时还要定优先级，且没有东西检查它们一致。语义命名空间随功能无限分裂，形不成闭集，也没法在计划里按维度分组。可替换位同理：把「默认用哪个」写进角色声明、`pick` 只在换实现时出现，清单才读得出作者改了什么。
 
 代价：主版本只有整数、没有范围匹配——`needs tool/lint@1` 不满足 `tool/lint@2`，接口升级要所有提供方与消费方同时改；删掉 `dependsOn` 后，两个没有能力关系但必须先写谁的资源没有表达方式，只能靠输出冲突在计划里暴露，或在 `needs` 里编一个假能力来拉边；`form` 让 `knowledge` / `prompt` 在能力层合并成 `content`，落点仍由资源类型决定，两者对不上（如 `prompt` 资源 provides `tool/*`）schema 不拦，靠作者自律；改名是破坏性变更，registry 里已发布的清单要原地迁移并重锁。
+
+### 用角色代替槽位：命名与使用面
+
+清单里原本是 `slots` / `contract` / `bindings` / 资源的 `slot`，一套只在写清单时才碰得到的行话；换个实现要么写 `bindings`，要么在 `slots` 里补 `default`，角色只有一个实现时也得抄一遍。现在改成角色（`roles`）、需要（`needs`）、选用（`pick`）：`slots` → `roles`，角色的 `contract` → `needs`（与资源 `needs` 同一套能力令牌），`bindings` → `pick`，资源的 `slot` → `role`。选谁不再依赖显式声明：`pick` 覆盖 `default`，角色下只有一个候选时自动选它；候选多于一个又没写 `pick` / `default` 时报 `role-unfilled`，提示写 `roles.<角色>.default` 或 `--pick`。
+
+使用面跟着改：`packhub plan` / `packhub install` 加 `--pick <角色>=<资源>`，覆盖只作用于这一次运行，不写回清单；项目内的长期覆盖写 `.packhub/local.yaml` 的 `pick`，不必先改作者清单。错误码与排除原因一起改名（`unknown-role` / `pick-unknown-role` / `pick-unknown-resource` / `pick-wrong-role` / `role-needs-unmet` / `role-unfilled`，excluded reason `not-selected`），旧名一次删干净，不留别名。
+
+没选另一条：保留 `slot` / `contract` / `bindings` 旧名，只加一套 CLI 覆盖入口。名字和使用面是同一件事：行话不改，作者仍要读「槽位 + 契约 + 绑定」才能写一行清单；只加 CLI 则文档要同时解释两套词，读者还得自己判断哪套是现在该写的。格式 v0 本来就不承诺兼容，留旧名换不到任何稳定性，只换来一次更长的并行期。
+
+代价：破坏性改名——registry 里已发布的清单要原地迁移（`slots` / `contract` / `bindings` / `slot`）并重锁，旧字段在这版直接判 schema error，没有过渡期；`--pick` 不持久，要长期换实现仍得写 `.packhub/local.yaml` 或改清单，没有一条命令能把偏好持久化。
 
 ### target 退出内容层，清单也不再声明支持集
 

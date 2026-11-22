@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { addResource, inferId, setBinding } from '../src/authoring.ts';
+import { addResource, inferId, setPick } from '../src/authoring.ts';
 import { planFor } from '@packhub/kernel';
 import { loadPack } from '../src/index.ts';
 
@@ -76,52 +76,55 @@ describe('addResource', () => {
   });
 });
 
-describe('setBinding（换实现）', () => {
-  const withSlots = `# 头部注释
+describe('setPick（换实现）', () => {
+  const withRoles = `# 头部注释
 apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/slots, version: 0.0.1 }
+metadata: { name: demo/roles, version: 0.0.1 }
 requires: { packhub: ">=0.0.1 <0.1" }
-slots:
-  voice: { contract: [tool/speak@1] }
+roles:
+  voice: { needs: [tool/speak@1] }
 resources:
   - id: tts-a
     type: mcp
     transport: stdio
-    slot: voice
+    role: voice
     source: npm:tts-a@1.2.0
     provides: [tool/speak@1]
   - id: tts-b
     type: mcp
     transport: stdio
-    slot: voice
+    role: voice
     source: npm:tts-b@0.4.0
     provides: [tool/speak@1]
-bindings:
+  - id: k
+    type: knowledge
+    source: ./k.md
+pick:
   voice: tts-a
 `;
 
   function fixture(): { dir: string; file: string } {
-    const dir = mkdtempSync(join(tmpdir(), 'packhub-bind-'));
+    const dir = mkdtempSync(join(tmpdir(), 'packhub-pick-'));
     const file = join(dir, 'packhub.yaml');
-    writeFileSync(file, withSlots, 'utf8');
+    writeFileSync(file, withRoles, 'utf8');
     return { dir, file };
   }
 
-  it('只改 bindings 那一个键，注释与结构保留', () => {
+  it('只改 pick 那一个键，注释与结构保留', () => {
     const { file } = fixture();
-    const { id } = setBinding(file, 'voice', 'tts-b');
+    const { id } = setPick(file, 'voice', 'tts-b');
     expect(id).toBe('tts-b');
     const text = readFileSync(file, 'utf8');
     expect(text).toContain('# 头部注释');
-    expect(text).toMatch(/bindings:\s*\n\s*voice: tts-b/);
+    expect(text).toMatch(/pick:\s*\n\s*voice: tts-b/);
     expect(text).toContain('tts-a');
   });
 
-  it('槽位不存在、资源不存在、资源不占该槽都要报错', () => {
+  it('角色不存在、资源不存在、资源不占该角色都要报错', () => {
     const { file } = fixture();
-    expect(() => setBinding(file, 'nope', 'tts-a')).toThrow(/没有声明槽位/);
-    expect(() => setBinding(file, 'voice', 'nope')).toThrow(/没有这个资源/);
-    expect(() => setBinding(file, 'voice', 'x')).toThrow();
+    expect(() => setPick(file, 'nope', 'tts-a')).toThrow(/没有声明角色/);
+    expect(() => setPick(file, 'voice', 'nope')).toThrow(/没有这个资源/);
+    expect(() => setPick(file, 'voice', 'k')).toThrow(/不占角色 voice/);
   });
 });

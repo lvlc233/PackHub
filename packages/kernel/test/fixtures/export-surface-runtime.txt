@@ -136,7 +136,7 @@ rollbackPack
 runChecks
 saveState
 searchNpm
-setBinding
+setPick
 setRequireSignature
 setToken
 signContentHash

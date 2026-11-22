@@ -20,123 +20,144 @@ export interface Graph {
   /** 安装顺序（needs 拓扑 + 清单顺序） */
   order: string[];
   resources: Map<string, ResourceSpec>;
-  /** 被槽位绑定排除的候选：为什么这个实现这次不装 */
-  excluded: { resource: string; slot: string; reason: string }[];
+  /** 被角色选用排除的候选：为什么这个实现这次不装 */
+  excluded: { resource: string; role: string; reason: string }[];
 }
 
+/** 实现的来源：`pick` 显式写、`default` 兜底、`auto` 唯一候选自动选中。 */
+type ImplementationFrom = 'pick' | 'default' | 'auto';
+
 /**
- * 校验一个槽位的实现（`bindings` 的值或 `slots[].default`）：必须是本清单里的资源、
- * 必须真的占这个槽位、必须满足 contract。错误码沿用绑定那一套，文案点明来源是 default。
+ * 校验一个角色的实现（`pick` 的值、`roles[].default` 或唯一候选）：必须是本清单里的资源、
+ * 必须真的占这个角色、必须满足角色声明的 needs。错误码分选错来源，文案点明来源。
  */
 function checkImplementation(
   manifest: Manifest,
-  slot: string,
+  role: string,
   impl: string,
-  from: 'bindings' | 'default',
+  from: ImplementationFrom,
   issues: Issue[],
 ): void {
-  const slots = manifest.slots ?? {};
+  const roles = manifest.roles ?? {};
   const res = manifest.resources.find((r) => r.id === impl);
   if (!res) {
     issues.push({
-      code: ISSUE_CODES.bindingUnknownResource,
+      code: ISSUE_CODES.pickUnknownResource,
       severity: 'error',
       message:
         from === 'default'
-          ? `槽位 ${slot} 的 default 指向不存在的资源：${impl}（default 只能写本清单里的资源 id）`
-          : `槽位 ${slot} 绑定了不存在的资源：${impl}`,
+          ? `角色 ${role} 的 default 指向不存在的资源：${impl}（default 只能写本清单里的资源 id）`
+          : from === 'pick'
+            ? `pick.${role} 指向不存在的资源：${impl}（pick 只能写本清单里的资源 id）`
+            : `角色 ${role} 的唯一候选不存在：${impl}`,
     });
     return;
   }
-  if (res.slot !== slot) {
+  if (res.role !== role) {
     issues.push({
-      code: ISSUE_CODES.bindingWrongSlot,
+      code: ISSUE_CODES.pickWrongRole,
       severity: 'error',
       message:
         from === 'default'
-          ? `槽位 ${slot} 的 default ${impl} 并不占用这个槽位（它属于 ${res.slot ?? '无'}）`
-          : `资源 ${impl} 并不占用槽位 ${slot}（它属于 ${res.slot ?? '无'}）`,
+          ? `角色 ${role} 的 default ${impl} 并不属于这个角色（它属于 ${res.role ?? '无'}）`
+          : from === 'pick'
+            ? `pick.${role} 指向的 ${impl} 并不属于这个角色（它属于 ${res.role ?? '无'}）`
+            : `角色 ${role} 的唯一候选 ${impl} 并不属于这个角色（它属于 ${res.role ?? '无'}）`,
     });
     return;
   }
-  const contract = slots[slot]?.contract ?? [];
-  const missing = contract.filter((c) => !(res.provides ?? []).includes(c));
+  const needs = roles[role]?.needs ?? [];
+  const missing = needs.filter((n) => !(res.provides ?? []).includes(n));
   if (missing.length > 0) {
     issues.push({
-      code: ISSUE_CODES.slotContractUnmet,
+      code: ISSUE_CODES.roleNeedsUnmet,
       severity: 'error',
       message:
         from === 'default'
-          ? `槽位 ${slot} 的 default ${impl} 缺少契约能力：${missing.join(', ')}`
-          : `槽位 ${slot} 的绑定 ${impl} 缺少契约能力：${missing.join(', ')}`,
+          ? `角色 ${role} 的 default ${impl} 缺少角色需要的能力：${missing.join(', ')}`
+          : from === 'pick'
+            ? `pick.${role} 选中的 ${impl} 缺少角色需要的能力：${missing.join(', ')}`
+            : `角色 ${role} 的唯一候选 ${impl} 缺少角色需要的能力：${missing.join(', ')}`,
     });
   }
 }
 
 /**
- * 槽位的有效实现 = `bindings[slot] ?? slots[slot].default`。
- * 两个都没写、但槽位下有候选，就报 slot-unbound——这次装哪个不确定。
+ * 角色的有效实现 = `pick[role] ?? roles[role].default ?? 唯一候选`。
+ * 有多个候选又没人选，就报 role-unfilled——这次装哪个不确定。
  */
-function resolveSlots(
+function resolveRoles(
   manifest: Manifest,
   issues: Issue[],
 ): { active: Set<string>; excluded: Graph['excluded'] } {
-  const slots = manifest.slots ?? {};
-  const bindings = manifest.bindings ?? {};
+  const roles = manifest.roles ?? {};
+  const pick = manifest.pick ?? {};
   const candidates = new Map<string, string[]>();
 
   for (const res of manifest.resources) {
-    if (!res.slot) continue;
-    if (!slots[res.slot]) {
+    if (!res.role) continue;
+    if (!roles[res.role]) {
       issues.push({
-        code: ISSUE_CODES.unknownSlot,
+        code: ISSUE_CODES.unknownRole,
         severity: 'error',
-        message: `资源 ${res.id} 占用未声明的槽位：${res.slot}`,
+        message: `资源 ${res.id} 占用未声明的角色：${res.role}`,
       });
       continue;
     }
-    candidates.set(res.slot, [...(candidates.get(res.slot) ?? []), res.id]);
+    candidates.set(res.role, [...(candidates.get(res.role) ?? []), res.id]);
   }
 
-  for (const [slot, impl] of Object.entries(bindings)) {
-    if (!slots[slot]) {
+  for (const [role, impl] of Object.entries(pick)) {
+    if (!roles[role]) {
       issues.push({
-        code: ISSUE_CODES.bindingUnknownSlot,
+        code: ISSUE_CODES.pickUnknownRole,
         severity: 'error',
-        message: `bindings 指向未声明的槽位：${slot}`,
+        message: `pick 指向未声明的角色：${role}`,
       });
       continue;
     }
-    checkImplementation(manifest, slot, impl, 'bindings', issues);
+    checkImplementation(manifest, role, impl, 'pick', issues);
   }
 
-  // default 被 bindings 覆盖时也校验：清单里的死配置不该靠「这次恰好写了 bindings」藏着
-  for (const [slot, spec] of Object.entries(slots)) {
+  // default 被 pick 覆盖时也校验：清单里的死配置不该靠「这次恰好写了 pick」藏着
+  for (const [role, spec] of Object.entries(roles)) {
     if (spec.default === undefined) continue;
-    checkImplementation(manifest, slot, spec.default, 'default', issues);
+    checkImplementation(manifest, role, spec.default, 'default', issues);
   }
 
-  const effectiveOf = (slot: string): string | undefined => bindings[slot] ?? slots[slot]?.default;
+  /** pick → default → 唯一候选；都没有就是 undefined。 */
+  const effectiveOf = (role: string): string | undefined => {
+    const explicit = pick[role] ?? roles[role]?.default;
+    if (explicit !== undefined) return explicit;
+    const ids = candidates.get(role) ?? [];
+    return ids.length === 1 ? ids[0] : undefined;
+  };
 
-  for (const [slot, ids] of candidates) {
-    if (effectiveOf(slot) === undefined) {
-      issues.push({
-        code: ISSUE_CODES.slotUnbound,
-        severity: 'error',
-        message: `槽位 ${slot} 有 ${ids.length} 个候选（${ids.join(', ')}）但没有可用的实现：写 bindings.${slot}，或在 slots.${slot}.default 指定一个`,
-      });
-    }
+  // 自动选中不等于免检：唯一候选也要满足角色声明的 needs
+  for (const [role, ids] of candidates) {
+    if (pick[role] !== undefined || roles[role]?.default !== undefined) continue;
+    const only = ids.length === 1 ? ids[0] : undefined;
+    if (only !== undefined) checkImplementation(manifest, role, only, 'auto', issues);
+  }
+
+  for (const [role, ids] of candidates) {
+    if (effectiveOf(role) !== undefined) continue;
+    issues.push({
+      code: ISSUE_CODES.roleUnfilled,
+      severity: 'error',
+      message: `角色 ${role} 有 ${ids.length} 个候选（${ids.join(', ')}）但没有选中任何一个：写 roles.${role}.default，或用 --pick 指定`,
+    });
   }
 
   const active = new Set<string>();
   const excluded: Graph['excluded'] = [];
   for (const res of manifest.resources) {
-    if (!res.slot) {
+    if (!res.role) {
       active.add(res.id);
-    } else if (effectiveOf(res.slot) === res.id) {
+    } else if (effectiveOf(res.role) === res.id) {
       active.add(res.id);
     } else {
-      excluded.push({ resource: res.id, slot: res.slot, reason: 'unbound-slot' });
+      excluded.push({ resource: res.id, role: res.role, reason: 'not-selected' });
     }
   }
   return { active, excluded };
@@ -169,9 +190,9 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
       }
     }
   }
-  const { active, excluded } = resolveSlots(manifest, issues);
+  const { active, excluded } = resolveRoles(manifest, issues);
 
-  // 重复 id 在所有资源上查（包括未绑定的候选）
+  // 重复 id 在所有资源上查（包括没被选中的候选）
   const seen = new Set<string>();
   for (const r of manifest.resources) {
     if (seen.has(r.id)) {
@@ -216,7 +237,7 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
             },
           }
         : { ...raw, config: deepMerge(raw.config ?? {}, patch) as Record<string, unknown> };
-    // 未绑定槽位的候选：只做结构检查，不进依赖图、不进计划
+    // 没被选中的角色候选：只做结构检查，不进依赖图、不进计划
     if (!active.has(res.id)) return;
     resources.set(res.id, res);
     const parsed = parseSource(res.source);
@@ -224,11 +245,11 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
   });
 
   // optional 资源：needs 在当前集合里无人提供时自动跳过（级联：跳过后它 provides 的能力也消失）。
-  // 作者点名的实现（bindings 或 slots[].default）不自动跳过——点名要它，缺能力应当报错而不是静默换掉。
-  const explicitlyBound = (res: ResourceSpec): boolean =>
+  // 作者点名的实现（pick 或 roles[].default）不自动跳过——点名要它，缺能力应当报错而不是静默换掉。
+  const explicitlyPicked = (res: ResourceSpec): boolean =>
     Boolean(
-      res.slot &&
-        (manifest.bindings?.[res.slot] === res.id || manifest.slots?.[res.slot]?.default === res.id),
+      res.role &&
+        (manifest.pick?.[res.role] === res.id || manifest.roles?.[res.role]?.default === res.id),
     );
   const providersOf = (set: Map<string, ResourceSpec>): Map<string, string[]> => {
     const map = new Map<string, string[]>();
@@ -244,13 +265,13 @@ export function validateGraph(manifest: Manifest): { graph: Graph; issues: Issue
     const drop = [...resources.values()].filter(
       (res) =>
         res.optional === true &&
-        !explicitlyBound(res) &&
+        !explicitlyPicked(res) &&
         (res.needs ?? []).some((need) => (available.get(need) ?? []).filter((id) => id !== res.id).length === 0),
     );
     if (drop.length === 0) break;
     for (const res of drop) {
       resources.delete(res.id);
-      excluded.push({ resource: res.id, slot: res.slot ?? '', reason: 'optional-unmet' });
+      excluded.push({ resource: res.id, role: res.role ?? '', reason: 'optional-unmet' });
     }
   }
 
