@@ -2,7 +2,7 @@
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { EXIT, command, issueError, problemRaw, say, stop } from '../emit.ts';
-import { MANIFEST_FILE, loadPack, planFor, RESOURCE_TYPES, TARGET_IDS } from '@packhub/kernel';
+import { MANIFEST_FILE, loadPack, planFor, RESOURCE_TYPES } from '@packhub/kernel';
 import { addResource } from '@packhub/runtime';
 
 export const resourceAdd = command({
@@ -20,7 +20,6 @@ export const resourceAdd = command({
     },
     dir: { type: 'string', default: '.', description: 'Pack 目录' },
     id: { type: 'string', description: '自定义资源 id（默认从 source 推断）' },
-    target: { type: 'string', default: 'dir', description: `${TARGET_IDS.join(' | ')}` },
   },
   async run({ args }) {
     const type = String(args.type) as (typeof RESOURCE_TYPES)[number];
@@ -42,18 +41,24 @@ export const resourceAdd = command({
     });
     say(`✓ 已追加资源 ${id}（${type}）→ ${file}`);
 
-    // 加完立刻重算：格式对不对、能力图缺不缺，当场能看到
+    // 加完立刻重算：格式、能力图、计划三层的错当场能看到。
+    // 这里只是作者侧自检，按中性 dir 算，不暴露安装期参数（target 只在 install / plan / verify 里选）。
     const ctx = loadPack(dir);
     const errors = ctx.issues.filter((i) => i.severity === 'error');
     if (errors.length) {
       for (const e of errors) issueError(e.code, e.message);
-      problemRaw('\n资源已写入，但清单还有错误，先修完再安装。');
+      problemRaw('\n资源已写入，但清单还有错误，先修完再打包。');
       stop(EXIT.RUNTIME);
     }
-    const { plan } = planFor(ctx, { target: String(args.target ?? 'dir') as never });
-    say(`计划：${plan?.actions.length ?? 0} 个动作 · planHash ${plan?.planHash.slice(0, 22)}…`);
+    const { plan, issues } = planFor(ctx);
+    if (!plan) {
+      for (const i of issues.filter((i) => i.severity === 'error')) issueError(i.code, i.message);
+      problemRaw('\n资源已写入，但算不出安装计划，先修清单。');
+      stop(EXIT.RUNTIME);
+    }
+    say('清单校验通过（schema / 能力图 / 计划）');
     say('要提供 / 需要能力时在清单里写 provides / needs，令牌形如 tool/repo-search@1');
-    say('下一步：packhub install . --dry-run 看会发生什么');
+    say('下一步：packhub lock 钉引用，然后 packhub pack 出归档');
   },
 });
 

@@ -262,7 +262,7 @@ registry 的索引，`search` / `install` / `update` 只读它。
 - **漂移段**：`verify` 在项目根按 state 里的安装记录查磁盘现状——写过的文件/链接在不在、指令托管块、配置里的 `mcpServers` 条目、宿主侧 MCP 登记、`state` 目录、激活指针。不读清单，也不需要作者声明。
 - **自动派生**：检查段从计划自动生成——带 `integrity` 的 `write` 动作生成一条 `knowledge-integrity`；`verify --probe-mcp` 时每个 `register.mcp` 生成一条 `mcp-ready`。派生项排在作者 `verify` 项之后；`knowledge-integrity` 与作者写了同一 `resource` + `integrity` 的项不重复，`mcp-ready` 按 resource 去重。
 - **作者声明**：清单 `verify` 数组只写计划推不出来的检查——`command`（脚本 self-test）与 `scenario`（宿主语义，要真跑一次）。`file-exists` / `config-key` 仍支持，但它们的覆盖与漂移段重叠，属于重复兜底，不再推荐手写；`knowledge-integrity` / `mcp-ready` 字段仍在 schema 里，通常也不用写（期望哈希来自资源声明的 `integrity`，MCP 规格来自计划）。
-- `install` 装后自动复核包含派生项（只读）；`publish` 门禁照旧在干净目录里跑清单里的全部检查（不受装后只读子集的限制）。
+- `install` 装后自动复核包含派生项（只读）；`publish` 门禁在干净目录里跑清单检查 + 派生段（不受装后只读子集的限制）。
 - `--probe-mcp` 只影响这一次 `verify`：对计划里每个 MCP server 真发一次 `initialize`（stdio 起进程 / http 发请求），默认关闭——起进程或联网有副作用与耗时。
 
 ## 6 签名旁挂（`packhub.dev/signatures/v0`）

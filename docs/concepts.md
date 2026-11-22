@@ -80,7 +80,7 @@ Pack 里的一条能力声明，它相对于 Agent，而不是相对于整个 ha
 
 ### Target（安装目标）
 
-Target 是**安装 / 交付参数**：决定这次把这份内容落到哪个宿主形态——中性的 `dir`，或某个 harness（`dsh` / `claude-code` / `codex`）；不显式指定时是 `dir`。它由安装时选（`planFor(ctx, { target })`），不是 Pack 自带的属性。
+Target 是**安装参数**：决定这次把这份内容落到哪个宿主形态——中性的 `dir`，或某个 harness（`dsh` / `claude-code` / `codex`）；不显式指定时是 `dir`。它由安装时选（`planFor(ctx, { target })`），不是 Pack 自带的属性，打包（`pack`）与锁定（`lock`）都不接受它。
 
 它不属于 Pack 内容、不进锁、不进内容哈希：同一份内容装到不同 target，锁与签名不变；变的是落点与计划（`planFor` 现算）。
 
@@ -108,7 +108,7 @@ Target 是**安装 / 交付参数**：决定这次把这份内容落到哪个宿
 
 模型循环、工具执行、上下文、界面都在它那里。
 
-宿主名同时是 target 的一种：装到某个 harness 上，就是按它的落点表物化；`dir` 是中性形态，不对应任何宿主（见 Target 词条）。
+`--target` 只有两类取值：中性的 `dir`，或某个宿主名（`dsh` / `claude-code` / `codex`）。装到宿主上就是按那个宿主的落点表物化；`dir` 不对应任何宿主（见 Target 词条）。
 
 ### Adapter（适配）
 

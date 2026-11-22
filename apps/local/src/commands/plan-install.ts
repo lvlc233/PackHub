@@ -283,12 +283,12 @@ resources:
       writeFileSync(gitignore, `${STATE_DIR}/\npack.phub\npackhub.key\n*.tar.gz\n`, 'utf8');
     }
     say(`created ${file}`);
-    say('下一步：packhub resource add <type> <source> 追加资源，然后 packhub plan 看动作');
+    say('下一步：packhub resource add <type> <source> 追加资源，然后 packhub lock 钉引用');
     say(
       '能力写进 provides / needs，令牌是 <form>/<name>@<major>（tool / skill / content / config）；安装顺序由 needs 派生，没有 dependsOn',
     );
     say('要发布到公共 registry 时，把 metadata.visibility 改成 public（或 unlisted 直链分发）');
-    say('verify 不是必填：只写程序自己查不了的事——宿主真读到、MCP 真起来、命令真跑通');
+    say('verify 不是必填：只写程序自己查不了的事——宿主真读到（scenario）、命令真跑通（command）；MCP 握手用 verify --probe-mcp 自动做');
   },
 });
 
