@@ -23,7 +23,7 @@ async function installed(): Promise<string> {
   writeFileSync(join(dir, 'packhub.yaml'), MANIFEST, 'utf8');
   writeFileSync(join(dir, 'rules.md'), '# r\n', 'utf8');
   const ctx = loadPack(dir);
-  await installPack(ctx, planFor(ctx, { target: 'claude-code' }).plan!);
+  await installPack(ctx, planFor(ctx, { harness: 'claude-code' }).plan!);
   return dir;
 }
 

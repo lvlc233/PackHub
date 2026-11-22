@@ -1,5 +1,17 @@
 import { isAbsolute, relative } from 'node:path';
-import type { TargetId } from '@packhub/kernel';
+import type { HarnessId } from '@packhub/kernel';
+
+/**
+ * 实例形态：`dir` 是普通项目目录实例（不是宿主），其余三种是宿主名。
+ *
+ * 这几个值是 PAL 自己的概念，不是 kernel 的安装参数枚举——kernel 的 `--harness`
+ * 只有宿主名；PAL 在建实例时把 `dir` 映射成「不传 harness（平铺目录）」。
+ */
+export const INSTANCE_KINDS = ['dir', 'dsh', 'claude-code', 'codex'] as const satisfies readonly (
+  | 'dir'
+  | HarnessId
+)[];
+export type InstanceKind = (typeof INSTANCE_KINDS)[number];
 
 /** 启动时能拿到的上下文，交给适配器拼参数。 */
 export interface StartContext {
@@ -82,7 +94,7 @@ const dshAdapter: HarnessAdapter = {
   },
 };
 
-export const ADAPTERS: Record<TargetId, HarnessAdapter> = {
+export const ADAPTERS: Record<InstanceKind, HarnessAdapter> = {
   dir: {
     label: '普通项目',
     noStartReason: 'dir 实例是一个项目目录，没有可启动的宿主进程；用 packhub 直接在这个目录里工作。',
@@ -109,18 +121,16 @@ export const ADAPTERS: Record<TargetId, HarnessAdapter> = {
   },
 };
 
-export const HARNESS_IDS = Object.keys(ADAPTERS) as TargetId[];
-
-export function isHarnessId(value: string): value is TargetId {
-  return (HARNESS_IDS as string[]).includes(value);
+export function isInstanceKind(value: string): value is InstanceKind {
+  return (INSTANCE_KINDS as readonly string[]).includes(value);
 }
 
 /**
  * 装进实例时把资源落到实例自己的 home 段，而不是项目内的 .packhub/。
- * 这样宿主读的是这个实例的 skills，不是全局那一份。
+ * 这样宿主读的是这个实例的 skills，不是全局那一份。`dir` 实例没有 home 段，返回 undefined。
  */
-export function targetVarsFor(harness: TargetId): Record<string, string> | undefined {
-  const adapter = ADAPTERS[harness];
+export function targetVarsFor(kind: InstanceKind): Record<string, string> | undefined {
+  const adapter = ADAPTERS[kind];
   if (!adapter.homeDir) return undefined;
   return {
     skillsDir: `${adapter.homeDir}/skills`,
@@ -133,12 +143,12 @@ export function targetVarsFor(harness: TargetId): Record<string, string> | undef
  * 实例 home 相对实例根的段（统一 /）。home 缺失、就在根上、或落在根外（接管来的外部 home）
  * 时用适配器声明的 homeDir 兜底 —— 它本来就是「相对实例根」的约定。
  */
-export function instanceHomeRel(harness: TargetId, root: string, home?: string): string | undefined {
+export function instanceHomeRel(kind: InstanceKind, root: string, home?: string): string | undefined {
   if (home) {
     const rel = relative(root, home).replace(/\\/g, '/').replace(/\/+$/, '');
     if (rel && rel !== '..' && !rel.startsWith('../') && !isAbsolute(rel)) return rel;
   }
-  return ADAPTERS[harness].homeDir;
+  return ADAPTERS[kind].homeDir;
 }
 
 /**
@@ -146,16 +156,16 @@ export function instanceHomeRel(harness: TargetId, root: string, home?: string):
  * 备份默认排除与 keepData 归档前删除都读这一份，不另立第二份清单。
  * 只按适配器的 home 段匹配：实例根上或别的子目录里的同名文件不在范围里。
  */
-export function credentialRels(harness: TargetId, root: string, home?: string): string[] {
-  const files = ADAPTERS[harness].credentialFiles ?? [];
-  const dir = instanceHomeRel(harness, root, home);
+export function credentialRels(kind: InstanceKind, root: string, home?: string): string[] {
+  const files = ADAPTERS[kind].credentialFiles ?? [];
+  const dir = instanceHomeRel(kind, root, home);
   if (!dir) return [];
   return files.map((file) => `${dir}/${file.replace(/\\/g, '/').replace(/^\.?\//, '')}`);
 }
 
 /** 从启动输出里取 URL 与端口；取不到就返回 undefined。 */
-export function parseStartUrl(text: string, harness: TargetId): { url: string; port?: number } | undefined {
-  const pattern = ADAPTERS[harness].start?.url;
+export function parseStartUrl(text: string, kind: InstanceKind): { url: string; port?: number } | undefined {
+  const pattern = ADAPTERS[kind].start?.url;
   if (!pattern) return undefined;
   const hit = text.match(pattern);
   if (!hit?.[1]) return undefined;

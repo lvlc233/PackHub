@@ -9,12 +9,11 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
-import type { TargetId } from '@packhub/kernel';
 import { PalError } from './errors.ts';
 import { API_VERSION, RECORD, RUNTIME, parseConfig, readRecordResult, type InstanceConfig, type InstanceRecord } from './records.ts';
 import { writeInstance } from './recordWrite.ts';
 import { requireInstance } from './catalog.ts';
-import { ADAPTERS, credentialRels } from './layout.ts';
+import { ADAPTERS, credentialRels, type InstanceKind } from './layout.ts';
 import { LOCK } from './lock.ts';
 import { STOPPING_MARK } from './stopMark.ts';
 import { isPidAlive } from './process.ts';
@@ -45,7 +44,7 @@ export interface BackupMeta {
   instance: {
     id: string;
     name: string;
-    harness: TargetId;
+    harness: InstanceKind;
     /** Pack 名（不是整份 pack 对象）；版本单独给 */
     pack: string;
     version: string;

@@ -87,7 +87,7 @@ describe('update', () => {
     ].plan;
     expect(before).not.toHaveProperty('apiVersion');
     expect(before).not.toHaveProperty('pack');
-    expect(Object.keys(before).sort()).toEqual(['actions', 'excluded', 'planHash', 'target', 'verify']);
+    expect(Object.keys(before).sort()).toEqual(['actions', 'excluded', 'planHash', 'verify']);
 
     const res = await updatePack({ name: 'demo/upd', index, projectDir: project });
     expect(res.changed).toBe(true);

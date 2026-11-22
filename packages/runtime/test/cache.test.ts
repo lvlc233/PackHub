@@ -23,7 +23,6 @@ function project(): string {
           plan: {
             apiVersion: 'packhub.dev/plan/v0',
             pack: { name: 'demo/cache', version: '0.0.1' },
-            target: 'dir',
             actions: [
               {
                 op: 'fetch',

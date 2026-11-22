@@ -43,7 +43,7 @@ describe('计划细节', () => {
     const { parseManifest } = await import('@packhub/kernel');
     const { validateGraph } = await import('@packhub/kernel');
     const { buildPlan } = await import('@packhub/kernel');
-    const { DIR_TARGET_VARS } = await import('@packhub/kernel');
+    const { DIR_LAYOUT_VARS } = await import('@packhub/kernel');
 
     const manifest = parseManifest(`apiVersion: packhub.dev/v0
 kind: Pack
@@ -58,9 +58,9 @@ resources:
     source: github:o/r/skills/code-review@9f2c1ab7d4e5f60718293a4b5c6d7e8f90123456
 `).manifest!;
     const { graph } = validateGraph(manifest);
+    // 不传 harness = 平铺目录；落点表显式给平铺那份
     const { plan } = buildPlan(manifest, graph, {
-      target: 'dir',
-      targetVars: DIR_TARGET_VARS,
+      targetVars: DIR_LAYOUT_VARS,
       platform: 'linux-x64',
     });
     const link = plan!.actions.find((a) => a.op === 'link.skill');
@@ -87,6 +87,24 @@ describe('install + verify 闭环（本地资源，离线）', () => {
 
     const second = await installPack(ctx, plan!);
     expect(second.outcomes.some((o) => o.status === 'noop')).toBe(true);
+  });
+
+  it('state 快照跟着计划走：平铺没有 harness 字段，宿主装才写 harness', async () => {
+    const { loadState } = await import('../src/index.ts');
+    const key = 'lvlc233/team-conventions@0.0.2';
+
+    // 平铺：装进 work 自己
+    const ctx = loadPack(work);
+    await installPack(ctx, planFor(ctx).plan!);
+    const flat = loadState(work).packs[key]!.plan!;
+    expect(flat).not.toHaveProperty('harness');
+
+    // 宿主形态：另找一个根，按 dsh 的落点装
+    const project = mkdtempSync(join(tmpdir(), 'packhub-plan-harness-'));
+    await installPack(ctx, planFor(ctx, { harness: 'dsh' }).plan!, { root: project, packRoot: work });
+    const hosted = loadState(project).packs[key]!.plan!;
+    expect(hosted.harness).toBe('dsh');
+    rmSync(project, { recursive: true, force: true });
   });
 
   it('清单变化会体现在锁的 contentHash 里', async () => {

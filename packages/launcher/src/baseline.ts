@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import type { TargetId } from '@packhub/kernel';
+import type { InstanceKind } from './layout.ts';
 import { loadState } from '@packhub/runtime';
 import { writeAtomic } from './atomic.ts';
 import { nowIso } from './time.ts';
@@ -24,7 +24,7 @@ export interface Baseline {
   apiVersion: 'packhub.dev/baseline/v0';
   pack: string;
   version: string;
-  harness: TargetId;
+  harness: InstanceKind;
   planHash: string;
   at: string;
   files: BaselineFile[];

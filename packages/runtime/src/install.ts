@@ -20,7 +20,7 @@ import { spawnSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import * as tar from 'tar';
-import type { Plan, PlanAction, PlanShape, PlanSnapshot } from '@packhub/kernel';
+import type { HarnessId, Plan, PlanAction, PlanShape, PlanSnapshot } from '@packhub/kernel';
 import {
   actionFromBase,
   actionIsShared,
@@ -133,7 +133,13 @@ export interface VersionRecord {
   apiVersion: typeof VERSION_API_VERSION;
   pack: string;
   version: string;
-  target: Plan['target'];
+  /**
+   * 装到哪个宿主；平铺目录时为 undefined。
+   *
+   * v0 没有兼容承诺：更早的 record.json 里这个位置是 `target`（含 `dir`）。读端不认它，
+   * 一律当平铺目录；装过宿主的旧版本想保留投影只能重装。
+   */
+  harness?: HarnessId;
   planHash: string;
   installedAt: string;
   /** 计划里的 merge/config 片段已经内联，换版本时不再依赖 Pack 目录 */
@@ -147,7 +153,8 @@ export interface VersionRecord {
 
 interface ActiveFile {
   apiVersion: typeof ACTIVE_API_VERSION;
-  packs: Record<string, { version: string; target: string; planHash: string; at: string }>;
+  /** 与 VersionRecord.harness 同义；旧 active.json 里的 `target` 读端同样当平铺 */
+  packs: Record<string, { version: string; harness?: HarnessId; planHash: string; at: string }>;
 }
 
 const INSTALL_LOCK = `${STATE_DIR}/installing.lock`;
@@ -262,10 +269,15 @@ function semanticSharedPaths(plan: PlanShape): Set<string> {
   return out;
 }
 
-/** state 里存的是计划快照：target/planHash/actions/verify/excluded，够 diff、够算路径。 */
+/**
+ * state 里存的是计划快照：harness/planHash/actions/verify/excluded，够 diff、够算路径。
+ *
+ * 平铺目录时快照里没有 `harness`。更早的快照存的是 `target`：v0 无兼容承诺，读端不认，
+ * 一律当平铺目录（旧宿主安装要重装）；这里只按新形状写。
+ */
 export function planSnapshot(plan: Plan): PlanSnapshot {
   return {
-    target: plan.target,
+    ...(plan.harness ? { harness: plan.harness } : {}),
     planHash: plan.planHash,
     actions: plan.actions,
     verify: plan.verify,
@@ -364,7 +376,7 @@ export async function applyPlan(plan: Plan, opts: ApplyOptions): Promise<ApplyRe
 
   const statePath = join(opts.root, STATE_FILE);
   // codex 的技能选择器要求 agents/openai.yaml：源里没有就补一份，不执行任何包内代码
-  if (!opts.dryRun && plan.target === 'codex' && !outcomes.some((o) => o.status === 'failed')) {
+  if (!opts.dryRun && plan.harness === 'codex' && !outcomes.some((o) => o.status === 'failed')) {
     try {
       ensureCodexSkillYaml(opts.root, plan, written);
     } catch (err) {
@@ -496,9 +508,20 @@ function writeActive(root: string, next: ActiveFile): void {
   atomicWrite(file, JSON.stringify(next, null, 2) + '\n');
 }
 
-function setActive(root: string, pack: string, version: string, planHash: string, target: string): void {
+function setActive(
+  root: string,
+  pack: string,
+  version: string,
+  planHash: string,
+  harness: HarnessId | undefined,
+): void {
   const active = readActive(root);
-  active.packs[pack] = { version, target, planHash, at: new Date().toISOString() };
+  active.packs[pack] = {
+    version,
+    ...(harness ? { harness } : {}),
+    planHash,
+    at: new Date().toISOString(),
+  };
   writeActive(root, active);
 }
 
@@ -539,7 +562,7 @@ function stageVersion(
     apiVersion: VERSION_API_VERSION,
     pack: plan.pack.name,
     version: plan.pack.version,
-    target: plan.target,
+    ...(plan.harness ? { harness: plan.harness } : {}),
     planHash: plan.planHash,
     installedAt: new Date().toISOString(),
     plan,
@@ -548,7 +571,7 @@ function stageVersion(
     files,
   };
   writeFileSync(join(dir, 'record.json'), JSON.stringify(record, null, 2) + '\n', 'utf8');
-  setActive(root, plan.pack.name, plan.pack.version, plan.planHash, plan.target);
+  setActive(root, plan.pack.name, plan.pack.version, plan.planHash, plan.harness);
   pruneVersions(root, plan.pack.name);
   return record;
 }

@@ -1,4 +1,4 @@
-import type { TargetId } from '@packhub/kernel';
+import type { InstanceKind } from './layout.ts';
 import { createInstance } from './create.ts';
 import { PalError } from './errors.ts';
 import type { Isolation } from './isolation.ts';
@@ -24,7 +24,7 @@ export interface CreateFromRefOptions {
   /** registry 索引：路径、URL 或配置里的名字 */
   index?: string;
   name: string;
-  harness: TargetId;
+  harness: InstanceKind;
   /** 实例根；调用方已按自己的规则校验（CLI --root / API body.root），这里原样透传 */
   root?: string;
   /** 从已有宿主 home 带模型凭据与指令（CLI --from-home / API body.fromHome） */

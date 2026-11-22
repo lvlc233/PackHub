@@ -33,7 +33,7 @@ describe('整合包的上下文', () => {
   默认只检查、不改文件。`),
       'rules.md': '# 规则\n',
     });
-    const { plan, issues } = planFor(loadPack(dir), { target: 'dsh' });
+    const { plan, issues } = planFor(loadPack(dir), { harness: 'dsh' });
     expect(issues.filter((i) => i.severity === 'error')).toEqual([]);
     const inst = plan!.actions.find((a) => a.op === 'instruction');
     const content = inst && inst.op === 'instruction' ? inst.content : '';
@@ -48,7 +48,7 @@ describe('整合包的上下文', () => {
       'CONTEXT.md': '这是文件里的开场。\n',
       'rules.md': '# 规则\n',
     });
-    const { plan } = planFor(loadPack(dir), { target: 'dsh' });
+    const { plan } = planFor(loadPack(dir), { harness: 'dsh' });
     const inst = plan!.actions.find((a) => a.op === 'instruction');
     const content = inst && inst.op === 'instruction' ? inst.content : '';
     expect(content.startsWith('这是文件里的开场。')).toBe(true);
@@ -60,7 +60,7 @@ describe('整合包的上下文', () => {
       'packhub.yaml': base('context: ./NOPE.md'),
       'rules.md': '# 规则\n',
     });
-    const { plan, issues } = planFor(loadPack(dir), { target: 'dsh' });
+    const { plan, issues } = planFor(loadPack(dir), { harness: 'dsh' });
     expect(issues.map((i) => i.code)).toContain('context-file-missing');
     expect(plan).toBeUndefined();
     rmSync(dir, { recursive: true, force: true });
@@ -71,7 +71,7 @@ describe('整合包的上下文', () => {
       'packhub.yaml': base('context: ../outside.md'),
       'rules.md': '# 规则\n',
     });
-    const { issues } = planFor(loadPack(dir), { target: 'dsh' });
+    const { issues } = planFor(loadPack(dir), { harness: 'dsh' });
     expect(issues.map((i) => i.code)).toContain('context-outside-pack');
     rmSync(dir, { recursive: true, force: true });
   });

@@ -224,13 +224,13 @@ describe('cli 端到端：install → verify → uninstall', () => {
     rmSync(project, { recursive: true, force: true });
   });
 
-  it('target 只由命令行选：清单不声明 target', () => {
-    const pack = mkdtempSync(join(tmpdir(), 'packhub-cli-target-'));
+  it('落点只由命令行选：清单不声明安装形态', () => {
+    const pack = mkdtempSync(join(tmpdir(), 'packhub-cli-harness-'));
     writeFileSync(
       join(pack, 'packhub.yaml'),
       `apiVersion: packhub.dev/v0
 kind: Pack
-metadata: { name: demo/target, version: 0.0.1 }
+metadata: { name: demo/layout, version: 0.0.1 }
 requires: { packhub: ">=0.0.1 <0.1" }
 resources:
   - id: rules
@@ -240,10 +240,14 @@ resources:
       'utf8',
     );
     writeFileSync(join(pack, 'rules.md'), '# rules\n', 'utf8');
-    // 清单里没有 target 字段：落点按命令行 --target 现算，换 target 就是换一份计划
-    const planned = run(['plan', pack, '--target', 'claude-code']);
+    // 清单里没有安装形态字段：不写 --harness 就是平铺目录，写了就按那个宿主的落点现算
+    const flat = run(['plan', pack]);
+    expect(flat.status).toBe(0);
+    expect(flat.out).toContain('→ 平铺目录');
+
+    const planned = run(['plan', pack, '--harness', 'claude-code']);
     expect(planned.status).toBe(0);
-    expect(planned.out).toContain('target=claude-code');
+    expect(planned.out).toContain('harness=claude-code');
     rmSync(pack, { recursive: true, force: true });
   });
 

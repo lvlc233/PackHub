@@ -9,7 +9,6 @@ function plan(actions: Plan['actions']): Plan {
   return {
     apiVersion: 'packhub.dev/plan/v0',
     pack: { name: 'demo/guard', version: '0.0.1' },
-    target: 'dir',
     actions,
     verify: [],
     excluded: [],

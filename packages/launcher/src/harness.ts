@@ -1,13 +1,12 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
 import { delimiter, extname, isAbsolute, join, sep } from 'node:path';
-import type { TargetId } from '@packhub/kernel';
-import { ADAPTERS, HARNESS_IDS, isHarnessId } from './layout.ts';
+import { ADAPTERS, INSTANCE_KINDS, isInstanceKind, type InstanceKind } from './layout.ts';
 import { PalError } from './errors.ts';
 
-/** 宿主发现结果：装了没有、在哪、什么版本、能不能由 PAL 起。 */
+/** 宿主发现结果：装了没有、在哪、什么版本、能不能由 PAL 起。dir 是项目目录形态，不是宿主。 */
 export interface HarnessInfo {
-  id: TargetId;
+  id: InstanceKind;
   label: string;
   /** project：项目目录，不是可执行宿主 */
   kind: 'project' | 'host';
@@ -115,17 +114,17 @@ export function resetHarnessCache(): void {
 }
 
 /** 环境变量覆盖：PAL_DSH_BIN / PAL_CLAUDE_BIN / PAL_CODEX_BIN 里可以写命令名或绝对路径。 */
-function binaryOverride(id: TargetId): string | undefined {
+function binaryOverride(id: InstanceKind): string | undefined {
   const key = `PAL_${id.toUpperCase().replace(/-/g, '_')}_BIN`;
   return process.env[key]?.trim() || undefined;
 }
 
-export function harnessBinary(id: TargetId): string | undefined {
+export function harnessBinary(id: InstanceKind): string | undefined {
   return binaryOverride(id) ?? ADAPTERS[id].executable;
 }
 
 /** 发现一个宿主：可执行文件、版本、是否可启动。 */
-export function discoverHarness(id: TargetId, opts: DiscoverOptions = {}): HarnessInfo {
+export function discoverHarness(id: InstanceKind, opts: DiscoverOptions = {}): HarnessInfo {
   const adapter = ADAPTERS[id];
   const binary = harnessBinary(id);
   const cacheKey = `${id}|${binary ?? ''}|${opts.probeVersion === false ? 'noprobe' : 'probe'}`;
@@ -174,23 +173,23 @@ export function discoverHarness(id: TargetId, opts: DiscoverOptions = {}): Harne
 }
 
 export function discoverAll(opts: DiscoverOptions = {}): HarnessInfo[] {
-  return HARNESS_IDS.map((id) => discoverHarness(id, opts));
+  return INSTANCE_KINDS.map((id) => discoverHarness(id, opts));
 }
 
-/** 解析并校验 harness 名；不认识的名字给可选值，不再拿包声明去挡。 */
-export function requireHarness(value: string): TargetId {
-  const harness = value.trim() || 'dir';
-  if (!isHarnessId(harness)) {
-    throw new PalError('unknown-harness', `没有这个宿主：${harness}`, {
-      hint: `可选：${HARNESS_IDS.join(' / ')}`,
-      details: { harness, choices: HARNESS_IDS },
+/** 解析并校验实例形态（dir | 宿主名）；不认识的名字给可选值，不再拿包声明去挡。 */
+export function requireHarness(value: string): InstanceKind {
+  const kind = value.trim() || 'dir';
+  if (!isInstanceKind(kind)) {
+    throw new PalError('unknown-harness', `没有这个实例形态：${kind}`, {
+      hint: `可选：${INSTANCE_KINDS.join(' / ')}（dir 是项目目录实例，其余是宿主）`,
+      details: { harness: kind, choices: INSTANCE_KINDS },
     });
   }
-  return harness;
+  return kind;
 }
 
 /** 启动前确认宿主真的存在；找不到时给出装法而不是让 spawn 抛 ENOENT。 */
-export function requireHarnessBinary(id: TargetId): HarnessInfo {
+export function requireHarnessBinary(id: InstanceKind): HarnessInfo {
   const info = discoverHarness(id);
   if (!info.startable) {
     throw new PalError('not-startable', `${ADAPTERS[id].label} 没有可启动的常驻服务`, {
@@ -209,7 +208,7 @@ export function requireHarnessBinary(id: TargetId): HarnessInfo {
 }
 
 /** 诊断用：宿主目录是否存在（不创建）。 */
-export function harnessHomeExists(root: string, id: TargetId): boolean {
+export function harnessHomeExists(root: string, id: InstanceKind): boolean {
   const adapter = ADAPTERS[id];
   if (!adapter.homeDir) return false;
   return existsSync(join(root, adapter.homeDir + sep));

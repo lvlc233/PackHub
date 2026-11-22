@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import type { TargetId } from '@packhub/kernel';
+import type { InstanceKind } from './layout.ts';
 import { PalError } from './errors.ts';
 import type { InstanceRecord } from './records.ts';
 import { requireInstance } from './catalog.ts';
@@ -14,7 +14,7 @@ import { nowIso } from './time.ts';
 export interface InstanceTemplate {
   apiVersion: 'packhub.dev/instance-template/v0';
   name: string;
-  harness: TargetId;
+  harness: InstanceKind;
   pack: { name: string; version: string; ref?: string };
   origin?: InstanceRecord['origin'];
   createdAt: string;

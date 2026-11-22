@@ -31,14 +31,14 @@ describe('planFor 转发 skipResourceTypes', () => {
     const ctx = loadPack(dir);
     expect(ctx.issues.filter((i) => i.severity === 'error')).toEqual([]);
 
-    const skipped = planFor(ctx, { target: 'dir', skipResourceTypes: ['mcp'] }).plan!;
+    const skipped = planFor(ctx, { skipResourceTypes: ['mcp'] }).plan!;
     expect(skipped.actions.some((a) => a.op === 'register.mcp')).toBe(false);
     expect(skipped.excluded).toContainEqual({ resource: 'gh', reason: 'host-managed' });
     // 其他资源照常进计划
     expect(skipped.actions.some((a) => a.op === 'write' && a.to === '.packhub/knowledge/rules.md')).toBe(true);
 
     // 不传这个选项时行为不变
-    const normal = planFor(ctx, { target: 'dir' }).plan!;
+    const normal = planFor(ctx, {}).plan!;
     expect(normal.actions.some((a) => a.op === 'register.mcp')).toBe(true);
     expect(normal.excluded).toEqual([]);
     expect(normal.planHash).not.toBe(skipped.planHash);

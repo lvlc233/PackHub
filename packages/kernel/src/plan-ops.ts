@@ -135,7 +135,7 @@ export const PLAN_OPS: Record<PlanOpName, PlanOpSpec> = {
     undoPayload: noUndo,
     paths: (a, plan) =>
       a.op === 'link.skill'
-        ? [a.to, ...(plan.target === 'codex' ? [`${a.to}/${CODEX_SKILL_YAML}`] : [])]
+        ? [a.to, ...(plan.harness === 'codex' ? [`${a.to}/${CODEX_SKILL_YAML}`] : [])]
         : [],
     written: (a) => (a.op === 'link.skill' ? [a.to] : []),
     shared: () => false,
@@ -192,10 +192,10 @@ export const PLAN_OPS: Record<PlanOpName, PlanOpSpec> = {
 /* ---------- 派生查询：runtime 侧只调这些函数，不再自己按 op 数路径 ---------- */
 
 /**
- * 算路径只需要计划的两个字段：target（派生输出随宿主变化）与 actions。
+ * 算路径只需要计划的两个字段：harness（派生输出随宿主变化；平铺目录时为空）与 actions。
  * 用它而不是整个 `Plan`，state 里存过的计划快照（`PlanSnapshot`）能直接传进来。
  */
-export type PlanShape = Pick<Plan, 'target' | 'actions'>;
+export type PlanShape = Pick<Plan, 'harness' | 'actions'>;
 
 /** 一份计划写到安装根的全部路径（去重；快照、版本镜像、缓存、所有权、升级清理共用）。 */
 export function planPathsOf(plan: PlanShape): string[] {

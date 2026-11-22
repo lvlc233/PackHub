@@ -27,9 +27,10 @@ import {
   readLocalOverrides,
   validateGraph,
   checkLockConsistency,
+  HARNESS_IDS,
   PACKHUB_ENV,
   STATE_DIR,
-  TARGET_IDS,
+  type HarnessId,
 } from '@packhub/kernel';
 import {
   fetchPack,
@@ -45,7 +46,7 @@ import {
   type ActionOutcome,
 } from '@packhub/runtime';
 import { parsePackRef } from '../ref.ts';
-import { reportIssues, printPlan, SAFE_CHECKS } from './shared.ts';
+import { parseHarness, reportIssues, printPlan, SAFE_CHECKS } from './shared.ts';
 
 type Say = (line: string) => void;
 
@@ -72,7 +73,8 @@ function printOutcomes(sayLine: Say, outcomes: ActionOutcome[]): void {
 
 interface CommonInstall {
   projectDir: string;
-  target: string;
+  /** 只决定按哪个宿主的落点表物化；不写 = 平铺目录 */
+  harness?: HarnessId;
   dryRun: boolean;
   overwrite: boolean;
   allowExec: boolean;
@@ -88,7 +90,7 @@ async function installLocal(sourceDir: string, opts: CommonInstall): Promise<voi
   const packRoot = resolve(sourceDir);
   const ctx = loadPack(packRoot);
   if (reportIssues(ctx.issues)) stop(EXIT.USAGE);
-  const { plan: p, issues } = planFor(ctx, { target: opts.target as never });
+  const { plan: p, issues } = planFor(ctx, opts.harness ? { harness: opts.harness } : {});
   if (!p) {
     reportIssues(issues);
     stop(EXIT.USAGE);
@@ -216,7 +218,7 @@ async function installExternal(opts: ExternalInstall): Promise<void> {
   let ctx = withLockPins(rawCtx, lock);
   if (reportIssues(ctx.issues)) stop(EXIT.USAGE);
   // 锁核对（消费端单点）：锁只描述内容（清单 + resolved），判据与文案都来自 kernel 的
-  // checkLockConsistency。安装 target 不参与核对；装到哪个 target 由下面按 --target 现算。
+  // checkLockConsistency。装到哪个宿主不参与核对；宿主由下面按 --harness 现算。
   const lockCheck = checkLockConsistency(lock, ctx.manifest);
   // 信任来源：本机持久信任列表（packhub trust add）；有列表就只认列表内的公钥
   const policy = signaturePolicy({
@@ -281,7 +283,7 @@ async function installExternal(opts: ExternalInstall): Promise<void> {
     sayLine('已应用 .packhub/local.yaml 补丁');
   }
 
-  const { plan: p, issues } = planFor(ctx, { target: opts.target as never });
+  const { plan: p, issues } = planFor(ctx, opts.harness ? { harness: opts.harness } : {});
   if (!p) {
     reportIssues(issues, 'packhub install');
     stop(EXIT.USAGE);
@@ -371,7 +373,10 @@ export const install = command({
     dir: { type: 'string', default: '.', description: '项目根：装到这里（默认当前目录）' },
     index: { type: 'string', description: `registry 的 index.json（本地路径或 URL；也可用 ${PACKHUB_ENV.index}）` },
     version: { type: 'string', description: 'registry 包的版本，默认 latest；与 name@version 等效' },
-    target: { type: 'string', default: 'dir', description: `${TARGET_IDS.join(' | ')}` },
+    harness: {
+      type: 'string',
+      description: `安装参数：按哪个宿主的落点表物化（${HARNESS_IDS.join(' / ')}）；不写 = 平铺目录`,
+    },
     'dry-run': { type: 'boolean', default: false, description: '只打印计划，不落盘' },
     overwrite: { type: 'boolean', default: false, description: '允许覆盖别的包写过的文件' },
     'allow-stale-lock': {
@@ -396,9 +401,10 @@ export const install = command({
   async run({ args }) {
     const projectDir = resolve(String(args.dir));
     const source = String(args.source ?? '.');
+    const harness = parseHarness(args.harness === undefined ? undefined : String(args.harness));
     const common: CommonInstall = {
       projectDir,
-      target: String(args.target ?? 'dir'),
+      ...(harness ? { harness } : {}),
       dryRun: Boolean(args['dry-run']),
       overwrite: Boolean(args.overwrite),
       allowExec: Boolean(args['allow-exec']),

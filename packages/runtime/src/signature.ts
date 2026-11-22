@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs';
 /**
  * 签名覆盖的内容：包名 + 版本 + `contentHash`。
  * contentHash 由 kernel 的 `contentHashOf(清单, 锁的 resolved)` 算出：改清单或改锁里的引用都会让它变。
- * 安装 target 不在载荷里——它是安装期参数，不是内容。
+ * 装到哪个宿主不在载荷里——它是安装期参数，不是内容。
  */
 export function signablePayload(pack: string, contentHash: string): Buffer {
   return Buffer.from(JSON.stringify({ pack, contentHash }), 'utf8');

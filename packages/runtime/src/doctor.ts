@@ -137,8 +137,7 @@ export function doctorPack(root: string): DoctorReport {
 interface ActivePointer {
   version: string;
   planHash: string;
-  target?: string;
-  at?: string;
+  /** 其余字段（harness / 旧 target / at）漂移检查不看；旧 active.json 里有 target 也照样读 */
 }
 
 function readActiveFile(root: string): Record<string, ActivePointer> {

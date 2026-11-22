@@ -7,7 +7,7 @@ CatalogEntry
 CatalogHit
 Composition
 CompositionContext
-DIR_TARGET_VARS
+DIR_LAYOUT_VARS
 ExecSpec
 Graph
 GraphEdge
@@ -19,7 +19,9 @@ InstalledResource
 Issue
 IssueCode
 KindContext
+LAYOUT_VARS
 LOCK_FILE
+LayoutVars
 LoadResult
 LocalOverrides
 LockConsistency
@@ -61,11 +63,7 @@ STATE_FILE
 Severity
 SourceKind
 StateDirSpec
-TARGET_IDS
-TARGET_VARS
 TOOL_RUNTIMES
-TargetId
-TargetVars
 ToolCommand
 ToolRuntime
 VerifyCheck
@@ -94,8 +92,8 @@ isCapabilityToken
 isHarnessId
 isPlainObject
 isResourceType
-isTargetId
 isVolatilePin
+layoutFor
 loadManifest
 loadPack
 mergeLocalOverrides

@@ -113,7 +113,7 @@ function constArrayLiterals(name: string, seen = new Set<string>()): Set<string>
 
 /**
  * 类型节点上的字符串字面量集合：字面量联合、`ResourceType` 这类别名、
- * `(typeof LIST)[number]`、数组元素（`TargetId[]`）。
+ * `(typeof LIST)[number]`、数组元素（`HarnessId[]`）。
  * 不是字面量联合（或解不开）返回 undefined——那是「这里没有 enum 可比」，不是一致。
  */
 function literalSetOfType(

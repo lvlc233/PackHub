@@ -15,8 +15,8 @@ resources:
     source: ./rules.md
 `;
 
-describe('锁与 target 无关', () => {
-  it('锁只描述内容：不存计划快照，contentHash 不随安装 target 变', async () => {
+describe('锁与宿主无关', () => {
+  it('锁只描述内容：不存计划快照，contentHash 不随装到哪个宿主变', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'packhub-multilock-'));
     writeFileSync(join(dir, 'packhub.yaml'), MANIFEST, 'utf8');
     writeFileSync(join(dir, 'rules.md'), '# r\n', 'utf8');
@@ -31,9 +31,9 @@ describe('锁与 target 无关', () => {
     const again = await lockPack(loadPack(dir), { offline: true });
     expect(again.lock.contentHash).toBe(res.lock.contentHash);
 
-    // 装到不同 target 现算的计划不同，但这些计划不进锁
-    expect(planFor(ctx, { target: 'dir' }).plan!.planHash).not.toBe(
-      planFor(ctx, { target: 'dsh' }).plan!.planHash,
+    // 装到不同宿主现算的计划不同，但这些计划不进锁
+    expect(planFor(ctx, {}).plan!.planHash).not.toBe(
+      planFor(ctx, { harness: 'dsh' }).plan!.planHash,
     );
     rmSync(dir, { recursive: true, force: true });
   });

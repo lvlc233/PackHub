@@ -1,8 +1,8 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
-import { MANIFEST_FILE, planFor, type PackContext, type TargetId } from '@packhub/kernel';
+import { MANIFEST_FILE, planFor, type PackContext } from '@packhub/kernel';
 import { installPack, loadLock, loadPack, loadState, withLockPins } from '@packhub/runtime';
-import { ADAPTERS, targetVarsFor } from './layout.ts';
+import { ADAPTERS, targetVarsFor, type InstanceKind } from './layout.ts';
 import { baselineFromState, writeBaseline } from './baseline.ts';
 import { withInstanceLock } from './lock.ts';
 import { API_VERSION, readRecord, recordFile, runtimeFile, type InstanceRecord } from './records.ts';
@@ -24,7 +24,8 @@ import { assertHarness, assertExternalRoot, assertNameFree } from './validators.
 
 export interface CreateInstanceOptions {
   name: string;
-  harness: TargetId;
+  /** 实例形态：dir 是项目目录实例，其余是宿主名 */
+  harness: InstanceKind;
   /** 已经落到本地的 Pack 目录 */
   packDir: string;
   /**
@@ -173,7 +174,7 @@ export function packIdentityFromState(
 export async function createInstance(opts: CreateInstanceOptions): Promise<InstanceRecord> {
   const name = opts.name.trim();
   if (!name) throw new PalError('invalid-input', '实例名不能为空');
-  const harness = assertHarness(opts.harness);
+  const kind = assertHarness(opts.harness);
   assertNameFree(name);
   // 先定策略：配置读不了就在这里失败，不往下建目录
   const isolation = isolationFor(opts.isolation);
@@ -206,9 +207,14 @@ export async function createInstance(opts: CreateInstanceOptions): Promise<Insta
     throw new PalError('invalid-input', `清单有问题：${errors.map((i) => i.message).join('; ')}`);
   }
 
-  const adapter = ADAPTERS[harness];
-  const targetVars = targetVarsFor(harness);
-  const { plan, issues } = planFor(ctx, { target: harness, ...(targetVars ? { targetVars } : {}) });
+  const adapter = ADAPTERS[kind];
+  const targetVars = targetVarsFor(kind);
+  // dir 是项目目录实例，不是 kernel 的宿主：映射成「不传 harness」（平铺到实例根）
+  const planOptions = {
+    ...(kind === 'dir' ? {} : { harness: kind }),
+    ...(targetVars ? { targetVars } : {}),
+  };
+  const { plan, issues } = planFor(ctx, planOptions);
   if (!plan) {
     throw new PalError('invalid-input', `生成不了计划：${issues.map((i) => i.message).join('; ')}`);
   }
@@ -221,7 +227,7 @@ export async function createInstance(opts: CreateInstanceOptions): Promise<Insta
     apiVersion: API_VERSION,
     id,
     name,
-    harness,
+    harness: kind,
     ...(opts.harnessVersion ? { harnessVersion: opts.harnessVersion } : {}),
     root,
     ...(home ? { home } : {}),
@@ -268,7 +274,7 @@ export async function createInstance(opts: CreateInstanceOptions): Promise<Insta
       writeBaseline(root, {
         pack: draft.pack.name,
         version: draft.pack.version,
-        harness,
+        harness: kind,
         planHash: plan.planHash,
         files: baselineFromState(root),
       });
@@ -304,7 +310,7 @@ export async function createInstance(opts: CreateInstanceOptions): Promise<Insta
   const record = readRecord(root)!;
   if (opts.activate !== false) {
     const map = readActiveMap();
-    map[harness] = record.id;
+    map[kind] = record.id;
     writeActiveMap(map);
   }
   return record;
@@ -315,7 +321,8 @@ export async function createInstance(opts: CreateInstanceOptions): Promise<Insta
 export interface AdoptOptions {
   dir: string;
   name: string;
-  harness: TargetId;
+  /** 实例形态：dir 是项目目录实例，其余是宿主名 */
+  harness: InstanceKind;
   /** 接管后是否设为当前实例 */
   activate?: boolean;
 }
@@ -332,7 +339,7 @@ export function adoptInstance(opts: AdoptOptions): InstanceRecord {
       details: { dir },
     });
   }
-  const harness = assertHarness(opts.harness);
+  const kind = assertHarness(opts.harness);
   assertNameFree(opts.name.trim());
   // 接管来的目录不动，但记录里的默认策略跟新建实例一样看全局配置；
   // 配置里写了还没实现的语义（凭据 shared）同样在写记录之前拒绝。
@@ -344,7 +351,7 @@ export function adoptInstance(opts: AdoptOptions): InstanceRecord {
       details: { dir },
     });
   }
-  const adapter = ADAPTERS[harness];
+  const adapter = ADAPTERS[kind];
   const home = adapter.homeDir && existsSync(join(dir, adapter.homeDir)) ? join(dir, adapter.homeDir) : undefined;
   // 身份同样从 state 派生；没有 state / state 里不止一个 Pack 时记 external：
   // 多个 Pack 里「第一个」只是对象顺序，拿来当身份会让记录撒谎，updateInstance 也会把别的 Pack 当成同一个。
@@ -353,7 +360,7 @@ export function adoptInstance(opts: AdoptOptions): InstanceRecord {
     apiVersion: API_VERSION,
     id: newId(),
     name: opts.name.trim(),
-    harness,
+    harness: kind,
     root: dir,
     ...(home ? { home } : {}),
     isolation,
@@ -370,7 +377,7 @@ export function adoptInstance(opts: AdoptOptions): InstanceRecord {
   writeInstance(record);
   if (opts.activate !== false) {
     const map = readActiveMap();
-    map[harness] = record.id;
+    map[kind] = record.id;
     writeActiveMap(map);
   }
   return record;

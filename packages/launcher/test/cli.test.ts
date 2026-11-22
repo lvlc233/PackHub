@@ -28,6 +28,20 @@ describe('pal cli --json', () => {
   }
 });
 
+describe('pal cli：实例形态是 --kind（不再有 --harness）', () => {
+  // create / adopt 都建实例记录；实例形态值里 dir 是「项目目录实例」，其余是宿主名
+  for (const name of ['create', 'adopt']) {
+    it(`${name} 声明 --kind（string，默认 dir / dsh）`, () => {
+      const command = subCommands[name];
+      expect(command, `${name} 应存在`).toBeTruthy();
+      expect(command?.args?.kind?.type, `${name} --kind 类型`).toBe('string');
+      expect(typeof command?.args?.kind?.default, `${name} --kind 默认值`).toBe('string');
+      // 旧的 --harness 参数应该已经删掉，不然两份参数会各说各话
+      expect(command?.args?.harness).toBeUndefined();
+    });
+  }
+});
+
 describe('pal --version', () => {
   it('meta.version 与 package.json 一致（唯一来源）', () => {
     expect((main as unknown as { meta: { version?: string } }).meta.version).toBe(packageJson.version);

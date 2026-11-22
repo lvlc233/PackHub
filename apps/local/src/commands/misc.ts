@@ -42,7 +42,7 @@ export const resourceAdd = command({
     say(`✓ 已追加资源 ${id}（${type}）→ ${file}`);
 
     // 加完立刻重算：格式、能力图、计划三层的错当场能看到。
-    // 这里只是作者侧自检，按中性 dir 算，不暴露安装期参数（target 只在 install / plan / verify 里选）。
+    // 这里只是作者侧自检，按平铺目录算，不暴露安装期参数（--harness 只在 plan / install / verify 里选）。
     const ctx = loadPack(dir);
     const errors = ctx.issues.filter((i) => i.severity === 'error');
     if (errors.length) {

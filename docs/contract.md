@@ -73,7 +73,7 @@ resources:
 {
   "apiVersion": "packhub.dev/plan/v0",
   "pack": { "name": "lvlc233/team-conventions", "version": "0.0.1" },
-  "target": "dir",
+  "harness": "dsh",
   "actions": [
     { "actionId": "write#1", "op": "write", "to": ".packhub/knowledge/style-guide.md", "from": "./resources/style-guide.md", "integrity": "sha256-…", "resource": "style-guide" }
   ],
@@ -84,7 +84,8 @@ resources:
 ```
 
 1. `planHash` = 计划自身的哈希，用于确保版本一致性。
-2. `plan --json` 在计划对象外带一份 `wiring`：`describeComposition` 从清单派生的接线，只有两组——`capabilities`（能力令牌 → provider 列表，按令牌排序）与 `edges`（`needs` 派生的 provider → consumer 边）。它是 CLI 输出，不进 `planHash`、不进锁，也不进 state 里的计划快照。
+2. `harness` 可选：写 `dsh` / `claude-code` / `codex` 时按该宿主的落点表物化；不写就是平铺目录，计划里没有这个字段。
+3. `plan --json` 在计划对象外带一份 `wiring`：`describeComposition` 从清单派生的接线，只有两组——`capabilities`（能力令牌 → provider 列表，按令牌排序）与 `edges`（`needs` 派生的 provider → consumer 边）。它是 CLI 输出，不进 `planHash`、不进锁，也不进 state 里的计划快照。
 
 动作原语：`fetch`、`unpack`、`copy`、`write`、`delete`、`link.skill`、`link.exec`、`register.mcp`、`exec`、`instruction`、`state.dir`。
 
@@ -125,7 +126,7 @@ resources:
 
 ## 3 Lock（`packhub.dev/lock/v0`）
 
-把一个 Pack 的引用钉死并记下内容哈希，供复现与审查。锁只描述内容，不含任何 target 的计划。
+把一个 Pack 的引用钉死并记下内容哈希，供复现与审查。锁只描述内容，不含任何安装形态与计划。
 
 ```jsonc
 {
@@ -141,13 +142,13 @@ resources:
 
 不变量：
 
-1. 锁只描述「引用了什么、内容是否完整」：`resolved` + `contentHash`，没有 `plan` / `plans` / `planHash`。装到哪个 target、计划长什么样，由用到它的调用点（`plan` / `install` / `diff` / `update` / `verify` / launcher）在那一刻用 `planFor(ctx, { target })` 现算。
+1. 锁只描述「引用了什么、内容是否完整」：`resolved` + `contentHash`，没有 `plan` / `plans` / `planHash`。装到哪个宿主、计划长什么样，由用到它的调用点（`plan` / `install` / `diff` / `update` / `verify` / launcher）在那一刻用 `planFor(ctx, { harness })` 现算。
 2. `contentHash` = 清单 + `resolved` 的规范化 sha256；口径只写在 kernel 的 `contentHashOf(manifest, resolved)` 上，写端（`buildLock`）与所有校验端（`checkLockConsistency`、`contentHashFor`、registry 门禁）都调它，不各算一份：
    - 清单先去掉 `signatures`：签名不是内容，而且签名载荷就是这个哈希，含进来会自指；
    - 清单里的资源来源先按 `resolved` 归一（有 pin 过的 source / integrity 就用它），于是「作者清单 + 锁」和「pin 过的清单 + 锁」算出同一个哈希；
    - `resolved` 每项只取 `{id, type, source, integrity}`，丢掉 `resolvedAt`（生成时刻不是内容），并按 `id` 升序排列；
    - 序列化用 `canonicalize`（递归键排序、丢 undefined），sha256 写成 `sha256-<base64>`。
-   - **安装 target 不进这个哈希**：清单不声明 target 支持集，「这次装到 dir 还是某个宿主」是安装期参数；同一份内容装到任何 target，`contentHash` 相同。
+   - **安装宿主不进这个哈希**：清单不声明宿主支持集，「这次装到平铺目录还是某个宿主」是安装期参数；同一份内容装到任何宿主，`contentHash` 相同。
 3. `checkLockConsistency(lock, manifest)` 是「锁 ↔ 清单」的唯一判据，只返回 `ok` / `mismatch` / `missing` 三档。没有 `contentHash` 的锁按 `mismatch` 报（无效锁），要求重跑 `packhub lock`。
 4. `resolved[].source` 是**解析后**的引用：github 分支 / tag 换成 40 位 commit，npm 范围 / tag 换成具体版本，pypi 换成具体版本。
 5. `integrity` 来自清单、npm 的 `dist.integrity`、https 下载后的 sha256 或 PyPI 的 sha256；解析不出来就是 `null`，读方不得把 `null` 当「已验证」。
@@ -177,7 +178,7 @@ resources:
       "actions": [{ "actionId": "write#1", "op": "write", "status": "done", "target": ".packhub/knowledge/style-guide.md" }],
       "written": [".packhub/knowledge/style-guide.md"],
       "stateDirs": [{ "id": "memory", "path": ".packhub/state/memory", "retain": "keep" }],
-      "plan": { "target": "dir", "planHash": "sha256-…", "actions": [], "verify": [], "excluded": [] }
+      "plan": { "harness": "dsh", "planHash": "sha256-…", "actions": [], "verify": [], "excluded": [] }
     }
   }
 }
@@ -187,7 +188,7 @@ resources:
 
 1. 每个包一条记录，键是 `name@version`；升级时旧版本记录并入新 key，不留旧 key。
 2. `written` 是这个包**拥有**的文件集合（跨多次安装取并集），卸载据此删除。
-3. `plan` 是该次安装的计划快照，形如 `PlanSnapshot`：`target` / `planHash` / `actions` / `verify` / `excluded`，**没有** `apiVersion` 与 `pack`（那两个字段只属于完整 plan）；`diff`、`update`、`planPaths` 只需要这一份。不参与任何哈希。
+3. `plan` 是该次安装的计划快照，形如 `PlanSnapshot`：可选 `harness`（平铺目录时不出现）/ `planHash` / `actions` / `verify` / `excluded`，**没有** `apiVersion` 与 `pack`（那两个字段只属于完整 plan）；`diff`、`update`、`planPaths` 只需要这一份。不参与任何哈希。
 4. `stateDirs` 记录清单 `state` 块声明的目录；这些目录不进 `written`、不进版本镜像、不被快照回滚删除。
 5. `generations` 每次安装追加一条，更早的会被裁掉（保留策略在 `install.ts`）；`existed` / `created` 是回退的依据。
 
@@ -227,7 +228,7 @@ registry 的索引，`search` / `install` / `update` 只读它。
 - `verified`：这个包的**每个**版本都有 `verify.json`、`ok: true` 且报告里的 `contentHash` 与按锁的 `resolved` 重算的 `contentHash` 一致（整包都 verified 才标 verified）。
 - `community`：其余；有报告但对不上会给 warning，按 community 处理。
 
-清单派生的展示字段（`title` / `description` / `license` / `homepage` / `authors` / `keywords`）取 `latest` 那个版本的清单；`signers` 只收该版本 `verify.json` 里 `ok: true` 的 key；清单没写的字段写 `null` 或空数组，读方不用猜。索引没有 `targets` 字段：清单不声明支持集，装到哪个 target 是使用者在安装时选的参数。
+清单派生的展示字段（`title` / `description` / `license` / `homepage` / `authors` / `keywords`）取 `latest` 那个版本的清单；`signers` 只收该版本 `verify.json` 里 `ok: true` 的 key；清单没写的字段写 `null` 或空数组，读方不用猜。索引没有 `targets` 字段：清单不声明支持集，装到哪个宿主是使用者在安装时选的参数。
 
 不变量：
 
@@ -254,7 +255,7 @@ registry 的索引，`search` / `install` / `update` 只读它。
 ```
 
 - `ok`：每一步都是 `done` / `noop`，且每项检查都是 `pass`。`skipped`、`needs-approval`、`failed` 都算未完成。
-- 报告与 `contentHash` 绑定：它证明的是「这份内容（清单 + 解析后的引用）」跑得通；内容变了报告不作数（索引会降为 `community`）。`planHash` 记的是 runner 实际跑的那份 dir 计划的哈希，是安装期派生值，不是锁的内容。
+- 报告与 `contentHash` 绑定：它证明的是「这份内容（清单 + 解析后的引用）」跑得通；内容变了报告不作数（索引会降为 `community`）。`planHash` 记的是 runner 实际跑的那份平铺目录计划的哈希，是安装期派生值，不是锁的内容。
 - 检查类型与判定细节见 `packages/runtime/src/verify.ts`、`packages/runtime/src/derived-checks.ts` 与 `packages/runner/src/run.ts`。
 
 检查从哪来：
@@ -274,7 +275,7 @@ registry 的索引，`search` / `install` / `update` 只读它。
 }
 ```
 
-- 签的是 `{pack, contentHash}`：`pack` 是 `name@version`，`contentHash` 是清单 + 解析后引用的规范化哈希（口径见 §3 / kernel `lock.ts` 的 `contentHashOf`）。清单里任何影响内容的改动都会让签名失效，改注释不影响；安装 target 不在载荷里——同一份内容装到哪个宿主都是这个签名。
+- 签的是 `{pack, contentHash}`：`pack` 是 `name@version`，`contentHash` 是清单 + 解析后引用的规范化哈希（口径见 §3 / kernel `lock.ts` 的 `contentHashOf`）。清单里任何影响内容的改动都会让签名失效，改注释不影响；安装宿主不在载荷里——同一份内容装到哪个宿主都是这个签名。
 - 放独立文件而不是写进 `packhub.yaml`：版本目录的清单哈希不能因为「补一个签名」而变化。
 - `.phub` 归档会带上这个文件；`verify.json` 里记录每个签名的校验结果。
 - **verified 不证明是谁发的**，签名才回答来源。

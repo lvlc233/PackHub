@@ -13,11 +13,12 @@ import {
   planPathsOf,
 } from '../src/index.ts';
 
-function plan(actions: PlanAction[], target: Plan['target'] = 'dir'): Plan {
+/** 造一份计划；不传 harness 就是平铺目录（计划里不出现 harness 字段）。 */
+function plan(actions: PlanAction[], harness?: Plan['harness']): Plan {
   return {
     apiVersion: 'packhub.dev/plan/v0',
     pack: { name: 'demo/ops', version: '0.0.1' },
-    target,
+    ...(harness ? { harness } : {}),
     actions,
     verify: [],
     excluded: [],
@@ -78,7 +79,7 @@ describe('PLAN_OPS：动作原语单表', () => {
       '.packhub/skills/hello/agents/openai.yaml',
     ]);
     expect(planPathsOf(codex)).toContain('.packhub/skills/hello/agents/openai.yaml');
-    // 别的 target 不生成这个派生输出
+    // 别的宿主不生成这个派生输出
     expect(planPathsOf(plan([A['link.skill']], 'dsh'))).not.toContain(
       '.packhub/skills/hello/agents/openai.yaml',
     );

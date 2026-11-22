@@ -10,7 +10,7 @@ import {
   resolveRegistry,
   appendAudit,
 } from '@packhub/runtime';
-import { SAFE_CHECKS } from './shared.ts';
+import { parseHarness, SAFE_CHECKS } from './shared.ts';
 
 export const update = command({
   meta: { name: 'update', description: '把已装的包升级到 registry 上的新版本' },
@@ -19,7 +19,7 @@ export const update = command({
     index: { type: 'string', description: '索引路径、URL 或本机配置里的 registry 名（默认取默认 registry）' },
     dir: { type: 'string', default: '.' },
     version: { type: 'string' },
-    target: { type: 'string', description: '默认沿用上次安装的 target' },
+    harness: { type: 'string', description: '默认沿用上次安装的宿主（平铺目录则沿用平铺）' },
     overwrite: { type: 'boolean', default: false },
     'allow-stale-lock': { type: 'boolean', default: false },
     'no-verify': { type: 'boolean', default: false, description: '更新后不跑 verify 检查' },
@@ -33,12 +33,13 @@ export const update = command({
       stop(EXIT.USAGE);
     }
     const say = sayUnless(args.json);
+    const harness = parseHarness(args.harness === undefined ? undefined : String(args.harness));
     const res = await updatePack({
       name: String(args.name),
       index: indexRef,
       projectDir: resolve(String(args.dir)),
-      // 不传就沿用上次安装的 target；不能把 undefined 变成字符串 "undefined" 传下去
-      ...(args.target ? { target: String(args.target) } : {}),
+      // 不传就沿用上次安装的宿主（旧快照没有 harness 时按平铺目录）
+      ...(harness ? { harness } : {}),
       overwrite: Boolean(args.overwrite),
       allowStaleLock: Boolean(args['allow-stale-lock']),
       ...(args.version ? { version: String(args.version) } : {}),

@@ -41,8 +41,8 @@ describe('平台注入：计划产物与平台无关', () => {
       { 'tools/kit/index.mjs': 'export const x = 1;\n' },
     );
     const ctx = loadPack(dir);
-    const linux = planFor(ctx, { target: 'dir', platform: 'linux-x64' });
-    const win = planFor(ctx, { target: 'dir', platform: 'win32-x64' });
+    const linux = planFor(ctx, { platform: 'linux-x64' });
+    const win = planFor(ctx, { platform: 'win32-x64' });
     expect(linux.issues.filter((i) => i.severity === 'error')).toEqual([]);
     expect(win.issues.filter((i) => i.severity === 'error')).toEqual([]);
     expect(linux.plan!.planHash).toBe(win.plan!.planHash);
@@ -70,8 +70,8 @@ describe('平台注入：计划产物与平台无关', () => {
       { 'tools/kit/run.sh': 'echo hi\n' },
     );
     const ctx = loadPack(dir);
-    const linux = planFor(ctx, { target: 'dir', platform: 'linux-x64' });
-    const win = planFor(ctx, { target: 'dir', platform: 'win32-x64' });
+    const linux = planFor(ctx, { platform: 'linux-x64' });
+    const win = planFor(ctx, { platform: 'win32-x64' });
     expect(linux.plan).toBeDefined();
     expect(win.plan).toBeDefined();
     expect(win.plan!.planHash).toBe(linux.plan!.planHash);

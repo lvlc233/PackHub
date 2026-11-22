@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { TargetId } from '@packhub/kernel';
+import type { InstanceKind } from './layout.ts';
 import { DEFAULT_ISOLATION, parseIsolation, type Isolation } from './isolation.ts';
 import { nowIso } from './time.ts';
 
@@ -35,7 +35,8 @@ export interface InstanceConfig {
   /** 与名字无关的身份 */
   id: string;
   name: string;
-  harness: TargetId;
+  /** 实例形态（含 dir）；字段名保持 harness，instance.json 格式不变 */
+  harness: InstanceKind;
   /** 宿主自己的版本；探测不到就不写 */
   harnessVersion?: string;
   /** 实例根：配置、数据、缓存、会话都在它下面 */
@@ -200,7 +201,7 @@ function normalizeRecord(root: string, data: Record<string, unknown>): InstanceR
   return {
     ...(config as unknown as InstanceConfig),
     apiVersion: API_VERSION,
-    harness: (data.harness as TargetId | undefined) ?? 'dir',
+    harness: (data.harness as InstanceKind | undefined) ?? 'dir',
     root: typeof data.root === 'string' ? data.root : root,
     updatedAt:
       typeof data.updatedAt === 'string'

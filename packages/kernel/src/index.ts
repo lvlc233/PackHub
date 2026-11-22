@@ -4,12 +4,11 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type { Issue, Manifest, Plan } from './types.ts';
-import { TARGET_IDS } from './types.ts';
+import { HARNESS_IDS, isHarnessId } from './types.ts';
 import { loadManifest } from './manifest.ts';
 import { MANIFEST_FILE, STATE_DIR } from './files.ts';
 import { validateGraph, type Graph } from './graph.ts';
 import { buildPlan, type PlanOptions } from './plan.ts';
-import { TARGET_VARS } from './targets.ts';
 import { ISSUE_CODES } from './issueCodes.ts';
 
 export * from './types.ts';
@@ -46,7 +45,7 @@ export {
   type ResourceKind,
 } from './kinds.ts';
 export { buildPlan, type PlanOptions } from './plan.ts';
-export { DIR_TARGET_VARS, TARGET_VARS, type TargetVars } from './targets.ts';
+export { DIR_LAYOUT_VARS, LAYOUT_VARS, layoutFor, type LayoutVars } from './layout.ts';
 export { buildLock, contentHashOf } from './lock.ts';
 export {
   PLAN_OPS,
@@ -199,21 +198,22 @@ export function planFor(
 ): { plan?: Plan; issues: Issue[] } {
   const errors = ctx.issues.filter((i) => i.severity === 'error');
   if (errors.length) return { issues: errors };
-  const target = opts.target ?? 'dir';
-  if (!(target in TARGET_VARS)) {
+  const harness = opts.harness;
+  // 运行期还会从 CLI 传进来字符串：类型上已收窄，这里兜住拼错的宿主名
+  if (harness !== undefined && !isHarnessId(harness)) {
     return {
       issues: [
         {
           code: ISSUE_CODES.unknownTarget,
           severity: 'error',
-          message: `未知 target：${target}（可选 ${TARGET_IDS.join(' / ')}）`,
+          message: `未知宿主：${String(harness)}（可选 ${HARNESS_IDS.join(' / ')}；不写 = 平铺目录）`,
         },
       ],
     };
   }
   const built = buildPlan(ctx.manifest, ctx.graph, {
-    target,
-    // 默认落点由 buildPlan 按 target 选（TARGET_VARS）；这里只传显式覆盖
+    ...(harness ? { harness } : {}),
+    // 落点表由 buildPlan 按宿主选（layoutFor）；这里只传显式覆盖
     targetVars: { ...(opts.targetVars ?? {}) },
     packDir: ctx.dir,
     // 平台在这里默认成宿主机；buildPlan 自己不读 process（测试可注入别的平台）

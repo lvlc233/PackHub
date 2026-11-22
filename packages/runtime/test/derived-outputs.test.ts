@@ -33,7 +33,7 @@ describe('派生输出：install 期生成的文件也要进 planPaths', () => {
     const v2 = makePack('0.2.0');
 
     const ctx1 = loadPack(v1);
-    const plan1 = planFor(ctx1, { target: 'codex' }).plan!;
+    const plan1 = planFor(ctx1, { harness: 'codex' }).plan!;
     const yamlRel = '.codex/skills/hello/agents/openai.yaml';
     // 计划动作里没有这个文件（install 期才生成），但产物口径必须覆盖它
     expect(plan1.actions.some((a) => a.op === 'write' && a.to === yamlRel)).toBe(false);
@@ -47,7 +47,7 @@ describe('派生输出：install 期生成的文件也要进 planPaths', () => {
 
     // 更新到 0.2.0：先装新版，再按 planPaths 清理旧版本独有的文件
     const ctx2 = loadPack(v2);
-    const plan2 = planFor(ctx2, { target: 'codex' }).plan!;
+    const plan2 = planFor(ctx2, { harness: 'codex' }).plan!;
     const installed2 = await installPack(ctx2, plan2, {
       root: project,
       packRoot: v2,

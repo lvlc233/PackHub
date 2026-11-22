@@ -116,7 +116,12 @@ const create = defineCommand({
       description: 'Pack 目录、.phub、git+https，或配合 --index 用 registry 名',
     },
     name: { type: 'string', required: true, description: '实例名；同名拒绝' },
-    harness: { type: 'string', default: 'dir', description: 'dir | dsh | claude-code | codex' },
+    kind: {
+      type: 'string',
+      default: 'dir',
+      description:
+        '实例形态：dir（项目目录实例，不是宿主）| dsh | claude-code | codex；只有宿主形态才按该宿主的落点物化',
+    },
     index: { type: 'string', description: `registry 索引（路径或 URL；也可用 ${PACKHUB_ENV.index}）` },
     'from-home': {
       type: 'string',
@@ -146,15 +151,15 @@ const create = defineCommand({
       args.isolation === undefined
         ? undefined
         : parseIsolationSpec(String(args.isolation), readPalConfig().isolation);
-    const harness = String(args.harness ?? 'dir');
-    // 版本信息只用于记录与下面的启动提示：先把宿主探测出来，再交给 service 一起建
-    const info = discoverAll({ probeVersion: false }).find((h) => h.id === harness);
+    const kind = String(args.kind ?? 'dir');
+    // 版本信息只用于记录与下面的启动提示：先把该形态探测出来，再交给 service 一起建
+    const info = discoverAll({ probeVersion: false }).find((h) => h.id === kind);
     const rec = await createFromRef({
       packRef: String(args.pack),
       ...(args.index ? { index: String(args.index) } : {}),
       ...(args.version ? { version: String(args.version) } : {}),
       name: String(args.name),
-      harness: harness as InstanceRecord['harness'],
+      harness: kind as InstanceRecord['harness'],
       ...(root ? { root } : {}),
       ...(args['from-home'] ? { seedFrom: String(args['from-home']) } : {}),
       ...(info?.version ? { harnessVersion: info.version } : {}),
@@ -169,7 +174,7 @@ const create = defineCommand({
     console.log(`✓ ${rec.id}`);
     printRecord(rec);
     if (!info?.startable) {
-      console.log(`  这个宿主没有常驻服务：${info?.reason ?? '只能装配 home'}`);
+      console.log(`  这个形态没有常驻服务：${info?.reason ?? '只能装配 home'}`);
     }
     if (rec.home && !args['from-home']) {
       console.log(
@@ -738,7 +743,10 @@ const health = defineCommand({
 });
 
 const doctor = defineCommand({
-  meta: { name: 'doctor', description: '看运行时与宿主发现结果：node 版本、装没装、什么版本、能不能起' },
+  meta: {
+    name: 'doctor',
+    description: '看运行时与实例形态发现结果（dir 是项目目录实例，其余是宿主）：node 版本、装没装、什么版本、能不能起',
+  },
   args: {
     probe: { type: 'boolean', default: true, description: '跑 --version 探测版本' },
     json: { type: 'boolean', default: false },
@@ -891,14 +899,18 @@ const adopt = defineCommand({
   args: {
     dir: { type: 'positional', required: true, description: '已有环境目录' },
     name: { type: 'string', required: true, description: '实例名' },
-    harness: { type: 'string', default: 'dsh' },
+    kind: {
+      type: 'string',
+      default: 'dsh',
+      description: '实例形态：dir（项目目录实例，不是宿主）| dsh | claude-code | codex',
+    },
     json: { type: 'boolean', default: false },
   },
   run({ args }) {
     const rec = adoptInstance({
       dir: String(args.dir),
       name: String(args.name),
-      harness: String(args.harness) as InstanceRecord['harness'],
+      harness: String(args.kind) as InstanceRecord['harness'],
     });
     console.log(args.json ? JSON.stringify(rec, null, 2) : `✓ 接管 ${rec.name} → ${rec.root}`);
   },

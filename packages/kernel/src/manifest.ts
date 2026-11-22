@@ -86,7 +86,7 @@ const REMOVED_FIELDS: { where: 'top' | 'resource' | 'requires'; keys: string[]; 
   {
     where: 'resource',
     keys: ['targets'],
-    message: '已删除：资源不再声明安装形态，装到哪个 target 由安装时的 --target 决定。删掉这个键。',
+    message: '已删除：资源不再声明安装形态，装到哪个宿主由安装时的 --harness 决定（不写 = 平铺目录）。删掉这个键。',
   },
   {
     where: 'resource',
@@ -101,7 +101,7 @@ const REMOVED_FIELDS: { where: 'top' | 'resource' | 'requires'; keys: string[]; 
   {
     where: 'requires',
     keys: ['agent'],
-    message: '已删除：requires 只剩 packhub；宿主偏好由安装时选 target 决定。删掉这个键。',
+    message: '已删除：requires 只剩 packhub；装到哪个宿主由安装时的 --harness 决定。删掉这个键。',
   },
 ];
 

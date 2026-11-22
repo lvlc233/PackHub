@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { planFor } from '@packhub/kernel';
 import { installPack, loadPack, verifyAt } from '../src/index.ts';
 
-/** 一个最小的 dir target 包：一个知识文件 + 一条 file-exists 校验。 */
+/** 一个最小的平铺包：一个知识文件 + 一条 file-exists 校验。 */
 function pack(name = 'demo/inst'): string {
   const dir = mkdtempSync(join(tmpdir(), 'packhub-vat-'));
   mkdirSync(join(dir, 'resources'), { recursive: true });
@@ -122,14 +122,14 @@ verify:
     rmSync(empty, { recursive: true, force: true });
   });
 
-  it('Pack 模式：target 只决定落点，没有声明门（metadata.targets 已删）', async () => {
+  it('Pack 模式：harness 只决定落点，没有声明门（metadata.targets 已删）', async () => {
     const src = pack();
 
-    const res = await verifyAt(src, { target: 'claude-code' });
+    const res = await verifyAt(src, { harness: 'claude-code' });
     expect(res.mode).toBe('pack');
-    // 计划按传入的 target 现算；清单没有「声明过的 target」这回事，缺文件才算失败
+    // 计划按传入的 harness 现算；清单没有「声明过的 harness」这回事，缺文件才算失败
     expect(res.ready).toBe(true);
-    expect(res.planHash).toBe(planFor(loadPack(src), { target: 'claude-code' }).plan!.planHash);
+    expect(res.planHash).toBe(planFor(loadPack(src), { harness: 'claude-code' }).plan!.planHash);
     expect(res.results.map((r) => r.status)).toEqual(['fail']);
 
     rmSync(src, { recursive: true, force: true });

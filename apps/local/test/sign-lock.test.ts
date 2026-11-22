@@ -26,7 +26,7 @@ function run(
   };
 }
 
-/** 清单不声明 target：装到哪由命令行选，锁只认内容。 */
+/** 清单不声明安装形态：装到哪个宿主由命令行选，锁只认内容。 */
 const manifest = (extraResource = ''): string => `apiVersion: packhub.dev/v0
 kind: Pack
 metadata:
@@ -53,7 +53,7 @@ function keygen(base: string): string {
 }
 
 describe('sign 的锁过期判断只看内容哈希', () => {
-  it('清单能签：锁里没有计划快照，target 不参与', () => {
+  it('清单能签：锁里没有计划快照，宿主不参与', () => {
     const base = mkdtempSync(join(tmpdir(), 'packhub-sign-lock-'));
     try {
       const pack = join(base, 'pack');

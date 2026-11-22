@@ -22,8 +22,8 @@ function short(hash: unknown): string {
 /**
  * 判「锁 ↔ 当前清单」是否一致。
  *
- * 锁只描述内容（清单 + resolved），所以判据就是重算 contentHash：与安装 target 无关，
- * 也不存在「锁里没有这个 target 的计划快照」这种状态——计划由安装期按 target 现算。
+ * 锁只描述内容（清单 + resolved），所以判据就是重算 contentHash：与装到哪个宿主无关，
+ * 也不存在「锁里没有这个宿主的计划快照」这种状态——计划由安装期按宿主现算。
  * 锁没有 contentHash 就是无效锁，按 mismatch 报，提示重跑 lock；不做旧形状特判。
  *
  * 只做判定，放行与否由调用方决定（`--allow-stale-lock` 之类）。

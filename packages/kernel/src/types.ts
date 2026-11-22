@@ -13,23 +13,14 @@ export function isResourceType(value: unknown): value is ResourceType {
 }
 
 /**
- * 宿主（harness）名的唯一来源。dir 不是宿主，是中性物化形态，放在下一个常量里。
- * 加宿主：这里加一个名字，下面 TARGET_IDS 自动带上；落点表 / runtime 全局表 / launcher 适配器
- * 都按 HarnessId / TargetId 建 Record，缺一条编译不过。
+ * 宿主（harness）名的唯一来源。不写宿主 = 平铺到项目里，那不是某个宿主，所以不在这个名单里。
+ * 加宿主：这里加一个名字；落点表（layout.ts）与 launcher 适配器都按 HarnessId 建 Record，缺一条编译不过。
  */
 export const HARNESS_IDS = ['dsh', 'claude-code', 'codex'] as const;
 export type HarnessId = (typeof HARNESS_IDS)[number];
 
-/** 安装 target = 中性物化形态 dir + 各宿主；CLI 帮助、错误信息、面板都从这里取。 */
-export const TARGET_IDS = ['dir', ...HARNESS_IDS] as const;
-export type TargetId = (typeof TARGET_IDS)[number];
-
 export function isHarnessId(value: unknown): value is HarnessId {
   return typeof value === 'string' && (HARNESS_IDS as readonly string[]).includes(value);
-}
-
-export function isTargetId(value: unknown): value is TargetId {
-  return typeof value === 'string' && (TARGET_IDS as readonly string[]).includes(value);
 }
 
 /** 执行一条工具用的解释器；binary 表示直接执行，不加前缀。 */
@@ -259,7 +250,8 @@ export type PlanActionInput = PlanOp & {
 export interface Plan {
   apiVersion: 'packhub.dev/plan/v0';
   pack: { name: string; version: string };
-  target: TargetId;
+  /** 装到哪个宿主；平铺到项目里（不指定宿主）时这个字段不出现 */
+  harness?: HarnessId;
   actions: PlanAction[];
   verify: VerifyCheck[];
   /** 没进计划的资源：说明为什么没装 */
@@ -268,9 +260,10 @@ export interface Plan {
   planHash: string;
 }
 
-/** 一个 target 的计划快照：安装时写进 state，重算路径、算差异都靠它。 */
+/** 一个安装形态（平铺目录或某个宿主）的计划快照：安装时写进 state，重算路径、算差异都靠它。 */
 export interface PlanSnapshot {
-  target: TargetId;
+  /** 与 Plan.harness 同义：平铺目录时字段不出现 */
+  harness?: HarnessId;
   planHash: string;
   actions: PlanAction[];
   verify: VerifyCheck[];
@@ -280,8 +273,8 @@ export interface PlanSnapshot {
 /**
  * 锁只描述「引用了什么、内容是否完整」。
  *
- * 安装 target 是安装参数，计划由 `planFor(ctx, { target })` 在用到时现算，
- * 不进锁、不进内容层：同一份内容装到 dir 或任一宿主，锁是同一份。
+ * 装到哪个宿主是安装参数，计划由 `planFor(ctx, { harness })` 在用到时现算，
+ * 不进锁、不进内容层：同一份内容平铺装或装到任一宿主，锁是同一份。
  */
 export interface LockFile {
   apiVersion: 'packhub.dev/lock/v0';

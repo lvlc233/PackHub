@@ -3,7 +3,7 @@ kind: decision
 summary: 有意为之的取舍
 verified: 2026-11-22
 decay: 365
-review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增删、锁形状或签名载荷变化、接线规则再变、检查派生规则再变、命令层再出现例外、加 mac 门禁、命令面收缩）
+review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增删、锁形状或签名载荷变化、接线规则再变、检查派生规则再变、安装参数或落点表改名、命令层再出现例外、加 mac 门禁、命令面收缩）
 ---
 
 # PackHub 的取舍
@@ -34,19 +34,29 @@ review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增
 
 代价：清单表达不了「同一能力只装一个」——两个实现提供同一令牌、装一起又冲突时（例如写同一个工具入口），只能靠计划期的输出冲突（`output-conflict`）或运行时暴露，没有清单层的互斥开关。真出现这种需求时，按包拆（一个包只带一个实现）或将来在格式里加显式标记（资源级或能力级的「独占」），现在不预建。删除也是破坏性的：`alternatives` / `pick` 字段、配套错误码与排除原因一起删，已发布清单要迁移并重锁，格式 v0 不给过渡期。
 
-### target 退出内容层，清单也不再声明支持集
+### 安装宿主退出内容层，清单也不再声明支持集
 
-锁只描述内容：`resolved` + `contentHash`（清单 + resolved 的规范化哈希，`lock.ts` 的 `contentHashOf`）。安装 target 是安装参数——`planFor(ctx, { target })` 在用到它的那一刻现算计划，不传就是 `dir`；签名载荷是 `{pack, contentHash}`（`signature.ts` 的 `signablePayload`）。清单的支持集声明也一起删了：schema 的 `metadata.required` 只剩 `name` / `version`，`additionalProperties: false`，旧清单带 `targets` 判 schema error；registry 索引不再有 `targets` 字段（`build.ts` 的 `buildIndex`）；发布门禁不再要求清单声明 dir，直接按 dir 干净安装并验证（`run.ts`）；launcher 建/更新实例、runtime 更新直接按选的 target 装——都不再读清单声明。
+锁只描述内容：`resolved` + `contentHash`（清单 + resolved 的规范化哈希，`lock.ts` 的 `contentHashOf`）。安装宿主是安装参数——`planFor(ctx, { harness })` 在用到它的那一刻现算计划，不传就是平铺目录；签名载荷是 `{pack, contentHash}`（`signature.ts` 的 `signablePayload`）。清单的支持集声明也一起删了：schema 的 `metadata.required` 只剩 `name` / `version`，`additionalProperties: false`，旧清单带 `targets` 判 schema error；registry 索引不再有 `targets` 字段（`build.ts` 的 `buildIndex`）；发布门禁不再要求清单声明支持集，直接按平铺目录干净安装并验证（`run.ts`）；launcher 建/更新实例、runtime 更新直接按选的宿主装——都不再读清单声明。
 
-没选另一条：把每个 target 的计划快照留在锁里（`plan` / `plans` / `planHash`），签名覆盖计划哈希。target 不是内容：同一份 Pack 装到 dir 或任一宿主，装的是同一批字节，锁却会随宿主数量膨胀；每个 target 的快照都要在每次清单变化时重算、重核对，签名还要回答「签的是哪个 target 的计划」。把 target 收进安装期后，锁只有一份，内容哈希与 target 无关，`checkLockConsistency(lock, manifest)` 退化成「重算 contentHash」这一条判据。也没选「只把计划移出锁、保留清单的支持集声明」：声明是一份要单独维护的第二真相，每加一个宿主都要改清单、重锁、重签、重发版本，而它最终只用来在计划期拦一下；装不装得成，由落点表和安装结果说了算。
+没选另一条：把每个宿主的计划快照留在锁里（`plan` / `plans` / `planHash`），签名覆盖计划哈希。宿主不是内容：同一份 Pack 装到平铺目录或任一宿主，装的是同一批字节，锁却会随宿主数量膨胀；每个宿主的快照都要在每次清单变化时重算、重核对，签名还要回答「签的是哪个宿主的计划」。把宿主收进安装期后，锁只有一份，内容哈希与宿主无关，`checkLockConsistency(lock, manifest)` 退化成「重算 contentHash」这一条判据。也没选「只把计划移出锁、保留清单的支持集声明」：声明是一份要单独维护的第二真相，每加一个宿主都要改清单、重锁、重签、重发版本，而它最终只用来在计划期拦一下；装不装得成，由落点表和安装结果说了算。
 
-代价：装到不合适的宿主不再在计划期被拦——资源与清单都不声明安装形态，计划里没有任何声明可对。要么装完在 `verify` 暴露，要么按该 target 的落点表装出一份作者没验证过的结果。给已发布包加宿主不再需要发新版本：同一份内容、同一把锁、同一个签名可以按新 target 装（落点由该 target 的适配表决定）。索引和锁里都不再有「这包支持哪些宿主」，用户与读端只能直接按 target 试，无法先筛。签名只证明内容、不再证明某个 target 的安装结果——换 target 不会让签名失效；`diff` 没有锁里的旧计划可读，只能读 state 里安装时留下的 `PlanSnapshot`（没装过就没有旧计划，`diff` 要求先安装）；`verify` 在项目根也按 state 快照复核，包目录模式则现算；发布门禁只验 dir 一个 target，其余 target 的安装行为只有单测；没有 `contentHash` 的锁是无效锁，registry 门禁报 error（`build.ts` 的 `buildIndex`），必须重跑 `packhub lock`（原来有签名的还要重签）。
+代价：装到不合适的宿主不再在计划期被拦——资源与清单都不声明安装形态，计划里没有任何声明可对。要么装完在 `verify` 暴露，要么按该宿主的落点表装出一份作者没验证过的结果。给已发布包加宿主不再需要发新版本：同一份内容、同一把锁、同一个签名可以按新宿主装（落点由该宿主的适配表决定）。索引和锁里都不再有「这包支持哪些宿主」，用户与读端只能直接按宿主试，无法先筛。签名只证明内容、不再证明某个宿主的安装结果——换宿主不会让签名失效；`diff` 没有锁里的旧计划可读，只能读 state 里安装时留下的 `PlanSnapshot`（没装过就没有旧计划，`diff` 要求先安装）；`verify` 在项目根也按 state 快照复核，包目录模式则现算；发布门禁只验平铺目录这一形态，其余宿主的安装行为只有单测；没有 `contentHash` 的锁是无效锁，registry 门禁报 error（`build.ts` 的 `buildIndex`），必须重跑 `packhub lock`（原来有签名的还要重签）。
+
+### 安装参数改名 harness、dir 退出枚举，PAL 用 kind
+
+上一条把安装形态收进安装期后，参数仍叫 `--target`，枚举里混着中性落点 `dir` 与三个宿主名。`dir` 不是宿主，只是平铺落点表的名字；写成 `--target dir` 会让人以为 `dir` 是某种宿主形态，作者命令里出现 `--target` 也容易被读成内容层参数。
+
+现在 packhub 只选宿主：`plan` / `install` / `verify` 用 `--harness`，取值只有 `dsh` / `claude-code` / `codex`；不写就是平铺目录，计划里没有 `harness` 字段。PAL 的实例形态另用 `--kind`，取值 `dir` / `dsh` / `claude-code` / `codex`；`dir` 在这里是「项目目录实例」这种实例形态，属于 PAL，不是宿主。`instance.json` 仍记 `harness` 字段（值含 `dir`），记录格式不动。
+
+没选另一条：保留 `--target` 并把 `dir` 留在枚举里，或让两个命令族统一叫 `--harness`。留 `--target` + `dir` 等于让一个参数同时回答「装到哪个宿主」和「要不要平铺」，每处调用都要先解释 `dir` 不是宿主；统一叫 `--harness` 则 PAL 的 `dir` 得假装成宿主名，实例记录与落点表也要跟着改词。两个命令族用不同参数名是有意的：packhub 的参数决定「内容按哪张落点表物化」，PAL 的参数决定「实例是什么形态」；同名会把这两个概念重新混在一起。
+
+代价：`plan` 与 `PlanSnapshot` 的形状变了（`target` 换成可选的 `harness`），`planHash` 随之变化——registry 里已发布的包要重锁、重跑 verify 并重建索引，否则锁、报告与当前代码算出的计划对不上。两个命令族各用一套词，文档与 `--help` 要各讲一次，从 `--harness` 切到 PAL 的人得换一个词。
 
 ### 资源级 targets 与 requires.agent 删除
 
 `resources[].targets` 与清单的 `requires.agent` 都删了：schema 里资源条目不接受 `targets`，`requires` 只剩 `packhub`；registry 索引的 `requiresAgent` 展示字段一起删，`target-mismatch` 与 `agent-target-mismatch` / `unknown-agent` 三个码也不再出现。
 
-删之前，registry 里没有包写这两个字段；仓库里唯一的用例是 `target-trim` 测试里给「桌面版」专用的资源裁剪（那个测试随字段一起删），而桌面版（Electron 壳）已经删了。资源级 `targets` 也和上一条冲突：target 是安装参数，资源再声明「我只在哪些 target 上装」等于让内容层再管一次安装形态，同一个目标有两处说了算。`requires.agent` 同理：作者写的 agent 偏好只在计划期换一句 warning，装不装得成仍由落点表决定。
+删之前，registry 里没有包写这两个字段；仓库里唯一的用例是 `target-trim` 测试里给「桌面版」专用的资源裁剪（那个测试随字段一起删），而桌面版（Electron 壳）已经删了。资源级 `targets` 也和上一条冲突：宿主是安装参数，资源再声明「我只在哪些宿主上装」等于让内容层再管一次安装形态，同一个落点有两处说了算。`requires.agent` 同理：作者写的 agent 偏好只在计划期换一句 warning，装不装得成仍由落点表决定。
 
 没选另一条：留着字段等以后真有人用。空字段要一直进 schema、类型、索引和文档；有人写错时还得解释「为什么写了不生效」，比没有这个字段更贵。
 

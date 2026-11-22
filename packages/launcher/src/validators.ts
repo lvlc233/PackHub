@@ -1,6 +1,5 @@
 import { isAbsolute, parse, resolve, sep } from 'node:path';
-import type { TargetId } from '@packhub/kernel';
-import { HARNESS_IDS } from './layout.ts';
+import { INSTANCE_KINDS, isInstanceKind, type InstanceKind } from './layout.ts';
 import { listInstances } from './catalog.ts';
 import { instancesRoot } from './paths.ts';
 import { PalError } from './errors.ts';
@@ -19,14 +18,14 @@ export function assertNameFree(name: string): void {
   }
 }
 
-export function assertHarness(value: string): TargetId {
-  if (!(HARNESS_IDS as string[]).includes(value)) {
-    throw new PalError('unknown-harness', `没有这个宿主：${value}`, {
-      hint: `可选：${HARNESS_IDS.join(' / ')}`,
-      details: { harness: value, choices: HARNESS_IDS },
+export function assertHarness(value: string): InstanceKind {
+  if (!isInstanceKind(value)) {
+    throw new PalError('unknown-harness', `没有这个实例形态：${value}`, {
+      hint: `可选：${INSTANCE_KINDS.join(' / ')}（dir 是项目目录实例，其余是宿主）`,
+      details: { harness: value, choices: INSTANCE_KINDS },
     });
   }
-  return value as TargetId;
+  return value;
 }
 
 /* ---------- 路径输入 ---------- */

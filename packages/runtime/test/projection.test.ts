@@ -37,10 +37,10 @@ function pack(): string {
 describe('投影到宿主', () => {
   it('claude-code：skill 落 .claude/skills，MCP 落 .mcp.json，指令落 CLAUDE.md', () => {
     const dir = pack();
-    const { plan } = planFor(loadPack(dir), { target: 'claude-code' });
+    const { plan } = planFor(loadPack(dir), { harness: 'claude-code' });
     expect(plan).toBeDefined();
-    const targets = plan!.actions.map((a) => ('to' in a ? a.to : 'path' in a ? a.path : ''));
-    expect(targets.some((t) => (t ?? '').startsWith('.claude/skills'))).toBe(true);
+    const destinations = plan!.actions.map((a) => ('to' in a ? a.to : 'path' in a ? a.path : ''));
+    expect(destinations.some((t) => (t ?? '').startsWith('.claude/skills'))).toBe(true);
     const reg = plan!.actions.find((a) => a.op === 'register.mcp');
     expect(reg && 'path' in reg ? reg.path : '').toBe('.mcp.json');
     const inst = plan!.actions.find((a) => a.op === 'instruction');
@@ -50,7 +50,7 @@ describe('投影到宿主', () => {
 
   it('dsh：指令落 AGENTS.md，MCP 仍在 .packhub（项目级未验证）', () => {
     const dir = pack();
-    const { plan } = planFor(loadPack(dir), { target: 'dsh' });
+    const { plan } = planFor(loadPack(dir), { harness: 'dsh' });
     const inst = plan!.actions.find((a) => a.op === 'instruction');
     expect(inst && 'file' in inst ? inst.file : '').toBe('AGENTS.md');
     rmSync(dir, { recursive: true, force: true });
@@ -59,7 +59,7 @@ describe('投影到宿主', () => {
   it('重复安装不会产生第二个托管块，第二次全是 noop', async () => {
     const dir = pack();
     const ctx = loadPack(dir);
-    const { plan } = planFor(ctx, { target: 'claude-code' });
+    const { plan } = planFor(ctx, { harness: 'claude-code' });
     await installPack(ctx, plan!);
     const once = readFileSync(join(dir, 'CLAUDE.md'), 'utf8');
     const second = await installPack(ctx, plan!);
@@ -74,7 +74,7 @@ describe('投影到宿主', () => {
     const dir = pack();
     writeFileSync(join(dir, 'CLAUDE.md'), '# 我的项目\n\n用户自己的说明。\n', 'utf8');
     const ctx = loadPack(dir);
-    const { plan } = planFor(ctx, { target: 'claude-code' });
+    const { plan } = planFor(ctx, { harness: 'claude-code' });
     await installPack(ctx, plan!);
     expect(readFileSync(join(dir, 'CLAUDE.md'), 'utf8')).toContain('我的项目');
 

@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { resolve, sep } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type {
+  HarnessId,
   Issue,
   Manifest,
   Plan,
@@ -9,21 +10,21 @@ import type {
   PlanActionInput,
   ResourceSpec,
   ResourceType,
-  TargetId,
   VerifyCheck,
 } from './types.ts';
 import { interpolate, isPlainObject, canonicalize, sha256 } from './util.ts';
 import { STATE_DIR } from './files.ts';
 import { actionPaths, actionUndo } from './plan-ops.ts';
-import { TARGET_VARS, type TargetVars } from './targets.ts';
+import { layoutFor, type LayoutVars } from './layout.ts';
 import type { Graph } from './graph.ts';
 import { RESOURCE_KINDS, fileNameOf, type InstalledResource, type KindContext } from './kinds.ts';
 import { ISSUE_CODES } from './issueCodes.ts';
 
 export interface PlanOptions {
-  target: TargetId;
-  /** 覆盖落点变量（全局同步用不同的 skillsDir 等）；只允许 TargetVars 里的键 */
-  targetVars: Partial<TargetVars>;
+  /** 装到哪个宿主；不写 = 平铺到项目里 */
+  harness?: HarnessId;
+  /** 覆盖落点变量（全局同步用不同的 skillsDir 等）；只允许 LayoutVars 里的键 */
+  targetVars: Partial<LayoutVars>;
   packDir?: string;
   /** 这些类型的资源交给宿主/外部适配器处理，不进计划（例如全局同步时的 MCP） */
   skipResourceTypes?: ResourceType[];
@@ -40,7 +41,7 @@ export function buildPlan(
   opts: PlanOptions,
 ): { plan?: Plan; issues: Issue[] } {
   const issues: Issue[] = [];
-  const targetVars: TargetVars = { ...TARGET_VARS[opts.target], ...opts.targetVars };
+  const targetVars: LayoutVars = { ...layoutFor(opts.harness), ...opts.targetVars };
   const scope: Record<string, unknown> = {
     vars: manifest.vars ?? {},
     target: targetVars,
@@ -373,14 +374,15 @@ export function buildPlan(
     });
   }
 
-  issues.push(...detectConflicts(actions, opts.target));
+  issues.push(...detectConflicts(actions, opts.harness));
 
   if (issues.some((i) => i.severity === 'error')) return { issues };
 
   const plan: Omit<Plan, 'planHash'> = {
     apiVersion: 'packhub.dev/plan/v0',
     pack: { name: manifest.metadata.name, version: manifest.metadata.version },
-    target: opts.target,
+    // 平铺目录时字段不出现：计划 JSON 里有没有 harness 就是「装没装到某个宿主」
+    ...(opts.harness ? { harness: opts.harness } : {}),
     actions,
     excluded,
     verify,
@@ -447,12 +449,12 @@ function readStructured(packDir: string, rel: string): unknown {
  * 状态目录另判：同一目录挂两个 id 是清单错误（卸载时 retain 会打架），单独报
  * `duplicate-state-path`，不塞回输出路径集合。
  */
-function detectConflicts(actions: PlanAction[], target: TargetId): Issue[] {
+function detectConflicts(actions: PlanAction[], harness: HarnessId | undefined): Issue[] {
   const issues: Issue[] = [];
   const fsPaths = new Map<string, { id: string; modify: boolean }[]>();
   const configKeys = new Map<string, string[]>();
   const stateDirs = new Map<string, { id: string; retain: string }[]>();
-  const shape = { target, actions };
+  const shape = { harness, actions };
 
   for (const a of actions) {
     if (a.op === 'state.dir') {
@@ -636,7 +638,7 @@ function splitBlock(text: string, eol: string): string[] {
 function instructionBlock(
   manifest: Manifest,
   graph: Graph,
-  targetVars: TargetVars,
+  targetVars: LayoutVars,
   statePaths: Record<string, string>,
   context?: string,
 ): string {

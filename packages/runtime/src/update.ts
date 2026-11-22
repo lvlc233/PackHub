@@ -3,14 +3,15 @@ import { fetchPack } from './registry.ts';
 import { loadPack, installPack, loadState, loadLock, withLockPins } from './index.ts';
 import { pruneRemoved } from './install.ts';
 import { checkLockConsistency, diffActions, describeAction, planFor, STATE_DIR } from '@packhub/kernel';
-import type { PlanSnapshot } from '@packhub/kernel';
+import type { HarnessId, PlanSnapshot } from '@packhub/kernel';
 
 export interface UpdateOptions {
   name: string;
   index: string;
   projectDir: string;
   version?: string;
-  target?: string;
+  /** 装到哪个宿主；不写 = 沿用上次安装的宿主/平铺形态 */
+  harness?: HarnessId;
   /** 允许覆盖别的包写过的普通文件 */
   overwrite?: boolean;
   /** 锁与清单对不上也继续（默认拒绝） */
@@ -57,14 +58,16 @@ export async function updatePack(opts: UpdateOptions): Promise<UpdateResult> {
   const key = Object.keys(state.packs).find((k) => k.startsWith(`${opts.name}@`));
   const previous: PlanSnapshot | undefined = key ? state.packs[key]?.plan : undefined;
   const previousActions = key ? state.packs[key]?.actions ?? [] : [];
-  // 没显式指定 target 就沿用上次安装的，避免更新时把 claude-code 的投影换成 dir
-  const target = opts.target ?? previous?.target ?? 'dir';
+  // 没显式指定宿主就沿用上次安装的，避免更新时把 claude-code 的投影换成平铺目录。
+  // 旧快照存的是 `target`、没有 `harness`：v0 无兼容承诺，这里不认它，一律当平铺目录
+  // （装过宿主的旧安装要重装成带 harness 的快照）。
+  const harness = opts.harness ?? previous?.harness;
 
-  const { plan, issues } = planFor(ctx, { target: target as never });
+  const { plan, issues } = planFor(ctx, harness ? { harness } : {});
   if (!plan) throw new Error(`新版本生成不了计划：${issues.map((i) => i.message).join('; ')}`);
 
   // 锁 ↔ 清单只有一个判定（kernel 的 checkLockConsistency，与 install / diff 共用）；判据是
-  // 内容哈希，与本次安装 target 无关。--allow-stale-lock 仍然只在调用方显式传 true 时放行
+  // 内容哈希，与这次装到哪个宿主无关。--allow-stale-lock 仍然只在调用方显式传 true 时放行
   const lockCheck = checkLockConsistency(read.lock, ctx.manifest);
   if (lockCheck.status === 'mismatch' && !opts.allowStaleLock) {
     throw new Error('新版本的锁与清单对不上（清单在锁定后被改过）；确认后用 --allow-stale-lock 继续');

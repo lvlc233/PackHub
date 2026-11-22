@@ -75,7 +75,7 @@ resources:
     );
 
     const ctx = loadPack(dir);
-    const { plan } = planFor(ctx, { target: 'claude-code' });
+    const { plan } = planFor(ctx, { harness: 'claude-code' });
     await installPack(ctx, plan!);
 
     const installed = JSON.parse(readFileSync(join(dir, '.mcp.json'), 'utf8')) as {
@@ -117,7 +117,7 @@ resources:
     writeFileSync(join(dir, 'CLAUDE.md'), '用户自己的说明\n', 'utf8');
 
     const ctx = loadPack(dir);
-    const { plan } = planFor(ctx, { target: 'claude-code' });
+    const { plan } = planFor(ctx, { harness: 'claude-code' });
     await installPack(ctx, plan!);
 
     // mcp：撤销要摘的键与安装写进配置的键是同一个

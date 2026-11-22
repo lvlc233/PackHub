@@ -72,7 +72,7 @@ export async function updateInstance(
       hint: 'pal stop <id>，更新完再 pal start',
     });
   }
-  const harness = record.harness;
+  const kind = record.harness;
   const loaded = loadPack(resolve(opts.packDir));
   if (!loaded.manifest) {
     const detail = loaded.issues.filter((i) => i.severity === 'error').map((i) => i.message).join('; ');
@@ -94,8 +94,13 @@ export async function updateInstance(
     );
   }
 
-  const targetVars = targetVarsFor(harness);
-  const { plan, issues } = planFor(ctx, { target: harness, ...(targetVars ? { targetVars } : {}) });
+  const targetVars = targetVarsFor(kind);
+  // dir 是项目目录实例，不是 kernel 的宿主：映射成「不传 harness」（平铺到实例根）
+  const planOptions = {
+    ...(kind === 'dir' ? {} : { harness: kind }),
+    ...(targetVars ? { targetVars } : {}),
+  };
+  const { plan, issues } = planFor(ctx, planOptions);
   if (!plan) throw new PalError('invalid-input', `生成不了计划：${issues.map((i) => i.message).join('; ')}`);
 
   const before = loadState(record.root);
@@ -167,7 +172,7 @@ export async function updateInstance(
     writeBaseline(record.root, {
       pack: pack.name,
       version: pack.version,
-      harness,
+      harness: kind,
       planHash: plan.planHash,
       files: baselineFromState(record.root),
     });

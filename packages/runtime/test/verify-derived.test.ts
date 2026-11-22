@@ -157,7 +157,7 @@ function fakePlan(): PlanShape {
       resource: 'fake-mcp',
     },
   ] as unknown as PlanAction[];
-  return { target: 'dir', actions };
+  return { actions };
 }
 
 describe('MCP 探活派生：默认不生成', () => {

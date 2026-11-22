@@ -61,7 +61,7 @@ export function loadLock(dir: string): LockRead {
 
 /**
  * 「这份内容」的 contentHash：锁在就以锁钉死的 `resolved` 为准算，没有锁就按清单自身的引用算
- * （与 `buildLock` 同口径）。签名覆盖的是它、验证报告绑定的也是它；安装 target 不参与。
+ * （与 `buildLock` 同口径）。签名覆盖的是它、验证报告绑定的也是它；宿主与平铺形态都不参与。
  *
  * 所有消费端都从这里取，别再各算一份。
  */
@@ -96,8 +96,8 @@ export function withLockPins(ctx: PackContext, lock?: LockFile): PackContext {
 /**
  * 消费端核对：锁与清单是否一致、验证报告是否对得上、签名是否有效。
  *
- * 锁只描述内容（清单 + resolved），所以核对不需要计划、也不需要安装 target：判据是重算
- * contentHash。安装 target 由调用方按需现算计划，不传进来。
+ * 锁只描述内容（清单 + resolved），所以核对不需要计划、也不需要知道装到哪个宿主：判据是重算
+ * contentHash。装到哪个宿主由调用方按需现算计划，不传进来。
  * 只读，不改任何文件；问题交给调用方决定是否放行。
  */
 export function inspectPack(

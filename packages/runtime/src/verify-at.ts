@@ -1,6 +1,13 @@
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { loadPack, planFor, MANIFEST_FILE, type Issue, type Plan, type TargetId } from '@packhub/kernel';
+import {
+  loadPack,
+  planFor,
+  MANIFEST_FILE,
+  type HarnessId,
+  type Issue,
+  type Plan,
+} from '@packhub/kernel';
 import { checksWithDerived } from './derived-checks.ts';
 import { hasInstalledPacks, verifyInstalled, type InstalledVerifyReport } from './installed.ts';
 import { runChecks, serverSpecs, type CheckResult } from './verify.ts';
@@ -11,8 +18,8 @@ export type VerifyMode = 'installed' | 'pack';
 export interface VerifyAtOptions {
   /** 只验某个已装包（name@version）；只在项目模式生效 */
   pack?: string;
-  /** Pack 模式的 target；项目模式不看它（计划来自 state 快照） */
-  target?: TargetId;
+  /** Pack 模式的宿主；项目模式不看它（计划来自 state 快照）。不写 = 平铺目录 */
+  harness?: HarnessId;
   /** 再对计划里的每个 MCP server 真发一次 initialize；会起进程 / 联网，默认关 */
   probeMcp?: boolean;
 }
@@ -80,7 +87,7 @@ export async function verifyAt(root: string, opts: VerifyAtOptions = {}): Promis
   let plan: Plan | undefined;
   // 清单有 error 时 planFor 只会把 error 再抛一遍，所以先短路；warning 照旧累积下来
   if (!issues.some((i) => i.severity === 'error')) {
-    const planned = planFor(ctx, { target: opts.target ?? 'dir' });
+    const planned = planFor(ctx, opts.harness ? { harness: opts.harness } : {});
     issues.push(...planned.issues);
     plan = planned.plan;
   }

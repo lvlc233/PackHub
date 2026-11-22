@@ -11,9 +11,9 @@ export interface LockOptions {
 /**
  * contentHash 的规范化口径（唯一来源：lock 写端与所有校验端都调它，别各算一份）。
  *
- * - 只哈希两样东西：**清单 + `resolved` 引用**。安装 target、计划、平台一律不进哈希：
- *   同一份内容装到 dir / dsh / claude-code / codex 上算出的 contentHash 相同——
- *   装哪个 target 是安装期参数，不是内容。
+ * - 只哈希两样东西：**清单 + `resolved` 引用**。宿主、计划、平台一律不进哈希：
+ *   同一份内容平铺装、或装到 dsh / claude-code / codex 上算出的 contentHash 相同——
+ *   装到哪个宿主是安装期参数，不是内容。
  * - 清单先去掉 `signatures`：签名本身不是内容，而且签名载荷就是这个哈希，含进来会自指。
  * - 清单里的资源来源先按 `resolved` 归一（有解析结果就用 pin 过的 source / integrity，
  *   与 `withLockPins` 同口径）：于是「作者清单 + 锁」和「pin 过的清单 + 锁」算出同一个哈希，
@@ -40,9 +40,9 @@ export function contentHashOf(manifest: Manifest, resolved: readonly ResolvedRef
 }
 
 /**
- * 生成锁：只记录引用与完整性，不含任何 target 的计划。
+ * 生成锁：只记录引用与完整性，不含任何安装形态的计划。
  *
- * 装到哪个 target、计划长什么样，都由调用方在用到时用 `planFor(ctx, { target })` 现算。
+ * 装到哪个宿主、计划长什么样，都由调用方在用到时用 `planFor(ctx, { harness })` 现算。
  * `manifest` 与 `resolved` 一起进 contentHash；来源是否已被 pin 过不影响结果，
  * 但 `pack` / `resolved` 的 id 与类型取自传入的这份清单。
  */

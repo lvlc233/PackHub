@@ -48,7 +48,7 @@ describe('引用解析', () => {
     expect(byId.get('repo-skill')!.integrity).toBe('sha256-nope');
     expect(byId.get('rules')!.source).toBe('./rules.md');
 
-    // 锁只记内容：解析后的引用进 contentHash；计划由调用方按 target 现算
+    // 锁只记内容：解析后的引用进 contentHash；计划由调用方按宿主现算
     expect(res.lock.contentHash).toMatch(/^sha256-/);
     const pinned = withLockPins(loadPack(dir), res.lock);
     const { plan } = planFor(pinned);

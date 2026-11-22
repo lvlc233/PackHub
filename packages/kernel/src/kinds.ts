@@ -1,6 +1,6 @@
 // 资源类型 → 安装动作 / 参数补丁面 / 能力形态的一张描述表。
 //
-// buildPlan 的循环只负责顺序、host / target 裁剪与 push 编号；每种类型怎么物化都在这里的
+// buildPlan 的循环只负责顺序、宿主裁剪与 push 编号；每种类型怎么物化都在这里的
 // materialize 里。validateGraph 的参数补丁也按 paramPatch 分叉，不再自己按类型写 if。
 // 加资源类型：这里补一条（Record<ResourceType, ResourceKind> 会逼着补），不要再往 buildPlan 里加 switch。
 
@@ -15,7 +15,7 @@ import type {
   ToolRuntime,
 } from './types.ts';
 import type { CapabilityForm } from './capability.ts';
-import type { TargetVars } from './targets.ts';
+import type { LayoutVars } from './layout.ts';
 import { parseSource } from './ref.ts';
 import { ISSUE_CODES } from './issueCodes.ts';
 import { isPlainObject } from './util.ts';
@@ -32,7 +32,7 @@ export interface InstalledResource {
 export interface KindContext {
   issues: Issue[];
   installed: Map<string, InstalledResource>;
-  targetVars: TargetVars;
+  targetVars: LayoutVars;
   /** 包目录的绝对路径：tool2 判断本地来源是文件还是目录时读它 */
   packBase: string;
   /** 目标平台（`platform-arch`）：只用来给平台警告，不读 process */

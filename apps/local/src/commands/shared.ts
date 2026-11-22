@@ -1,6 +1,13 @@
 // cli.ts 的共享小件：命令文件共用，不带任何命令定义。
-import { issueError, issueWarn, problemRaw, say } from '../emit.ts';
-import { type Composition, type Issue, type Plan } from '@packhub/kernel';
+import { EXIT, issueError, issueWarn, problemRaw, say, stop } from '../emit.ts';
+import {
+  HARNESS_IDS,
+  isHarnessId,
+  type Composition,
+  type HarnessId,
+  type Issue,
+  type Plan,
+} from '@packhub/kernel';
 
 /** 安装后自动复核只跑只读检查；command / mcp-ready 会执行包里的命令，必须显式 --deep-verify。 */
 export const SAFE_CHECKS = ['file-exists', 'config-key', 'knowledge-integrity'] as const;
@@ -15,6 +22,25 @@ export function reportIssues(issues: Issue[], ctx = 'packhub'): boolean {
     return true;
   }
   return false;
+}
+
+/**
+ * 解析 `--harness`：只有宿主名，不写 = 平铺目录。
+ *
+ * 安装参数只决定「按哪个宿主的落点表物化」，不写清单；拼错/传 dir 都按用法错退出（2）。
+ */
+export function parseHarness(raw: string | undefined): HarnessId | undefined {
+  if (raw === undefined) return undefined;
+  if (!isHarnessId(raw)) {
+    problemRaw(`未知宿主：${raw}（可选 ${HARNESS_IDS.join(' / ')}；不写 = 平铺目录）`);
+    stop(EXIT.USAGE);
+  }
+  return raw;
+}
+
+/** 计划头/对比行里的人类可读宿主名：不选宿主时就是平铺目录。 */
+export function describeHarness(harness: HarnessId | undefined): string {
+  return harness === undefined ? '平铺目录' : `harness=${harness}`;
 }
 
 /**
@@ -36,7 +62,7 @@ function printWiring(wiring: Composition, planExcluded: Plan['excluded']): void 
     say(`    ${edge.provider} → ${edge.consumer}（${edge.capability}）`);
   }
 
-  // 被 plan 期规则整条裁掉的资源也要露出原因（target 裁剪、宿主托管、可选级联）
+  // 被 plan 期规则整条裁掉的资源也要露出原因（落点裁剪、宿主托管、可选级联）
   if (planExcluded.length > 0) {
     say('  未装（计划期排除）：');
     for (const e of planExcluded) {
@@ -50,15 +76,15 @@ function printWiring(wiring: Composition, planExcluded: Plan['excluded']): void 
  * 多打一段接线；动作列表与 verify 摘要保持原样。
  */
 export function printPlan(plan: Plan, wiring?: Composition): void {
-  say(`${plan.pack.name}@${plan.pack.version} → target=${plan.target}`);
+  say(`${plan.pack.name}@${plan.pack.version} → ${describeHarness(plan.harness)}`);
   say(`planHash ${plan.planHash}\n`);
   if (wiring) {
     printWiring(wiring, plan.excluded);
     say('');
   }
   for (const a of plan.actions) {
-    const target = 'to' in a ? a.to : 'dest' in a ? a.dest : 'path' in a ? a.path : a.resource ?? '';
-    say(`  ${a.actionId.padEnd(16)} ${a.op.padEnd(14)} ${target}`);
+    const dest = 'to' in a ? a.to : 'dest' in a ? a.dest : 'path' in a ? a.path : a.resource ?? '';
+    say(`  ${a.actionId.padEnd(16)} ${a.op.padEnd(14)} ${dest}`);
   }
   say(`\nverify: ${plan.verify.length} 项`);
 }

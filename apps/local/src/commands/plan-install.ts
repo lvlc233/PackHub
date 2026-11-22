@@ -11,12 +11,11 @@ import {
   diffActions,
   describeAction,
   checkLockConsistency,
+  HARNESS_IDS,
   LOCK_FILE,
   MANIFEST_FILE,
   PACK_NAME_PATTERN,
   STATE_DIR,
-  TARGET_IDS,
-  type TargetId,
 } from '@packhub/kernel';
 import {
   doctorPack,
@@ -29,21 +28,24 @@ import {
   lockPack,
   probeHarness,
   probeSkill,
-  type HarnessTarget,
 } from '@packhub/runtime';
-import { reportIssues, printPlan } from './shared.ts';
+import { describeHarness, parseHarness, reportIssues, printPlan } from './shared.ts';
 
 export const plan = command({
   meta: { name: 'plan', description: '解析 Pack 并打印安装计划（不落盘）' },
   args: {
     dir: { type: 'positional', required: false, default: '.' },
     json: { type: 'boolean', default: false },
-    target: { type: 'string', default: 'dir', description: `${TARGET_IDS.join(' | ')}` },
+    harness: {
+      type: 'string',
+      description: `安装参数：按哪个宿主的落点表物化（${HARNESS_IDS.join(' / ')}）；不写 = 平铺目录`,
+    },
   },
   run({ args }) {
     const ctx = loadPack(String(args.dir));
     if (reportIssues(ctx.issues)) stop(EXIT.USAGE);
-    const { plan: p, issues } = planFor(ctx, { target: String(args.target ?? 'dir') as never });
+    const harness = parseHarness(args.harness === undefined ? undefined : String(args.harness));
+    const { plan: p, issues } = planFor(ctx, harness ? { harness } : {});
     if (!p) {
       reportIssues(issues);
       stop(EXIT.USAGE);
@@ -55,13 +57,6 @@ export const plan = command({
   },
 });
 
-/** 探针能跑的宿主；检查段另有 dir 这一项，两边取交集之外的要单独判。 */
-const PROBE_TARGETS = ['dsh', 'claude-code', 'opencode', 'codex'] as const;
-
-function isProbeTarget(value: string): value is HarnessTarget {
-  return (PROBE_TARGETS as readonly string[]).includes(value);
-}
-
 export const verify = command({
   meta: {
     name: 'verify',
@@ -70,10 +65,9 @@ export const verify = command({
   },
   args: {
     dir: { type: 'positional', required: false, default: '.', description: '要体检的目录（项目根或 Pack 目录）' },
-    target: {
+    harness: {
       type: 'string',
-      default: 'dir',
-      description: `${TARGET_IDS.join(' | ')}（检查段用；--probe 时按宿主名，dir 视为 dsh）`,
+      description: `安装参数：按哪个宿主的落点表算检查计划（${HARNESS_IDS.join(' / ')}）；不写 = 平铺目录，--probe 时探针默认 dsh`,
     },
     pack: { type: 'string', description: '检查段只验某个已装的包（name@version）' },
     probe: {
@@ -95,19 +89,7 @@ export const verify = command({
   },
   async run({ args }) {
     const dir = resolve(String(args.dir));
-    const rawTarget = String(args.target ?? 'dir');
-    const checksTarget = (TARGET_IDS as readonly string[]).includes(rawTarget)
-      ? (rawTarget as TargetId)
-      : undefined;
-    // 检查段只认 TARGET_IDS；探针段只认宿主名。两边都不认的 target 直接当参数错。
-    if (!checksTarget && !isProbeTarget(rawTarget)) {
-      problemRaw(`未知 target：${rawTarget}（检查段可选 ${TARGET_IDS.join(' / ')}；探针还可以是 ${PROBE_TARGETS.join(' / ')}）`);
-      stop(EXIT.USAGE);
-    }
-    if (!checksTarget && !args.probe) {
-      problemRaw(`${rawTarget} 只能给探针用：加 --probe，或把 --target 换成 ${TARGET_IDS.join(' / ')}`);
-      stop(EXIT.USAGE);
-    }
+    const harness = parseHarness(args.harness === undefined ? undefined : String(args.harness));
     const sayLine = sayUnless(Boolean(args.json));
 
     // —— 段一：漂移。state 里记下的已装产物 vs 磁盘现状（原 doctor 的目录模式）——
@@ -133,7 +115,7 @@ export const verify = command({
     // —— 段二：检查。走项目模式还是 Pack 模式、失败怎么计数，都在 runtime 的 verifyAt 里判 ——
     const res = await verifyAt(dir, {
       ...(args.pack ? { pack: String(args.pack) } : {}),
-      ...(checksTarget ? { target: checksTarget } : {}),
+      ...(harness ? { harness } : {}),
       ...(args['probe-mcp'] ? { probeMcp: true } : {}),
     });
     if (res.issues.length > 0) reportIssues(res.issues);
@@ -164,11 +146,8 @@ export const verify = command({
     // —— 段三：真机探针。声明式检查证明不了「宿主真读过」，只有跑一次才知道 ——
     let probe: Awaited<ReturnType<typeof probeHarness>> | undefined;
     if (args.probe) {
-      const probeTarget = rawTarget === 'dir' ? 'dsh' : rawTarget;
-      if (!isProbeTarget(probeTarget)) {
-        problemRaw(`未知探针 target：${probeTarget}（可选 ${PROBE_TARGETS.join(' / ')}）`);
-        stop(EXIT.USAGE);
-      }
+      // 不写 --harness 时探针默认 dsh：平铺目录没有宿主指令面，探针只在宿主上才有意义
+      const probeTarget = harness ?? 'dsh';
       probe = args.skill
         ? probeSkill({ target: probeTarget, projectDir: dir, skill: String(args.skill) })
         : probeHarness({
@@ -343,7 +322,7 @@ export const diff = command({
   args: {
     dir: { type: 'positional', required: false, default: '.' },
     check: { type: 'boolean', default: false, description: '有差异就以非零码退出（CI 用）' },
-    target: { type: 'string', description: '默认沿用安装时记录的 target' },
+    harness: { type: 'string', description: '默认沿用安装时记录的宿主（平铺目录则沿用平铺）' },
   },
   async run({ args }) {
     const dir = resolve(String(args.dir));
@@ -359,7 +338,7 @@ export const diff = command({
     const lock = read.lock;
     const ctx = withLockPins(loadPack(dir), lock);
     if (reportIssues(ctx.issues)) stop(EXIT.USAGE);
-    // 旧计划快照只在 state 里（锁只描述内容，不存任何 target 的计划）。
+    // 旧计划快照只在 state 里（锁只描述内容，不存任何宿主的计划）。
     // 没有安装记录就直说没装——作者还没安装时想看计划应该用 packhub plan。
     const pack = ctx.manifest.metadata.name;
     const state = loadState(dir);
@@ -369,9 +348,10 @@ export const diff = command({
       problemRaw(`这个包还没装：state 里没有 ${pack} 的安装计划快照；先 packhub install 装上再 diff`);
       stop(EXIT.USAGE);
     }
-    // 按安装时的 target 现算计划；显式 --target 可以看别的 target 会多/少什么
-    const target = String(args.target ?? snapshot.target);
-    const { plan, issues } = planFor(ctx, { target: target as never });
+    // 按安装时的宿主现算计划；显式 --harness 可以看别的宿主会多/少什么。
+    // 更早的快照里字段叫 target（含 dir）：v0 无兼容承诺，读端不认它，一律当平铺目录。
+    const harness = parseHarness(args.harness === undefined ? undefined : String(args.harness)) ?? snapshot.harness;
+    const { plan, issues } = planFor(ctx, harness ? { harness } : {});
     if (!plan) {
       reportIssues(issues, 'packhub diff');
       stop(EXIT.USAGE);
@@ -386,7 +366,7 @@ export const diff = command({
     }
 
     say(
-      `planHash ${snapshot.planHash.slice(0, 22)}… → ${plan.planHash.slice(0, 22)}…（已装 ${snapshot.target} / 现算 ${plan.target}）`,
+      `planHash ${snapshot.planHash.slice(0, 22)}… → ${plan.planHash.slice(0, 22)}…（已装 ${describeHarness(snapshot.harness)} / 现算 ${describeHarness(plan.harness)}）`,
     );
     for (const a of removed) say(`  - ${describeAction(a)}`);
     for (const a of added) say(`  + ${describeAction(a)}`);
