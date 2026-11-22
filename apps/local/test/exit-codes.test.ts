@@ -45,7 +45,7 @@ function makePack(dir: string, opts: { verifyMissing?: boolean; extra?: string }
     writeFileSync(
       join(dir, 'packhub.yaml'),
       MANIFEST(
-        'verify:\n  - type: file-exists\n    path: "${target.knowledgeDir}/not-there.md"\n' +
+        'verify:\n  - type: file-exists\n    path: "${layout.knowledgeDir}/not-there.md"\n' +
           (opts.extra ?? ''),
       ),
       'utf8',

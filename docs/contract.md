@@ -65,6 +65,16 @@ resources:
 1. `provides` / `needs` 都写成能力令牌（写法见 §2）。同一令牌允许多个 provider：它们全部安装、不互斥，消费者的每个 `needs` 只要至少有一个 provider 就算满足。
 2. 清单不声明「只装其中一个实现」：没有互斥组，也没有选择字段；`additionalProperties: false`，schema 没定义的字段判 schema error。
 
+### 清单插值
+
+清单里会变成路径或命令的字符串支持 `${...}` 插值：`state[].path`、`install.exec` 的各字段与 `verify` 项。可用命名空间只有三个：
+
+- `${vars.<键>}`：清单的 `vars`；
+- `${layout.<字段>}`：这次安装按 `--harness` 选的落点表——`root` / `cacheDir` / `skillsDir` / `knowledgeDir` / `promptsDir` / `binDir` / `configDir` / `configFile` / `instructionFile`；平铺目录用 `DIR_LAYOUT_VARS`，它没有 `instructionFile`，写了会报 `undefined-variable`；
+- `${state.<id>}`：清单 `state` 块声明的持久目录。
+
+找不到的键报 `undefined-variable`。落点变量的命名空间是 `layout`，不留别名；旧命名空间下的写法会被当成找不到的键，计划期直接报错。
+
 ## 2 Plan（`packhub.dev/plan/v0`）
 
 内核算出的动作清单。负责确保包资源安装的正确性。计划是安装期现算的：`pal install` / `pal update`、launcher 建/更新实例与 publish 门禁里的 runner 各算一份；`packhub plan` / `packhub verify` 只在 Pack 目录里预览，不写用户目录。
@@ -193,6 +203,8 @@ resources:
 5. `generations` 每次安装追加一条，更早的会被裁掉（保留策略在 `install.ts`）；`existed` / `created` 是回退的依据。
 
 装好与否的判定、并发、回退、所有权与卸载顺序是行为，写在 `packages/runtime/src/install.ts`（`applyPlan` / `acquireLock` / `removePack` / `rollbackPack`）。
+
+安装审计不写进 state：`pal install` / `pal update` 每次追加一行到本机 `$PACKHUB_HOME/audit.jsonl`（`at` / `action` / 包与版本 / `planHash` / `ok`），`pal audit` 读它。审计是「这台机器上发生过什么」的旁挂记录，不进锁、不进内容哈希；记录字段见 `packages/runtime/src/audit.ts`。
 
 ## 5 Index（`packhub.dev/index/v0`）
 

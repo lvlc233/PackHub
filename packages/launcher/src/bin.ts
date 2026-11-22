@@ -22,9 +22,53 @@ async function resolveValue<T>(
 }
 
 /**
+ * 根帮助分组：命令名不变，只把命令按「对象」分块显示。
+ * 子命令自己的 --help 仍用 citty 的 renderUsage（参数表由 citty 生成，避免两套）。
+ */
+const HELP_GROUPS: { title: string; names: string[] }[] = [
+  { title: '安装目录（对象是已存在的目录）', names: ['install', 'uninstall', 'verify', 'rollback', 'update'] },
+  {
+    title: '实例',
+    names: ['create', 'adopt', 'list', 'show', 'start', 'stop', 'restart', 'status', 'ps', 'core', 'health', 'logs', 'use', 'current', 'remove', 'config'],
+  },
+  { title: '搬运', names: ['scan', 'clone', 'rename', 'migrate', 'export', 'import', 'backup', 'restore', 'recover'] },
+  { title: '其它', names: ['cache', 'rebaseline', 'audit'] },
+];
+
+/** 一条命令的一行描述；meta 可能是函数 / Promise，按 citty 的规则先求值。 */
+async function commandLine(name: string, sub: CommandDef | undefined): Promise<string> {
+  const meta = sub ? await resolveValue<CommandMeta>(sub.meta) : undefined;
+  return `  ${name.padEnd(12)} ${meta?.description ?? ''}`.trimEnd();
+}
+
+/** 根帮助：标题 + USAGE + 分组命令表。 */
+async function groupedUsage(): Promise<string> {
+  const meta = await resolveValue<CommandMeta>(main.meta);
+  const subCommands = (await resolveValue<SubCommandsDef>(main.subCommands)) ?? {};
+  const lines: string[] = [
+    `${meta?.name ?? 'pal'} v${meta?.version ?? ''}`,
+    '',
+    meta?.description ?? '',
+    '',
+    `USAGE ${meta?.name ?? 'pal'} <command> [OPTIONS]`,
+    '',
+  ];
+  for (const group of HELP_GROUPS) {
+    lines.push(`${group.title}：`);
+    for (const name of group.names) {
+      const sub = await resolveValue<CommandDef>(subCommands[name]);
+      lines.push(await commandLine(name, sub));
+    }
+    lines.push('');
+  }
+  lines.push(`Use ${meta?.name ?? 'pal'} <command> --help for more information about a command.`);
+  return lines.join('\n');
+}
+
+/**
  * --help：打印用法（退出 0）。定位方式与 citty 的 resolveSubCommand 一致：
  * rawArgs 里第一个不以 - 开头的词就站在一级子命令的位置；它确实是 main.subCommands
- * 里的一个命令就打那个子命令的用法（标题为 `pal <命令>`），否则打根命令的用法。
+ * 里的一个命令就打那个子命令的用法（标题为 `pal <命令>`），否则打分组的根帮助。
  */
 async function printHelp(): Promise<void> {
   const word = rawArgs.find((arg) => !arg.startsWith('-'));
@@ -32,7 +76,7 @@ async function printHelp(): Promise<void> {
   const sub = word ? await resolveValue<CommandDef>(subCommands[word]) : undefined;
   try {
     // 不用 citty 的 showUsage：它走 consola，输出流取决于报告器；这里直接写 stdout
-    const usage = sub ? await renderUsage(sub, main) : await renderUsage(main);
+    const usage = sub ? await renderUsage(sub, main) : await groupedUsage();
     writeSync(1, `${usage}\n`);
   } catch {
     // 渲染时也可能抛（meta 是函数时要先求值）；兜底只打命令名

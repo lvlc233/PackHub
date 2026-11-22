@@ -22,7 +22,7 @@ export function sha256(text: string): string {
   return 'sha256-' + createHash('sha256').update(text, 'utf8').digest('base64');
 }
 
-/** `${vars.x}` / `${target.y}` / `${resources.<id>.config.<path>}` 插值。
+/** `${vars.x}` / `${layout.y}` / `${state.<id>}` 插值。
  *  只替换字符串里的占位符；找不到的键保持原样并记录到 missing 中。 */
 export function interpolate(
   value: unknown,

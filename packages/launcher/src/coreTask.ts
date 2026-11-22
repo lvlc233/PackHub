@@ -152,7 +152,7 @@ function requireWindows(): void {
   }
 }
 
-/** 注册（或覆盖）开机任务；返回任务名与 XML，方便 doctor/日志里核对。 */
+/** 注册（或覆盖）开机任务；返回任务名与 XML，方便 pal health --hosts/日志里核对。 */
 export function installCoreTask(
   spec: CoreTaskCommand = coreTaskCommand(),
   runner: TaskRunner = defaultRunner,

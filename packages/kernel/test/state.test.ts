@@ -46,10 +46,10 @@ describe('持久状态目录（state 块）', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('路径可以用 ${target.root}，但绝对路径与 .. 被拒', () => {
+  it('路径可以用 ${layout.root}，但绝对路径与 .. 被拒', () => {
     const okDir = pack(`state:
   - id: memory
-    path: \${target.root}/state/custom
+    path: \${layout.root}/state/custom
 `);
     const ok = planFor(loadPack(okDir)).plan!;
     expect(ok.actions.find((a) => a.op === 'state.dir')).toMatchObject({

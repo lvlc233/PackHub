@@ -20,7 +20,7 @@ resources:
     source: ./resources/rules.md
 verify:
   - type: file-exists
-    path: "\${target.knowledgeDir}/rules.md"
+    path: "\${layout.knowledgeDir}/rules.md"
 `,
     'utf8',
   );
@@ -75,7 +75,7 @@ resources:
     source: ./resources/rules.md
 verify:
   - type: file-exists
-    path: "\${target.knowledgeDir}/rules.md"
+    path: "\${layout.knowledgeDir}/rules.md"
   - type: mcp-ready
     resource: ghost
 `,

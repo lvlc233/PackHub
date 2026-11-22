@@ -9,12 +9,22 @@ import { fileURLToPath } from 'node:url';
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url));
 const BIN = join(ROOT, 'apps/local/src/bin.ts');
 
+/**
+ * 跑一次 packhub CLI。
+ *
+ * 测试进程会带 NODE_ENV=test / TEST / VITEST：citty 会因此把 usage 静音、把错误渲染换成
+ * `[error] ...` 的写法。断言要的是「真实使用者在终端里看到的东西」，所以这里先清掉这三个。
+ */
 function run(args: string[], env: Record<string, string> = {}): { status: number | null; out: string } {
+  const base: NodeJS.ProcessEnv = { ...process.env };
+  delete base.NODE_ENV;
+  delete base.TEST;
+  delete base.VITEST;
   const res = spawnSync(process.execPath, ['--experimental-strip-types', BIN, ...args], {
     cwd: ROOT,
     encoding: 'utf8',
     timeout: 60_000,
-    env: { ...process.env, PACKHUB_HOME: join(tmpdir(), 'packhub-cli-home'), ...env },
+    env: { ...base, PACKHUB_HOME: join(tmpdir(), 'packhub-cli-home'), ...env },
   });
   return { status: res.status, out: `${res.stdout ?? ''}${res.stderr ?? ''}` };
 }
@@ -39,7 +49,7 @@ resources:
     source: ./rules.md
 verify:
   - type: file-exists
-    path: "\${target.knowledgeDir}/rules.md"
+    path: "\${layout.knowledgeDir}/rules.md"
 `,
       'utf8',
     );
@@ -107,26 +117,30 @@ verify:
 });
 
 describe('cli 命令面：只做生产，安装归 pal', () => {
-  it('--help 列 18 个命令，且没有 install / uninstall / update / rollback / diff', () => {
+  it('--help 列 17 个命令，且没有安装类命令与 audit', () => {
     const help = run(['--help']);
     expect(help.status).toBe(0);
     const usage = /USAGE ([^\r\n]+)/.exec(help.out)?.[1] ?? '';
     expect(usage.startsWith('packhub ')).toBe(true);
     const names = usage.replace(/^packhub\s+/, '').split('|');
-    expect(names).toHaveLength(18);
-    expect(new Set(names).size).toBe(18);
+    expect(names).toHaveLength(17);
+    expect(new Set(names).size).toBe(17);
     expect(names).toContain('verify');
+    expect(names).toContain('trust');
     expect(names).toContain('completion');
-    for (const removed of ['install', 'uninstall', 'update', 'rollback', 'diff']) {
+    // audit 归 pal：安装审计与实例审计读同一份文件
+    for (const removed of ['install', 'uninstall', 'update', 'rollback', 'diff', 'audit']) {
       expect(names, `packhub 不该再有 ${removed}`).not.toContain(removed);
     }
   });
 
-  it('已删的安装类命令按未知命令拒绝', () => {
-    for (const removed of ['install', 'uninstall', 'update', 'rollback', 'diff']) {
+  it('已删的命令按未知命令拒绝', () => {
+    for (const removed of ['install', 'uninstall', 'update', 'rollback', 'diff', 'audit']) {
       const res = run([removed, '.']);
       expect(res.status, `${removed} 应该被 CITTY 当未知命令`).toBe(1);
-      expect(res.out).toContain(`Unknown command ${removed}`);
+      // citty 的渲染在 NODE_ENV=test 下会换成 `[error] Unknown command \`x\`` 的写法，只认名字
+      expect(res.out).toContain('Unknown command');
+      expect(res.out).toContain(removed);
     }
   });
 });

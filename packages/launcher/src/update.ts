@@ -1,13 +1,13 @@
 import { existsSync, rmSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { MANIFEST_FILE, planFor, type PackContext } from '@packhub/kernel';
+import { MANIFEST_FILE, planFor, type PackContext, type PlanOptions } from '@packhub/kernel';
 import { installPack, loadLock, loadPack, loadState, planPaths, saveState, withLockPins } from '@packhub/runtime';
 import { baselineFromState, hashFile, readBaseline, writeBaseline, type Baseline } from './baseline.ts';
 import { withInstanceLock } from './lock.ts';
 import { readRecord, type InstanceRecord } from './records.ts';
 import { requireInstance } from './catalog.ts';
 import { writeInstance } from './recordWrite.ts';
-import { targetVarsFor } from './layout.ts';
+import { layoutVarsFor } from './layout.ts';
 import { PalError } from './errors.ts';
 import { isPidAlive } from './process.ts';
 import { fsProblem, packIdentityFromState } from './create.ts';
@@ -94,11 +94,12 @@ export async function updateInstance(
     );
   }
 
-  const targetVars = targetVarsFor(kind);
-  // dir 是项目目录实例，不是 kernel 的宿主：映射成「不传 harness」（平铺到实例根）
-  const planOptions = {
+  const layoutVars = layoutVarsFor(kind);
+  // dir 是项目目录实例，不是 kernel 的宿主：映射成「不传 harness」（平铺到实例根）。
+  // 类型写 Partial<PlanOptions>：键写错（例如旧的 targetVars）会在这里编译报错，而不是被静默忽略。
+  const planOptions: Partial<PlanOptions> = {
     ...(kind === 'dir' ? {} : { harness: kind }),
-    ...(targetVars ? { targetVars } : {}),
+    ...(layoutVars ? { layoutVars } : {}),
   };
   const { plan, issues } = planFor(ctx, planOptions);
   if (!plan) throw new PalError('invalid-input', `生成不了计划：${issues.map((i) => i.message).join('; ')}`);

@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { ADAPTERS, dshStartArgs, parseStartUrl, targetVarsFor, type HarnessAdapter } from '../src/layout.ts';
+import { ADAPTERS, dshStartArgs, parseStartUrl, layoutVarsFor, type HarnessAdapter } from '../src/layout.ts';
 
 const CTX = { port: 51_234, root: 'G:/tmp/pal-instance' };
 
 describe('宿主适配', () => {
   it('dsh 的资源落进实例自己的 home', () => {
-    expect(targetVarsFor('dsh')).toMatchObject({
+    expect(layoutVarsFor('dsh')).toMatchObject({
       skillsDir: 'home/dsh/skills',
       knowledgeDir: 'home/dsh/knowledge',
     });
-    expect(targetVarsFor('dir')).toBeUndefined();
+    expect(layoutVarsFor('dir')).toBeUndefined();
   });
 
   it('从启动输出里取地址与端口', () => {

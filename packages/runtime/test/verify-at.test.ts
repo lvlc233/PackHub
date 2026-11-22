@@ -21,7 +21,7 @@ resources:
     source: ./resources/rules.md
 verify:
   - type: file-exists
-    path: "\${target.knowledgeDir}/rules.md"
+    path: "\${layout.knowledgeDir}/rules.md"
 `,
     'utf8',
   );

@@ -1,4 +1,4 @@
-// 资源类型 → 安装动作 / 参数补丁面 / 能力形态的一张描述表。
+﻿// 资源类型 → 安装动作 / 参数补丁面 / 能力形态的一张描述表。
 //
 // buildPlan 的循环只负责顺序、宿主裁剪与 push 编号；每种类型怎么物化都在这里的
 // materialize 里。validateGraph 的参数补丁也按 paramPatch 分叉，不再自己按类型写 if。
@@ -32,7 +32,7 @@ export interface InstalledResource {
 export interface KindContext {
   issues: Issue[];
   installed: Map<string, InstalledResource>;
-  targetVars: LayoutVars;
+  layoutVars: LayoutVars;
   /** 包目录的绝对路径：tool2 判断本地来源是文件还是目录时读它 */
   packBase: string;
   /** 目标平台（`platform-arch`）：只用来给平台警告，不读 process */
@@ -57,7 +57,7 @@ function materializeMcp(ctx: KindContext, res: ResourceSpec): void {
   ctx.push({
     op: 'register.mcp',
     spec: buildMcpSpec(res, ctx.interp(res.config ?? {}) as Record<string, unknown>),
-    path: ctx.targetVars.configFile,
+    path: ctx.layoutVars.configFile,
     resource: res.id,
   });
 }
@@ -76,38 +76,38 @@ function materializeSkill(ctx: KindContext, res: ResourceSpec): void {
     return;
   }
   if (parsed.kind === 'local') {
-    ctx.push({ op: 'link.skill', from: parsed.locator, to: `${ctx.targetVars.skillsDir}/${id}`, fromBase: 'pack', resource: id });
-    ctx.installed.set(id, { type: res.type, kind: 'dir', to: `${ctx.targetVars.skillsDir}/${id}`, from: parsed.locator });
+    ctx.push({ op: 'link.skill', from: parsed.locator, to: `${ctx.layoutVars.skillsDir}/${id}`, fromBase: 'pack', resource: id });
+    ctx.installed.set(id, { type: res.type, kind: 'dir', to: `${ctx.layoutVars.skillsDir}/${id}`, from: parsed.locator });
   } else {
     ctx.push({
       op: 'fetch',
       uri: res.source,
-      dest: `${ctx.targetVars.cacheDir}/${id}.tar.gz`,
+      dest: `${ctx.layoutVars.cacheDir}/${id}.tar.gz`,
       ...(res.integrity ? { integrity: res.integrity } : {}),
       ...(res.auth ? { auth: res.auth } : {}),
       resource: id,
     });
     ctx.push({
       op: 'unpack',
-      from: `${ctx.targetVars.cacheDir}/${id}.tar.gz`,
-      to: `${ctx.targetVars.cacheDir}/skills/${id}`,
+      from: `${ctx.layoutVars.cacheDir}/${id}.tar.gz`,
+      to: `${ctx.layoutVars.cacheDir}/skills/${id}`,
       strip: 1,
       fromBase: 'root',
       resource: id,
     });
     // github:owner/repo/sub/path@ref 的 sub/path 只在解包后的仓库里取
     const from = parsed.subpath
-      ? `${ctx.targetVars.cacheDir}/skills/${id}/${parsed.subpath}`
-      : `${ctx.targetVars.cacheDir}/skills/${id}`;
+      ? `${ctx.layoutVars.cacheDir}/skills/${id}/${parsed.subpath}`
+      : `${ctx.layoutVars.cacheDir}/skills/${id}`;
     ctx.push({
       op: 'link.skill',
       from,
-      to: `${ctx.targetVars.skillsDir}/${id}`,
+      to: `${ctx.layoutVars.skillsDir}/${id}`,
       fromBase: 'root',
       resource: id,
     });
     // 远程资源的正文要等安装时才取回：能做整文件替换与删除，做不了按锚点改
-    ctx.installed.set(id, { type: res.type, kind: 'dir', to: `${ctx.targetVars.skillsDir}/${id}` });
+    ctx.installed.set(id, { type: res.type, kind: 'dir', to: `${ctx.layoutVars.skillsDir}/${id}` });
   }
 }
 
@@ -115,7 +115,7 @@ function materializeSkill(ctx: KindContext, res: ResourceSpec): void {
 function materializeContent(ctx: KindContext, res: ResourceSpec): void {
   const id = res.id;
   const parsed = parseSource(res.source);
-  const dir = res.type === 'knowledge' ? ctx.targetVars.knowledgeDir : ctx.targetVars.promptsDir;
+  const dir = res.type === 'knowledge' ? ctx.layoutVars.knowledgeDir : ctx.layoutVars.promptsDir;
   const name = fileNameOf(parsed.locator);
   if (parsed.kind === 'local') {
     ctx.push({
@@ -144,7 +144,7 @@ function materializeConfig(ctx: KindContext, res: ResourceSpec): void {
   // config 就是一份配置文件，原样落进 configDir；不合并、不碰 MCP 的配置文件
   const id = res.id;
   const parsed = parseSource(res.source);
-  const dir = ctx.targetVars.configDir;
+  const dir = ctx.layoutVars.configDir;
   const name = fileNameOf(parsed.locator);
   if (parsed.kind === 'local') {
     ctx.push({
@@ -184,7 +184,7 @@ function materializeTool(ctx: KindContext, res: ResourceSpec): void {
   }
 
   // 执行体整份落地，按 commands 逐条建入口
-  const toolRoot = `${ctx.targetVars.cacheDir}/tools/${id}`;
+  const toolRoot = `${ctx.layoutVars.cacheDir}/tools/${id}`;
   const localPath = parsed.kind === 'local' ? resolve(ctx.packBase, parsed.locator) : undefined;
   const sourceIsFile = localPath ? existsSync(localPath) && !statSync(localPath).isDirectory() : false;
   if (parsed.kind === 'local') {
@@ -204,14 +204,14 @@ function materializeTool(ctx: KindContext, res: ResourceSpec): void {
     ctx.push({
       op: 'fetch',
       uri: res.source,
-      dest: `${ctx.targetVars.cacheDir}/${id}.tar.gz`,
+      dest: `${ctx.layoutVars.cacheDir}/${id}.tar.gz`,
       ...(res.integrity ? { integrity: res.integrity } : {}),
       ...(res.auth ? { auth: res.auth } : {}),
       resource: id,
     });
     ctx.push({
       op: 'unpack',
-      from: `${ctx.targetVars.cacheDir}/${id}.tar.gz`,
+      from: `${ctx.layoutVars.cacheDir}/${id}.tar.gz`,
       to: toolRoot,
       strip: 1,
       fromBase: 'root',
@@ -296,7 +296,7 @@ function materializeTool(ctx: KindContext, res: ResourceSpec): void {
       const shimPath = ctx.pushRouteShim(runtime);
       ctx.push({
         op: 'link.exec',
-        to: `${ctx.targetVars.binDir}/${cmd.name}`,
+        to: `${ctx.layoutVars.binDir}/${cmd.name}`,
         runtime,
         entry: shimPath,
         module: `${toolRoot}/${exec}`,
@@ -309,7 +309,7 @@ function materializeTool(ctx: KindContext, res: ResourceSpec): void {
     }
     ctx.push({
       op: 'link.exec',
-      to: `${ctx.targetVars.binDir}/${cmd.name}`,
+      to: `${ctx.layoutVars.binDir}/${cmd.name}`,
       runtime,
       entry: `${toolRoot}/${exec}`,
       args: cmd.args ?? [],

@@ -43,7 +43,7 @@ resources:
     source: ./rules.md
 verify:
   - type: file-exists
-    path: \${target.skillsDir}/../knowledge/${overrides.verifyFail ? 'nope.md' : 'rules.md'}
+    path: \${layout.skillsDir}/../knowledge/${overrides.verifyFail ? 'nope.md' : 'rules.md'}
 `,
     'utf8',
   );
@@ -189,7 +189,8 @@ describe('publish', () => {
     writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`, 'utf8');
 
     const errors = buildIndex(reg).errors.join('\n');
-    expect(errors).toContain('锁是旧口径（没有 contentHash）');
+    expect(errors).toContain('锁没有 contentHash');
+    expect(errors).toContain('重跑 packhub lock');
     rmSync(pack, { recursive: true, force: true });
     rmSync(reg, { recursive: true, force: true });
   });

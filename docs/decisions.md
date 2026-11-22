@@ -46,11 +46,11 @@ review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增
 
 上一条把安装形态收进安装期后，参数仍叫 `--target`，枚举里混着中性落点 `dir` 与三个宿主名。`dir` 不是宿主，只是平铺落点表的名字；写成 `--target dir` 会让人以为 `dir` 是某种宿主形态，作者命令里出现 `--target` 也容易被读成内容层参数。
 
-现在 packhub 只选宿主：`plan` / `install` / `verify` 用 `--harness`，取值只有 `dsh` / `claude-code` / `codex`；不写就是平铺目录，计划里没有 `harness` 字段。PAL 的实例形态另用 `--kind`，取值 `dir` / `dsh` / `claude-code` / `codex`；`dir` 在这里是「项目目录实例」这种实例形态，属于 PAL，不是宿主。`instance.json` 仍记 `harness` 字段（值含 `dir`），记录格式不动。
+现在 packhub 只选宿主：`plan` / `install` / `verify` 用 `--harness`，取值只有 `dsh` / `claude-code` / `codex`；不写就是平铺目录，计划里没有 `harness` 字段。PAL 的实例形态另用 `--kind`：`create` 只接受宿主名，`dir` 只出现在 `adopt`（接管已有目录）里；`instance.json` 仍记 `harness` 字段（值含 `dir`），记录格式不动。
 
 没选另一条：保留 `--target` 并把 `dir` 留在枚举里，或让两个命令族统一叫 `--harness`。留 `--target` + `dir` 等于让一个参数同时回答「装到哪个宿主」和「要不要平铺」，每处调用都要先解释 `dir` 不是宿主；统一叫 `--harness` 则 PAL 的 `dir` 得假装成宿主名，实例记录与落点表也要跟着改词。两个命令族用不同参数名是有意的：packhub 的参数决定「内容按哪张落点表物化」，PAL 的参数决定「实例是什么形态」；同名会把这两个概念重新混在一起。
 
-代价：`plan` 与 `PlanSnapshot` 的形状变了（`target` 换成可选的 `harness`），`planHash` 随之变化——registry 里已发布的包要重锁、重跑 verify 并重建索引，否则锁、报告与当前代码算出的计划对不上。两个命令族各用一套词，文档与 `--help` 要各讲一次，从 `--harness` 切到 PAL 的人得换一个词。
+代价：`plan` 与 `PlanSnapshot` 的形状变了（`target` 换成可选的 `harness`），`planHash` 随之变化——registry 里已发布的包要重锁、重跑 verify 并重建索引，否则锁、报告与当前代码算出的计划对不上。同一轮把清单插值命名空间从 `${target.*}` 改成 `${layout.*}`：旧写法在计划期找不到键，报 `undefined-variable`，已发布清单要原地改并重锁。两个命令族各用一套词，文档与 `--help` 要各讲一次，从 `--harness` 切到 PAL 的人得换一个词。
 
 ### 资源级 targets 与 requires.agent 删除
 
@@ -92,13 +92,13 @@ review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增
 
 ### 安装归 PAL：packhub 只做生产
 
-`packhub` 与 `pal` 按「生产 / 安装与运行」分：`packhub` 只碰 Pack 的生产面——清单、锁、打包、发布、签名，以及 Pack 目录里的预览（`plan` / `verify`），不写用户目录；装进项目、卸载、回滚、更新已装目录、建实例与起停看护都归 `pal`，目录安装与实例安装都在它这里。`packhub verify` 只验 Pack 目录（检查段）；`pal verify` 验已装目录（漂移 + 检查）。一条命令仍只对一个对象动手：`packhub` 的对象是 Pack，`pal` 的对象是已存在的目录或实例。
+`packhub` 与 `pal` 按「生产 / 安装与运行」分：`packhub` 只碰 Pack 的生产面——清单、锁、打包、发布、签名，以及 Pack 目录里的预览（`plan` / `verify`），不写用户目录；装进项目、卸载、回滚、更新已装目录、建实例与起停看护都归 `pal`，目录安装与实例安装都在它这里。`pal create` 只建宿主实例（`--kind dsh` / `claude-code` / `codex`），目录形态的实例走 `pal adopt`；`pal audit` 看安装审计（审计由 `pal install` / `pal update` 写），`pal health --hosts` 兼职宿主发现（装没装、版本、能不能起）。`packhub verify` 只验 Pack 目录（检查段）；`pal verify` 验已装目录（漂移 + 检查）。一条命令仍只对一个对象动手：`packhub` 的对象是 Pack，`pal` 的对象是已存在的目录或实例。
 
-原来 `packhub install` / `uninstall` / `update` / `rollback` / `diff` 都挂在 `packhub` 下面（它也吃项目目录）。现在目录侧的 `install` / `uninstall` / `verify` / `rollback` 由 `pal` 承接：`pal install <来源> --into <目录> --harness <宿主>` 只写文件与 `.packhub/state.json`，不建实例记录；`pal update` 同时接目录与实例；`create` 仍只建实例。`diff` 直接删掉——装了什么在 state 里，要和清单比就重新 `plan` / `pal verify`。`publish` 门禁里的干净安装仍由 runner 内部做，不走 CLI：它是发布流程的一步，不是用户装包。
+原来 `packhub install` / `uninstall` / `update` / `rollback` / `diff` 都挂在 `packhub` 下面（它也吃项目目录）。现在目录侧的 `install` / `uninstall` / `verify` / `rollback` 由 `pal` 承接：`pal install <来源> --into <目录> --harness <宿主>` 只写文件与 `.packhub/state.json`，不建实例记录；`pal update` 同时接目录与实例；`create` 只建宿主实例，目录形态走 `adopt`。`diff` 直接删掉——装了什么在 state 里，要和清单比就重新 `plan` / `pal verify`。`packhub audit` 也删了，改成 `pal audit`（审计是 pal 写的东西，看也归 pal）；`pal doctor` 并入 `pal health --hosts`，health 默认查实例，加 flag 才附带宿主发现。`publish` 门禁里的干净安装仍由 runner 内部做，不走 CLI：它是发布流程的一步，不是用户装包。
 
 没选另一条：`packhub` 保留 `install`，按「目录 vs 实例」分两套入口，或让 `pal` 只做实例。前者要维持两份安装参数、两套退出码与两份文档，而「装进目录」会同时出现在两个命令族的帮助里；后者则让目录侧没有安装入口，`pal install --into` 这种「先装目录、再决定要不要建实例」的用法无处安放。分界线换成「生产 vs 安装与运行」后，用户只需要记：做包找 `packhub`，装和跑找 `pal`。
 
-代价：`pal` 的命令面变大——目录四件套、实例管理与起停看护挤在一个 CLI 里，`pal --help` 要同时讲两类对象；README 的承诺从「一条命令装进新项目」改成「packhub 做包、pal 装和跑」，老用户得改习惯。`publish` 与 `pal` 各有一条安装路径：前者是门禁里的内部干净安装，后者是用户可见的目录安装，两条路径的检查范围不同（发布跑全部清单检查，`pal install` 装后复核只跑只读项），解释成本落在文档上。`packhub` 用户想装包还得多学一个 `pal` 入口。
+代价：`pal` 的命令面变大——目录四件套、实例管理与起停看护、`audit` 与宿主体检挤在一个 CLI 里，`pal --help` 要同时讲目录、实例、本机状态三类事；README 的承诺从「一条命令装进新项目」改成「packhub 做包、pal 装和跑」，老用户得改习惯。`create` 少了 `--kind dir`：要一份目录形态的实例得先有目录再 `pal adopt`，比原来一步建多一步。`publish` 与 `pal` 各有一条安装路径：前者是门禁里的内部干净安装，后者是用户可见的目录安装，两条路径的检查范围不同（发布跑全部清单检查，`pal install` 装后复核只跑只读项），解释成本落在文档上。`packhub` 用户想装包还得多学一个 `pal` 入口。
 
 ### 命令面大于 README 的承诺
 

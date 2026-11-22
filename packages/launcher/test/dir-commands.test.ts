@@ -93,8 +93,8 @@ describe('pal 目录对象：install', () => {
     cpSync(FIXTURE, pack, { recursive: true });
 
     const missing = pal(['install', pack, '--into', join(base, 'p1')]);
-    expect(missing.status).toBe(1);
-    expect(missing.out).toContain('Missing required argument: --harness');
+    expect(missing.status).toBe(2);
+    expect(missing.out).toContain('缺少 --harness');
 
     const dirValue = pal(['install', pack, '--into', join(base, 'p2'), '--harness', 'dir']);
     expect(dirValue.status).toBe(2);

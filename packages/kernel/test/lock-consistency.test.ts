@@ -44,15 +44,27 @@ describe('锁 ↔ 清单一致性（纯判定，比 contentHash）', () => {
   });
 
   it('清单在锁定后被改过 → mismatch，expected 取锁里的、actual 取重算的', () => {
+    // 注意：被 resolved 钉住的资源「声明来源」不算内容（见 contentHashOf 的口径），
+    // 所以这里改一个真正的清单内容字段（description），而不是资源的 source。
     const changed: Manifest = {
       ...MANIFEST,
-      resources: [{ id: 'guide', type: 'knowledge', source: './guide-v2.md' }],
+      metadata: { ...MANIFEST.metadata, description: '锁定之后补的说明' },
     };
     const check = checkLockConsistency(lock(), changed);
     expect(check.status).toBe('mismatch');
     expect(check.expected).toBe(contentHashOf(MANIFEST, RESOLVED));
     expect(check.actual).toBe(contentHashOf(changed, RESOLVED));
     expect(check.message).toContain('清单在锁定后被改过');
+  });
+
+  it('被锁钉住的声明来源不算内容：只改 resource.source 仍 ok', () => {
+    const repointed: Manifest = {
+      ...MANIFEST,
+      resources: [{ id: 'guide', type: 'knowledge', source: './guide-v2.md' }],
+    };
+    const check = checkLockConsistency(lock(), repointed);
+    expect(check.status).toBe('ok');
+    expect(check.expected).toBe(check.actual);
   });
 
   it('锁里的 resolved 被改过 → mismatch（引用属于内容）', () => {
@@ -67,6 +79,7 @@ describe('锁 ↔ 清单一致性（纯判定，比 contentHash）', () => {
     const check = checkLockConsistency(old, MANIFEST);
     expect(check.status).toBe('mismatch');
     expect(check.expected).toBeUndefined();
-    expect(check.message).toContain('旧格式');
+    expect(check.message).toContain('contentHash');
+    expect(check.message).toContain('重跑 packhub lock');
   });
 });

@@ -269,7 +269,10 @@ export function probeHarness(opts: ProbeOptions): ProbeResult {
   };
 
   if (!existsSync(file)) {
-    return { ...base, reason: `${instructionFile} 不存在——先 install --harness ${opts.target}` };
+    return {
+      ...base,
+      reason: `${instructionFile} 不存在——先用 pal install --harness ${opts.target} 装进目录`,
+    };
   }
   const text = readFileSync(file, 'utf8');
   const marker = extractMarker(text);

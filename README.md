@@ -2,6 +2,23 @@
 
 packhub 做包与发版，pal 安装与运行。
 
+## 两个命令族
+
+`packhub` 只碰 Pack 目录：`plan` / `verify` 预览，`lock` / `pack` / `publish` / `sign` 出包与发版。`pal` 负责装和跑：目录侧 `install` / `uninstall` / `verify` / `rollback`（`update` 目录与实例都接），实例侧 `create` / `adopt` 与起停看护，本机状态与审计看 `health` / `audit`。
+
+```bash
+# 装进已有目录
+pnpm pal install test/fixtures/packs/team-conventions --into tmp/demo-project --harness dsh
+pnpm pal verify tmp/demo-project
+
+# 建实例：必须选宿主；目录形态用 adopt 接管已有目录
+pnpm pal create test/fixtures/packs/team-conventions --name demo --kind dsh
+pnpm pal adopt ./existing-env --name legacy   # 接管已有目录（目录形态实例，不是宿主）
+
+pnpm pal health demo --hosts   # 实例体检 + 宿主发现（装没装、版本、能不能起）
+pnpm pal audit                 # install / update 写的审计
+```
+
 ## 代码分层
 
 | 包 | 负责 |
@@ -21,8 +38,6 @@ Node >= 22.13，包管理器 pnpm。
 pnpm install
 pnpm check                          # typecheck + 全部测试
 pnpm packhub plan registry/packs/lvlc233/doc-review/0.1.0
-pnpm pal install test/fixtures/packs/team-conventions --into tmp/demo-project --harness dsh
-pnpm pal verify tmp/demo-project    # 漂移 + 清单检查 + 计划派生检查
 pnpm registry:check
 pnpm registry:verify-all:offline    # 跳过远程引用，只验本地 registry
 ```

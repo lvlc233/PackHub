@@ -367,12 +367,13 @@ describe('实例配置', () => {
     expect(listInstances()).toEqual([]);
   });
 
-  it('重名、未知宿主、未声明的 target 都有稳定错误码', async () => {
+  it('重名、未知宿主、坏 Pack 目录都有稳定错误码', async () => {
     await createInstance({ name: 'dup', harness: 'dir', packDir: PACK });
     const cases: Array<[() => Promise<unknown>, string]> = [
       [() => createInstance({ name: 'dup', harness: 'dir', packDir: PACK }), 'name-taken'],
       [() => createInstance({ name: 'x', harness: 'nope' as never, packDir: PACK }), 'unknown-harness'],
-      [() => createInstance({ name: 'c', harness: 'codex', packDir: PACK }), 'invalid-input'],
+      // 现在任何宿主形态都能建实例（dir 只是其中一种形态）；这里用坏来源覆盖 invalid-input
+      [() => createInstance({ name: 'c', harness: 'codex', packDir: join(tmp, 'no-such-pack') }), 'invalid-input'],
     ];
     for (const [run, code] of cases) {
       let caught: unknown;

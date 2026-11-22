@@ -1,5 +1,5 @@
 import { isAbsolute, relative } from 'node:path';
-import type { HarnessId } from '@packhub/kernel';
+import type { HarnessId, LayoutVars } from '@packhub/kernel';
 
 /**
  * 实例形态：`dir` 是普通项目目录实例（不是宿主），其余三种是宿主名。
@@ -128,8 +128,11 @@ export function isInstanceKind(value: string): value is InstanceKind {
 /**
  * 装进实例时把资源落到实例自己的 home 段，而不是项目内的 .packhub/。
  * 这样宿主读的是这个实例的 skills，不是全局那一份。`dir` 实例没有 home 段，返回 undefined。
+ *
+ * 返回值直接作为 kernel `planFor(ctx, { layoutVars })` 的落点覆盖；键必须是 LayoutVars 的键，
+ * 名字也只留一份（旧的 targetVars 键 kernel 已不认，传了会被静默忽略）。
  */
-export function targetVarsFor(kind: InstanceKind): Record<string, string> | undefined {
+export function layoutVarsFor(kind: InstanceKind): Partial<LayoutVars> | undefined {
   const adapter = ADAPTERS[kind];
   if (!adapter.homeDir) return undefined;
   return {

@@ -90,7 +90,7 @@ export const installDir = defineCommand({
       description: 'Pack 目录、.phub、git+https，或配合 --index 用 registry 名（name 或 name@version）',
     },
     into: { type: 'string', default: '.', description: '装到哪个目录（默认当前目录；不存在会创建）' },
-    harness: { type: 'string', required: true, description: HARNESS_HINT },
+    harness: { type: 'string', description: HARNESS_HINT },
     index: { type: 'string', description: `registry 索引（路径或 URL；也可用 ${PACKHUB_ENV.index}）` },
     'dry-run': { type: 'boolean', default: false, description: '只算计划，不落盘' },
     overwrite: { type: 'boolean', default: false, description: '允许覆盖别的包写过的普通文件' },
@@ -106,6 +106,12 @@ export const installDir = defineCommand({
     const log = (line: string): void => {
       if (!args.json) console.log(line);
     };
+    // 必填但手动校验：citty 的 required 缺失走 internal（退出 1），这里按用法错退出 2
+    if (args.harness === undefined) {
+      throw new PalError('invalid-input', '缺少 --harness', {
+        hint: `必须指定按哪个宿主的落点表物化：${HARNESS_HINT}；装进已有目录用 pal install，新建实例用 pal create。`,
+      });
+    }
     const harness = parseInstallHarness(args.harness);
     const projectDir = resolve(String(args.into ?? '.'));
     let planned = false;

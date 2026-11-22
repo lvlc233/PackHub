@@ -200,7 +200,7 @@ export function requireHarnessBinary(id: InstanceKind): HarnessInfo {
     throw new PalError('harness-missing', `找不到 ${info.executable ?? id} 命令`, {
       hint:
         id === 'dsh'
-          ? '装 dsh（npm i -g deepseek-harness）或用 PAL_DSH_BIN 指定路径；也可以先跑 pal doctor 看探测结果。'
+          ? '装 dsh（npm i -g deepseek-harness）或用 PAL_DSH_BIN 指定路径；也可以先跑 pal health --hosts 看探测结果。'
           : `装 ${info.executable ?? id} 或用 PAL_${id.toUpperCase().replace(/-/g, '_')}_BIN 指定路径。`,
     });
   }

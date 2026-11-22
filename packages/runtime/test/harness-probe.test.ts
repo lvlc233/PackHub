@@ -84,11 +84,11 @@ describe('probeHarness', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('没有指令文件时直接说明先装', () => {
+  it('没有指令文件时直接说明先用 pal install 装', () => {
     const dir = mkdtempSync(join(tmpdir(), 'packhub-probe3-'));
     const res = probeHarness({ target: 'dsh', projectDir: dir });
     expect(res.ok).toBe(false);
-    expect(res.reason).toMatch(/先 install/);
+    expect(res.reason).toMatch(/先用 pal install --harness dsh/);
     rmSync(dir, { recursive: true, force: true });
   });
 });

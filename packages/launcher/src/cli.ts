@@ -1,5 +1,6 @@
 import { defineCommand } from 'citty';
 import { PACKHUB_ENV } from '@packhub/kernel';
+import { auditPath, readAudit } from '@packhub/runtime';
 import pkg from '../package.json' with { type: 'json' };
 import { createInterface } from 'node:readline/promises';
 import { spawn } from 'node:child_process';
@@ -114,6 +115,24 @@ async function confirm(question: string, yes: boolean): Promise<boolean> {
   }
 }
 
+/** pal create 能建的实例形态：只有宿主；dir 是项目目录形态，走 adopt / install。 */
+const CREATE_KINDS = ['dsh', 'claude-code', 'codex'] as const;
+
+function createKindOf(raw: unknown): InstanceRecord['harness'] {
+  const value = String(raw ?? 'dsh');
+  if (value === 'dir') {
+    throw new PalError('invalid-input', 'pal create 不建目录形态实例：dir 是项目目录实例', {
+      hint: '目录形态用 pal adopt 接管已有目录；装进已有目录用 pal install；新建宿主实例才用 pal create。',
+    });
+  }
+  if (!(CREATE_KINDS as readonly string[]).includes(value)) {
+    throw new PalError('invalid-input', `未知实例形态：${value}`, {
+      hint: `可选 ${CREATE_KINDS.join(' / ')}；目录形态用 pal adopt / pal install。`,
+    });
+  }
+  return value as InstanceRecord['harness'];
+}
+
 const create = defineCommand({
   meta: { name: 'create', description: '从 Pack 建一份实例' },
   args: {
@@ -125,9 +144,9 @@ const create = defineCommand({
     name: { type: 'string', required: true, description: '实例名；同名拒绝' },
     kind: {
       type: 'string',
-      default: 'dir',
+      default: 'dsh',
       description:
-        '实例形态：dir（项目目录实例，不是宿主）| dsh | claude-code | codex；只有宿主形态才按该宿主的落点物化',
+        '实例形态：dsh | claude-code | codex（只有宿主才建实例）。目录形态用 pal adopt；装进已有目录用 pal install',
     },
     index: { type: 'string', description: `registry 索引（路径或 URL；也可用 ${PACKHUB_ENV.index}）` },
     'from-home': {
@@ -158,7 +177,7 @@ const create = defineCommand({
       args.isolation === undefined
         ? undefined
         : parseIsolationSpec(String(args.isolation), readPalConfig().isolation);
-    const kind = String(args.kind ?? 'dir');
+    const kind = createKindOf(args.kind);
     // 版本信息只用于记录与下面的启动提示：先把该形态探测出来，再交给 service 一起建
     const info = discoverAll({ probeVersion: false }).find((h) => h.id === kind);
     const rec = await createFromRef({
@@ -722,17 +741,60 @@ const core = defineCommand({
   },
 });
 
+/** 宿主发现段（原 doctor 的能力）：运行时信息 + 每个实例形态/宿主的可执行与版本。 */
+function hostDiscovery(): {
+  runtime: { node: string; platform: string; arch: string; pal: string; home: string };
+  hosts: ReturnType<typeof discoverAll>;
+} {
+  return {
+    // A11：分发自带 node，PAL 只能报告自己跑在哪个运行时上，不能切换
+    runtime: {
+      node: process.version,
+      platform: process.platform,
+      arch: process.arch,
+      pal: pkg.version,
+      home: palHomeInfo().home,
+    },
+    hosts: discoverAll({ probeVersion: true }),
+  };
+}
+
 const health = defineCommand({
-  meta: { name: 'health', description: '体检：进程、端口、home、基线漂移、MCP 接线' },
+  meta: {
+    name: 'health',
+    description: '体检：默认查实例（进程、端口、home、基线漂移、MCP 接线）；--hosts 先打宿主发现（node 版本、宿主在不在/版本/能否启动）',
+  },
   args: {
     target: { type: 'positional', required: false, description: '实例 id 或名字；不写就全查' },
+    hosts: {
+      type: 'boolean',
+      default: false,
+      description: '先打宿主发现（原 pal doctor）：node 版本、宿主在不在、什么版本、能不能起；之后的实例体检照旧',
+    },
     json: { type: 'boolean', default: false },
   },
   async run({ args }) {
+    const discovered = args.hosts ? hostDiscovery() : undefined;
     const reports = args.target ? [await checkInstance(String(args.target))] : await checkAll();
     if (args.json) {
-      console.log(JSON.stringify(reports, null, 2));
+      console.log(
+        JSON.stringify(discovered ? { ...discovered, instances: reports } : reports, null, 2),
+      );
       return;
+    }
+    if (discovered) {
+      console.log('宿主：');
+      const { runtime, hosts } = discovered;
+      console.log(`  运行时：node ${runtime.node} (${runtime.platform}-${runtime.arch})，pal ${runtime.pal}`);
+      console.log(`  数据目录：${runtime.home}`);
+      for (const info of hosts) {
+        const state = !info.available ? '未安装' : info.startable ? '可启动' : '只装配 home';
+        console.log(`  ${info.id}\t${state}\t${info.version ?? info.probeError ?? '-'}`);
+        if (info.commandPath) console.log(`    ${info.commandPath}`);
+        if (info.reason) console.log(`    ${info.reason}`);
+      }
+      console.log('');
+      console.log('实例：');
     }
     if (reports.length === 0) {
       console.log('没有实例');
@@ -749,37 +811,31 @@ const health = defineCommand({
   },
 });
 
-const doctor = defineCommand({
+const audit = defineCommand({
   meta: {
-    name: 'doctor',
-    description: '看运行时与实例形态发现结果（dir 是项目目录实例，其余是宿主）：node 版本、装没装、什么版本、能不能起',
+    name: 'audit',
+    description: '看本机的安装审计（pal install / create / update 等写的那份；与 packhub 共用同一文件）',
   },
   args: {
-    probe: { type: 'boolean', default: true, description: '跑 --version 探测版本' },
+    tail: { type: 'string', default: '20', description: '只看最近 N 条' },
     json: { type: 'boolean', default: false },
   },
   run({ args }) {
-    const infos = discoverAll({ probeVersion: Boolean(args.probe) });
-    // A11：分发自带 node，PAL 只能报告自己跑在哪个运行时上，不能切换
-    const runtime = {
-      node: process.version,
-      platform: process.platform,
-      arch: process.arch,
-      pal: pkg.version,
-      home: palHomeInfo().home,
-    };
+    const entries = readAudit(Number(args.tail) || 20);
     if (args.json) {
-      console.log(JSON.stringify({ runtime, hosts: infos }, null, 2));
+      console.log(JSON.stringify(entries, null, 2));
       return;
     }
-    console.log(`运行时：node ${runtime.node} (${runtime.platform}-${runtime.arch})，pal ${runtime.pal}`);
-    console.log(`数据目录：${runtime.home}`);
-    for (const info of infos) {
-      const state = !info.available ? '未安装' : info.startable ? '可启动' : '只装配 home';
-      console.log(`${info.id}\t${state}\t${info.version ?? info.probeError ?? '-'}`);
-      if (info.commandPath) console.log(`  ${info.commandPath}`);
-      if (info.reason) console.log(`  ${info.reason}`);
+    if (entries.length === 0) {
+      console.log(`还没有审计记录：${auditPath()}`);
+      return;
     }
+    for (const entry of entries) {
+      console.log(
+        `${entry.at.slice(0, 19)}  ${entry.action.padEnd(8)} ${`${entry.pack ?? ''}@${entry.version ?? ''}`.padEnd(34)} ${entry.ok === false ? 'x' : '✓'}  ${entry.planHash?.slice(0, 14) ?? ''}`,
+      );
+    }
+    console.log(`\n${auditPath()}`);
   },
 });
 
@@ -1224,7 +1280,7 @@ export const main = defineCommand({
     ps,
     core,
     health,
-    doctor,
+    audit,
     logs,
     use,
     current,

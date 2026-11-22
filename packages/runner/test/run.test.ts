@@ -19,7 +19,7 @@ resources:
     source: ./rules.md
 verify:
   - type: file-exists
-    path: '\${target.skillsDir}/../knowledge/rules.md'
+    path: '\${layout.skillsDir}/../knowledge/rules.md'
 `,
     'utf8',
   );

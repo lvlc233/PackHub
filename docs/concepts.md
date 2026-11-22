@@ -82,7 +82,7 @@ Pack 里的一条能力声明，它相对于 Agent，而不是相对于整个 ha
 
 安装把 Pack 落进一个目录的过程：项目目录或实例根。内容展开到文件，登记写进该目录的 `.packhub/state.json`。
 
-安装由 `pal` 执行，`packhub` 不写用户目录：目录侧是 `pal install <来源> --into <目录> --harness <宿主>`（只写文件与 state，不建实例记录），已存在的目录另有 `pal uninstall` / `pal verify` / `pal rollback` / `pal update`。要一份能跑起来的环境仍在实例上——`pal create` 建实例，起停与看护归启动器。
+安装由 `pal` 执行，`packhub` 不写用户目录：目录侧是 `pal install <来源> --into <目录> --harness <宿主>`（只写文件与 state，不建实例记录），已存在的目录另有 `pal uninstall` / `pal verify` / `pal rollback` / `pal update`。要一份能跑起来的环境仍在实例上——`pal create --kind <宿主>` 建宿主实例，目录形态的实例用 `pal adopt` 接管已有目录，起停与看护归启动器。
 
 安装只发生在目录，不在别处发生；全局环境不是安装的落点，而是实例的 home（见 Launcher 词条）。
 
@@ -106,7 +106,7 @@ Pack 里的一条能力声明，它相对于 Agent，而不是相对于整个 ha
 
 `--harness` 只决定目录内的落点形态，不等于有了一份宿主环境：home、进程、端口都不在目录里，装完只得到一份文件；要跑起来用实例（见 Launcher 词条）。
 
-启动器的实例形态另用 `pal … --kind` 选：`dir` / `dsh` / `claude-code` / `codex`。这里的 `dir` 是实例形态（项目目录实例），属于 PAL，不是宿主；`instance.json` 仍记 `harness` 字段。
+启动器的实例形态用 `pal … --kind` 选：`create` 只接受宿主名（`dsh` / `claude-code` / `codex`）；目录形态的实例由 `pal adopt` 接管已有目录产生。`dir` 是实例形态（项目目录实例），属于 PAL，不是宿主；`instance.json` 仍记 `harness` 字段（值含 `dir`）。
 
 ### Adapter（适配）
 
@@ -120,7 +120,7 @@ Pack 里的一条能力声明，它相对于 Agent，而不是相对于整个 ha
 
 它同时有三样东西：配置（用哪个 Pack、什么宿主、根与 home 在哪）、数据（home 下的 skills、知识、会话、凭据、缓存）、运行态（进程、端口、地址、最近一次退出）。三样分开存放，运行态不混进配置。
 
-实例不是 Pack 的一份拷贝：同一个 Pack 可以建多个实例，各自装、各自跑；实例也可以完全脱离 Pack 存在（接管来的目录）。
+实例不是 Pack 的一份拷贝：同一个 Pack 可以建多个实例，各自装、各自跑；实例也可以完全脱离 Pack 存在（`pal adopt` 接管来的目录）。
 
 ### Instance Record（实例记录）
 
@@ -136,7 +136,7 @@ Pack 里的一条能力声明，它相对于 Agent，而不是相对于整个 ha
 
 ### Launcher（启动器）
 
-启动器（`pal`）管两类对象：已存在的目录与实例。目录侧是 `install` / `uninstall` / `verify` / `rollback`，`update` 目录与实例都接；这些目录命令只写文件与 `.packhub/state.json`，不建实例记录。实例侧列、创建、复制、迁移、备份、删除实例并照看起停；新建实例用 `pal create`。实例是运行入口：要跑起来、要一份全局环境，都在实例上发生，不在目录里。
+启动器（`pal`）管两类对象：已存在的目录与实例。目录侧是 `install` / `uninstall` / `verify` / `rollback`，`update` 目录与实例都接；这些目录命令只写文件与 `.packhub/state.json`，不建实例记录。实例侧列、创建、复制、迁移、备份、删除实例并照看起停；新建实例用 `pal create`（必须选宿主），接管已有目录用 `pal adopt`。实例状态用 `pal health` 看，加 `--hosts` 时附带宿主发现（装没装、版本、能不能起）；安装审计用 `pal audit` 看。实例是运行入口：要跑起来、要一份全局环境，都在实例上发生，不在目录里。
 
 实现上分两层：常驻的 core 独占启停与看护（CLI 只是它的客户端），core 被杀了由用户任务计划带回来。
 

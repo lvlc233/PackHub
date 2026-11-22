@@ -1,4 +1,4 @@
-// 由 cli.ts 拆分：audit / licenses。
+// 由 cli.ts 拆分：licenses（audit 已移到 pal audit）。
 // 原 doctor 已并入 verify（漂移段），全局漂移随 sync 一起删除（全局落点归 PAL 实例）。
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -9,35 +9,8 @@ import {
   evaluateLicense,
   npmLicense,
   type LicensePolicy,
-  auditPath,
-  readAudit,
 } from '@packhub/runtime';
 import { reportIssues } from './shared.ts';
-
-export const audit = command({
-  meta: { name: 'audit', description: '看本机的安装审计（install / update）' },
-  args: {
-    tail: { type: 'string', default: '20', description: '只看最近 N 条' },
-    json: { type: 'boolean', default: false },
-  },
-  run({ args }) {
-    const entries = readAudit(Number(args.tail) || 20);
-    if (args.json) {
-      json(entries);
-      return;
-    }
-    if (entries.length === 0) {
-      say(`还没有审计记录：${auditPath()}`);
-      return;
-    }
-    for (const e of entries) {
-      say(
-        `${e.at.slice(0, 19)}  ${e.action.padEnd(8)} ${`${e.pack ?? ''}@${e.version ?? ''}`.padEnd(34)} ${e.ok === false ? 'x' : '✓'}  ${e.planHash?.slice(0, 14) ?? ''}`,
-      );
-    }
-    say(`\n${auditPath()}`);
-  },
-});
 
 export const licenses = command({
   meta: { name: 'licenses', description: '列出每个资源的许可证情况，并可按策略判定' },

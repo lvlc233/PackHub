@@ -23,7 +23,7 @@ resources:
     transport: stdio
 verify:
   - type: file-exists
-    path: "\${target.skillsDir}/rules/SKILL.md"
+    path: "\${layout.skillsDir}/rules/SKILL.md"
 `;
 
 function pack(): string {

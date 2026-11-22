@@ -25,7 +25,7 @@ import {
   cache,
   discover,
 } from './commands/registry.ts';
-import { audit, licenses } from './commands/doctor-license.ts';
+import { licenses } from './commands/doctor-license.ts';
 import { resourceAdd, resource } from './commands/misc.ts';
 
 // completion 要读 main.subCommands，main 又在这里组装：留在同一个文件，避免循环依赖。
@@ -166,7 +166,6 @@ export const main: CommandDef = command({
     'verify-sig': verifySig,
     auth,
     trust,
-    audit,
     completion,
   },
 });

@@ -48,12 +48,12 @@ describe('计划里的安装形态：可选 harness', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('旧的 dir 值不再是宿主：按 unknown-target 报错，不静默当平铺', () => {
+  it('旧的 dir 值不再是宿主：按 unknown-harness 报错，不静默当平铺', () => {
     const dir = pack();
     // 运行期可能把字符串传进来；类型上已收窄，这里强制模拟旧调用方
     const { plan, issues } = planFor(loadPack(dir), { harness: 'dir' as never });
     expect(plan).toBeUndefined();
-    expect(issues.map((i) => i.code)).toContain('unknown-target');
+    expect(issues.map((i) => i.code)).toContain('unknown-harness');
     expect(issues[0]!.message).toContain('未知宿主：dir');
     rmSync(dir, { recursive: true, force: true });
   });

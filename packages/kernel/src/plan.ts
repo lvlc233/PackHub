@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+﻿import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { resolve, sep } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type {
@@ -24,7 +24,7 @@ export interface PlanOptions {
   /** 装到哪个宿主；不写 = 平铺到项目里 */
   harness?: HarnessId;
   /** 覆盖落点变量（全局同步用不同的 skillsDir 等）；只允许 LayoutVars 里的键 */
-  targetVars: Partial<LayoutVars>;
+  layoutVars: Partial<LayoutVars>;
   packDir?: string;
   /** 这些类型的资源交给宿主/外部适配器处理，不进计划（例如全局同步时的 MCP） */
   skipResourceTypes?: ResourceType[];
@@ -41,10 +41,11 @@ export function buildPlan(
   opts: PlanOptions,
 ): { plan?: Plan; issues: Issue[] } {
   const issues: Issue[] = [];
-  const targetVars: LayoutVars = { ...layoutFor(opts.harness), ...opts.targetVars };
+  const layoutVars: LayoutVars = { ...layoutFor(opts.harness), ...opts.layoutVars };
   const scope: Record<string, unknown> = {
     vars: manifest.vars ?? {},
-    target: targetVars,
+    // 清单插值命名空间：`${layout.skillsDir}` 之类；平铺与宿主都从同一张落点表来
+    layout: layoutVars,
   };
 
   const missing: string[] = [];
@@ -63,7 +64,7 @@ export function buildPlan(
       continue;
     }
     stateIds.add(spec.id);
-    const rawPath = spec.path ?? `${targetVars.root}/state/${spec.id}`;
+    const rawPath = spec.path ?? `${layoutVars.root}/state/${spec.id}`;
     const resolvedPath = interp(rawPath);
     const rel = typeof resolvedPath === 'string' ? resolvedPath : String(rawPath);
     const normalized = normalizeStatePath(rel);
@@ -98,7 +99,7 @@ export function buildPlan(
   const pushRouteShim = (runtime: 'node' | 'python'): string => {
     const existing = shimEmitted.get(runtime);
     if (existing) return existing;
-    const rel = `${targetVars.root}/shim/route.${runtime === 'node' ? 'mjs' : 'py'}`;
+    const rel = `${layoutVars.root}/shim/route.${runtime === 'node' ? 'mjs' : 'py'}`;
     push({ op: 'write', to: rel, content: ROUTE_SHIM[runtime], resource: `shim:${runtime}` });
     shimEmitted.set(runtime, rel);
     return rel;
@@ -108,7 +109,7 @@ export function buildPlan(
   const kindCtx: KindContext = {
     issues,
     installed,
-    targetVars,
+    layoutVars,
     packBase,
     platform: opts.platform,
     push,
@@ -332,13 +333,13 @@ export function buildPlan(
     }
     return readFileSync(abs, 'utf8').trim();
   })();
-  const instructionFile = targetVars.instructionFile;
+  const instructionFile = layoutVars.instructionFile;
   if (instructionFile) {
     push({
       op: 'instruction',
       file: instructionFile,
       blockId: manifest.metadata.name,
-      content: instructionBlock(manifest, graph, targetVars, statePaths, contextText),
+      content: instructionBlock(manifest, graph, layoutVars, statePaths, contextText),
     });
   }
 
@@ -638,7 +639,7 @@ function splitBlock(text: string, eol: string): string[] {
 function instructionBlock(
   manifest: Manifest,
   graph: Graph,
-  targetVars: LayoutVars,
+  layoutVars: LayoutVars,
   statePaths: Record<string, string>,
   context?: string,
 ): string {
@@ -672,12 +673,12 @@ function instructionBlock(
     })(),
     '',
     '文件位置：',
-    `- skills：\`${targetVars.skillsDir}\``,
-    `- 知识：\`${targetVars.knowledgeDir}\``,
-    `- 提示词：\`${targetVars.promptsDir}\``,
-    `- 工具入口：\`${targetVars.binDir}\``,
-    `- 配置片段：\`${targetVars.configDir}\``,
-    `- MCP 配置：\`${targetVars.configFile}\``,
+    `- skills：\`${layoutVars.skillsDir}\``,
+    `- 知识：\`${layoutVars.knowledgeDir}\``,
+    `- 提示词：\`${layoutVars.promptsDir}\``,
+    `- 工具入口：\`${layoutVars.binDir}\``,
+    `- 配置片段：\`${layoutVars.configDir}\``,
+    `- MCP 配置：\`${layoutVars.configFile}\``,
     ...(stateLines.length > 0 ? ['', '持久状态（数据，不是包产物）：', ...stateLines] : []),
   ];
   return lines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd();

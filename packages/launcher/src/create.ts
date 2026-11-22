@@ -1,8 +1,8 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
-import { MANIFEST_FILE, planFor, type PackContext } from '@packhub/kernel';
+import { MANIFEST_FILE, planFor, type PackContext, type PlanOptions } from '@packhub/kernel';
 import { installPack, loadLock, loadPack, loadState, withLockPins } from '@packhub/runtime';
-import { ADAPTERS, targetVarsFor, type InstanceKind } from './layout.ts';
+import { ADAPTERS, layoutVarsFor, type InstanceKind } from './layout.ts';
 import { baselineFromState, writeBaseline } from './baseline.ts';
 import { withInstanceLock } from './lock.ts';
 import { API_VERSION, readRecord, recordFile, runtimeFile, type InstanceRecord } from './records.ts';
@@ -208,11 +208,12 @@ export async function createInstance(opts: CreateInstanceOptions): Promise<Insta
   }
 
   const adapter = ADAPTERS[kind];
-  const targetVars = targetVarsFor(kind);
-  // dir 是项目目录实例，不是 kernel 的宿主：映射成「不传 harness」（平铺到实例根）
-  const planOptions = {
+  const layoutVars = layoutVarsFor(kind);
+  // dir 是项目目录实例，不是 kernel 的宿主：映射成「不传 harness」（平铺到实例根）。
+  // 类型写 Partial<PlanOptions>：键写错（例如旧的 targetVars）会在这里编译报错，而不是被静默忽略。
+  const planOptions: Partial<PlanOptions> = {
     ...(kind === 'dir' ? {} : { harness: kind }),
-    ...(targetVars ? { targetVars } : {}),
+    ...(layoutVars ? { layoutVars } : {}),
   };
   const { plan, issues } = planFor(ctx, planOptions);
   if (!plan) {

@@ -204,7 +204,7 @@ export function planFor(
     return {
       issues: [
         {
-          code: ISSUE_CODES.unknownTarget,
+          code: ISSUE_CODES.unknownHarness,
           severity: 'error',
           message: `未知宿主：${String(harness)}（可选 ${HARNESS_IDS.join(' / ')}；不写 = 平铺目录）`,
         },
@@ -214,7 +214,7 @@ export function planFor(
   const built = buildPlan(ctx.manifest, ctx.graph, {
     ...(harness ? { harness } : {}),
     // 落点表由 buildPlan 按宿主选（layoutFor）；这里只传显式覆盖
-    targetVars: { ...(opts.targetVars ?? {}) },
+    layoutVars: { ...(opts.layoutVars ?? {}) },
     packDir: ctx.dir,
     // 平台在这里默认成宿主机；buildPlan 自己不读 process（测试可注入别的平台）
     platform: opts.platform ?? `${process.platform}-${process.arch}`,

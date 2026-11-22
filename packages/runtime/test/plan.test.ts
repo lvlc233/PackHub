@@ -60,7 +60,7 @@ resources:
     const { graph } = validateGraph(manifest);
     // 不传 harness = 平铺目录；落点表显式给平铺那份
     const { plan } = buildPlan(manifest, graph, {
-      targetVars: DIR_LAYOUT_VARS,
+      layoutVars: DIR_LAYOUT_VARS,
       platform: 'linux-x64',
     });
     const link = plan!.actions.find((a) => a.op === 'link.skill');
