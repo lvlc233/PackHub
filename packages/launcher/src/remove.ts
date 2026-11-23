@@ -1,4 +1,4 @@
-import { existsSync, rmSync } from 'node:fs';
+import { existsSync, rmSync, rmdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { STATE_DIR } from '@packhub/kernel';
 import { loadState, removePack } from '@packhub/runtime';
@@ -125,6 +125,14 @@ export async function removeInstance(
       // 只摘 PAL 自己的记录与指针：目录、宿主配置、用户文件都保留
       for (const file of [RECORD, RUNTIME, BASELINE]) {
         rmSync(join(record.root, file), { force: true });
+      }
+      // PAL 自己生成的凭据文件（URL 里的 token）也一并清掉；宿主自己的凭据不在这里
+      rmSync(join(record.root, 'secrets.json'), { force: true });
+      // 卸完后 .packhub/ 通常只剩空壳；只删空目录，里面有用户东西就留着
+      try {
+        rmdirSync(join(record.root, STATE_DIR));
+      } catch {
+        // 非空或不存在：保持原样
       }
       removeLink(record.id);
       dropActive(record.id);
