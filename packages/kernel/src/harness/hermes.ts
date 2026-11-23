@@ -26,7 +26,7 @@ registerHarness({
   instructionFile: 'AGENTS.md',
   noStartReason:
     'Hermes 是终端交互程序，没有可托管的常驻服务；PAL 只负责给它装配 home（技能、MCP、指令）。',
-  // 没有项目级落点：pal install --into 会拒绝，改用 pal create --kind hermes
+  // 没有项目级落点：pal install --project 会拒绝，改用 pal install --new --kind hermes 建环境
   project: false,
   mcp: {
     path: ['mcp_servers'],

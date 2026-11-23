@@ -168,9 +168,14 @@ describe('新宿主的静态知识与 MCP 方言', () => {
     });
   });
 
-  it('其它宿主默认都有项目级落点（project 不写 = true）', () => {
-    for (const id of ['dsh', 'claude-code', 'codex', 'opencode', 'workbody']) {
-      expect(requireHarness(id).project, `${id} 应有项目级落点`).toBeUndefined();
+  it('宿主 project 三态：dsh pointer、hermes false、其余不写（full）', () => {
+    // dsh 的技能是全局的：项目里只写指路块
+    expect(requireHarness('dsh').project).toBe('pointer');
+    // hermes 只有全局目录：没有项目级落点
+    expect(requireHarness('hermes').project).toBe(false);
+    // 其余不写 = full：项目里照常落技能/知识
+    for (const id of ['claude-code', 'codex', 'opencode', 'workbody']) {
+      expect(requireHarness(id).project, `${id} 应有完整项目级落点`).toBeUndefined();
     }
   });
 });

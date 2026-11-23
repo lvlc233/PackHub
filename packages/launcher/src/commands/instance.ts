@@ -1,4 +1,4 @@
-// pal create / adopt / list / show / remove：实例对象本身。
+﻿// pal create / adopt / list / show / remove：实例对象本身。
 import { defineCommand } from 'citty';
 import { PACKHUB_ENV, harnessIds, isHarnessId } from '@packhub/kernel';
 import {
@@ -25,12 +25,12 @@ function createKindOf(raw: unknown): InstanceRecord['harness'] {
   const value = String(raw ?? 'dsh');
   if (value === 'dir') {
     throw new PalError('invalid-input', '--kind 不收 dir：dir 是项目目录实例形态', {
-      hint: '目录形态用 pal adopt 接管已有目录；装进已有目录用 pal install --into；新建宿主实例用 pal install --new。',
+      hint: '目录形态用 pal adopt 接管已有目录；装进已有项目用 pal install --project；新建环境用 pal install --new。',
     });
   }
   if (!isHarnessId(value)) {
     throw new PalError('invalid-input', `未知实例形态：${value}`, {
-      hint: `可选 ${harnessIds().join(' / ')}；目录形态用 pal adopt / pal install --into。`,
+      hint: `可选 ${harnessIds().join(' / ')}；目录形态用 pal adopt / pal install --project。`,
     });
   }
   return value as InstanceRecord['harness'];
@@ -49,7 +49,7 @@ export const createCmd = defineCommand({
     kind: {
       type: 'string',
       default: 'dsh',
-      description: `实例形态：${harnessIds().join(' | ')}（只有宿主才建实例）。目录形态用 pal adopt；装进已有目录用 pal install --into`,
+      description: `实例形态：${harnessIds().join(' | ')}（只有宿主才建实例）。目录形态用 pal adopt；装进已有项目用 pal install --project`,
     },
     index: { type: 'string', description: `registry 索引（路径或 URL；也可用 ${PACKHUB_ENV.index}）` },
     'from-home': {

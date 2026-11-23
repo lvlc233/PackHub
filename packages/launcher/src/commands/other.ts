@@ -201,7 +201,7 @@ export const cache = defineCommand({
 export const audit = defineCommand({
   meta: {
     name: 'audit',
-    description: '看本机的安装审计（pal install / create / update 等写的那份；与 packhub 共用同一文件）',
+    description: '看本机的安装审计（pal install（--new/--project/--environment）/ update 等写的那份；与 packhub 共用同一文件）',
   },
   args: {
     tail: { type: 'string', default: '20', description: '只看最近 N 条' },
@@ -230,7 +230,7 @@ export const use = defineCommand({
   meta: {
     name: 'use',
     description:
-      '把某个实例设成它宿主的当前实例（create/adopt 建完默认已经设过；pal start 不写目标时用的就是它）',
+      '把某个实例设成它宿主的当前实例（install --new / adopt 建完默认已经设过；pal start 不写目标时用的就是它）',
   },
   args: {
     target: { type: 'positional', required: true, description: '实例 id 或名字；设成它宿主的当前实例' },

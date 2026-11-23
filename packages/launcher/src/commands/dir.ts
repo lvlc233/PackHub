@@ -1,6 +1,8 @@
-// pal 的安装类命令：统一 target 模型 —— target = 目录（--into，项目级）或实例（--instance，全局环境）。
-// install 还可以 --new 新建实例再装（原 pal create）；目录路径的实现仍在 dirCommands.ts。
+// pal 的安装类命令：统一 target 模型 —— target = 项目（--project，宿主会打开的项目目录）
+// 或环境（--environment，宿主的 home / 实例根）。install 还可以 --new 新建环境再装。
+// 目录路径的实现仍在 dirCommands.ts，命令层只做 target 解析与文案。
 import { defineCommand, type CommandDef } from 'citty';
+import { harness } from '@packhub/kernel';
 import { materializePack } from '../materialize.ts';
 import { installIntoInstance } from '../create.ts';
 import { requireInstance, type InstanceRecord } from '../index.ts';
@@ -23,18 +25,20 @@ async function invoke(cmd: CommandDef<never>, args: Record<string, unknown>): Pr
   if (run) await run({ args });
 }
 
-/** target 解析：--into / --instance（install 多一个 --new），必须恰好一个。 */
+type InstallTarget = 'project' | 'environment' | 'new';
+
+/** target 解析：--project / --environment（install 多一个 --new），必须恰好一个。 */
 function parseTarget(
-  args: { into?: unknown; instance?: unknown; new?: unknown },
+  args: { project?: unknown; environment?: unknown; new?: unknown },
   opts: { allowNew: boolean },
-): 'dir' | 'instance' | 'new' {
-  const picks: ('dir' | 'instance' | 'new')[] = [];
-  if (args.into !== undefined) picks.push('dir');
-  if (args.instance !== undefined) picks.push('instance');
+): InstallTarget {
+  const picks: InstallTarget[] = [];
+  if (args.project !== undefined) picks.push('project');
+  if (args.environment !== undefined) picks.push('environment');
   if (opts.allowNew && args.new === true) picks.push('new');
   const choices = opts.allowNew
-    ? '--into <目录>（项目级）/ --instance <实例>（全局环境）/ --new（新建实例再装）'
-    : '--into <目录>（项目级）/ --instance <实例>（全局环境）';
+    ? '--project <目录>（项目）/ --environment <环境>（宿主的 home）/ --new（新建环境再装）'
+    : '--project <目录>（项目）/ --environment <环境>（宿主的 home）';
   if (picks.length === 0) {
     throw new PalError('invalid-input', '要指定 target 才能继续', { hint: `三选一：${choices}。` });
   }
@@ -44,22 +48,20 @@ function parseTarget(
   return picks[0]!;
 }
 
-/** 实例级写操作要求实例已停。 */
+/** 环境级写操作要求环境已停。 */
 function requireStopped(rec: InstanceRecord): void {
   if (rec.pid && isPidAlive(rec.pid)) {
-    throw new PalError('invalid-input', `实例还在运行，先停掉：pid ${rec.pid}`, {
+    throw new PalError('invalid-input', `环境还在运行，先停掉：pid ${rec.pid}`, {
       hint: `pal stop ${rec.id}`,
     });
   }
 }
 
-const TARGET_SUMMARY = 'target = 目录（--into，项目级，只写这个目录）或实例（--instance，全局环境，写实例根）';
-
 export const install = defineCommand({
   meta: {
     name: 'install',
     description:
-      '安装到 target：目录（--into，项目级）或实例（--instance，全局环境）；--new 新建实例再装',
+      '安装到 target：项目（--project，宿主会打开的项目目录）或环境（--environment，宿主的 home）；--new 新建环境再装',
   },
   args: {
     source: {
@@ -67,40 +69,48 @@ export const install = defineCommand({
       required: true,
       description: 'Pack 目录、.phub、git+https，或配合 --index 用 registry 名（name 或 name@version）',
     },
-    into: {
+    project: {
       type: 'string',
-      description: '项目级 target：装到这个目录（不存在会创建）。与 --instance / --new 三选一',
+      description: '项目级 target：宿主会打开的项目目录（不存在会创建）。与 --environment / --new 三选一',
     },
-    instance: {
+    environment: {
       type: 'string',
-      description: '实例级 target：装进已有实例（必须已停且还是空实例）；已有包请用 pal update --instance',
+      description: '环境级 target：装进已有环境（必须已停且还是空环境）；已有包请用 pal update --environment',
     },
     new: {
       type: 'boolean',
       default: false,
-      description: '新建一个实例再装（配 --kind / --name）；这是原 pal create 的行为',
+      description: '新建一个环境再装（配 --kind / --name）；环境 = 宿主的 home',
     },
     harness: {
       type: 'string',
-      description: '--into 必填：按哪个宿主的落点表物化（--new 用 --kind；--instance 从实例记录取，不填）',
+      description: '--project 必填：按哪个宿主的落点表物化（--new 用 --kind；--environment 从环境记录取，不填）',
     },
-    kind: { type: 'string', description: '--new 用：新实例的宿主形态（默认 dsh）' },
-    name: { type: 'string', description: '--new 用：新实例名（同名拒绝）' },
+    kind: { type: 'string', description: '--new 用：新环境的宿主形态（必填）' },
+    name: { type: 'string', description: '--new 用：新环境名（同名拒绝）' },
     index: { type: 'string', description: 'registry 索引（路径或 URL；也可用 PACKHUB_ENV.index）' },
     version: { type: 'string', description: 'registry 包的版本；不写用 latest' },
-    root: { type: 'string', description: '--new 用：实例根（绝对路径；默认由系统分配）' },
+    root: { type: 'string', description: '--new 用：环境根（绝对路径；默认由系统分配）' },
     'from-home': {
       type: 'string',
       description: '--new 用：沿用已有宿主 home 的模型凭据与指令（例如 ~/.dsh）',
     },
-    isolation: { type: 'string', description: '--new 用：这份实例的隔离策略 layer=mode,...' },
-    'dry-run': { type: 'boolean', default: false, description: '只算计划，不落盘（--into / --instance）' },
-    overwrite: { type: 'boolean', default: false, description: '允许覆盖别的包写过的普通文件（--into / --instance）' },
-    'allow-exec': { type: 'boolean', default: false, description: '允许执行清单里的 install.exec（--into / --instance）' },
+    isolation: { type: 'string', description: '--new 用：这份环境的隔离策略 layer=mode,...' },
+    'dry-run': { type: 'boolean', default: false, description: '只算计划，不落盘（--project / --environment）' },
+    overwrite: {
+      type: 'boolean',
+      default: false,
+      description: '允许覆盖别的包写过的普通文件（--project / --environment）',
+    },
+    'allow-exec': {
+      type: 'boolean',
+      default: false,
+      description: '允许执行清单里的 install.exec（--project / --environment）',
+    },
     'allow-unsigned': {
       type: 'boolean',
       default: false,
-      description: '外部来源：即使配置了信任列表也接受无签名包（显式降低要求；--into）',
+      description: '外部来源：即使配置了信任列表也接受无签名包（显式降低要求；--project）',
     },
     json: { type: 'boolean', default: false },
   },
@@ -129,16 +139,23 @@ export const install = defineCommand({
       return;
     }
 
-    if (target === 'dir') {
+    if (target === 'project') {
       if (args.harness === undefined) {
-        throw new PalError('invalid-input', '--into 需要 --harness', {
-          hint: '目录是项目级 target，必须指定按哪个宿主的落点表物化；例如 --into ./proj --harness dsh。',
+        throw new PalError('invalid-input', '--project 需要 --harness', {
+          hint: '项目是宿主会打开的目录，必须指定按哪个宿主的落点表物化；例如 --project ./proj --harness dsh。',
         });
+      }
+      const harnessId = String(args.harness);
+      // pointer：项目里只写指路块，技能不注册进项目（要注册技能得建环境）
+      if (harness(harnessId)?.project === 'pointer' && !args.json) {
+        console.error(
+          `warn  ${harnessId} 的 skill 是全局的：项目内只写指路块，不注册 skill；要注册用 --new 建环境`,
+        );
       }
       await invoke(installDirCmd as unknown as CommandDef<never>, {
         source,
-        into: String(args.into),
-        harness: String(args.harness),
+        project: String(args.project),
+        harness: harnessId,
         ...(args.index ? { index: String(args.index) } : {}),
         'dry-run': Boolean(args['dry-run']),
         overwrite: Boolean(args.overwrite),
@@ -150,11 +167,11 @@ export const install = defineCommand({
     }
 
     if (args.harness !== undefined) {
-      throw new PalError('invalid-input', '--harness 只用于 --into / --new', {
-        hint: '实例级装到哪个宿主由实例记录决定；要换宿主请新建实例。',
+      throw new PalError('invalid-input', '--harness 只用于 --project / --new', {
+        hint: '环境级装到哪个宿主由环境记录决定；要换宿主请 --new 建新环境。',
       });
     }
-    const rec = requireInstance(String(args.instance));
+    const rec = requireInstance(String(args.environment));
     const log = (line: string): void => {
       if (!args.json) console.error(line);
     };
@@ -197,23 +214,23 @@ export const uninstall = defineCommand({
   meta: {
     name: 'uninstall',
     description:
-      '卸载 target 里装的包：--into <目录>（项目级）或 --instance <实例>（全局环境）；实例必须已停',
+      '卸载 target 里装的包：--project <目录>（项目）或 --environment <环境>（宿主的 home）；环境必须已停',
   },
   args: {
-    into: { type: 'string', description: '项目级 target：已装过包的目录' },
-    instance: { type: 'string', description: '实例级 target：实例名/id（必须已停）' },
+    project: { type: 'string', description: '项目级 target：已装过包的项目目录' },
+    environment: { type: 'string', description: '环境级 target：环境名/id（必须已停）' },
     json: { type: 'boolean', default: false },
   },
   async run({ args }) {
     const target = parseTarget(args, { allowNew: false });
-    if (target === 'dir') {
+    if (target === 'project') {
       await invoke(uninstallDirCmd as unknown as CommandDef<never>, {
-        dir: String(args.into),
+        dir: String(args.project),
         json: Boolean(args.json),
       });
       return;
     }
-    const rec = requireInstance(String(args.instance));
+    const rec = requireInstance(String(args.environment));
     requireStopped(rec);
     await invoke(uninstallDirCmd as unknown as CommandDef<never>, {
       dir: rec.root,
@@ -226,17 +243,17 @@ export const verify = defineCommand({
   meta: {
     name: 'verify',
     description:
-      '体检 target：--into <目录>（项目级）或 --instance <实例>（全局环境）；漂移 + 清单检查 + 计划派生检查（实例可运行）',
+      '体检 target：--project <目录>（项目）或 --environment <环境>（宿主的 home）；漂移 + 清单检查 + 计划派生检查（环境可运行）',
   },
   args: {
-    into: { type: 'string', description: '项目级 target：已装过包的目录' },
-    instance: { type: 'string', description: '实例级 target：实例名/id（可运行）' },
+    project: { type: 'string', description: '项目级 target：已装过包的项目目录' },
+    environment: { type: 'string', description: '环境级 target：环境名/id（可运行）' },
     json: { type: 'boolean', default: false },
   },
   async run({ args }) {
     const target = parseTarget(args, { allowNew: false });
     const dir =
-      target === 'dir' ? String(args.into) : requireInstance(String(args.instance)).root;
+      target === 'project' ? String(args.project) : requireInstance(String(args.environment)).root;
     await invoke(verifyDirCmd as unknown as CommandDef<never>, { dir, json: Boolean(args.json) });
   },
 });
@@ -245,21 +262,21 @@ export const rollback = defineCommand({
   meta: {
     name: 'rollback',
     description:
-      '退回 target 的上一次安装之前：--into <目录>（项目级）或 --instance <实例>（全局环境）；实例必须已停',
+      '退回 target 的上一次安装之前：--project <目录>（项目）或 --environment <环境>（宿主的 home）；环境必须已停',
   },
   args: {
-    into: { type: 'string', description: '项目级 target：已装过包的目录' },
-    instance: { type: 'string', description: '实例级 target：实例名/id（必须已停）' },
+    project: { type: 'string', description: '项目级 target：已装过包的项目目录' },
+    environment: { type: 'string', description: '环境级 target：环境名/id（必须已停）' },
     generation: { type: 'string', description: '指定 generation（默认最近一次）' },
     json: { type: 'boolean', default: false },
   },
   async run({ args }) {
     const target = parseTarget(args, { allowNew: false });
     let dir: string;
-    if (target === 'dir') {
-      dir = String(args.into);
+    if (target === 'project') {
+      dir = String(args.project);
     } else {
-      const rec = requireInstance(String(args.instance));
+      const rec = requireInstance(String(args.environment));
       requireStopped(rec);
       dir = rec.root;
     }
@@ -275,24 +292,24 @@ export const update = defineCommand({
   meta: {
     name: 'update',
     description:
-      '把 target 里的 Pack 换成 registry 最新版：--into <目录>（项目级）或 --instance <实例>（全局环境）；实例必须已停',
+      '把 target 里的 Pack 换成 registry 最新版：--project <目录>（项目）或 --environment <环境>（宿主的 home）；环境必须已停',
   },
   args: {
-    into: { type: 'string', description: '项目级 target：已装过包的目录' },
-    instance: { type: 'string', description: '实例级 target：实例名/id（必须已停）' },
+    project: { type: 'string', description: '项目级 target：已装过包的项目目录' },
+    environment: { type: 'string', description: '环境级 target：环境名/id（必须已停）' },
     version: { type: 'string', description: 'registry 版本；不写用 latest' },
     index: { type: 'string', description: 'registry 索引；不写用默认索引' },
     force: {
       type: 'boolean',
       default: false,
-      description: '实例级：覆盖本地改过的文件；不带时若 Pack 写过的文件被本地改过就拒绝更新',
+      description: '环境级：覆盖本地改过的文件；不带时若 Pack 写过的文件被本地改过就拒绝更新',
     },
     json: { type: 'boolean', default: false },
   },
   async run({ args }) {
     const target = parseTarget(args, { allowNew: false });
-    if (target === 'dir') {
-      await updateStateDir(String(args.into), {
+    if (target === 'project') {
+      await updateStateDir(String(args.project), {
         ...(args.index ? { index: String(args.index) } : {}),
         ...(args.version ? { version: String(args.version) } : {}),
         json: Boolean(args.json),
@@ -300,7 +317,7 @@ export const update = defineCommand({
       return;
     }
 
-    const rec = requireInstance(String(args.instance));
+    const rec = requireInstance(String(args.environment));
     requireStopped(rec);
     const ref = rec.pack.ref ?? rec.pack.name;
     const log = (line: string): void => {
@@ -326,7 +343,7 @@ export const update = defineCommand({
       console.log(`  ! ${result.localChanges.length} 个文件在改之前被本地改过，现在是新版本的内容；要保留请先备份`);
     }
     if (result.warnings.length > 0) {
-      console.log(`  ! ${result.warnings.length} 个旧文件没删掉（更新已完成，这些文件还留在实例里）`);
+      console.log(`  ! ${result.warnings.length} 个旧文件没删掉（更新已完成，这些文件还留在环境里）`);
       for (const line of result.warnings.slice(0, 10)) console.log(`    ${line}`);
       if (result.warnings.length > 10) console.log(`    … 还有 ${result.warnings.length - 10} 条`);
     }

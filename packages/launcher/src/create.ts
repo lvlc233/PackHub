@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
+﻿import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import { MANIFEST_FILE, planFor, type PackContext, type Plan, type PlanOptions } from '@packhub/kernel';
 import { installPack, loadLock, loadPack, loadState, withLockPins, type ActionOutcome } from '@packhub/runtime';
@@ -355,7 +355,7 @@ export async function installIntoInstance(
   const installed = Object.keys(state.packs);
   if (installed.length > 0) {
     throw new PalError('invalid-input', `实例里已经有包：${installed.join(', ')}`, {
-      hint: `换版本用 pal update --instance ${record.name}；要重装先 pal uninstall --instance ${record.name}。`,
+      hint: `换版本用 pal update --environment ${record.name}；要重装先 pal uninstall --environment ${record.name}。`,
     });
   }
 

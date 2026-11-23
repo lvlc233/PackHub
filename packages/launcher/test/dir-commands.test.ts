@@ -92,11 +92,11 @@ describe('pal 目录对象：install', () => {
     const pack = join(base, 'pack');
     cpSync(FIXTURE, pack, { recursive: true });
 
-    const missing = pal(['install', pack, '--into', join(base, 'p1')]);
+    const missing = pal(['install', pack, '--project', join(base, 'p1')]);
     expect(missing.status).toBe(2);
-    expect(missing.out).toContain('--into 需要 --harness');
+    expect(missing.out).toContain('--project 需要 --harness');
 
-    const dirValue = pal(['install', pack, '--into', join(base, 'p2'), '--harness', 'dir']);
+    const dirValue = pal(['install', pack, '--project', join(base, 'p2'), '--harness', 'dir']);
     expect(dirValue.status).toBe(2);
     expect(dirValue.out).toContain('未知宿主：dir');
     expect(dirValue.out).toContain('不用 dir');
@@ -109,7 +109,7 @@ describe('pal 目录对象：install', () => {
     const project = join(base, 'project');
     cpSync(FIXTURE, pack, { recursive: true });
 
-    const dry = pal(['install', pack, '--into', project, '--harness', 'dsh', '--dry-run']);
+    const dry = pal(['install', pack, '--project', project, '--harness', 'dsh', '--dry-run']);
     expect(dry.status).toBe(0);
     expect(dry.out).toContain('（dry-run：没有落盘）');
     expect(dry.out).toContain('planHash');
@@ -123,7 +123,7 @@ describe('pal 目录对象：install', () => {
     const project = join(base, 'project');
     cpSync(FIXTURE, pack, { recursive: true });
 
-    const installed = pal(['install', pack, '--into', project, '--harness', 'dsh']);
+    const installed = pal(['install', pack, '--project', project, '--harness', 'dsh']);
     expect(installed.status).toBe(0);
     expect(installed.out).toContain('harness=dsh');
     expect(installed.out).toContain('校验 lvlc233/team-conventions@0.0.2：通过');
@@ -139,7 +139,7 @@ describe('pal 目录对象：install', () => {
     const index = await makeRegistry(base, [{ version: '0.1.0', body: '# v1\n' }]);
     const project = join(base, 'project');
 
-    const installed = pal(['install', 'demo/upd@0.1.0', '--into', project, '--harness', 'dsh', '--index', index]);
+    const installed = pal(['install', 'demo/upd@0.1.0', '--project', project, '--harness', 'dsh', '--index', index]);
     expect(installed.status).toBe(0);
     expect(installed.out).toContain('demo/upd@0.1.0');
     expect(installed.out).toContain('校验 demo/upd@0.1.0：通过');
@@ -154,9 +154,9 @@ describe('pal 目录对象：verify / uninstall', () => {
     const pack = join(base, 'pack');
     const project = join(base, 'project');
     cpSync(FIXTURE, pack, { recursive: true });
-    expect(pal(['install', pack, '--into', project, '--harness', 'dsh']).status).toBe(0);
+    expect(pal(['install', pack, '--project', project, '--harness', 'dsh']).status).toBe(0);
 
-    const ok = pal(['verify', '--into', project]);
+    const ok = pal(['verify', '--project', project]);
     expect(ok.status).toBe(0);
     expect(ok.out).toContain('漂移：已装记录 vs 磁盘');
     expect(ok.out).toContain('✓ 1 个包全部在位');
@@ -164,18 +164,18 @@ describe('pal 目录对象：verify / uninstall', () => {
     expect(ok.out).toContain('1 个包：0 项失败 / 0 项跳过');
 
     rmSync(join(project, '.packhub/knowledge/style-guide.md'), { force: true });
-    const broken = pal(['verify', '--into', project]);
+    const broken = pal(['verify', '--project', project]);
     expect(broken.status).toBe(1);
     expect(broken.out).toContain('文件不见了：.packhub/knowledge/style-guide.md');
 
-    const removed = pal(['uninstall', '--into', project]);
+    const removed = pal(['uninstall', '--project', project]);
     expect(removed.status).toBe(0);
     expect(removed.out).toContain('移除');
     expect(existsSync(join(project, '.packhub/knowledge/style-guide.md'))).toBe(false);
     expect(existsSync(join(project, '.packhub/state.json'))).toBe(false);
 
     // 再卸一次：没有安装记录是前置条件错
-    const again = pal(['uninstall', '--into', project]);
+    const again = pal(['uninstall', '--project', project]);
     expect(again.status).toBe(2);
     expect(again.out).toContain('这个目录没有安装记录');
     rmSync(base, { recursive: true, force: true });
@@ -183,11 +183,11 @@ describe('pal 目录对象：verify / uninstall', () => {
 
   it('对没有安装记录的目录：verify / uninstall 都是前置条件错', () => {
     const empty = tmp('pal-dir-empty-');
-    const verified = pal(['verify', '--into', empty]);
+    const verified = pal(['verify', '--project', empty]);
     expect(verified.status).toBe(2);
     expect(verified.out).toContain('这个目录没有安装记录');
 
-    const removed = pal(['uninstall', '--into', empty]);
+    const removed = pal(['uninstall', '--project', empty]);
     expect(removed.status).toBe(2);
     expect(removed.out).toContain('这个目录没有安装记录');
     rmSync(empty, { recursive: true, force: true });
@@ -195,7 +195,7 @@ describe('pal 目录对象：verify / uninstall', () => {
 });
 
 describe('pal 目录对象：update / rollback', () => {
-  it('先装旧版，再用 pal update --into 更到新版；rollback 回到旧版', async () => {
+  it('先装旧版，再用 pal update --project 更到新版；rollback 回到旧版', async () => {
     const base = tmp('pal-dir-update-');
     const index = await makeRegistry(base, [
       { version: '0.1.0', body: '# v1\n' },
@@ -203,15 +203,15 @@ describe('pal 目录对象：update / rollback', () => {
     ]);
     const project = join(base, 'project');
 
-    expect(pal(['install', 'demo/upd@0.1.0', '--into', project, '--harness', 'dsh', '--index', index]).status).toBe(0);
+    expect(pal(['install', 'demo/upd@0.1.0', '--project', project, '--harness', 'dsh', '--index', index]).status).toBe(0);
     expect(readFileSync(join(project, '.packhub/knowledge/rules.md'), 'utf8')).toBe('# v1\n');
 
-    const updated = pal(['update', '--into', project, '--index', index]);
+    const updated = pal(['update', '--project', project, '--index', index]);
     expect(updated.status).toBe(0);
     expect(updated.out).toContain('demo/upd@0.1.0 → demo/upd@0.2.0');
     expect(readFileSync(join(project, '.packhub/knowledge/rules.md'), 'utf8')).toBe('# v2\n');
 
-    const rolled = pal(['rollback', '--into', project]);
+    const rolled = pal(['rollback', '--project', project]);
     expect(rolled.status).toBe(0);
     expect(rolled.out).toContain('回退');
     expect(rolled.out).toContain('↩ .packhub/knowledge/rules.md');
@@ -219,18 +219,18 @@ describe('pal 目录对象：update / rollback', () => {
     rmSync(base, { recursive: true, force: true });
   });
 
-  it('update 只认 --into / --instance：旧的 --dir 会被当成没有 target', () => {
+  it('update 只认 --project / --environment：旧的 --dir 会被当成没有 target', () => {
     const base = tmp('pal-dir-update-nodir-');
     const pack = join(base, 'pack');
     const project = join(base, 'project');
     cpSync(FIXTURE, pack, { recursive: true });
-    expect(pal(['install', pack, '--into', project, '--harness', 'dsh']).status).toBe(0);
+    expect(pal(['install', pack, '--project', project, '--harness', 'dsh']).status).toBe(0);
 
     const res = pal(['update', '--dir', project]);
     expect(res.status).toBe(2);
     expect(res.out).toContain('要指定 target 才能继续');
-    expect(res.out).toContain('--into');
-    expect(res.out).toContain('--instance');
+    expect(res.out).toContain('--project');
+    expect(res.out).toContain('--environment');
     rmSync(base, { recursive: true, force: true });
   });
 
@@ -239,9 +239,9 @@ describe('pal 目录对象：update / rollback', () => {
     const pack = join(base, 'pack');
     const project = join(base, 'project');
     cpSync(FIXTURE, pack, { recursive: true });
-    expect(pal(['install', pack, '--into', project, '--harness', 'dsh']).status).toBe(0);
+    expect(pal(['install', pack, '--project', project, '--harness', 'dsh']).status).toBe(0);
 
-    const res = pal(['update', '--into', project]);
+    const res = pal(['update', '--project', project]);
     expect(res.status).toBe(2);
     expect(res.out).toContain('按目录更新需要一个 registry 索引');
     rmSync(base, { recursive: true, force: true });

@@ -17,13 +17,13 @@ export const start = defineCommand({
   meta: {
     name: 'start',
     description:
-      '起一个实例（交给 core：崩了由它按 --restart 看护）。不写目标时用「当前实例」：create/adopt 默认会把实例设为当前；多个宿主各有当前实例时要求显式指定',
+      '起一个实例（交给 core：崩了由它按 --restart 看护）。不写目标时用「当前实例」：install --new/adopt 默认会把环境设为当前；多个宿主各有当前实例时要求显式指定',
   },
   args: {
     target: {
       type: 'positional',
       required: false,
-      description: '实例 id 或名字；不写就用当前实例（create/adopt 默认已把它设为当前）',
+      description: '实例 id 或名字；不写就用当前实例（install --new / adopt 默认已把它设为当前）',
     },
     port: { type: 'string', description: '指定端口；被占时报告占用者' },
     restart: { type: 'string', description: 'on-failure：崩了由 core 重起；never：不重起' },

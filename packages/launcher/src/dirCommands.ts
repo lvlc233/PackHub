@@ -1,4 +1,4 @@
-// 目录对象命令：install / uninstall / verify / rollback 作用于「一个已存在的目录」，
+﻿// 目录对象命令：install / uninstall / verify / rollback 作用于「一个已存在的目录」，
 // 不创建 PAL 实例记录。新建实例仍走 create（pal create）。
 //
 // 与实例路径的分工：
@@ -34,7 +34,7 @@ import { PalError } from './errors.ts';
 function harnessHint(): string {
   return `${harnessIds().join(' / ')}（安装参数；不用 dir）`;
 }
-const INSTANCE_HINT = '装进已有目录用 pal install --into <目录>；新建实例用 pal install --new。';
+const INSTANCE_HINT = '装进已有项目用 pal install --project <目录>；新建环境用 pal install --new。';
 
 /** 解析 --harness：只认宿主名（dir 是 PAL 的实例形态，不是安装参数）。 */
 function parseInstallHarness(raw: unknown): HarnessId {
@@ -93,7 +93,7 @@ export const installDir = defineCommand({
       required: true,
       description: 'Pack 目录、.phub、git+https，或配合 --index 用 registry 名（name 或 name@version）',
     },
-    into: { type: 'string', default: '.', description: '装到哪个目录（默认当前目录；不存在会创建）' },
+    project: { type: 'string', default: '.', description: '装到哪个项目目录（默认当前目录；不存在会创建）' },
     harness: { type: 'string', description: harnessHint() },
     index: { type: 'string', description: `registry 索引（路径或 URL；也可用 ${PACKHUB_ENV.index}）` },
     'dry-run': { type: 'boolean', default: false, description: '只算计划，不落盘' },
@@ -113,11 +113,11 @@ export const installDir = defineCommand({
     // 必填但手动校验：citty 的 required 缺失走 internal（退出 1），这里按用法错退出 2
     if (args.harness === undefined) {
       throw new PalError('invalid-input', '缺少 --harness', {
-        hint: `必须指定按哪个宿主的落点表物化：${harnessHint()}；装进已有目录用 pal install --into，新建实例用 pal install --new。`,
+        hint: `必须指定按哪个宿主的落点表物化：${harnessHint()}；装进已有项目用 pal install --project，新建环境用 pal install --new。`,
       });
     }
     const harness = parseInstallHarness(args.harness);
-    const projectDir = resolve(String(args.into ?? '.'));
+    const projectDir = resolve(String(args.project ?? '.'));
     let planned = false;
     try {
       const result = await installFromSource({
@@ -310,7 +310,7 @@ export async function updateStateDir(
   const keys = Object.keys(state.packs);
   if (keys.length === 0) {
     throw new PalError('invalid-input', `这个目录没有安装记录：${dir}（state 里没有包）`, {
-      hint: '装进这个目录用 pal install --into <目录>；新建实例用 pal install --new。',
+      hint: '装进这个目录用 pal install --project <目录>；新建环境用 pal install --new。',
     });
   }
   const indexRef = resolveRegistry(opts.index);

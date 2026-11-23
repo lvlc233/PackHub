@@ -33,6 +33,8 @@ registerHarness({
   label: 'DeepSeek Harness',
   // DSH 的 skills 与 MCP 目前挂在 profile（全局），项目级只做「指路」
   layout: { instructionFile: 'AGENTS.md' },
+  // 项目里只写指路块（AGENTS.md），技能不注册进项目；要注册技能得建环境
+  project: 'pointer',
   home: { dir: 'home/dsh', env: 'DSH_HOME' },
   executable: 'dsh',
   versionArgs: ['--version'],

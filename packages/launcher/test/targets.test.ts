@@ -87,11 +87,11 @@ describe('install 的 target 三选一', () => {
     const none = pal(['install', pack]);
     expect(none.status).toBe(2);
     expect(none.out).toContain('要指定 target 才能继续');
-    expect(none.out).toContain('--into');
-    expect(none.out).toContain('--instance');
+    expect(none.out).toContain('--project');
+    expect(none.out).toContain('--environment');
     expect(none.out).toContain('--new');
 
-    const both = pal(['install', pack, '--into', join(base, 'p1'), '--instance', 'x', '--harness', 'dsh']);
+    const both = pal(['install', pack, '--project', join(base, 'p1'), '--environment', 'x', '--harness', 'dsh']);
     expect(both.status).toBe(2);
     expect(both.out).toContain('target 只能给一个');
     rmSync(base, { recursive: true, force: true });
@@ -112,7 +112,7 @@ describe('install 的 target 三选一', () => {
     rmSync(base, { recursive: true, force: true });
   });
 
-  it('--new --kind dir 退 2：dir 不是宿主，指向 adopt / install --into', () => {
+  it('--new --kind dir 退 2：dir 不是宿主，指向 adopt / install --project', () => {
     const base = tmp('pal-target-new-dir-');
     const pack = join(base, 'pack');
     cpSync(FIXTURE, pack, { recursive: true });
@@ -135,7 +135,7 @@ describe('install 的 target 三选一', () => {
     const res = pal(['install', '--help']);
     expect(res.status).toBe(0);
     expect(res.out).toContain('三选一');
-    for (const flag of ['--into', '--instance', '--new']) expect(res.out).toContain(flag);
+    for (const flag of ['--project', '--environment', '--new']) expect(res.out).toContain(flag);
     expect(res.out).toContain('--kind');
     expect(res.out).toContain('--name');
   });
@@ -145,7 +145,7 @@ describe('install 的 target 三选一', () => {
     const pack = join(base, 'pack');
     cpSync(FIXTURE, pack, { recursive: true });
 
-    const badHarness = pal(['install', pack, '--into', join(base, 'p'), '--harness', 'nope']);
+    const badHarness = pal(['install', pack, '--project', join(base, 'p'), '--harness', 'nope']);
     expect(badHarness.status).toBe(2);
     expect(badHarness.out).toContain('未知宿主');
     for (const id of ['dsh', 'claude-code', 'codex', 'opencode', 'workbody', 'hermes']) {
@@ -161,8 +161,95 @@ describe('install 的 target 三选一', () => {
   });
 });
 
+describe('改写后的 flag：旧名退 2 并提示改名', () => {
+  it('--into → --project、--instance → --environment', () => {
+    for (const [oldFlag, newFlag] of [
+      ['--into', '--project'],
+      ['--instance', '--environment'],
+    ] as const) {
+      const res = pal(['install', 'x', oldFlag, 'y']);
+      expect(res.status, `${oldFlag} 应被拒绝`).toBe(2);
+      expect(res.out).toContain(`未知参数 ${oldFlag}`);
+      expect(res.out).toContain(`已改名：用 ${newFlag}`);
+      expect(res.out).toContain('旧名不保留');
+    }
+  });
+
+  it('旧 flag 在任何命令前都被拦（不是静默忽略）', () => {
+    const res = pal(['verify', '--into', '.']);
+    expect(res.status).toBe(2);
+    expect(res.out).toContain('未知参数 --into');
+    expect(res.out).toContain('--project');
+  });
+});
+
+describe('帮助分组', () => {
+  it('根帮助首组是「安装（target = 项目 / 环境）」，并有「环境」分组', () => {
+    const res = pal(['--help']);
+    expect(res.status).toBe(0);
+    expect(res.out).toContain('安装（target = 项目 / 环境）：');
+    expect(res.out).toContain('环境：');
+    // create 已并入 install --new：根帮助里不该再有 create 命令行（描述文案里提到不算）
+    expect(res.out).not.toMatch(/^ {2}create\s/m);
+    // 安装类五条都在首组里
+    const installGroup = res.out.slice(
+      res.out.indexOf('安装（target = 项目 / 环境）：'),
+      res.out.indexOf('环境：'),
+    );
+    for (const name of ['install', 'uninstall', 'verify', 'rollback', 'update']) {
+      expect(installGroup).toContain(name);
+    }
+  });
+});
+
+describe('宿主 project 三态', () => {
+  it('--project + dsh（pointer）：打一行 warning 说明只写指路块', () => {
+    const base = tmp('pal-pointer-');
+    const pack = join(base, 'pack');
+    const project = join(base, 'proj');
+    cpSync(FIXTURE, pack, { recursive: true });
+
+    const res = pal(['install', pack, '--project', project, '--harness', 'dsh']);
+    expect(res.status, res.out).toBe(0);
+    expect(res.out).toContain('warn');
+    expect(res.out).toContain('项目内只写指路块');
+    expect(res.out).toContain('--new 建环境');
+    // 项目里照常落知识 / 指令
+    expect(existsSync(join(project, '.packhub/knowledge/style-guide.md'))).toBe(true);
+    expect(existsSync(join(project, 'AGENTS.md'))).toBe(true);
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  it('--json 时不打 pointer warning（只留结构化输出）', () => {
+    const base = tmp('pal-pointer-json-');
+    const pack = join(base, 'pack');
+    const project = join(base, 'proj');
+    cpSync(FIXTURE, pack, { recursive: true });
+
+    const res = pal(['install', pack, '--project', project, '--harness', 'dsh', '--json']);
+    expect(res.status, res.out).toBe(0);
+    expect(res.out).not.toContain('项目内只写指路块');
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  it('--project + hermes（project=false）：退 2，提示用 --new 建环境', () => {
+    const base = tmp('pal-hermes-project-');
+    const pack = join(base, 'pack');
+    const project = join(base, 'proj');
+    cpSync(FIXTURE, pack, { recursive: true });
+
+    const res = pal(['install', pack, '--project', project, '--harness', 'hermes']);
+    expect(res.status).toBe(2);
+    expect(res.out).toContain('没有项目级安装落点');
+    expect(res.out).toContain('--new');
+    expect(res.out).toContain('建环境');
+    expect(existsSync(project)).toBe(false);
+    rmSync(base, { recursive: true, force: true });
+  });
+});
+
 describe('实例 target：install --new / verify / update / rollback / uninstall', () => {
-  it('本地包装进新实例 → verify --instance → 重复装退 2 → uninstall --instance', () => {
+  it('本地包装进新实例 → verify --environment → 重复装退 2 → uninstall --environment', () => {
     const base = tmp('pal-inst-target-');
     const pack = join(base, 'pack');
     const root = join(base, 'inst');
@@ -174,26 +261,26 @@ describe('实例 target：install --new / verify / update / rollback / uninstall
     expect(installed.status, installed.out).toBe(0);
     expect(existsSync(join(root, 'home/dsh/knowledge/style-guide.md'))).toBe(true);
 
-    const verified = pal(['verify', '--instance', 'demo']);
+    const verified = pal(['verify', '--environment', 'demo']);
     expect(verified.status).toBe(0);
     expect(verified.out).toContain('漂移：已装记录 vs 磁盘');
     expect(verified.out).toContain('1 个包全部在位');
 
     // 已经装过包：不允许重复装，指向 update / uninstall
-    const dup = pal(['install', pack, '--instance', 'demo']);
+    const dup = pal(['install', pack, '--environment', 'demo']);
     expect(dup.status).toBe(2);
     expect(dup.out).toContain('实例里已经有包');
-    expect(dup.out).toContain('pal update --instance');
-    expect(dup.out).toContain('pal uninstall --instance');
+    expect(dup.out).toContain('pal update --environment');
+    expect(dup.out).toContain('pal uninstall --environment');
 
-    const removed = pal(['uninstall', '--instance', 'demo']);
+    const removed = pal(['uninstall', '--environment', 'demo']);
     expect(removed.status).toBe(0);
     expect(existsSync(join(root, 'home/dsh/knowledge/style-guide.md'))).toBe(false);
     expect(existsSync(join(root, '.packhub/state.json'))).toBe(false);
     rmSync(base, { recursive: true, force: true });
   });
 
-  it('registry 包装进新实例 → update --instance 到新版 → rollback --instance 回旧版', async () => {
+  it('registry 包装进新实例 → update --environment 到新版 → rollback --environment 回旧版', async () => {
     const base = tmp('pal-inst-update-');
     const index = await makeRegistry(base, [
       { version: '0.1.0', body: '# v1\n' },
@@ -209,12 +296,12 @@ describe('实例 target：install --new / verify / update / rollback / uninstall
     expect(installed.status, installed.out).toBe(0);
     expect(readFileSync(rules, 'utf8')).toBe('# v1\n');
 
-    const updated = pal(['update', '--instance', 'demo', '--index', index]);
+    const updated = pal(['update', '--environment', 'demo', '--index', index]);
     expect(updated.status, updated.out).toBe(0);
     expect(updated.out).toContain('demo/upd@0.1.0 → demo/upd@0.2.0');
     expect(readFileSync(rules, 'utf8')).toBe('# v2\n');
 
-    const rolled = pal(['rollback', '--instance', 'demo']);
+    const rolled = pal(['rollback', '--environment', 'demo']);
     expect(rolled.status, rolled.out).toBe(0);
     expect(rolled.out).toContain('回退');
     expect(rolled.out).toContain('↩ home/dsh/knowledge/rules.md');

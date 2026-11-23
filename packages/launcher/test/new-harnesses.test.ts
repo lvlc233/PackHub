@@ -110,13 +110,13 @@ describe('pal install --new：三个新宿主的 home 布局', () => {
   });
 });
 
-describe('pal install --into：项目级落点按方言', () => {
+describe('pal install --project：项目级落点按方言', () => {
   it('opencode：opencode.json 的 mcp.servers + .packhub 知识目录', () => {
     const base = mkdtempSync(join(tmpdir(), 'pal-ins-oc-'));
     const pack = makeMcpPack(base, 'pack');
     const project = join(base, 'project');
 
-    const res = pal(['install', pack, '--into', project, '--harness', 'opencode']);
+    const res = pal(['install', pack, '--project', project, '--harness', 'opencode']);
     expect(res.status, res.out).toBe(0);
     const config = readJson<{ mcp: { servers: Record<string, unknown> } }>(
       join(project, 'opencode.json'),
@@ -132,7 +132,7 @@ describe('pal install --into：项目级落点按方言', () => {
     const pack = makeMcpPack(base, 'pack');
     const project = join(base, 'project');
 
-    const res = pal(['install', pack, '--into', project, '--harness', 'workbody']);
+    const res = pal(['install', pack, '--project', project, '--harness', 'workbody']);
     expect(res.status, res.out).toBe(0);
     const config = readJson<{ mcpServers: Record<string, unknown> }>(
       join(project, '.mcp.json'),
@@ -143,15 +143,16 @@ describe('pal install --into：项目级落点按方言', () => {
     rmSync(base, { recursive: true, force: true });
   });
 
-  it('hermes 没有项目级落点：--harness hermes 退 2，指向新建实例再装', () => {
+  it('hermes 没有项目级落点：--project 退 2，提示用 --new 建环境', () => {
     const base = mkdtempSync(join(tmpdir(), 'pal-ins-hermes-'));
     const pack = makeMcpPack(base, 'pack');
     const project = join(base, 'project');
 
-    const res = pal(['install', pack, '--into', project, '--harness', 'hermes']);
+    const res = pal(['install', pack, '--project', project, '--harness', 'hermes']);
     expect(res.status).toBe(2);
     expect(res.out).toContain('没有项目级安装落点');
-    expect(res.out).toContain('hermes');
+    expect(res.out).toContain('--new');
+    expect(res.out).toContain('建环境');
     // 拒绝在建目录之前：没有半套安装
     expect(existsSync(project)).toBe(false);
     rmSync(base, { recursive: true, force: true });

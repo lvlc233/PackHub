@@ -107,11 +107,12 @@ export interface HarnessSpec {
   /** MCP 配置方言；不写 = JSON `mcpServers` + layout.configFile */
   mcp?: McpDialect;
   /**
-   * 有没有「装进项目目录」这种落点；默认 true。
-   * hermes 这类只有全局目录（~/.hermes）的宿主为 false——`pal install --into` 会拒绝，
-   * 要装就 `pal create --kind hermes` 建实例。
+   * 项目级落点能装到什么程度（默认 'full'）：
+   * - 'full'：项目里注册技能、指令与 MCP；
+   * - 'pointer'：项目里只写指路块（技能留在全局，项目内不注册 skill）；
+   * - false：没有项目级落点，只能 `pal install --new` 建环境。
    */
-  project?: boolean;
+  project?: 'full' | 'pointer' | false;
   /** headless 探针配方 */
   probe: ProbeRecipe;
 }

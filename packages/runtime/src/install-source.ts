@@ -222,7 +222,7 @@ export async function installFromSource(opts: InstallFromSourceOptions): Promise
     if (host && host.project === false) {
       throw new InstallSourceError(
         'usage',
-        `宿主 ${host.id} 没有项目级安装落点：用 pal install <包> --new --kind ${host.id} --name <名字> 建实例，再把包装进去`,
+        `宿主 ${host.id} 没有项目级安装落点：用 pal install ${source} --new --kind ${host.id} --name <名字> 建环境`,
       );
     }
   }

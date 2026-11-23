@@ -24,7 +24,7 @@ export const main = defineCommand({
     name: 'pal',
     version: pkg.version,
     description:
-      '实例内核：建、起、停、看护、迁移；安装/卸载/校验/回退/更新作用于 target（--into 目录 或 --instance 实例），新建实例用 pal install --new',
+      '环境内核：建、起、停、看护、迁移；安装/卸载/校验/回退/更新作用于 target（--project 项目 或 --environment 环境），新建环境用 pal install --new',
   },
   subCommands: {
     install,

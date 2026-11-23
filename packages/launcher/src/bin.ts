@@ -9,9 +9,26 @@
 import { writeSync } from 'node:fs';
 import { renderUsage, runCommand, type CommandDef, type CommandMeta, type SubCommandsDef } from 'citty';
 import { main } from './cli.ts';
-import { errorBody } from './errors.ts';
+import { PalError, errorBody } from './errors.ts';
 
 const rawArgs = process.argv.slice(2);
+
+/**
+ * 旧 flag 不保留别名（v0 无兼容承诺）：`--into` / `--instance` 直接按未知参数退 2。
+ * 放在 runCommand 之前拦：citty 会静默忽略它不认识的参数，否则旧脚本会「看起来成功」。
+ */
+function rejectRenamedFlags(): void {
+  const renamed: Record<string, string> = { '--into': '--project', '--instance': '--environment' };
+  for (const arg of rawArgs) {
+    if (!arg.startsWith('-')) continue;
+    const name = arg.split('=')[0] ?? '';
+    const now = renamed[name];
+    if (!now) continue;
+    throw new PalError('invalid-input', `未知参数 ${name}`, {
+      hint: `已改名：用 ${now}（旧名不保留）；三选一规则见 pal install --help。`,
+    });
+  }
+}
 
 /** citty 的 meta / subCommands / 子命令定义都可能是函数或 Promise，统一解成值。 */
 async function resolveValue<T>(
@@ -27,11 +44,11 @@ async function resolveValue<T>(
  */
 const HELP_GROUPS: { title: string; names: string[] }[] = [
   {
-    title: '安装（target = 目录 / 实例）',
+    title: '安装（target = 项目 / 环境）',
     names: ['install', 'uninstall', 'verify', 'rollback', 'update'],
   },
   {
-    title: '实例',
+    title: '环境',
     names: ['adopt', 'list', 'show', 'start', 'stop', 'restart', 'ps', 'core', 'health', 'logs', 'use', 'current', 'remove', 'config'],
   },
   { title: '搬运', names: ['scan', 'clone', 'rename', 'migrate', 'export', 'import', 'backup', 'restore'] },
@@ -99,6 +116,7 @@ async function run(): Promise<void> {
     await printHelp();
     return;
   }
+  rejectRenamedFlags();
   await runCommand(main, { rawArgs });
 }
 

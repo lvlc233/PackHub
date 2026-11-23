@@ -38,7 +38,7 @@ describe('pal 命令面（CLI 级）', () => {
     expect(res.out).toContain('create');
   });
 
-  it('install --new --kind dir 退 2：dir 不是宿主，指向 adopt / install --into', () => {
+  it('install --new --kind dir 退 2：dir 不是宿主，指向 adopt / install --project', () => {
     const base = mkdtempSync(join(tmpdir(), 'pal-cli-newdir-'));
     const pack = join(base, 'pack');
     cpSync(FIXTURE, pack, { recursive: true });
@@ -81,7 +81,7 @@ describe('pal 命令面（CLI 级）', () => {
     const project = join(base, 'project');
     cpSync(FIXTURE, pack, { recursive: true });
 
-    expect(pal(['install', pack, '--into', project, '--harness', 'dsh']).status).toBe(0);
+    expect(pal(['install', pack, '--project', project, '--harness', 'dsh']).status).toBe(0);
 
     const json = pal(['audit', '--json']);
     expect(json.status).toBe(0);

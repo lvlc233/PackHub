@@ -46,26 +46,31 @@ describe('pal cli：target 统一后的参数面', () => {
   it('install 声明 target 三选一与 --new 配套参数', () => {
     const command = subCommands.install;
     expect(command, 'install 应存在').toBeTruthy();
-    expect(command?.args?.into?.type).toBe('string');
-    expect(command?.args?.instance?.type).toBe('string');
+    expect(command?.args?.project?.type).toBe('string');
+    expect(command?.args?.environment?.type).toBe('string');
     expect(command?.args?.new?.type).toBe('boolean');
     expect(command?.args?.new?.default).toBe(false);
     expect(command?.args?.kind?.type).toBe('string');
     expect(command?.args?.name?.type).toBe('string');
     expect(command?.args?.harness?.type).toBe('string');
     expect(command?.args?.source?.type).toBe('positional');
+    // 改名后旧参数不再声明（旧名由 bin 在解析前拒绝）
+    expect(command?.args?.into).toBeUndefined();
+    expect(command?.args?.instance).toBeUndefined();
     // --new 的记录：三类 target 的说明里至少一处写明互斥
-    const into = String(command?.args?.into?.description ?? '');
-    expect(into).toContain('三选一');
+    const project = String(command?.args?.project?.description ?? '');
+    expect(project).toContain('三选一');
   });
 
-  it('uninstall / verify / rollback / update 都收 --into 与 --instance，不再有 --dir', () => {
+  it('uninstall / verify / rollback / update 都收 --project 与 --environment，不再有 --dir', () => {
     for (const name of ['uninstall', 'verify', 'rollback', 'update']) {
       const command = subCommands[name];
       expect(command, `${name} 应存在`).toBeTruthy();
-      expect(command?.args?.into?.type, `${name} --into`).toBe('string');
-      expect(command?.args?.instance?.type, `${name} --instance`).toBe('string');
+      expect(command?.args?.project?.type, `${name} --project`).toBe('string');
+      expect(command?.args?.environment?.type, `${name} --environment`).toBe('string');
       expect(command?.args?.dir, `${name} 不该再有 --dir`).toBeUndefined();
+      expect(command?.args?.into, `${name} 不该再有 --into`).toBeUndefined();
+      expect(command?.args?.instance, `${name} 不该再有 --instance`).toBeUndefined();
     }
   });
 });
