@@ -31,6 +31,7 @@ import {
   writeTemplate,
 } from '../src/index.ts';
 import { runtimeFile } from '../src/records.ts';
+import { backupInstance } from '../src/backup.ts';
 import { isPalError } from '../src/errors.ts';
 import { DEFAULT_ISOLATION, type Isolation } from '../src/isolation.ts';
 import { writePalConfig } from '../src/config.ts';
@@ -700,13 +701,13 @@ describe('实例配置', () => {
     expect(listDirNames(archiveRoot())).toEqual([]);
   });
 
-  it('接管来的目录删除时只摘记录，不按 state 卸包', async () => {
+  it('接管来的 attached home：remove 拒绝，目录与记录原样', async () => {
     const dir = join(tmp, 'existing-env');
     const written = join(dir, 'home', 'dsh', 'skills', 'doc-review', 'SKILL.md');
     mkdirSync(join(dir, 'home', 'dsh', 'skills', 'doc-review'), { recursive: true });
     writeFileSync(written, '# 用户的 skill\n', 'utf8');
     writeFileSync(join(dir, 'mine.txt'), 'keep', 'utf8');
-    // 接管目录里本来就有 Pack 的 state：删除时不能拿它去 removePack
+    // 接管目录里本来就有 Pack 的 state：remove 拒绝时也不能动它
     mkdirSync(join(dir, '.packhub'), { recursive: true });
     writeFileSync(
       join(dir, '.packhub', 'state.json'),
@@ -729,33 +730,39 @@ describe('实例配置', () => {
       ),
       'utf8',
     );
-    const record = adoptInstance({ dir, name: 'adopted', harness: 'dsh' });
+    const record = adoptInstance({ dir, name: 'adopted', harness: 'opencode' });
     expect(record.managed).toBe(false);
-    expect(record.home).toBe(join(dir, 'home', 'dsh'));
+    expect(record.attached).toBe(true);
+    expect(record.home).toBe(dir);
 
-    const result = await removeInstance('adopted');
-    expect(result.removed).toBe(false);
-    expect(result.uninstalled).toEqual([]);
+    let caught: unknown;
+    try {
+      await removeInstance('adopted');
+    } catch (err) {
+      caught = err;
+    }
+    expect(isPalError(caught)).toBe(true);
+    if (isPalError(caught)) {
+      expect(caught.code).toBe('invalid-input');
+      expect(caught.message).toContain('attached home 不归 PAL');
+    }
     expect(readFileSync(written, 'utf8')).toBe('# 用户的 skill\n');
     expect(existsSync(join(dir, '.packhub', 'state.json'))).toBe(true);
     expect(existsSync(join(dir, 'mine.txt'))).toBe(true);
-    expect(existsSync(join(dir, 'instance.json'))).toBe(false);
-    expect(listInstances()).toEqual([]);
+    expect(existsSync(join(dir, 'instance.json'))).toBe(true);
+    expect(listInstances().map((row) => row.name)).toEqual(['adopted']);
   });
 
-  it('接管来的目录 keepData 删除也不搬走，归档区不新增', async () => {
+  it('接管来的 attached home：keepData 也拒绝，归档区不新增', async () => {
     const dir = join(tmp, 'existing-env-keep');
     mkdirSync(join(dir, 'home', 'dsh'), { recursive: true });
     writeFileSync(join(dir, 'mine.txt'), 'keep', 'utf8');
-    adoptInstance({ dir, name: 'adopted-keep', harness: 'dsh' });
+    adoptInstance({ dir, name: 'adopted-keep', harness: 'opencode' });
 
-    const result = await removeInstance('adopted-keep', { keepData: true });
-    expect(result.removed).toBe(false);
-    expect(result.archivedTo).toBeUndefined();
+    await expect(removeInstance('adopted-keep', { keepData: true })).rejects.toThrow('attached home 不归 PAL');
     expect(existsSync(dir)).toBe(true);
     expect(readFileSync(join(dir, 'mine.txt'), 'utf8')).toBe('keep');
-    expect(existsSync(join(dir, 'instance.json'))).toBe(false);
-    expect(listInstances()).toEqual([]);
+    expect(existsSync(join(dir, 'instance.json'))).toBe(true);
     expect(listDirNames(archiveRoot())).toEqual([]);
   });
 
@@ -784,7 +791,7 @@ describe('实例配置', () => {
       'demo/guard@0.2.0': stateEntry('demo/guard', '0.2.0', 'hash-b'),
     });
     const multiBefore = readFileSync(multiState, 'utf8');
-    const multiRecord = adoptInstance({ dir: multi, name: 'adopt-multi', harness: 'dsh' });
+    const multiRecord = adoptInstance({ dir: multi, name: 'adopt-multi', harness: 'opencode' });
     expect(multiRecord.pack).toEqual({ name: 'external', version: '0.0.0' });
     expect('planHash' in multiRecord).toBe(false);
     expect(multiRecord.managed).toBe(false);
@@ -797,7 +804,7 @@ describe('实例配置', () => {
     const single = join(tmp, 'adopt-single');
     mkdirSync(single, { recursive: true });
     writeState(single, { 'lvlc233/doc-review@0.1.0': stateEntry('lvlc233/doc-review', '0.1.0', 'hash-a') });
-    const singleRecord = adoptInstance({ dir: single, name: 'adopt-single', harness: 'dsh' });
+    const singleRecord = adoptInstance({ dir: single, name: 'adopt-single', harness: 'opencode' });
     expect(singleRecord.pack).toEqual({ name: 'lvlc233/doc-review', version: '0.1.0' });
     expect('planHash' in singleRecord).toBe(false);
 
@@ -805,7 +812,7 @@ describe('实例配置', () => {
     const empty = join(tmp, 'adopt-empty');
     mkdirSync(empty, { recursive: true });
     writeState(empty, {});
-    const emptyRecord = adoptInstance({ dir: empty, name: 'adopt-empty', harness: 'dsh' });
+    const emptyRecord = adoptInstance({ dir: empty, name: 'adopt-empty', harness: 'opencode' });
     expect(emptyRecord.pack).toEqual({ name: 'external', version: '0.0.0' });
     expect('planHash' in emptyRecord).toBe(false);
   });
@@ -902,28 +909,22 @@ describe('实例配置', () => {
     expect(existsSync(fsRemoveOnLock.lockFile)).toBe(false);
   });
 
-  it('复制接管来的实例：克隆体归 PAL 管，来源记成 copy 且不可复现', async () => {
+  it('复制 / 迁移接管来的 attached home：都拒绝（目录不归 PAL）', async () => {
     const dir = join(tmp, 'adopt-src');
     mkdirSync(join(dir, 'home', 'dsh'), { recursive: true });
     writeFileSync(join(dir, 'mine.txt'), 'keep', 'utf8');
-    const src = adoptInstance({ dir, name: 'adopt-src', harness: 'dsh' });
+    const src = adoptInstance({ dir, name: 'adopt-src', harness: 'opencode' });
     expect(src.managed).toBe(false);
+    expect(src.attached).toBe(true);
     expect(src.origin?.kind).toBe('adopted');
 
-    const copy = await cloneInstance('adopt-src', { name: 'adopt-copy' });
-    expect(copy.managed).toBe(true);
-    expect(copy.origin).toEqual({ kind: 'copy', from: src.id });
-    // 落盘记录与返回值一致
-    expect(readInstance(copy.id)?.managed).toBe(true);
-    expect(readInstance(copy.id)?.origin).toEqual({ kind: 'copy', from: src.id });
-    const template = exportTemplate('adopt-copy');
-    expect(template.reproducible).toBe(false);
-    expect(template.origin?.kind).toBe('copy');
-
-    // 克隆体是 PAL 建的目录：删除时整个根都消失，而不是像接管源那样留下
-    await removeInstance('adopt-copy');
-    expect(existsSync(copy.root)).toBe(false);
+    await expect(cloneInstance('adopt-src', { name: 'adopt-copy' })).rejects.toThrow('attached home 不归 PAL');
+    expect(() => migrateInstance('adopt-src', join(tmp, 'adopt-moved'))).toThrow('attached home 不归 PAL');
+    expect(() => backupInstance('adopt-src')).toThrow('attached home 不归 PAL');
+    // 目录与记录都原样
+    expect(readFileSync(join(dir, 'mine.txt'), 'utf8')).toBe('keep');
     expect(existsSync(dir)).toBe(true);
+    expect(listInstances().map((row) => row.name)).toContain('adopt-src');
   });
 
   it('复制 Pack 实例：克隆体来源是 copy，不带 pack 引用，导出模板不可复现', async () => {

@@ -27,6 +27,14 @@ registerHarness({
     promptsDir: `${home}/opencode/prompts`,
     configFile: `${home}/opencode/opencode.json`,
   }),
+  // attached home = 真实的 `~/.config/opencode`（`--home ~/.config/opencode`）。
+  // 根就是 home 本身，所以落点相对 home：skills → `<home>/skills`，MCP → `<home>/opencode.json`。
+  attachedLayout: () => ({
+    skillsDir: 'skills',
+    knowledgeDir: 'knowledge',
+    promptsDir: 'prompts',
+    configFile: 'opencode.json',
+  }),
   executable: 'opencode',
   versionArgs: ['--version'],
   instructionFile: 'AGENTS.md',

@@ -1,4 +1,6 @@
+import { homedir } from 'node:os';
 import { isAbsolute, parse, resolve, sep } from 'node:path';
+import { harnessIds, isHarnessId, type HarnessId } from '@packhub/kernel';
 import { instanceKinds, isInstanceKind, type InstanceKind } from './layout.ts';
 import { listInstances } from './catalog.ts';
 import { instancesRoot } from './paths.ts';
@@ -26,6 +28,52 @@ export function assertHarness(value: string): InstanceKind {
     });
   }
   return value;
+}
+
+/**
+ * `--host` 的取值：只认注册表里的宿主名（dir 不是宿主）。
+ * `what` 是命令名，用在 missing 的文案里（install / adopt）。
+ */
+export function hostArg(raw: unknown, what: string): HarnessId {
+  const value = String(raw ?? '').trim();
+  if (!value) {
+    throw new PalError('invalid-input', `${what} 需要 --host`, {
+      hint: `按哪个宿主的落点表：${harnessIds().join(' / ')}`,
+    });
+  }
+  if (!isHarnessId(value)) {
+    throw new PalError('invalid-input', `未知宿主：${value}`, {
+      hint: `可选 ${harnessIds().join(' / ')}`,
+      details: { host: value, choices: harnessIds() },
+    });
+  }
+  return value;
+}
+
+/**
+ * 命名 home 的冲突：默认名 / `--name` 撞上已有 home 是用法错（退出 2），不是服务器冲突。
+ * 提示直接给下一步：换版本 / 直接跑 / 换个名字。
+ */
+export function assertHomeNameFree(name: string): void {
+  if (listInstances().some((i) => i.name === name)) {
+    throw new PalError('invalid-input', `同名 home 已存在：${name}`, {
+      hint: `pal update ${name} 换版本，pal run ${name} 直接跑，或用 --name 换个名字`,
+      details: { name },
+    });
+  }
+}
+
+/**
+ * 危险动作（remove / clone / backup / restore / migrate）只对 managed home 开放：
+ * attached home 是宿主的目录，PAL 不搬、不删、不整根备份；要卸包用 uninstall --home。
+ */
+export function assertNotAttached(home: { attached?: boolean; root: string }): void {
+  if (home.attached !== true) return;
+  throw new PalError(
+    'invalid-input',
+    `attached home 不归 PAL：只允许 install/uninstall/update/verify/run；卸包用 pal uninstall --home ${home.root}`,
+    { details: { root: home.root } },
+  );
 }
 
 /* ---------- 路径输入 ---------- */
@@ -73,6 +121,22 @@ function absolutePath(value: unknown, what: string, field: string): string {
  */
 export function assertAbsolutePath(value: unknown, what: string, field: string): string {
   return absolutePath(value, what, field);
+}
+
+/**
+ * `--home` 的路径输入：宿主全局目录的写法常见 `~/.config/opencode`，这里把开头的 `~`
+ * 展开成本机 home，其余仍要求绝对路径（PAL 不猜 cwd）。`--project` 仍走 assertAbsolutePath。
+ */
+export function homePathInput(value: unknown): string {
+  const text = String(value ?? '').trim();
+  if (!text) {
+    throw new PalError('invalid-input', 'attached home 不能为空', {
+      hint: '给一个绝对路径或 ~/ 开头的宿主全局目录，例如 ~/.config/opencode',
+      details: { home: text },
+    });
+  }
+  const expanded = /^~([\\/]|$)/.test(text) ? resolve(homedir(), `.${text.slice(1)}`) : text;
+  return absolutePath(expanded, 'attached home', 'home');
 }
 
 /* ---------- 显式实例根 ---------- */

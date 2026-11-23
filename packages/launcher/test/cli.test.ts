@@ -35,46 +35,48 @@ describe('pal cli --json', () => {
 });
 
 describe('pal cli：target 统一后的参数面', () => {
-  it('adopt 仍然声明 --kind（string，默认 dsh），没有 --harness', () => {
+  it('adopt 用 --host（必填、无默认），不再是 --kind / --harness', () => {
     const command = subCommands.adopt;
     expect(command, 'adopt 应存在').toBeTruthy();
-    expect(command?.args?.kind?.type, 'adopt --kind 类型').toBe('string');
-    expect(command?.args?.kind?.default, 'adopt --kind 默认值').toBe('dsh');
+    expect(command?.args?.host?.type, 'adopt --host 类型').toBe('string');
+    expect(command?.args?.host?.default).toBeUndefined();
+    expect(command?.args?.kind).toBeUndefined();
     expect(command?.args?.harness).toBeUndefined();
+    expect(command?.args?.name?.required).toBeUndefined();
   });
 
   it('create 已删除', () => {
-    expect(subCommands.create, 'create 应已并入 install --new').toBeUndefined();
+    expect(subCommands.create, 'create 应已并入 install 的默认 target').toBeUndefined();
   });
 
-  it('install 声明 target 三选一与 --new 配套参数', () => {
+  it('install 声明 --host / --home / --project / --name；旧参数都不再声明', () => {
     const command = subCommands.install;
     expect(command, 'install 应存在').toBeTruthy();
+    expect(command?.args?.host?.type).toBe('string');
+    expect(command?.args?.home?.type).toBe('string');
     expect(command?.args?.project?.type).toBe('string');
-    expect(command?.args?.environment?.type).toBe('string');
-    expect(command?.args?.new?.type).toBe('boolean');
-    expect(command?.args?.new?.default).toBe(false);
-    expect(command?.args?.kind?.type).toBe('string');
     expect(command?.args?.name?.type).toBe('string');
-    expect(command?.args?.harness?.type).toBe('string');
     expect(command?.args?.source?.type).toBe('positional');
+    for (const old of ['new', 'environment', 'harness', 'kind']) {
+      expect(command?.args?.[old], `install 不该再声明 --${old}`).toBeUndefined();
+    }
     // 改名后旧参数不再声明（旧名由 bin 在解析前拒绝）
     expect(command?.args?.into).toBeUndefined();
     expect(command?.args?.instance).toBeUndefined();
-    // --new 的记录：三类 target 的说明里至少一处写明互斥
-    const project = String(command?.args?.project?.description ?? '');
-    expect(project).toContain('三选一');
+    // target 互斥的说明至少在一处写着
+    const home = String(command?.args?.home?.description ?? '');
+    expect(home).toContain('attached home');
   });
 
-  it('uninstall / verify / rollback / update 都收 --project 与 --environment，不再有 --dir', () => {
+  it('uninstall / verify / rollback / update 都收 --home 与 --project，不再有 --environment / --dir', () => {
     for (const name of ['uninstall', 'verify', 'rollback', 'update']) {
       const command = subCommands[name];
       expect(command, `${name} 应存在`).toBeTruthy();
       expect(command?.args?.project?.type, `${name} --project`).toBe('string');
-      expect(command?.args?.environment?.type, `${name} --environment`).toBe('string');
-      expect(command?.args?.dir, `${name} 不该再有 --dir`).toBeUndefined();
-      expect(command?.args?.into, `${name} 不该再有 --into`).toBeUndefined();
-      expect(command?.args?.instance, `${name} 不该再有 --instance`).toBeUndefined();
+      expect(command?.args?.home?.type, `${name} --home`).toBe('string');
+      for (const old of ['environment', 'dir', 'into', 'instance', 'harness', 'kind']) {
+        expect(command?.args?.[old], `${name} 不该再有 --${old}`).toBeUndefined();
+      }
     }
   });
 });
@@ -86,10 +88,12 @@ describe('pal cli：harness 列表六项', () => {
     expect(harnessIds()).toEqual(SIX);
   });
 
-  it('adopt 的 --kind 说明列出六个宿主', () => {
-    const description = String(subCommands.adopt?.args?.kind?.description ?? '');
-    for (const id of SIX) {
-      expect(description, `adopt 的 --kind 应列出 ${id}`).toContain(id);
+  it('install / adopt 的 --host 说明列出六个宿主', () => {
+    for (const name of ['install', 'adopt']) {
+      const description = String(subCommands[name]?.args?.host?.description ?? '');
+      for (const id of SIX) {
+        expect(description, `${name} 的 --host 应列出 ${id}`).toContain(id);
+      }
     }
   });
 });
@@ -105,7 +109,7 @@ describe('pal 命令面：25 条，诊断并进 flag', () => {
     const names = Object.keys(subCommands);
     expect(names).toHaveLength(25);
     expect(new Set(names).size).toBe(25);
-    // 历史入口：create → install --new；status → ps；doctor → health --hosts；recover → health --leftovers
+    // 历史入口：create → install 的默认 target；status → ps；doctor → health --hosts；recover → health --leftovers
     // 这一轮：leftovers / audit / scan / rebaseline / rename 并进 flag，core / cache 从 CLI 移除
     for (const removed of [
       'create',

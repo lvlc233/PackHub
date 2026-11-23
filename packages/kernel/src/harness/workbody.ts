@@ -26,6 +26,13 @@ registerHarness({
     // 全局 MCP 配置放在 home 里的 mcp.json（与项目 `.mcp.json` 同形）
     configFile: `${home}/mcp.json`,
   }),
+  // attached home = 真实的 `~/.codebuddy`；根就是 home，落点相对它。
+  attachedLayout: () => ({
+    skillsDir: 'skills',
+    knowledgeDir: 'knowledge',
+    promptsDir: 'prompts',
+    configFile: 'mcp.json',
+  }),
   executable: 'codebuddy',
   versionArgs: ['--version'],
   instructionFile: 'CODEBUDDY.md',

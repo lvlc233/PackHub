@@ -58,14 +58,27 @@ function readJson<T>(file: string): T {
   return JSON.parse(readFileSync(file, 'utf8')) as T;
 }
 
-describe('pal install --new：三个新宿主的 home 布局', () => {
+/** 装完用 show 拿 managed home 的根（默认 target 的根由系统分配）。 */
+function installedRoot(name: string): string {
+  const res = pal(['show', name]);
+  expect(res.status, res.out).toBe(0);
+  const rec = JSON.parse(res.out.slice(res.out.indexOf('{'), res.out.lastIndexOf('}') + 1)) as {
+    root: string;
+    attached?: boolean;
+  };
+  expect(rec.attached).toBe(false);
+  return rec.root;
+}
+
+describe('默认 target：三个新宿主的 managed home 布局', () => {
   it('opencode：XDG 落点多一层 opencode/，MCP 写进 opencode.json', () => {
     const base = mkdtempSync(join(tmpdir(), 'pal-create-oc-'));
     const pack = makeMcpPack(base, 'pack');
-    const root = join(base, 'inst');
 
-    const res = pal(['install', pack, '--new', '--name', 'oc', '--kind', 'opencode', '--root', root]);
+    const res = pal(['install', pack, '--host', 'opencode', '--name', 'oc']);
     expect(res.status, res.out).toBe(0);
+    expect(res.out).toContain('next: pal run oc');
+    const root = installedRoot('oc');
     // 技能/知识落进 home/opencode/opencode/…（XDG_CONFIG_HOME 那一层）
     expect(existsSync(join(root, 'home/opencode/opencode/knowledge/guide.md'))).toBe(true);
     const config = readJson<{ mcp: { servers: Record<string, unknown> } }>(
@@ -73,7 +86,7 @@ describe('pal install --new：三个新宿主的 home 布局', () => {
     );
     expect(config.mcp.servers['pack-search']).toMatchObject({ type: 'local' });
     expect(config.mcp.servers['pack-search']).toHaveProperty('command');
-    // 指令文件在项目根
+    // 指令文件在实例根
     expect(existsSync(join(root, 'AGENTS.md'))).toBe(true);
     rmSync(base, { recursive: true, force: true });
   });
@@ -81,10 +94,10 @@ describe('pal install --new：三个新宿主的 home 布局', () => {
   it('workbody：MCP 落在 home/codebuddy/mcp.json，指令是 CODEBUDDY.md', () => {
     const base = mkdtempSync(join(tmpdir(), 'pal-create-wb-'));
     const pack = makeMcpPack(base, 'pack');
-    const root = join(base, 'inst');
 
-    const res = pal(['install', pack, '--new', '--name', 'wb', '--kind', 'workbody', '--root', root]);
+    const res = pal(['install', pack, '--host', 'workbody', '--name', 'wb']);
     expect(res.status, res.out).toBe(0);
+    const root = installedRoot('wb');
     expect(existsSync(join(root, 'home/codebuddy/knowledge/guide.md'))).toBe(true);
     const config = readJson<{ mcpServers: Record<string, unknown> }>(
       join(root, 'home/codebuddy/mcp.json'),
@@ -97,10 +110,10 @@ describe('pal install --new：三个新宿主的 home 布局', () => {
   it('hermes：只有全局目录，MCP 是 home/hermes/config.yaml（YAML）', () => {
     const base = mkdtempSync(join(tmpdir(), 'pal-create-hermes-'));
     const pack = makeMcpPack(base, 'pack');
-    const root = join(base, 'inst');
 
-    const res = pal(['install', pack, '--new', '--name', 'hm', '--kind', 'hermes', '--root', root]);
+    const res = pal(['install', pack, '--host', 'hermes', '--name', 'hm']);
     expect(res.status, res.out).toBe(0);
+    const root = installedRoot('hm');
     expect(existsSync(join(root, 'home/hermes/knowledge/guide.md'))).toBe(true);
     const yaml = readFileSync(join(root, 'home/hermes/config.yaml'), 'utf8');
     expect(yaml).toContain('mcp_servers:');
@@ -110,14 +123,15 @@ describe('pal install --new：三个新宿主的 home 布局', () => {
   });
 });
 
-describe('pal install --project：项目级落点按方言', () => {
+describe('--project：项目级落点按方言', () => {
   it('opencode：opencode.json 的 mcp.servers + .packhub 知识目录', () => {
     const base = mkdtempSync(join(tmpdir(), 'pal-ins-oc-'));
     const pack = makeMcpPack(base, 'pack');
     const project = join(base, 'project');
 
-    const res = pal(['install', pack, '--project', project, '--harness', 'opencode']);
+    const res = pal(['install', pack, '--project', project, '--host', 'opencode']);
     expect(res.status, res.out).toBe(0);
+    expect(res.out).toContain(`next: 在宿主里打开 ${project}`);
     const config = readJson<{ mcp: { servers: Record<string, unknown> } }>(
       join(project, 'opencode.json'),
     );
@@ -132,7 +146,7 @@ describe('pal install --project：项目级落点按方言', () => {
     const pack = makeMcpPack(base, 'pack');
     const project = join(base, 'project');
 
-    const res = pal(['install', pack, '--project', project, '--harness', 'workbody']);
+    const res = pal(['install', pack, '--project', project, '--host', 'workbody']);
     expect(res.status, res.out).toBe(0);
     const config = readJson<{ mcpServers: Record<string, unknown> }>(
       join(project, '.mcp.json'),
@@ -143,16 +157,15 @@ describe('pal install --project：项目级落点按方言', () => {
     rmSync(base, { recursive: true, force: true });
   });
 
-  it('hermes 没有项目级落点：--project 退 2，提示用 --new 建环境', () => {
+  it('hermes 没有项目级落点：--project 退 2，指向默认命名 home', () => {
     const base = mkdtempSync(join(tmpdir(), 'pal-ins-hermes-'));
     const pack = makeMcpPack(base, 'pack');
     const project = join(base, 'project');
 
-    const res = pal(['install', pack, '--project', project, '--harness', 'hermes']);
+    const res = pal(['install', pack, '--project', project, '--host', 'hermes']);
     expect(res.status).toBe(2);
     expect(res.out).toContain('没有项目级安装落点');
-    expect(res.out).toContain('--new');
-    expect(res.out).toContain('建环境');
+    expect(res.out).toContain('默认命名 home');
     // 拒绝在建目录之前：没有半套安装
     expect(existsSync(project)).toBe(false);
     rmSync(base, { recursive: true, force: true });

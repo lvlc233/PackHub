@@ -1,8 +1,7 @@
-﻿import { existsSync, rmSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { STATE_DIR } from '@packhub/kernel';
 import { loadState, removePack } from '@packhub/runtime';
-import { BASELINE } from './baseline.ts';
 import { dropActive, requireInstance } from './catalog.ts';
 import { PalError } from './errors.ts';
 import { withInstanceLock } from './lock.ts';
@@ -12,10 +11,11 @@ import { portOwner } from './port.ts';
 import { isPidAlive, killTree, waitForExit } from './process.ts';
 import { moveAside } from './quarantine.ts';
 import { removeLink } from './recordWrite.ts';
-import { recordFile, runtimeFile, type InstanceRecord } from './records.ts';
+import type { InstanceRecord } from './records.ts';
 import { killTargetFor } from './start.ts';
 import { clearStopping, markStopping } from './stopMark.ts';
 import { appendEvent } from './logs.ts';
+import { assertNotAttached } from './validators.ts';
 
 /**
  * 删实例：先停进程；默认直接删根（删不动就改名归档），keepData 才先按 state 卸包再归档；
@@ -70,13 +70,12 @@ export interface RemoveResult {
    * **不是**「这些 Pack 被逐个卸载成功」的凭据：
    * - 默认删除：不逐个卸包，文件随实例根一起消失；根删不掉转归档时，文件仍在归档目录里。
    * - keepData：这些 Pack 确实按 state 卸掉了，归档里只剩 home / 会话（secrets.json 与宿主凭据文件已先删）。
-   * - 接管来的实例：不按 state 卸包，恒为空数组。
    * 字段名沿用 uninstalled 是为了不动 server/UI 的 JSON；要改名应连同 API 一起升级。
    */
   uninstalled: string[];
   /** keepData 时的去向；默认删除走了归档兜底时也有值 */
   archivedTo?: string;
-  /** 实例根是否真的被删掉：只有默认删除成功才是 true；keepData、接管实例、转归档都是 false */
+  /** 实例根是否真的被删掉：只有默认删除成功才是 true；keepData、转归档都是 false */
   removed: boolean;
 }
 
@@ -95,6 +94,8 @@ export async function removeInstance(
   opts: RemoveOptions = {},
 ): Promise<RemoveResult> {
   const record = requireInstance(nameOrId);
+  // attached home 是宿主的目录：PAL 不删根、不归档；要在它里面卸包走 pal uninstall --home
+  assertNotAttached(record);
   const isAlive = opts.isAlive ?? isPidAlive;
   const kill = opts.kill ?? killTree;
   const ownerOf = opts.ownerOf ?? ((port: number) => portOwner(port)?.pid);
@@ -144,18 +145,6 @@ export async function removeInstance(
         // 这里在卸包/搬根之前清，归档目录不会带着标记走。
         clearStopping(record.root);
       }
-    }
-
-    // 接管来的目录不是 PAL 的：不能按 state 卸包，keepData 也不搬走它；
-    // 只摘记录，目录原样保留。
-    if (!record.managed) {
-      rmSync(recordFile(record.root), { force: true });
-      // D1 拆文件后运行态在 runtime.json；接管目录只摘 PAL 的记录与基线，运行态也一起摘掉
-      rmSync(runtimeFile(record.root), { force: true });
-      rmSync(join(record.root, BASELINE), { force: true });
-      removeLink(record.id);
-      dropActive(record.id);
-      return;
     }
 
     // keepData 才逐个卸包：先按 state 删掉 Pack 写进去的文件，再把剩下的根（home / 会话 / 凭据）归档
@@ -238,6 +227,6 @@ export async function removeInstance(
     ...(stopped ? { stopped } : {}),
     uninstalled,
     ...(archivedTo ? { archivedTo } : {}),
-    removed: !opts.keepData && record.managed && !archivedTo,
+    removed: !opts.keepData && !archivedTo,
   };
 }

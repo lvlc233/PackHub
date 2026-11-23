@@ -1,16 +1,15 @@
 import { existsSync, rmSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { MANIFEST_FILE, planFor, type PackContext, type PlanOptions } from '@packhub/kernel';
+import { MANIFEST_FILE, type PackContext } from '@packhub/kernel';
 import { installPack, loadLock, loadPack, loadState, planPaths, saveState, withLockPins } from '@packhub/runtime';
 import { baselineFromState, hashFile, readBaseline, writeBaseline, type Baseline } from './baseline.ts';
 import { withInstanceLock } from './lock.ts';
 import { readRecord, type InstanceRecord } from './records.ts';
 import { requireInstance } from './catalog.ts';
 import { writeInstance } from './recordWrite.ts';
-import { layoutVarsFor } from './layout.ts';
 import { PalError } from './errors.ts';
 import { isPidAlive } from './process.ts';
-import { fsProblem, packIdentityFromState } from './create.ts';
+import { fsProblem, packIdentityFromState, planForHome } from './create.ts';
 
 /**
  * 更新与重新基准化：从 index.ts 搬出（C1）。
@@ -94,14 +93,8 @@ export async function updateInstance(
     );
   }
 
-  const layoutVars = layoutVarsFor(kind);
-  // dir 是项目目录实例，不是 kernel 的宿主：映射成「不传 harness」（平铺到实例根）。
-  // 类型写 Partial<PlanOptions>：键写错（例如旧的 targetVars）会在这里编译报错，而不是被静默忽略。
-  const planOptions: Partial<PlanOptions> = {
-    ...(kind === 'dir' ? {} : { harness: kind }),
-    ...(layoutVars ? { layoutVars } : {}),
-  };
-  const { plan, issues } = planFor(ctx, planOptions);
+  // attached home 用宿主已验证的全局落点；managed 用实例根里的 home 段。
+  const { plan, issues } = planForHome(ctx, kind, record.attached === true ? record.root : undefined);
   if (!plan) throw new PalError('invalid-input', `生成不了计划：${issues.map((i) => i.message).join('; ')}`);
 
   const before = loadState(record.root);
@@ -121,7 +114,7 @@ export async function updateInstance(
     const shown = localChanges.slice(0, 5).join('、');
     const more = localChanges.length > 5 ? ` 等 ${localChanges.length} 个文件` : '';
     throw new PalError('invalid-input', `更新会覆盖本地改过的文件：${shown}${more}；确认覆盖请加 --force`, {
-      hint: '先备份改动，或 pal verify --environment <环境> --accept 把当前内容认作基线；确实要覆盖就带 --force（API: body.force=true）',
+      hint: '先备份改动，或 pal verify --home <home> --accept 把当前内容认作基线；确实要覆盖就带 --force（API: body.force=true）',
       details: { localChanges },
     });
   }

@@ -9,11 +9,12 @@ import {
   type LayoutVars,
   type StartTemplate,
 } from '@packhub/kernel';
+import { PalError } from './errors.ts';
 
 /**
  * 实例形态：`dir` 是普通项目目录实例（不是宿主），其余是宿主名。
  *
- * 这些是 PAL 自己的概念：kernel 的 `--harness` 只有宿主名，PAL 建实例时把 `dir`
+ * 这些是 PAL 自己的概念：kernel 的 `--harness` / PAL 的 `--host` 只有宿主名，PAL 建实例时把 `dir`
  * 映射成「不传 harness（平铺目录）」。宿主名单是运行期注册表（kernel 的 harnessIds()），
  * 加宿主只在 kernel 加模块，launcher 不改。
  */
@@ -93,10 +94,17 @@ export function requireAdapter(kind: InstanceKind): HarnessAdapter {
  * 默认 skills/knowledge/prompts 落在 `<home>/…`；宿主可以用 spec.instanceLayout 改
  * （例如 opencode 的 XDG 目录多一层 `opencode/`、hermes 的 MCP 配置是 home 里的 config.yaml）。
  * 返回值直接作为 kernel `planFor(ctx, { layoutVars })` 的落点覆盖；键必须是 LayoutVars 的键。
+ *
+ * 传 `attachedHome` 时改用宿主的 attached 落点（装进真实的全局目录）：值的基准是那个 home，
+ * 与 managed 的 `home/<宿主>` 基准不同。
  */
-export function layoutVarsFor(kind: InstanceKind): Partial<LayoutVars> | undefined {
+export function layoutVarsFor(
+  kind: InstanceKind,
+  attachedHome?: string,
+): Partial<LayoutVars> | undefined {
   const spec = kind === 'dir' ? undefined : harness(kind);
   if (!spec?.home) return undefined;
+  if (attachedHome !== undefined) return spec.attachedLayout?.(attachedHome);
   const home = spec.home.dir;
   return {
     skillsDir: `${home}/skills`,
@@ -104,6 +112,23 @@ export function layoutVarsFor(kind: InstanceKind): Partial<LayoutVars> | undefin
     promptsDir: `${home}/prompts`,
     ...(spec.instanceLayout ? spec.instanceLayout(home) : {}),
   };
+}
+
+/** 宿主有没有已验证的全局布局（attached home）。dir 不是宿主，永远没有。 */
+export function supportsAttached(kind: InstanceKind): boolean {
+  return kind !== 'dir' && harness(kind)?.attachedLayout !== undefined;
+}
+
+/**
+ * attached home 只对已验证全局布局的宿主开放：写错地方比拒绝更贵。
+ * 统一在这里报用法错（退出 2），命令层与 create 都从这一条走。
+ */
+export function assertAttachedSupported(kind: InstanceKind): void {
+  if (supportsAttached(kind)) return;
+  throw new PalError(
+    'invalid-input',
+    `宿主 ${kind} 暂不支持 attached home（全局布局未验证）；用默认命名 home 或 --project`,
+  );
 }
 
 /**

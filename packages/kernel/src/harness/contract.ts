@@ -93,6 +93,15 @@ export interface HarnessSpec {
    * 或配置文件在 home 里，就用这个函数改。
    */
   instanceLayout?(homeDir: string): Partial<LayoutVars>;
+  /**
+   * attached home 落点：`pal install --home <路径>` 装进宿主真实的全局目录时用。
+   * 传入的是 home 根（与安装根相同）；返回的落点值相对这个 home（`skills` 就是 `<home>/skills`），
+   * 和 `instanceLayout` 一样直接作为 kernel `planFor(ctx, { layoutVars })` 的覆盖。
+   *
+   * 只有全局布局已验证过的宿主才写这一项；没写就是「不支持 attached home」，
+   * PAL 会明确拒绝，而不是把资源写进一个宿主不会读的目录。
+   */
+  attachedLayout?(home: string): Partial<LayoutVars>;
   /** 宿主可执行文件名 */
   executable?: string;
   /** 探测版本用的参数 */
@@ -116,7 +125,7 @@ export interface HarnessSpec {
    * 项目级落点能装到什么程度（默认 'full'）：
    * - 'full'：项目里注册技能、指令与 MCP；
    * - 'pointer'：项目里只写指路块（技能留在全局，项目内不注册 skill）；
-   * - false：没有项目级落点，只能 `pal install --new` 建环境。
+   * - false：没有项目级落点，只能装进 home（默认命名 home 或 `--home`）。
    */
   project?: 'full' | 'pointer' | false;
   /** headless 探针配方 */

@@ -9,7 +9,7 @@ import { DEFAULT_ISOLATION, parseIsolation } from './isolation.ts';
 import { readActiveMap, requireInstance, writeActiveMap } from './catalog.ts';
 import { nowIso } from './time.ts';
 import { writeInstance } from './recordWrite.ts';
-import { assertNameFree } from './validators.ts';
+import { assertNameFree, assertNotAttached } from './validators.ts';
 
 /**
  * 复制 / 改名 / 迁移：整个实例根的搬运与记录改写。
@@ -23,6 +23,8 @@ export async function cloneInstance(
   opts: { name: string; root?: string; activate?: boolean } = { name: '' },
 ): Promise<InstanceRecord> {
   const source = requireInstance(nameOrId);
+  // attached home 是宿主的目录：不复制、不迁移
+  assertNotAttached(source);
   const name = opts.name.trim();
   if (!name) throw new PalError('invalid-input', '复制出来的实例要一个新名字');
   assertNameFree(name);
@@ -62,8 +64,9 @@ export async function cloneInstance(
     createdAt: nowIso(),
     updatedAt: nowIso(),
     status: 'installed',
-    // 目标目录是这里新建并拷贝出来的，删实例时整个根都归 PAL 管
+    // 目标目录是这里新建并拷贝出来的，删实例时整个根都归 PAL 管；复制体是 managed
     managed: true,
+    attached: false,
     // 复制体不是从 Pack 重建的：只记它从哪份实例拷来，绝不复用源的 pack 来源
     origin: { kind: 'copy', from: source.id },
     ports: [],
@@ -323,6 +326,7 @@ export function migrateInstance(
   opts: MigrateOptions = {},
 ): MigrateResult {
   const record = requireInstance(nameOrId);
+  assertNotAttached(record);
   if (record.pid && isPidAlive(record.pid)) {
     throw new PalError('already-running', `实例还在运行：pid ${record.pid}`, { hint: '先停掉再迁移' });
   }

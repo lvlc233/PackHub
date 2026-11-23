@@ -1,4 +1,4 @@
-﻿import {
+import {
   cpSync,
   existsSync,
   mkdirSync,
@@ -19,7 +19,7 @@ import { STOPPING_MARK } from './stopMark.ts';
 import { isPidAlive } from './process.ts';
 import { backupsRoot, instancesRoot, newId, stamp } from './paths.ts';
 import { nowIso } from './time.ts';
-import { assertExternalRoot, assertHarness, assertNameFree } from './validators.ts';
+import { assertExternalRoot, assertHarness, assertNameFree, assertNotAttached } from './validators.ts';
 
 /**
  * 整实例备份与恢复：目录快照，不引 tar 依赖。
@@ -147,6 +147,8 @@ function copyFilter(
  */
 export function backupInstance(idOrName: string, opts: BackupOptions = {}): BackupResult {
   const record = requireInstance(idOrName);
+  // attached home 归宿主：PAL 不做整根备份（凭据与目录边界都不归它管）
+  assertNotAttached(record);
   if (record.pid && isPidAlive(record.pid)) {
     throw new PalError('already-running', `实例还在运行：pid ${record.pid}`, {
       hint: '先停掉再备份，拷一份正在写的 home 没有意义',
@@ -287,6 +289,8 @@ export function restoreBackup(dir: string, opts: RestoreOptions = {}): InstanceR
     });
   }
   const harness = assertHarness(saved.harness);
+  // attached home 的备份不归 PAL 恢复；手拷回来的 attached 记录也一样拒绝
+  assertNotAttached({ attached: saved.attached, root: saved.root });
 
   const name = String(opts.name ?? meta.instance.name ?? saved.name).trim();
   if (!name) {
@@ -351,6 +355,7 @@ export function restoreBackup(dir: string, opts: RestoreOptions = {}): InstanceR
     root,
     status: 'installed',
     managed: true,
+    attached: false,
     // 恢复出来的不是 Pack 重建的：只记它从哪份实例拷来，和 clone 一个口径
     origin: { kind: 'copy', from: saved.id },
     createdAt: nowIso(),

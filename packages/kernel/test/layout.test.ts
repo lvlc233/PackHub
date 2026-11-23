@@ -168,6 +168,27 @@ describe('新宿主的静态知识与 MCP 方言', () => {
     });
   });
 
+  it('attached 落点只给已验证全局布局的宿主；值相对 attached home', () => {
+    expect(requireHarness('opencode').attachedLayout?.('/home/u/.config/opencode')).toEqual({
+      skillsDir: 'skills',
+      knowledgeDir: 'knowledge',
+      promptsDir: 'prompts',
+      configFile: 'opencode.json',
+    });
+    expect(requireHarness('hermes').attachedLayout?.('/home/u/.hermes')).toMatchObject({
+      skillsDir: 'skills',
+      configFile: 'config.yaml',
+    });
+    expect(requireHarness('workbody').attachedLayout?.('/home/u/.codebuddy')).toMatchObject({
+      skillsDir: 'skills',
+      configFile: 'mcp.json',
+    });
+    // 全局布局未验证的宿主不写这一项：PAL 会拒绝 --home，而不是猜一个目录
+    for (const id of ['dsh', 'claude-code', 'codex']) {
+      expect(requireHarness(id).attachedLayout, `${id} 不该有 attachedLayout`).toBeUndefined();
+    }
+  });
+
   it('宿主 project 三态：dsh pointer、hermes false、其余不写（full）', () => {
     // dsh 的技能是全局的：项目里只写指路块
     expect(requireHarness('dsh').project).toBe('pointer');

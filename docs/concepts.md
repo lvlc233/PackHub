@@ -1,6 +1,6 @@
 ---
 kind: concept
-summary: 术语与边界（Pack / 资源 / 计划 / 宿主 / 安装目标 / 环境 / 隔离）
+summary: 术语与边界（Pack / 资源 / 计划 / 宿主 / 命名 home（managed / attached）/ 项目 / 隔离）
 verified: 2026-11-23
 decay: 365
 review: 环境模型或安装流程改动后
@@ -80,11 +80,20 @@ Pack 里的一条能力声明，它相对于 Agent，而不是相对于整个 ha
 
 ### Install（安装）
 
-安装把 Pack 落进一个 target 的过程：项目（宿主会打开的项目目录）或环境（宿主的 home）。内容展开到文件，登记写进 target 的 `.packhub/state.json`。
+安装把 Pack 落进一个 home 或项目的过程。home 是宿主读的那份安装对象，分两类：
 
-安装由 `pal` 执行，`packhub` 不写用户目录。`pal install <来源>` 只有一个动词，作用域由 target 决定，三选一：`--project <目录> --harness <宿主>`（项目：宿主会打开的项目目录，只写这个目录）、`--environment <名字>`（环境：宿主的 home / 环境根，要求已停且还是空环境）、`--new --kind <宿主> --name <名字>`（新建环境再装）。`uninstall` / `update` / `rollback` / `verify` 收同一组 target（`--project` / `--environment`）；环境的写操作（install / uninstall / update / rollback）要求已停，`verify` 允许运行。项目是宿主会打开的目录，环境是宿主的 home（home 与运行态都在环境上）；要一份能跑起来的环境用 `--new`，目录形态的环境用 `pal adopt` 接管已有目录。
+- **managed home**：PAL 在数据目录下按名字新建的 home，默认名 `<host>-<packSlug>`（`pack.name` 的 `owner/name` 小写、非字母数字压成 `-`：`lvlc233/doc-review` → `lvlc233-doc-review`，再加宿主前缀），整根归 PAL 管；同名已存在是用法错，提示 `pal update` / `pal run` / `--name`。
+- **attached home**：宿主真实的全局目录（`--home <路径>`，例如 `~/.config/opencode`），PAL 只往里装文件、记录 `attached=true`，不拥有这个目录。
 
-安装只发生在 target 里，不在别处发生；项目只是文件落点，环境的 home 与运行态在环境上（见 Launcher 词条）。
+项目（`--project <目录> --host <宿主>`）只是文件落点：不写 PAL 记录、不可启动。
+
+`pal install <来源>` 只有一个动词，target 三选一：不写（managed 命名 home）/ `--home <路径>`（attached home）/ `--project <目录>`（项目）。`--host` 三种都必填；`--name` 只配前两种。内容展开到文件，登记写进 target 的 `.packhub/state.json`。装成功后打印下一步：managed / attached 都是 `pal run <名字>`（server 型宿主是 `pal start <名字>`），项目是「在宿主里打开 <目录>」。
+
+attached home 只对有已验证全局布局的宿主开放：opencode（`~/.config/opencode`，skills 在 `<home>/skills`、MCP 在 `<home>/opencode.json`）、hermes（`~/.hermes`，MCP 是 `<home>/config.yaml` 的 `mcp_servers`）、workbody（`~/.codebuddy`，MCP 是 `<home>/mcp.json`）。dsh / claude-code / codex 的全局布局未验证，`--home` 明确拒绝——写错地方比拒绝更贵。
+
+`uninstall` / `update` / `rollback` / `verify` 收 `--home <路径|名字>`（managed 用名字，attached 用路径或名字）或 `--project <目录>`；都不给是用法错，提示二选一。home 的写操作（install / uninstall / update / rollback）要求已停，`verify` 允许运行；attached home 与 managed 同规则。
+
+危险操作只对 managed home：remove / clone / backup / restore / migrate 对 attached home 直接拒绝，因为目录不归 PAL；要卸包用 `pal uninstall --home <路径>`。改名（`pal config <名字> --name`）对 attached 允许。
 
 安装是事务性的：要么全部成功，要么按快照回到安装前，不留半套。
 
@@ -100,15 +109,15 @@ Pack 里的一条能力声明，它相对于 Agent，而不是相对于整个 ha
 
 模型循环、工具执行、上下文、界面都在它那里。
 
-`--harness` 只有两类：不写 = 平铺目录（中性落点，不属于任何宿主）；写 = 某个宿主名（`dsh` / `claude-code` / `codex` / `opencode` / `workbody` / `hermes`）。`dir` 不是可写的取值，它只是平铺目录那张落点表的名字。装到宿主上就是按那个宿主的落点表物化文件、指令与 MCP 写法。宿主对项目落点分三态：`full`（项目里注册技能、指令与 MCP）、`pointer`（dsh：项目里只写指路块，技能留在全局，安装时提示）、`false`（hermes：没有项目级落点，拒绝项目安装，只能 `--new` 建环境）。宿主还可以声明自己的 MCP 方言（写哪个文件、条目挂在哪个键下面、什么格式、条目长什么样）。
+`pal install` 的 `--host` 与 `packhub plan` / `verify` 的 `--harness` 选的是宿主：写 = 某个宿主名（`dsh` / `claude-code` / `codex` / `opencode` / `workbody` / `hermes`）；不写 = 平铺目录（中性落点，不属于任何宿主；pal 的 `--host` 必填，不存在「不写」）。`dir` 不是可写的取值，它只是平铺目录那张落点表的名字。装到宿主上就是按那个宿主的落点表物化文件、指令与 MCP 写法。宿主对项目落点分三态：`full`（项目里注册技能、指令与 MCP）、`pointer`（dsh：项目里只写指路块，技能留在全局，安装时提示要装进命名 home）、`false`（hermes：没有项目级落点，拒绝项目安装，只能装进 home）。宿主还可以声明自己的 MCP 方言（写哪个文件、条目挂在哪个键下面、什么格式、条目长什么样），以及一份 attached 落点（装进真实全局目录时用哪套布局）。
 
-它在 `pal install` 上是**安装参数**；`packhub plan` / `packhub verify` 只拿它算预览与检查计划，不产生安装。它不是 Pack 属性：不进锁、不进内容哈希，`pack` 与 `lock` 都不接受它；同一个 Pack 装到不同宿主，锁与签名不变，变的只是落点与计划（`planFor` 现算）。清单与资源也都不声明安装形态——旧清单带 `targets` 会被判 schema error。
+它在 `pal install` 上是**安装参数**（`--host`）；`packhub plan` / `packhub verify` 只拿 `--harness` 算预览与检查计划，不产生安装。它不是 Pack 属性：不进锁、不进内容哈希，`pack` 与 `lock` 都不接受它；同一个 Pack 装到不同宿主，锁与签名不变，变的只是落点与计划（`planFor` 现算）。清单与资源也都不声明安装形态——旧清单带 `targets` 会被判 schema error。
 
 宿主的全部知识在 kernel 的宿主注册表里：`kernel/src/harness/contract.ts` 定义 `HarnessSpec` 与查表 API，`dsh` / `claude-code` / `codex` / `opencode` / `workbody` / `hermes` 各自一个模块，在模块里 `registerHarness`——落点差异、环境 home 与环境变量、MCP 方言、可执行名与版本参数、凭据文件、指令文件名、启动模板与探针配方都在各自文件里；`harness/index.ts` import 一遍完成注册。加一个宿主 = 新建 `harness/<id>.ts` + 在 index 加一行 import，launcher / runtime / 探针都从注册表查，不用改。`HarnessId` 是运行期字符串：编译期穷尽性没有了，靠 `isHarnessId()` 与 schema 的 pattern 兜底；注册是 import 副作用，重复 id 或非法 id 直接抛错。注册表在代码里、不在用户数据里，第三方宿主仍不能自己加（见 decisions）。
 
-`--harness` 只决定目录内的落点形态，不等于有了一份宿主环境：home、进程、端口都不在目录里，装完只得到一份文件；要跑起来用环境（见 Launcher 词条）。
+选到宿主只决定落点形态，不等于有了一份能跑的 home：managed home 的根、home 段与运行态由 PAL 建，attached home 就是宿主自己的全局目录；装完只得到文件，要跑起来用 `pal run`（见 Launcher 词条）。
 
-启动器的环境形态用 `pal … --kind` 选：`install --new` 只接受宿主名（`dsh` / `claude-code` / `codex` / `opencode` / `workbody` / `hermes`）；目录形态的环境由 `pal adopt` 接管已有目录产生。`dir` 是环境形态（项目目录环境），属于 PAL，不是宿主；`instance.json` 仍记 `harness` 字段（值含 `dir`）。
+home 的宿主形态用 `--host` 选：`install` 只接受宿主名（`dsh` / `claude-code` / `codex` / `opencode` / `workbody` / `hermes`）；`dir` 只是包内项目目录形态，不是宿主。`instance.json` 仍记 `harness` 字段（值可能含 `dir`）。
 
 ### Adapter（适配）
 
@@ -118,15 +127,17 @@ Pack 里的一条能力声明，它相对于 Agent，而不是相对于整个 ha
 
 ### Environment（环境）
 
-环境是宿主被启动之后的那份运行体：一个环境根，加上跑起来的进程与端口。
+环境是 home 被启动之后的那份运行体：一个 home，加上跑起来的进程与端口。
 
-它同时有三样东西：配置（用哪个 Pack、什么宿主、根与 home 在哪）、数据（home 下的 skills、知识、会话、凭据、缓存）、运行态（进程、端口、地址、最近一次退出）。三样分开存放，运行态不混进配置。
+它同时有三样东西：配置（用哪个 Pack、什么宿主、根与 home 在哪、attached 与否）、数据（home 下的 skills、知识、会话、凭据、缓存）、运行态（进程、端口、地址、最近一次退出）。三样分开存放，运行态不混进配置。
 
-环境不是 Pack 的一份拷贝：同一个 Pack 可以建多个环境，各自装、各自跑；环境也可以完全脱离 Pack 存在（`pal adopt` 接管来的目录）。
+环境不是 Pack 的一份拷贝：同一个 Pack 可以建多个 home，各自装、各自跑；home 也可以完全脱离 Pack 存在（`pal adopt` 接管来的目录）。
 
 ### Environment Record（环境记录）
 
-启动器对每个环境维护两份记录：`instance.json` 只存配置，`runtime.json` 只存运行态。
+启动器对每个 home 维护两份记录：`instance.json` 只存配置，`runtime.json` 只存运行态。
+
+配置里的 `attached` 标出这个 home 是 managed（缺省 `false`，PAL 数据目录下新建、整根归 PAL）还是 attached（`true`，宿主真实全局目录或 `adopt` 登记的目录，PAL 不拥有它）。`managed` 字段仍保留（`false` = 这个根不归 PAL 整根删；attached 一律 `false`）。
 
 两者之和才是「一份环境」；缺运行态就算坏记录，坏记录会被隔离到 `.quarantine/`，不会静默消失。
 
@@ -138,7 +149,7 @@ Pack 里的一条能力声明，它相对于 Agent，而不是相对于整个 ha
 
 ### Launcher（启动器）
 
-启动器（`pal`）管环境与安装 target。安装类命令 `install` / `uninstall` / `verify` / `rollback` / `update` 用 target 二选一：`--project <目录>`（项目：宿主会打开的项目目录，只写这个目录）或 `--environment <环境>`（环境：宿主的 home / 环境根）；`install` 另有 `--new --kind <宿主> --name <名字>`，新建环境再装。环境的写操作（install / uninstall / update / rollback）要求环境已停，`verify` 允许运行；`--environment` 安装还要求环境是空的。启动分两种：server 型宿主（dsh）用 `start`，由 core 托管、等 URL；TUI 型宿主（claude-code / codex / opencode / workbody / hermes）用 `run <环境> [--dir <目录>]`，PAL 设好该环境的 home 环境变量后前台 exec 宿主进程，退出即结束（不写 pid、不进 core）；对 TUI 型宿主用 `start` 会提示改用 `run`。每个环境可以在根下放 `launch.json`（`args` / `env` / `dir`）：`run <环境>` 会把它合并进去（宿主默认 < `launch.json` < `--dir`），`--init` 生成空模板，`--dry-run` 打印合并后的命令/env/cwd。`adopt` 接管已有目录，`adopt` 与 `install --new` 默认把新环境设为它宿主的当前环境；`use` 改当前、`current` 看当前，`start` 不写目标时用当前环境（多个宿主各有当前环境时要求显式指定）。`list` / `ps` 是纯读：`list` 把坏记录原样列出、不隔离；`ps` 默认只出账本（在跑、端口、运行时长、端口冲突、已死的 pid），加 `--refresh` 才按 pid 探测并写回记录。`health` 体检环境（`--hosts` 附带宿主发现；`--leftovers` 只读列出隔离区 / 失败现场 / 归档区，不移动、不删除）；`list --history` 看安装审计；`adopt --scan` 只读扫目录（不接管、不写记录）；`verify --environment <环境> --accept` 把当前磁盘状态认作基线；`config <环境> --name <新名字>` 只给那份环境改名。列、复制、迁移、备份、删除环境与起停看护都在这里。环境是运行入口：要跑起来，就在环境上发生，不在项目目录里。
+启动器（`pal`）管 home 与安装 target。安装类命令 `install` / `uninstall` / `verify` / `rollback` / `update` 的 target 是 `--home <路径|名字>`（managed / attached home）或 `--project <目录>`（项目）；`install` 不给 target 时在数据目录建 managed 命名 home，`--home` 装进宿主真实全局目录（attached），`--project` 只写项目。home 的写操作（install / uninstall / update / rollback）要求 home 已停，`verify` 允许运行。启动分两种：server 型宿主（dsh）用 `start`，由 core 托管、等 URL；TUI 型宿主（claude-code / codex / opencode / workbody / hermes）用 `run <home> [--dir <目录>]`，PAL 设好该 home 的环境变量后前台 exec 宿主进程，退出即结束（不写 pid、不进 core）；attached home 不注入 home 环境变量（宿主本来就用它的全局位置），工作目录也不默认落到全局配置目录（没有 `launch.json` / `--dir` 就用当前目录）；managed home 仍注入环境变量、默认 cwd 是 home 根；对 TUI 型宿主用 `start` 会提示改用 `run`。每个 home 可以在根下放 `launch.json`（`args` / `env` / `dir`）：`run <home>` 会把它合并进去（宿主默认 < `launch.json` < `--dir`），`--init` 生成空模板，`--dry-run` 打印合并后的命令/env/cwd。`adopt` 把已有目录登记成 attached home，`adopt` 与 `install` 默认把新 home 设为它宿主的当前 home；`use` 改当前、`current` 看当前，`start` 不写目标时用当前 home（多个宿主各有当前 home 时要求显式指定）。`list` / `ps` 是纯读：`list` 把坏记录原样列出、不隔离，并标出 managed / attached；`ps` 默认只出账本（在跑、端口、运行时长、端口冲突、已死的 pid），加 `--refresh` 才按 pid 探测并写回记录。`health` 体检 home（`--hosts` 附带宿主发现；`--leftovers` 只读列出隔离区 / 失败现场 / 归档区，不移动、不删除）；`list --history` 看安装审计；`adopt --scan` 只读扫目录（不接管、不写记录）；`verify --home <名字|路径> --accept` 把当前磁盘状态认作基线；`config <home> --name <新名字>` 只给那份 home 改名。列、复制、迁移、备份、删除与起停看护都在这里，但对 attached home 只开放 install / uninstall / update / verify / run（remove / clone / backup / restore / migrate 拒绝）。home 是运行入口：要跑起来，就在 home 上发生，不在项目目录里。
 
 实现上分两层：常驻的 core 独占启停与看护（CLI 只是它的客户端；core 没有可发现的命令，进程入口只剩 bin 的内部参数），core 被杀了由用户任务计划带回来。
 

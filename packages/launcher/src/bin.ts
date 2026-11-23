@@ -15,18 +15,34 @@ import { PalError, errorBody } from './errors.ts';
 const rawArgs = process.argv.slice(2);
 
 /**
- * 旧 flag 不保留别名（v0 无兼容承诺）：`--into` / `--instance` 直接按未知参数退 2。
- * 放在 runCommand 之前拦：citty 会静默忽略它不认识的参数，否则旧脚本会「看起来成功」。
+ * 旧 flag 不保留别名（v0 无兼容承诺）：`--into` / `--instance` 改名，`--environment` / `--harness` /
+ * `--kind` / `--new` 整个删掉。放在 runCommand 之前拦：citty 会静默忽略它不认识的参数，
+ * 否则旧脚本会「看起来成功」。
  */
+const RENAMED: Record<string, string> = { '--into': '--project', '--instance': '--home' };
+const REMOVED: Record<string, string | null> = {
+  '--environment': '--home',
+  '--harness': '--host',
+  '--kind': '--host',
+  '--new': null,
+};
+
 function rejectRenamedFlags(): void {
-  const renamed: Record<string, string> = { '--into': '--project', '--instance': '--environment' };
   for (const arg of rawArgs) {
     if (!arg.startsWith('-')) continue;
     const name = arg.split('=')[0] ?? '';
-    const now = renamed[name];
-    if (!now) continue;
+    const now = RENAMED[name];
+    if (now) {
+      throw new PalError('invalid-input', `未知参数 ${name}`, {
+        hint: `已改名：用 ${now}（旧名不保留）；三选一规则见 pal install --help。`,
+      });
+    }
+    if (!(name in REMOVED)) continue;
+    const replacement = REMOVED[name];
     throw new PalError('invalid-input', `未知参数 ${name}`, {
-      hint: `已改名：用 ${now}（旧名不保留）；三选一规则见 pal install --help。`,
+      hint: replacement
+        ? `已改名：用 ${replacement}（旧名不保留）；见 pal install --help。`
+        : '--new 已删除：不写 target 就是新建 managed 命名 home；装进已有目录用 --home。',
     });
   }
 }
@@ -45,7 +61,7 @@ async function resolveValue<T>(
  */
 const HELP_GROUPS: { title: string; names: string[] }[] = [
   {
-    title: '安装（target = 项目 / 环境）',
+    title: '安装（target = home / 项目）',
     names: ['install', 'uninstall', 'verify', 'rollback', 'update'],
   },
   {

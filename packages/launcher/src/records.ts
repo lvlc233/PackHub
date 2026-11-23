@@ -48,8 +48,13 @@ export interface InstanceConfig {
   pack: { name: string; version: string; ref?: string };
   createdAt: string;
   updatedAt: string;
-  /** 这个根是 PAL 建的（false = 接管已有目录）：只有 true 才允许整根删除 */
+  /** 这个根归 PAL 整根管（false = 接管目录 / attached home；只有 true 才允许整根删除） */
   managed: boolean;
+  /**
+   * attached home：装进宿主真实的全局目录（`pal install --home <路径>`）或 `pal adopt` 登记来的目录。
+   * 缺省 / false = managed home（PAL 数据目录下按名字新建，整根归 PAL 管）。
+   */
+  attached?: boolean;
   /** 从哪来：pack 引用、接管目录或复制；导出模板只认 kind='pack' 且有 ref */
   origin?: { kind: 'pack' | 'adopted' | 'copy'; ref?: string; dir?: string; from?: string; seededFrom?: string };
   /** on-failure 时由 PAL 的守护重起；默认 never */
@@ -210,6 +215,8 @@ function normalizeRecord(root: string, data: Record<string, unknown>): InstanceR
           ? data.createdAt
           : nowIso(),
     managed: typeof data.managed === 'boolean' ? data.managed : true,
+    // 缺省 false = managed；读盘时归一成布尔，JSON 输出里这个字段一直在
+    attached: data.attached === true,
     pack: (data.pack as InstanceConfig['pack'] | undefined) ?? { name: 'unknown', version: '0.0.0' },
     // 隔离策略坏了不至于让整份记录变坏记录：解析不了就按默认策略读
     isolation: parseIsolation(data.isolation) ?? DEFAULT_ISOLATION,

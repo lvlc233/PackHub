@@ -232,6 +232,18 @@ describe('持久化拆分：instance.json（配置）+ runtime.json（运行态�
     expect(back.record).toMatchObject({ id: rec.id, name: 'demo', root, status: 'installed', ports: [] });
   });
 
+  it('attached：缺省读成 false（managed），写下的 true 原样保留', () => {
+    writeInstance({ ...minimalRecord(), root });
+    const managed = readRecordResult(root).record!;
+    expect(managed.attached).toBe(false);
+
+    writeInstance({ ...minimalRecord(), root, attached: true });
+    const attached = readRecordResult(root).record!;
+    expect(attached.attached).toBe(true);
+    // instance.json 里也留着这个字段（名单 / JSON 输出不丢）
+    expect(readJson(recordFile(root)).attached).toBe(true);
+  });
+
   it('缺 runtime.json：算坏记录，不再从 instance.json 读运行态', () => {
     const rec = { ...fullRecord(), root };
     mkdirSync(root, { recursive: true });

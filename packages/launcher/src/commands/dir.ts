@@ -1,11 +1,19 @@
-// pal 的安装类命令：统一 target 模型 —— target = 项目（--project，宿主会打开的项目目录）
-// 或环境（--environment，宿主的 home / 实例根）。install 还可以 --new 新建环境再装。
+// pal 的安装类命令：统一 target 模型 ——
+//   install 默认在 PAL 数据目录建一个 managed 命名 home；`--home` 装进宿主的真实全局目录（attached）；
+//   `--project` 装进宿主会打开的项目目录。
+//   uninstall / verify / rollback / update 用 `--home <名字|路径>` 或 `--project <目录>`。
 // 目录路径的实现仍在 dirCommands.ts，命令层只做 target 解析与文案。
 import { defineCommand, type CommandDef } from 'citty';
-import { harness } from '@packhub/kernel';
-import { materializePack } from '../materialize.ts';
-import { installIntoInstance } from '../create.ts';
-import { requireInstance, type InstanceRecord } from '../index.ts';
+import { harness, harnessIds, type HarnessId } from '@packhub/kernel';
+import { materializePack, readPackIdentity } from '../materialize.ts';
+import {
+  createInstance,
+  defaultHomeName,
+  installIntoInstance,
+  previewHomePlan,
+  type CreateInstanceOptions,
+} from '../create.ts';
+import { findInstanceByRoot, requireInstance, type InstanceRecord } from '../index.ts';
 import { isPidAlive } from '../process.ts';
 import { updateFromRef } from '../service.ts';
 import {
@@ -18,7 +26,9 @@ import {
 } from '../dirCommands.ts';
 import { PalError } from '../errors.ts';
 import { acceptBaseline } from './other.ts';
-import { createCmd } from './instance.ts';
+import { discoverAll } from '../harness.ts';
+import { assertAttachedSupported } from '../layout.ts';
+import { assertHomeNameFree, homePathInput, hostArg } from '../validators.ts';
 
 /** 直接复用 dirCommands 里的目录实现：参数补成它认识的形状，输出/退出码不变。 */
 async function invoke(cmd: CommandDef<never>, args: Record<string, unknown>): Promise<void> {
@@ -26,43 +36,113 @@ async function invoke(cmd: CommandDef<never>, args: Record<string, unknown>): Pr
   if (run) await run({ args });
 }
 
-type InstallTarget = 'project' | 'environment' | 'new';
+/* ---------- install 的 target ---------- */
 
-/** target 解析：--project / --environment（install 多一个 --new），必须恰好一个。 */
-function parseTarget(
-  args: { project?: unknown; environment?: unknown; new?: unknown },
-  opts: { allowNew: boolean },
-): InstallTarget {
+type InstallTarget = 'managed' | 'attached' | 'project';
+
+const TARGET_HINT =
+  '三选一：不写 target（默认：在数据目录建一个命名 home）/ --home <路径>（attached home：宿主的真实全局目录）/ --project <目录>（项目）';
+
+/** install 的 target：--home / --project 互斥，都不给 = 默认命名 home。 */
+function parseInstallTarget(args: { home?: unknown; project?: unknown }): InstallTarget {
   const picks: InstallTarget[] = [];
+  if (args.home !== undefined) picks.push('attached');
   if (args.project !== undefined) picks.push('project');
-  if (args.environment !== undefined) picks.push('environment');
-  if (opts.allowNew && args.new === true) picks.push('new');
-  const choices = opts.allowNew
-    ? '--project <目录>（项目）/ --environment <环境>（宿主的 home）/ --new（新建环境再装）'
-    : '--project <目录>（项目）/ --environment <环境>（宿主的 home）';
-  if (picks.length === 0) {
-    throw new PalError('invalid-input', '要指定 target 才能继续', { hint: `三选一：${choices}。` });
-  }
   if (picks.length > 1) {
-    throw new PalError('invalid-input', 'target 只能给一个', { hint: `三选一：${choices}。` });
+    throw new PalError('invalid-input', 'target 只能给一个', { hint: TARGET_HINT });
   }
-  return picks[0]!;
+  return picks[0] ?? 'managed';
 }
 
-/** 环境级写操作要求环境已停。 */
+/** uninstall / verify / rollback / update 的 target：--home 或 --project，必须给一个。 */
+type HomeTarget = 'home' | 'project';
+
+function parseTarget(args: { home?: unknown; project?: unknown }): HomeTarget {
+  if (args.home !== undefined && args.project !== undefined) {
+    throw new PalError('invalid-input', 'target 只能给一个', {
+      hint: '二选一：--home <路径|名字>（managed / attached home）或 --project <目录>（项目）',
+    });
+  }
+  if (args.project !== undefined) return 'project';
+  if (args.home !== undefined) return 'home';
+  throw new PalError('invalid-input', '要指定 target 才能继续', {
+    hint: '二选一：--home <路径|名字>（managed / attached home）或 --project <目录>（项目）',
+  });
+}
+
+/** 按 target 找 home：先按名字/id，再按根路径（Windows 大小写不敏感）。 */
+function requireHome(raw: unknown): InstanceRecord {
+  const text = String(raw ?? '').trim();
+  if (!text) {
+    throw new PalError('invalid-input', '--home 不能为空', {
+      hint: 'managed home 用名字；attached home 用名字或路径',
+    });
+  }
+  const byName = requireInstanceOrUndefined(text);
+  if (byName) return byName;
+  let path: string | undefined;
+  try {
+    path = homePathInput(text);
+  } catch {
+    path = undefined;
+  }
+  if (path !== undefined) {
+    const byRoot = findInstanceByRoot(path);
+    if (byRoot) return byRoot;
+  }
+  throw new PalError('unknown-instance', `没有这个 home：${text}`, {
+    hint: 'pal list 看现有 home；managed home 用名字，attached home 也可以用路径',
+    details: { home: text },
+  });
+}
+
+function requireInstanceOrUndefined(nameOrId: string): InstanceRecord | undefined {
+  try {
+    return requireInstance(nameOrId);
+  } catch {
+    return undefined;
+  }
+}
+
+/** home 级写操作要求已停；attached 与 managed 同规则。 */
 function requireStopped(rec: InstanceRecord): void {
   if (rec.pid && isPidAlive(rec.pid)) {
-    throw new PalError('invalid-input', `环境还在运行，先停掉：pid ${rec.pid}`, {
+    throw new PalError('invalid-input', `home 还在运行，先停掉：pid ${rec.pid}`, {
       hint: `pal stop ${rec.id}`,
     });
   }
+}
+
+/** install 成功后给下一步：server 宿主用 start，前台宿主用 run。 */
+function nextLine(host: HarnessId, name: string): string {
+  const mode = harness(host)?.start?.mode;
+  return mode === 'foreground' ? `pal run ${name}` : `pal start ${name}`;
+}
+
+function printInstalled(rec: InstanceRecord, pack: { name: string; version: string }): void {
+  console.log(`✓ ${rec.name}`);
+  console.log(`  ${rec.root}`);
+  console.log(`  pack ${pack.name}@${pack.version}`);
+  console.log(`next: ${nextLine(rec.harness, rec.name)}`);
+}
+
+/** 默认名要 Pack 的 metadata.name；读不到就按用法错停在取包之后、写盘之前。 */
+function requirePackName(packDir: string): string {
+  const name = readPackIdentity(packDir).name;
+  if (!name) {
+    throw new PalError('invalid-input', '清单有问题：读不到 metadata.name', {
+      hint: '确认 Pack 目录里有 packhub.yaml，且清单能被解析',
+      details: { packDir },
+    });
+  }
+  return name;
 }
 
 export const install = defineCommand({
   meta: {
     name: 'install',
     description:
-      '安装到 target：项目（--project，宿主会打开的项目目录）或环境（--environment，宿主的 home）；--new 新建环境再装',
+      '装进 home 或项目：默认在数据目录建 managed 命名 home；--home 装进宿主真实全局目录（attached）；--project 装进项目。三种 target 都要 --host',
   },
   args: {
     source: {
@@ -70,93 +150,70 @@ export const install = defineCommand({
       required: true,
       description: 'Pack 目录、.phub、git+https，或配合 --index 用 registry 名（name 或 name@version）',
     },
+    host: {
+      type: 'string',
+      description: `按哪个宿主的落点表装（必填）：${harnessIds().join(' / ')}`,
+    },
+    name: {
+      type: 'string',
+      description: `home 的名字（默认 <host>-<packSlug>）；只能配默认 target 与 --home，--project 不能用`,
+    },
+    home: {
+      type: 'string',
+      description: 'attached home：宿主的真实全局目录（存在或新建；~ 会展开成你的 home）',
+    },
     project: {
       type: 'string',
-      description: '项目级 target：宿主会打开的项目目录（不存在会创建）。与 --environment / --new 三选一',
+      description: '项目级 target：宿主会打开的项目目录（不存在会创建）',
     },
-    environment: {
-      type: 'string',
-      description: '环境级 target：装进已有环境（必须已停且还是空环境）；已有包请用 pal update --environment',
-    },
-    new: {
-      type: 'boolean',
-      default: false,
-      description: '新建一个环境再装（配 --kind / --name）；环境 = 宿主的 home',
-    },
-    harness: {
-      type: 'string',
-      description: '--project 必填：按哪个宿主的落点表物化（--new 用 --kind；--environment 从环境记录取，不填）',
-    },
-    kind: { type: 'string', description: '--new 用：新环境的宿主形态（必填）' },
-    name: { type: 'string', description: '--new 用：新环境名（同名拒绝）' },
     index: { type: 'string', description: 'registry 索引（路径或 URL；也可用 PACKHUB_ENV.index）' },
     version: { type: 'string', description: 'registry 包的版本；不写用 latest' },
-    root: { type: 'string', description: '--new 用：环境根（绝对路径；默认由系统分配）' },
-    'from-home': {
-      type: 'string',
-      description: '--new 用：沿用已有宿主 home 的模型凭据与指令（例如 ~/.dsh）',
-    },
-    isolation: { type: 'string', description: '--new 用：这份环境的隔离策略 layer=mode,...' },
-    'dry-run': { type: 'boolean', default: false, description: '只算计划，不落盘（--project / --environment）' },
+    'dry-run': { type: 'boolean', default: false, description: '只算计划，不落盘' },
     overwrite: {
       type: 'boolean',
       default: false,
-      description: '允许覆盖别的包写过的普通文件（--project / --environment）',
+      description: '允许覆盖别的包写过的普通文件',
     },
     'allow-exec': {
       type: 'boolean',
       default: false,
-      description: '允许执行清单里的 install.exec（--project / --environment）',
+      description: '允许执行清单里的 install.exec',
     },
     'allow-unsigned': {
       type: 'boolean',
       default: false,
-      description: '外部来源：即使配置了信任列表也接受无签名包（显式降低要求；--project）',
+      description: '外部来源：即使配置了信任列表也接受无签名包（显式降低要求）',
     },
     json: { type: 'boolean', default: false },
   },
   async run({ args }) {
-    const target = parseTarget(args, { allowNew: true });
+    const target = parseInstallTarget(args);
+    const hostId = hostArg(args.host, 'install');
+    if (target === 'project' && args.name !== undefined) {
+      throw new PalError('invalid-input', '--name 只用于 managed / attached home', {
+        hint: '--project 装的是宿主会打开的项目目录，没有 home 名；要命名 home 就别给 --project',
+      });
+    }
     const source = String(args.source);
 
-    if (target === 'new') {
-      if (args.kind === undefined) {
-        throw new PalError('invalid-input', '使用 --new 需要 --kind', { hint: '例如 --new --kind dsh --name demo' });
-      }
-      if (args.name === undefined) {
-        throw new PalError('invalid-input', '使用 --new 需要 --name', { hint: '例如 --new --kind dsh --name demo' });
-      }
-      await invoke(createCmd as unknown as CommandDef<never>, {
-        pack: source,
-        name: String(args.name),
-        kind: String(args.kind),
-        ...(args.index ? { index: String(args.index) } : {}),
-        ...(args.version ? { version: String(args.version) } : {}),
-        ...(args.root ? { root: String(args.root) } : {}),
-        ...(args['from-home'] ? { 'from-home': String(args['from-home']) } : {}),
-        ...(args.isolation ? { isolation: String(args.isolation) } : {}),
-        json: Boolean(args.json),
-      });
-      return;
-    }
-
     if (target === 'project') {
-      if (args.harness === undefined) {
-        throw new PalError('invalid-input', '--project 需要 --harness', {
-          hint: '项目是宿主会打开的目录，必须指定按哪个宿主的落点表物化；例如 --project ./proj --harness dsh。',
-        });
-      }
-      const harnessId = String(args.harness);
-      // pointer：项目里只写指路块，技能不注册进项目（要注册技能得建环境）
-      if (harness(harnessId)?.project === 'pointer' && !args.json) {
+      const projectDir = String(args.project);
+      // pointer：项目里只写指路块，技能不注册进项目（要注册技能得装进 home）
+      if (harness(hostId)?.project === 'pointer' && !args.json) {
         console.error(
-          `warn  ${harnessId} 的 skill 是全局的：项目内只写指路块，不注册 skill；要注册用 --new 建环境`,
+          `warn  ${hostId} 的 skill 是全局的：项目内只写指路块，不注册 skill；要注册用 pal install <pack> --host ${hostId}（命名 home）`,
         );
+      }
+      // 没有项目级落点的宿主在这里挡住：给的是 PAL 的说法，不是 runtime 的旧参数
+      if (harness(hostId)?.project === false) {
+        throw new PalError('invalid-input', `宿主 ${hostId} 没有项目级安装落点`, {
+          hint: `用 pal install <pack> --host ${hostId}（默认命名 home）或 --home <路径>`,
+        });
       }
       await invoke(installDirCmd as unknown as CommandDef<never>, {
         source,
-        project: String(args.project),
-        harness: harnessId,
+        project: projectDir,
+        harness: hostId,
         ...(args.index ? { index: String(args.index) } : {}),
         'dry-run': Boolean(args['dry-run']),
         overwrite: Boolean(args.overwrite),
@@ -164,15 +221,14 @@ export const install = defineCommand({
         'allow-unsigned': Boolean(args['allow-unsigned']),
         json: Boolean(args.json),
       });
+      if (!args.json && !args['dry-run']) console.log(`next: 在宿主里打开 ${projectDir}`);
       return;
     }
 
-    if (args.harness !== undefined) {
-      throw new PalError('invalid-input', '--harness 只用于 --project / --new', {
-        hint: '环境级装到哪个宿主由环境记录决定；要换宿主请 --new 建新环境。',
-      });
-    }
-    const rec = requireInstance(String(args.environment));
+    // attached 的路径与宿主支持在取包之前就查掉：不支持的宿主不必先下载
+    const attachedHome = target === 'attached' ? homePathInput(args.home) : undefined;
+    if (attachedHome !== undefined) assertAttachedSupported(hostId);
+
     const log = (line: string): void => {
       if (!args.json) console.error(line);
     };
@@ -181,33 +237,110 @@ export const install = defineCommand({
       ...(args.version ? { version: String(args.version) } : {}),
       log,
     });
-    const result = await installIntoInstance(rec.id, {
+    const packName = requirePackName(packDir);
+    const dryRun = Boolean(args['dry-run']);
+
+    if (target === 'attached' && attachedHome !== undefined) {
+      // 已经登记过（adopt 或之前装过）的 attached home：装进同一份记录，不另起一份
+      const existing = findInstanceByRoot(attachedHome);
+      if (existing) {
+        if (existing.attached !== true) {
+          throw new PalError('invalid-input', `这个目录是一份 managed home：${existing.name}`, {
+            hint: `换版本用 pal update --home ${existing.name}；要装进别的目录就换 --home`,
+          });
+        }
+        if (existing.harness !== hostId) {
+          throw new PalError('invalid-input', `这个 home 登记为 ${existing.harness}，不能按 ${hostId} 安装`, {
+            hint: '换 --host，或用 --name 建/接管另一个 home',
+          });
+        }
+        if (args.name !== undefined && String(args.name).trim() !== existing.name) {
+          throw new PalError('invalid-input', `这个 home 已经叫 ${existing.name}`, {
+            hint: `改名用 pal config ${existing.name} --name <新名字>`,
+          });
+        }
+        const result = await installIntoInstance(existing.id, {
+          packDir,
+          packRef: source,
+          ...(args.overwrite ? { overwrite: true } : {}),
+          ...(args['allow-exec'] ? { allowExec: true } : {}),
+          ...(dryRun ? { dryRun: true } : {}),
+        });
+        if (args.json) {
+          console.log(
+            JSON.stringify(
+              result.dryRun
+                ? { plan: result.plan, outcomes: result.outcomes, dryRun: true }
+                : { ...result.record, outcomes: result.outcomes },
+              null,
+              2,
+            ),
+          );
+          return;
+        }
+        if (result.dryRun) {
+          printPlanSummary(result.plan, (line) => console.log(line));
+          console.log('\n（dry-run：没有落盘）');
+          return;
+        }
+        printInstalled(result.record, result.record.pack);
+        return;
+      }
+
+      const name = args.name === undefined ? defaultHomeName(hostId, packName) : String(args.name).trim();
+      if (dryRun) {
+        const plan = previewHomePlan({ packDir, harness: hostId, attachedHome });
+        if (args.json) console.log(JSON.stringify({ plan, dryRun: true }, null, 2));
+        else {
+          printPlanSummary(plan, (line) => console.log(line));
+          console.log(`\n（dry-run：没有落盘；name ${name}）`);
+        }
+        return;
+      }
+      assertHomeNameFree(name);
+      const opts: CreateInstanceOptions = {
+        name,
+        harness: hostId,
+        packDir,
+        packRef: source,
+        attachedHome,
+        onWarn: log,
+      };
+      const rec = await createInstance(opts);
+      if (args.json) {
+        console.log(JSON.stringify(rec, null, 2));
+        return;
+      }
+      printInstalled(rec, rec.pack);
+      return;
+    }
+
+    // 默认 target：managed 命名 home（PAL 数据目录）
+    const name = args.name === undefined ? defaultHomeName(hostId, packName) : String(args.name).trim();
+    if (dryRun) {
+      const plan = previewHomePlan({ packDir, harness: hostId });
+      if (args.json) console.log(JSON.stringify({ plan, dryRun: true }, null, 2));
+      else {
+        printPlanSummary(plan, (line) => console.log(line));
+        console.log(`\n（dry-run：没有落盘；name ${name}）`);
+      }
+      return;
+    }
+    assertHomeNameFree(name);
+    const info = discoverAll({ probeVersion: false }).find((h) => h.id === hostId);
+    const rec = await createInstance({
+      name,
+      harness: hostId,
       packDir,
       packRef: source,
-      ...(args.overwrite ? { overwrite: true } : {}),
-      ...(args['allow-exec'] ? { allowExec: true } : {}),
-      ...(args['dry-run'] ? { dryRun: true } : {}),
+      ...(info?.version ? { harnessVersion: info.version } : {}),
+      onWarn: log,
     });
     if (args.json) {
-      console.log(
-        JSON.stringify(
-          result.dryRun
-            ? { plan: result.plan, outcomes: result.outcomes, dryRun: true }
-            : { ...result.record, outcomes: result.outcomes },
-          null,
-          2,
-        ),
-      );
+      console.log(JSON.stringify(rec, null, 2));
       return;
     }
-    if (result.dryRun) {
-      printPlanSummary(result.plan, (line) => console.log(line));
-      console.log('\n（dry-run：没有落盘）');
-      return;
-    }
-    console.log(`✓ ${result.record.id}`);
-    console.log(`  ${result.record.root}`);
-    console.log(`  pack ${result.record.pack.name}@${result.record.pack.version}`);
+    printInstalled(rec, rec.pack);
   },
 });
 
@@ -215,26 +348,25 @@ export const uninstall = defineCommand({
   meta: {
     name: 'uninstall',
     description:
-      '卸载 target 里装的包：--project <目录>（项目）或 --environment <环境>（宿主的 home）；环境必须已停',
+      '卸载 target 里装的包：--home <路径|名字>（managed / attached home）或 --project <目录>；home 必须已停',
   },
   args: {
     project: { type: 'string', description: '项目级 target：已装过包的项目目录' },
-    environment: { type: 'string', description: '环境级 target：环境名/id（必须已停）' },
+    home: { type: 'string', description: 'home target：managed 用名字，attached 用路径或名字（必须已停）' },
     json: { type: 'boolean', default: false },
   },
   async run({ args }) {
-    const target = parseTarget(args, { allowNew: false });
+    const target = parseTarget(args);
+    let dir: string;
     if (target === 'project') {
-      await invoke(uninstallDirCmd as unknown as CommandDef<never>, {
-        dir: String(args.project),
-        json: Boolean(args.json),
-      });
-      return;
+      dir = String(args.project);
+    } else {
+      const rec = requireHome(args.home);
+      requireStopped(rec);
+      dir = rec.root;
     }
-    const rec = requireInstance(String(args.environment));
-    requireStopped(rec);
     await invoke(uninstallDirCmd as unknown as CommandDef<never>, {
-      dir: rec.root,
+      dir,
       json: Boolean(args.json),
     });
   },
@@ -244,25 +376,25 @@ export const verify = defineCommand({
   meta: {
     name: 'verify',
     description:
-      '体检 target：--project <目录>（项目）或 --environment <环境>（宿主的 home）；漂移 + 清单检查 + 计划派生检查（环境可运行）；--accept 把环境当前磁盘状态认作基线',
+      '体检 target：--home <路径|名字>（managed / attached home）或 --project <目录>；漂移 + 清单检查 + 计划派生检查（home 可运行）；--accept 把 home 当前磁盘状态认作基线',
   },
   args: {
     project: { type: 'string', description: '项目级 target：已装过包的项目目录' },
-    environment: { type: 'string', description: '环境级 target：环境名/id（可运行）' },
+    home: { type: 'string', description: 'home target：managed 用名字，attached 用路径或名字（可运行）' },
     accept: {
       type: 'boolean',
       default: false,
       description:
-        '环境 target：把当前磁盘状态认作基线（接受本地改动），之后体检不再报漂移；项目没有基线，不能用',
+        'home target：把当前磁盘状态认作基线（接受本地改动），之后体检不再报漂移；项目没有基线，不能用',
     },
     json: { type: 'boolean', default: false },
   },
   async run({ args }) {
-    const target = parseTarget(args, { allowNew: false });
+    const target = parseTarget(args);
     if (target === 'project') {
       if (args.accept) {
-        throw new PalError('invalid-input', '项目没有基线，--accept 只用于环境', {
-          hint: '项目体检看漂移与检查项；要接受环境里的本地改动，用 pal verify --environment <环境> --accept。',
+        throw new PalError('invalid-input', '项目没有基线，--accept 只用于 home', {
+          hint: '项目体检看漂移与检查项；要接受 home 里的本地改动，用 pal verify --home <名字|路径> --accept。',
         });
       }
       await invoke(verifyDirCmd as unknown as CommandDef<never>, {
@@ -271,7 +403,7 @@ export const verify = defineCommand({
       });
       return;
     }
-    const rec = requireInstance(String(args.environment));
+    const rec = requireHome(args.home);
     if (!args.accept) {
       await invoke(verifyDirCmd as unknown as CommandDef<never>, {
         dir: rec.root,
@@ -296,21 +428,21 @@ export const rollback = defineCommand({
   meta: {
     name: 'rollback',
     description:
-      '退回 target 的上一次安装之前：--project <目录>（项目）或 --environment <环境>（宿主的 home）；环境必须已停',
+      '退回 target 的上一次安装之前：--home <路径|名字>（managed / attached home）或 --project <目录>；home 必须已停',
   },
   args: {
     project: { type: 'string', description: '项目级 target：已装过包的项目目录' },
-    environment: { type: 'string', description: '环境级 target：环境名/id（必须已停）' },
+    home: { type: 'string', description: 'home target：managed 用名字，attached 用路径或名字（必须已停）' },
     generation: { type: 'string', description: '指定 generation（默认最近一次）' },
     json: { type: 'boolean', default: false },
   },
   async run({ args }) {
-    const target = parseTarget(args, { allowNew: false });
+    const target = parseTarget(args);
     let dir: string;
     if (target === 'project') {
       dir = String(args.project);
     } else {
-      const rec = requireInstance(String(args.environment));
+      const rec = requireHome(args.home);
       requireStopped(rec);
       dir = rec.root;
     }
@@ -326,22 +458,22 @@ export const update = defineCommand({
   meta: {
     name: 'update',
     description:
-      '把 target 里的 Pack 换成 registry 最新版：--project <目录>（项目）或 --environment <环境>（宿主的 home）；环境必须已停',
+      '把 target 里的 Pack 换成 registry 最新版：--home <路径|名字>（managed / attached home）或 --project <目录>；home 必须已停',
   },
   args: {
     project: { type: 'string', description: '项目级 target：已装过包的项目目录' },
-    environment: { type: 'string', description: '环境级 target：环境名/id（必须已停）' },
+    home: { type: 'string', description: 'home target：managed 用名字，attached 用路径或名字（必须已停）' },
     version: { type: 'string', description: 'registry 版本；不写用 latest' },
     index: { type: 'string', description: 'registry 索引；不写用默认索引' },
     force: {
       type: 'boolean',
       default: false,
-      description: '环境级：覆盖本地改过的文件；不带时若 Pack 写过的文件被本地改过就拒绝更新',
+      description: 'home 级：覆盖本地改过的文件；不带时若 Pack 写过的文件被本地改过就拒绝更新',
     },
     json: { type: 'boolean', default: false },
   },
   async run({ args }) {
-    const target = parseTarget(args, { allowNew: false });
+    const target = parseTarget(args);
     if (target === 'project') {
       await updateStateDir(String(args.project), {
         ...(args.index ? { index: String(args.index) } : {}),
@@ -351,7 +483,7 @@ export const update = defineCommand({
       return;
     }
 
-    const rec = requireInstance(String(args.environment));
+    const rec = requireHome(args.home);
     requireStopped(rec);
     const ref = rec.pack.ref ?? rec.pack.name;
     const log = (line: string): void => {

@@ -87,19 +87,18 @@ resources:
 }
 
 describe('pal 目录对象：install', () => {
-  it('--harness 必填；dir 不是安装参数（那是实例形态）', () => {
+  it('--host 必填；dir 不是宿主（那是内部形态）', () => {
     const base = tmp('pal-dir-args-');
     const pack = join(base, 'pack');
     cpSync(FIXTURE, pack, { recursive: true });
 
     const missing = pal(['install', pack, '--project', join(base, 'p1')]);
     expect(missing.status).toBe(2);
-    expect(missing.out).toContain('--project 需要 --harness');
+    expect(missing.out).toContain('install 需要 --host');
 
-    const dirValue = pal(['install', pack, '--project', join(base, 'p2'), '--harness', 'dir']);
+    const dirValue = pal(['install', pack, '--project', join(base, 'p2'), '--host', 'dir']);
     expect(dirValue.status).toBe(2);
     expect(dirValue.out).toContain('未知宿主：dir');
-    expect(dirValue.out).toContain('不用 dir');
     rmSync(base, { recursive: true, force: true });
   });
 
@@ -109,7 +108,7 @@ describe('pal 目录对象：install', () => {
     const project = join(base, 'project');
     cpSync(FIXTURE, pack, { recursive: true });
 
-    const dry = pal(['install', pack, '--project', project, '--harness', 'dsh', '--dry-run']);
+    const dry = pal(['install', pack, '--project', project, '--host', 'dsh', '--dry-run']);
     expect(dry.status).toBe(0);
     expect(dry.out).toContain('（dry-run：没有落盘）');
     expect(dry.out).toContain('planHash');
@@ -123,7 +122,7 @@ describe('pal 目录对象：install', () => {
     const project = join(base, 'project');
     cpSync(FIXTURE, pack, { recursive: true });
 
-    const installed = pal(['install', pack, '--project', project, '--harness', 'dsh']);
+    const installed = pal(['install', pack, '--project', project, '--host', 'dsh']);
     expect(installed.status).toBe(0);
     expect(installed.out).toContain('harness=dsh');
     expect(installed.out).toContain('校验 lvlc233/team-conventions@0.0.2：通过');
@@ -139,7 +138,7 @@ describe('pal 目录对象：install', () => {
     const index = await makeRegistry(base, [{ version: '0.1.0', body: '# v1\n' }]);
     const project = join(base, 'project');
 
-    const installed = pal(['install', 'demo/upd@0.1.0', '--project', project, '--harness', 'dsh', '--index', index]);
+    const installed = pal(['install', 'demo/upd@0.1.0', '--project', project, '--host', 'dsh', '--index', index]);
     expect(installed.status).toBe(0);
     expect(installed.out).toContain('demo/upd@0.1.0');
     expect(installed.out).toContain('校验 demo/upd@0.1.0：通过');
@@ -154,7 +153,7 @@ describe('pal 目录对象：verify / uninstall', () => {
     const pack = join(base, 'pack');
     const project = join(base, 'project');
     cpSync(FIXTURE, pack, { recursive: true });
-    expect(pal(['install', pack, '--project', project, '--harness', 'dsh']).status).toBe(0);
+    expect(pal(['install', pack, '--project', project, '--host', 'dsh']).status).toBe(0);
 
     const ok = pal(['verify', '--project', project]);
     expect(ok.status).toBe(0);
@@ -203,7 +202,7 @@ describe('pal 目录对象：update / rollback', () => {
     ]);
     const project = join(base, 'project');
 
-    expect(pal(['install', 'demo/upd@0.1.0', '--project', project, '--harness', 'dsh', '--index', index]).status).toBe(0);
+    expect(pal(['install', 'demo/upd@0.1.0', '--project', project, '--host', 'dsh', '--index', index]).status).toBe(0);
     expect(readFileSync(join(project, '.packhub/knowledge/rules.md'), 'utf8')).toBe('# v1\n');
 
     const updated = pal(['update', '--project', project, '--index', index]);
@@ -219,18 +218,18 @@ describe('pal 目录对象：update / rollback', () => {
     rmSync(base, { recursive: true, force: true });
   });
 
-  it('update 只认 --project / --environment：旧的 --dir 会被当成没有 target', () => {
+  it('update 只认 --project / --home：旧的 --dir 会被当成没有 target', () => {
     const base = tmp('pal-dir-update-nodir-');
     const pack = join(base, 'pack');
     const project = join(base, 'project');
     cpSync(FIXTURE, pack, { recursive: true });
-    expect(pal(['install', pack, '--project', project, '--harness', 'dsh']).status).toBe(0);
+    expect(pal(['install', pack, '--project', project, '--host', 'dsh']).status).toBe(0);
 
     const res = pal(['update', '--dir', project]);
     expect(res.status).toBe(2);
     expect(res.out).toContain('要指定 target 才能继续');
     expect(res.out).toContain('--project');
-    expect(res.out).toContain('--environment');
+    expect(res.out).toContain('--home');
     rmSync(base, { recursive: true, force: true });
   });
 
@@ -239,7 +238,7 @@ describe('pal 目录对象：update / rollback', () => {
     const pack = join(base, 'pack');
     const project = join(base, 'project');
     cpSync(FIXTURE, pack, { recursive: true });
-    expect(pal(['install', pack, '--project', project, '--harness', 'dsh']).status).toBe(0);
+    expect(pal(['install', pack, '--project', project, '--host', 'dsh']).status).toBe(0);
 
     const res = pal(['update', '--project', project]);
     expect(res.status).toBe(2);

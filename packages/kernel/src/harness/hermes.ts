@@ -2,7 +2,7 @@
 //
 // hermes 只有全局目录（`~/.hermes`，Windows `%LOCALAPPDATA%\hermes`，`HERMES_HOME` 可改）：
 // 技能在 `<home>/skills`，MCP 在 `<home>/config.yaml` 的 `mcp_servers:`（YAML）。
-// 它没有项目级安装落点，所以 `project: false`——装进项目会被拒绝，要装就用实例。
+// 它没有项目级安装落点，所以 `project: false`——装进项目会被拒绝，要装就装进 home。
 
 import { registerHarness } from './contract.ts';
 
@@ -21,6 +21,13 @@ registerHarness({
     promptsDir: `${home}/prompts`,
     configFile: `${home}/config.yaml`,
   }),
+  // attached home = 真实的 `~/.hermes`；根就是 home，落点相对它。
+  attachedLayout: () => ({
+    skillsDir: 'skills',
+    knowledgeDir: 'knowledge',
+    promptsDir: 'prompts',
+    configFile: 'config.yaml',
+  }),
   executable: 'hermes',
   versionArgs: ['--version'],
   instructionFile: 'AGENTS.md',
@@ -30,7 +37,7 @@ registerHarness({
     args: () => [],
     url: /^$/,
   },
-  // 没有项目级落点：pal install --project 会拒绝，改用 pal install --new --kind hermes 建环境
+  // 没有项目级落点：pal install --project 会拒绝，改用默认命名 home 或 --home
   project: false,
   mcp: {
     path: ['mcp_servers'],

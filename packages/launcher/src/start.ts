@@ -267,7 +267,7 @@ export async function startInstanceDetailed(
   const adapter = requireAdapter(rec.harness);
   if (adapter.start?.mode === 'foreground') {
     throw new PalError('not-startable', `${adapter.label} 是前台 TUI，不是常驻服务`, {
-      hint: '用 pal run <环境> [--dir <目录>] 在终端里前台启动',
+      hint: '用 pal run <home> [--dir <目录>] 在终端里前台启动',
       details: { harness: rec.harness },
     });
   }

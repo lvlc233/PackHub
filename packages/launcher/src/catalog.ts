@@ -5,6 +5,7 @@ import { PalError } from './errors.ts';
 import { instancesRoot } from './paths.ts';
 import { quarantineInstance } from './quarantine.ts';
 import { readRecordResult, type InstanceRecord } from './records.ts';
+import { pathKey } from './scan.ts';
 
 /**
  * 实例清单与「当前实例」一览表：扫实例根、按名字/身份找记录、坏记录隔离，以及每个宿主记住的默认实例。
@@ -96,6 +97,12 @@ export function requireInstance(nameOrId: string): InstanceRecord {
     });
   }
   return record;
+}
+
+/** 按根路径找记录（Windows 大小写不敏感）：`--home <路径>` 用它。 */
+export function findInstanceByRoot(root: string): InstanceRecord | undefined {
+  const key = pathKey(root);
+  return scanInstances().records.find((record) => pathKey(record.root) === key);
 }
 
 /* ---------- 当前实例（每个宿主一个默认） ---------- */

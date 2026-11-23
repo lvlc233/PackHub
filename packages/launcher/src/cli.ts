@@ -15,7 +15,7 @@ export const main = defineCommand({
     name: 'pal',
     version: pkg.version,
     description:
-      '环境内核：建、起、停、看护、迁移；安装/卸载/校验/回退/更新作用于 target（--project 项目 或 --environment 环境），新建环境用 pal install --new',
+      '环境内核：建、起、停、看护、迁移；install 默认建 managed 命名 home，--home 装进宿主全局目录（attached），--project 装进项目；装/卸/校验/回退/更新用 --home 或 --project',
   },
   subCommands: {
     install,

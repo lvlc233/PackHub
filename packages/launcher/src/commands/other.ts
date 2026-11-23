@@ -46,7 +46,7 @@ export function acceptBaseline(target: string): Baseline {
   return rebaselineInstance(requireTarget(target));
 }
 
-/** `config <环境> --name <新名字>`：只改这一份环境的名字，不碰全局配置。 */
+/** `config <home> --name <新名字>`：只改这一份 home 的名字，不碰全局配置。 */
 function renameEnv(args: {
   target: unknown;
   name: unknown;
@@ -57,18 +57,18 @@ function renameEnv(args: {
 }): void {
   const target = String(args.target ?? '').trim();
   if (!target) {
-    throw new PalError('invalid-input', '--name 要给环境：pal config <环境> --name <新名字>', {
-      hint: '地名参数写在 --name 前：pal config demo --name demo-2；只看全局配置就别写环境名。',
+    throw new PalError('invalid-input', '--name 要给 home：pal config <home> --name <新名字>', {
+      hint: '地名参数写在 --name 前：pal config demo --name demo-2；只看全局配置就别写 home 名。',
     });
   }
   if (args.name === undefined) {
-    throw new PalError('invalid-input', `给环境 ${target} 时要 --name`, {
-      hint: 'pal config <环境> --name <新名字>；只看全局配置就别写环境名。',
+    throw new PalError('invalid-input', `给 home ${target} 时要 --name`, {
+      hint: 'pal config <home> --name <新名字>；只看全局配置就别写 home 名。',
     });
   }
   if (args.home !== undefined || args['set-isolation'] !== undefined || args.force === true) {
-    throw new PalError('invalid-input', '给环境改名时不能同时改全局配置', {
-      hint: '--home / --set-isolation / --force 只用于不带环境名的 pal config；改名只写 instance.json 里的 name。',
+    throw new PalError('invalid-input', '给 home 改名时不能同时改全局配置', {
+      hint: '--home / --set-isolation / --force 只用于不带 home 名的 pal config；改名只写 instance.json 里的 name。',
     });
   }
   const rec = renameInstance(target, String(args.name));
@@ -83,15 +83,15 @@ export const config = defineCommand({
   meta: {
     name: 'config',
     description:
-      'PAL 数据目录与新建实例的默认隔离策略（<数据目录>/pal.json）；给环境名 + --name 只给那个环境改名',
+      'PAL 数据目录与新建 home 的默认隔离策略（<数据目录>/pal.json）；给 home 名 + --name 只给那个 home 改名',
   },
   args: {
     target: {
       type: 'positional',
       required: false,
-      description: '环境 id 或名字：只改这一份环境的名字（配 --name）；不写就是看/改全局配置',
+      description: 'home id 或名字：只改这一份 home 的名字（配 --name）；不写就是看/改全局配置',
     },
-    name: { type: 'string', description: '配环境名用：这个环境的新名字（与已有环境重名时拒绝）' },
+    name: { type: 'string', description: '配 home 名用：这个 home 的新名字（与已有 home 重名时拒绝）' },
     'set-isolation': {
       type: 'string',
       description: '改成 layer=mode,...；只覆盖写出来的层，其余沿用当前值。只影响之后新建的实例',
@@ -182,10 +182,10 @@ export const use = defineCommand({
   meta: {
     name: 'use',
     description:
-      '把某个实例设成它宿主的当前实例（install --new / adopt 建完默认已经设过；pal start 不写目标时用的就是它）',
+      '把某个 home 设成它宿主的当前 home（install / adopt 建完默认已经设过；pal start 不写目标时用的就是它）',
   },
   args: {
-    target: { type: 'positional', required: true, description: '实例 id 或名字；设成它宿主的当前实例' },
+    target: { type: 'positional', required: true, description: 'home id 或名字；设成它宿主的当前 home' },
     json: { type: 'boolean', default: false },
   },
   run({ args }) {

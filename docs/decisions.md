@@ -3,7 +3,7 @@ kind: decision
 summary: 有意为之的取舍
 verified: 2026-11-23
 decay: 365
-review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增删、锁形状或签名载荷变化、接线规则再变、检查派生规则再变、安装参数或落点表改名、命令族边界再变、命令层再出现例外、加 mac 门禁、命令面收缩）
+review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增删、锁形状或签名载荷变化、接线规则再变、检查派生规则再变、安装参数或落点表改名、安装对象或命令族边界再变、命令层再出现例外、加 mac 门禁、命令面收缩）
 ---
 
 # PackHub 的取舍
@@ -141,6 +141,21 @@ review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增
 没选另一条：保留 `create` 作为建环境入口，或让 `update` 继续按位置参数猜项目/环境。`create` 与 `install --new` 是同一段编排（取包、建环境、装、设当前），分两个动词就要维护两份参数与两份帮助；`update <目录>` 的猜测在「读命令不写盘」那条已经证明会逼出「位置参数只收环境 + 显式 flag」的补丁，统一成 target 后 `--project` / `--environment` 一眼能看出作用域。
 
 代价：命令面变化——`pal create` 消失（用 `install --new`），`update --dir` 消失（用 `update --project`），旧 `--into` / `--instance` 也不保留，脚本与肌肉记忆都要改；`install` 的参数表变长（三个 target 互斥 + 各 target 的附加参数），`--project` 必须带 `--harness`、`--new` 必须带 `--kind` / `--name`，漏写只能报用法错；环境 target 的前置条件更显式（install 要求空环境、写操作要求已停、verify 允许运行），比「先 create 再装」多了「停环境」这一步；dsh 的项目安装只写指路块，技能要注册得另建环境——同一个包在项目里与在环境里能力不同，用户得知道 `pointer` 的存在。
+
+### 命名 home：managed 与 attached
+
+安装对象从「环境 / 项目」改成「home / 项目」。home 是宿主读的那份安装对象，分两类：**managed home** 由 PAL 在数据目录下按名字新建（默认名 `<host>-<packSlug>`，`lvlc233/doc-review` → `lvlc233-doc-review`），整根归 PAL 管；**attached home** 是宿主真实的全局目录（`--home <路径>`），PAL 只往里装、不拥有它。`install` 的 target 三选一：不写 = managed 命名 home，`--home <路径>` = attached，`--project <目录>` = 项目（不变）；`--host` 三种都必填，`--name` 只配前两种。`uninstall` / `update` / `rollback` / `verify` 收 `--home <路径|名字>` 或 `--project`。记录里 `attached?: boolean`（缺省 `false` = managed），`list` / `show` 标出来。旧的 `--new` / `--environment` / `--kind` / PAL 的 `--harness` 都删掉。
+
+没选另一条：继续用 `--environment <名字>`（先建/接管一个环境，再往里装），或只做 managed home。`--environment` 是「记录里的名字」，home 落在哪由记录决定；用户要先回答「建一个环境」再回答「装什么」，而 `--new --kind <宿主> --name` 又把同一件事拆成三个词。它装不进宿主真实的全局目录：模型凭据、用户已有配置、宿主的全局 MCP 都在 `~/.config/opencode` 这类位置，环境只能另起一份空 home，用户得手动拷。只做 managed 等于承认「装不进宿主自己的位置」，`adopt` 也只能登记一个空目录，无法承载「宿主本来就在用的 home」。
+
+代价：
+
+- attached 只对已验证全局布局的宿主开放：opencode（`~/.config/opencode`）、hermes（`~/.hermes`）、workbody（`~/.codebuddy`）；dsh / claude-code / codex 拒绝，因为全局布局未验证——以后验证一个才加一个 `attachedLayout`。拒绝发生在写盘之前。
+- 危险操作只对 managed：remove / clone / backup / restore / migrate 对 attached home 直接拒绝（`attached home 不归 PAL：只允许 install/uninstall/update/verify/run`）；要卸包只能 `pal uninstall --home <路径>`。代价是 attached 的记录也没有 `remove` 可摘：要注销只能手工删目录里的 `instance.json` / `runtime.json` / `baseline.json` 与 `.links` 指针。
+- 默认名是约定，不是用户起的：同名已存在是用法错，只能 `--name` 换名、`pal update <名字>` 换版本或 `pal run <名字>` 直接跑。`--name` 与 `--project` 互斥（项目没有 home 名）。
+- 全局写盘要有所有权：attached 安装会在宿主全局目录里写 skills、配置（如 `opencode.json` / `config.yaml`）、`instance.json` / `runtime.json` / `baseline.json` 与 `.packhub/`；宿主与别的工具会看到这些多出来的文件。PAL 因此把它们当「宿主的目录」：不删、不整根备份、不迁移。
+- attached 的 `run` 不注入 home 环境变量（宿主本来就用它的全局位置），只按 `launch.json` / `--dir` 决定 cwd；`--home` 指到非默认位置时，`run` 不会把宿主指过去，得宿主自己的环境变量或配置生效。
+- 随 `--new` 一起删掉的还有 managed home 的 `--root` / `--from-home` / `--isolation`：新 managed home 固定落在数据目录，也不再一步沿用全局凭据；要共用已有凭据，改用 `--home <宿主全局目录>` 装成 attached。
 
 ### 读命令不写盘，动作显式
 

@@ -13,6 +13,7 @@ export { quarantineInstance, failInstance } from './quarantine.ts';
 
 export {
   activeMapPath,
+  findInstanceByRoot,
   listInstances,
   readActiveMap,
   readInstance,
@@ -23,7 +24,7 @@ export {
 export type { InstanceScan } from './catalog.ts';
 
 // assertNameFree / assertHarness 是 create 与 migrate 的包内共用实现，定义在 validators.ts，不对外导出。
-export { adoptInstance, createInstance, seedHome } from './create.ts';
+export { adoptInstance, createInstance, defaultHomeName, packSlug, seedHome } from './create.ts';
 export type { AdoptOptions, CreateInstanceOptions } from './create.ts';
 
 export { removeInstance } from './remove.ts';

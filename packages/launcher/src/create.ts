@@ -1,8 +1,8 @@
-﻿import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import { MANIFEST_FILE, planFor, type PackContext, type Plan, type PlanOptions } from '@packhub/kernel';
 import { installPack, loadLock, loadPack, loadState, withLockPins, type ActionOutcome } from '@packhub/runtime';
-import { layoutVarsFor, requireAdapter, type InstanceKind } from './layout.ts';
+import { assertAttachedSupported, layoutVarsFor, requireAdapter, type InstanceKind } from './layout.ts';
 import { baselineFromState, writeBaseline } from './baseline.ts';
 import { withInstanceLock } from './lock.ts';
 import { API_VERSION, readRecord, recordFile, runtimeFile, type InstanceRecord } from './records.ts';
@@ -10,18 +10,41 @@ import { assertIsolationSupported, parseIsolation, type Isolation } from './isol
 import { readPalConfig } from './config.ts';
 import { dropActive, readActiveMap, requireInstance, writeActiveMap } from './catalog.ts';
 import { failInstance } from './quarantine.ts';
-import { writeInstance } from './recordWrite.ts';
+import { writeInstance, removeLink } from './recordWrite.ts';
 import { instancesRoot, newId } from './paths.ts';
 import { isPidAlive } from './process.ts';
 import { nowIso } from './time.ts';
 import { PalError } from './errors.ts';
-import { assertHarness, assertExternalRoot, assertNameFree } from './validators.ts';
+import {
+  assertAbsolutePath,
+  assertHarness,
+  assertExternalRoot,
+  assertNameFree,
+} from './validators.ts';
 
 /**
  * 建实例与接管：出计划、装 Pack、写记录与基线；接管只写指针，不动用户目录。
  * 从 index.ts 搬出来；不 import index.ts（避免循环），依赖只走 kernel/runtime 与包内底层模块。
  * 名字/宿主的校验在 validators.ts，这里只 import 使用，不重新导出。
  */
+
+/**
+ * 命名 home 的默认名：`<host>-<packSlug>`。
+ * packSlug = `pack.name`（`owner/name`）小写，非字母数字压成 `-`：
+ * `lvlc233/doc-review` → `lvlc233-doc-review`。
+ */
+export function packSlug(packName: string): string {
+  const slug = packName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug || 'pack';
+}
+
+/** 默认 home 名：宿主 + Pack 的 slug；`--name` 可以覆盖。 */
+export function defaultHomeName(host: string, packName: string): string {
+  return `${host}-${packSlug(packName)}`;
+}
 
 export interface CreateInstanceOptions {
   name: string;
@@ -34,6 +57,11 @@ export interface CreateInstanceOptions {
    * 写了只接受绝对路径，且不能是盘符根/文件系统根、不能落在 instances 根里。
    */
   root?: string;
+  /**
+   * attached home：装进宿主真实的全局目录（绝对路径）。
+   * 给了就用该宿主的 attached 落点、记录 attached=true；root 必须不写。
+   */
+  attachedHome?: string;
   /** 记录来源（materialize 前的原始引用），供导出模板与排障 */
   packRef?: string;
   /** 建完是否设为该宿主的当前实例；默认 true */
@@ -169,29 +197,23 @@ export function packIdentityFromState(
 /* ---------- 创建 ---------- */
 
 /**
- * 从一个 Pack 目录创建实例：出计划、装进实例根、写实例记录与基线。
- * 失败时只清理我们自己造的根：先把现场移到 .failed，绝不 rm 一个已存在的目录。
+ * 一份 home 的计划：managed 用实例根里的 home 段，attached 用宿主已验证的全局落点。
+ * 传 `attachedHome` 时布局以那个目录为根（落点值相对它）。
  */
-export async function createInstance(opts: CreateInstanceOptions): Promise<InstanceRecord> {
-  const name = opts.name.trim();
-  if (!name) throw new PalError('invalid-input', '实例名不能为空');
-  const kind = assertHarness(opts.harness);
-  assertNameFree(name);
-  // 先定策略：配置读不了就在这里失败，不往下建目录
-  const isolation = isolationFor(opts.isolation);
+export function planForHome(ctx: PackContext, kind: InstanceKind, attachedHome?: string) {
+  const layoutVars = layoutVarsFor(kind, attachedHome);
+  // dir 是项目目录实例，不是 kernel 的宿主：映射成「不传 harness」（平铺到实例根）。
+  // 类型写 Partial<PlanOptions>：键写错（例如旧的 targetVars）会在这里编译报错，而不是被静默忽略。
+  const planOptions: Partial<PlanOptions> = {
+    ...(kind === 'dir' ? {} : { harness: kind }),
+    ...(layoutVars ? { layoutVars } : {}),
+  };
+  return planFor(ctx, planOptions);
+}
 
-  const id = newId();
-  // 默认根由系统分配；显式给的根只用于外部目录，先过校验再落盘任何东西
-  const root = opts.root === undefined ? join(instancesRoot(), id) : assertExternalRoot(opts.root);
-  const existed = existsSync(root);
-  if (existsSync(recordFile(root))) {
-    throw new PalError('root-occupied', '这个目录已经是一份实例', {
-      hint: '换个目录，或从列表里操作它',
-      details: { root },
-    });
-  }
-
-  const packDir = resolve(opts.packDir);
+/** 读 Pack 目录并算出 ctx；清单/锁有问题一律用法错，写盘前就失败。 */
+function contextOf(packDirRaw: string): { ctx: PackContext; packDir: string } {
+  const packDir = resolve(packDirRaw);
   const loaded = loadPack(packDir);
   if (!loaded.manifest) {
     const detail = loaded.issues.filter((i) => i.severity === 'error').map((i) => i.message).join('; ');
@@ -207,24 +229,80 @@ export async function createInstance(opts: CreateInstanceOptions): Promise<Insta
   if (errors.length > 0) {
     throw new PalError('invalid-input', `清单有问题：${errors.map((i) => i.message).join('; ')}`);
   }
+  return { ctx, packDir };
+}
 
-  const adapter = requireAdapter(kind);
-  const layoutVars = layoutVarsFor(kind);
-  // dir 是项目目录实例，不是 kernel 的宿主：映射成「不传 harness」（平铺到实例根）。
-  // 类型写 Partial<PlanOptions>：键写错（例如旧的 targetVars）会在这里编译报错，而不是被静默忽略。
-  const planOptions: Partial<PlanOptions> = {
-    ...(kind === 'dir' ? {} : { harness: kind }),
-    ...(layoutVars ? { layoutVars } : {}),
-  };
-  const { plan, issues } = planFor(ctx, planOptions);
+/**
+ * 只算计划、不落盘：install --dry-run 用。
+ * attached 仍要先过「宿主支持 attached」这一关，别让人以为写不出计划就能装。
+ */
+export function previewHomePlan(opts: {
+  packDir: string;
+  harness: InstanceKind;
+  attachedHome?: string;
+}): Plan {
+  const kind = assertHarness(opts.harness);
+  if (opts.attachedHome !== undefined) {
+    if (kind === 'dir') {
+      throw new PalError('invalid-input', 'dir 不是宿主，不能作为 attached home');
+    }
+    assertAttachedSupported(kind);
+  }
+  const { ctx } = contextOf(opts.packDir);
+  const { plan, issues } = planForHome(ctx, kind, opts.attachedHome);
+  if (!plan) {
+    throw new PalError('invalid-input', `生成不了计划：${issues.map((i) => i.message).join('; ')}`);
+  }
+  return plan;
+}
+
+/**
+ * 从一个 Pack 目录创建 home：managed 建在 PAL 实例根下，attached 装进给定的宿主全局目录。
+ * 失败时只清理我们自己造的根：先把现场移到 .failed，绝不 rm 一个已存在的目录。
+ */
+export async function createInstance(opts: CreateInstanceOptions): Promise<InstanceRecord> {
+  const name = opts.name.trim();
+  if (!name) throw new PalError('invalid-input', '实例名不能为空');
+  const kind = assertHarness(opts.harness);
+  // attached home 只对已验证全局布局的宿主开放；dir 不是宿主
+  const attachedHome =
+    opts.attachedHome === undefined ? undefined : assertAbsolutePath(opts.attachedHome, 'attached home', 'home');
+  if (attachedHome !== undefined) {
+    if (kind === 'dir') {
+      throw new PalError('invalid-input', 'dir 不是宿主，不能作为 attached home');
+    }
+    assertAttachedSupported(kind);
+  }
+  assertNameFree(name);
+  // 先定策略：配置读不了就在这里失败，不往下建目录
+  const isolation = isolationFor(opts.isolation);
+
+  const id = newId();
+  // managed：默认根由系统分配（PAL 数据目录）；attached：根就是宿主的全局目录。
+  // 显式给的 managed 根只用于外部目录，先过校验再落盘任何东西。
+  const root =
+    attachedHome ?? (opts.root === undefined ? join(instancesRoot(), id) : assertExternalRoot(opts.root));
+  const existed = existsSync(root);
+  if (existsSync(recordFile(root))) {
+    throw new PalError('root-occupied', attachedHome !== undefined ? '这个目录已经是一份 home' : '这个目录已经是一份实例', {
+      hint: '换个目录，或从列表里操作它',
+      details: { root },
+    });
+  }
+
+  const { ctx, packDir } = contextOf(opts.packDir);
+  const { plan, issues } = planForHome(ctx, kind, attachedHome);
   if (!plan) {
     throw new PalError('invalid-input', `生成不了计划：${issues.map((i) => i.message).join('; ')}`);
   }
 
-  const home = adapter.homeDir ? join(root, adapter.homeDir) : undefined;
+  const adapter = requireAdapter(kind);
+  // attached 的 home 就是那个目录本身（宿主本来就把它当全局位置读）；managed 落在实例根的 home 段。
+  const home = attachedHome ?? (adapter.homeDir ? join(root, adapter.homeDir) : undefined);
   mkdirSync(root, { recursive: true });
-  if (home) mkdirSync(home, { recursive: true });
+  if (home && home !== root) mkdirSync(home, { recursive: true });
 
+  const attached = attachedHome !== undefined;
   const draft: InstanceRecord = {
     apiVersion: API_VERSION,
     id,
@@ -233,6 +311,7 @@ export async function createInstance(opts: CreateInstanceOptions): Promise<Insta
     ...(opts.harnessVersion ? { harnessVersion: opts.harnessVersion } : {}),
     root,
     ...(home ? { home } : {}),
+    ...(attached ? { attached: true } : {}),
     isolation,
     pack: {
       name: ctx.manifest.metadata.name,
@@ -242,7 +321,8 @@ export async function createInstance(opts: CreateInstanceOptions): Promise<Insta
     createdAt: nowIso(),
     updatedAt: nowIso(),
     status: 'installing',
-    managed: true,
+    // attached 的根是宿主的目录，不归 PAL 整根删；managed 才是 PAL 建的
+    managed: !attached,
     origin: { kind: 'pack', ...(opts.packRef ? { ref: opts.packRef } : {}), dir: packDir },
     ports: [],
     restart: 'never',
@@ -305,6 +385,8 @@ export async function createInstance(opts: CreateInstanceOptions): Promise<Insta
     } else {
       failInstance(root, reason);
     }
+    // 外部根（attached）的 .links 指针也要摘掉：记录都没了，指针只会变成坏记录
+    removeLink(id);
     dropActive(id);
     throw err;
   }
@@ -355,34 +437,14 @@ export async function installIntoInstance(
   const installed = Object.keys(state.packs);
   if (installed.length > 0) {
     throw new PalError('invalid-input', `实例里已经有包：${installed.join(', ')}`, {
-      hint: `换版本用 pal update --environment ${record.name}；要重装先 pal uninstall --environment ${record.name}。`,
+      hint: `换版本用 pal update --home ${record.name}；要重装先 pal uninstall --home ${record.name}。`,
     });
   }
 
-  const packDir = resolve(opts.packDir);
-  const loaded = loadPack(packDir);
-  if (!loaded.manifest) {
-    const detail = loaded.issues.filter((i) => i.severity === 'error').map((i) => i.message).join('; ');
-    throw new PalError('invalid-input', `清单有问题${detail ? `：${detail}` : ''}`, {
-      hint: `确认 Pack 目录里有 ${MANIFEST_FILE}，且清单能被解析`,
-      details: { packDir },
-    });
-  }
-  const read = loadLock(packDir);
-  if (read.problem) throw new PalError('invalid-input', read.problem.message);
-  const ctx: PackContext = withLockPins(loaded, read.lock);
-  const errors = ctx.issues.filter((i) => i.severity === 'error');
-  if (errors.length > 0) {
-    throw new PalError('invalid-input', `清单有问题：${errors.map((i) => i.message).join('; ')}`);
-  }
-
+  const { ctx, packDir } = contextOf(opts.packDir);
   const kind = record.harness;
-  const layoutVars = layoutVarsFor(kind);
-  const planOptions: Partial<PlanOptions> = {
-    ...(kind === 'dir' ? {} : { harness: kind }),
-    ...(layoutVars ? { layoutVars } : {}),
-  };
-  const { plan, issues } = planFor(ctx, planOptions);
+  // attached 记录装回它自己的全局目录；managed 用实例根里的 home 段
+  const { plan, issues } = planForHome(ctx, kind, record.attached === true ? record.root : undefined);
   if (!plan) {
     throw new PalError('invalid-input', `生成不了计划：${issues.map((i) => i.message).join('; ')}`);
   }
@@ -430,9 +492,14 @@ export async function installIntoInstance(
   const next: InstanceRecord = {
     ...record,
     pack,
-    // 接管来的空目录可能没记 home；装完补上，start 才知道该指哪个 home
-    ...(record.home === undefined && adapter.homeDir
-      ? { home: join(record.root, adapter.homeDir) }
+    // 接管来的空目录可能没记 home；装完补上，start 才知道该指哪个 home。
+    // attached 的 home 就是记录根；managed 是根里的 home 段。
+    ...(record.home === undefined
+      ? record.attached === true
+        ? { home: record.root }
+        : adapter.homeDir
+          ? { home: join(record.root, adapter.homeDir) }
+          : {}
       : {}),
     status: 'installed',
     updatedAt: nowIso(),
@@ -452,15 +519,16 @@ export async function installIntoInstance(
 export interface AdoptOptions {
   dir: string;
   name: string;
-  /** 实例形态：dir 是项目目录实例，其余是宿主名 */
+  /** 实例形态：dir 是内部项目目录形态，其余是宿主名 */
   harness: InstanceKind;
   /** 接管后是否设为当前实例 */
   activate?: boolean;
 }
 
 /**
- * 接管一个已经存在的环境：目录原样不动，只写一份记录指过去。
- * managed=false：删除时只摘记录，绝不删用户目录。
+ * 把已有目录登记成 attached home：只写记录，不装包、不动目录里的文件。
+ * attached=true 且 managed=false：目录归宿主，PAL 不挪、不删、不整根备份；卸包走 uninstall --home。
+ * 宿主名必须是支持 attached 布局的那几个（dir 形态只在包内 API 里用）。
  */
 export function adoptInstance(opts: AdoptOptions): InstanceRecord {
   const dir = resolve(opts.dir);
@@ -471,29 +539,33 @@ export function adoptInstance(opts: AdoptOptions): InstanceRecord {
     });
   }
   const kind = assertHarness(opts.harness);
-  assertNameFree(opts.name.trim());
+  if (kind !== 'dir') assertAttachedSupported(kind);
+  const name = opts.name.trim();
+  if (!name) throw new PalError('invalid-input', '接管的 home 要一个名字');
+  assertNameFree(name);
   // 接管来的目录不动，但记录里的默认策略跟新建实例一样看全局配置；
   // 配置里写了还没实现的语义（凭据 shared）同样在写记录之前拒绝。
   const isolation = readPalConfig().isolation;
   assertIsolationSupported(isolation);
   if (existsSync(recordFile(dir))) {
-    throw new PalError('root-occupied', '这个目录已经是一份实例', {
+    throw new PalError('root-occupied', '这个目录已经是一份 home', {
       hint: '换个目录，或先删掉它的旧记录',
       details: { dir },
     });
   }
-  const adapter = requireAdapter(kind);
-  const home = adapter.homeDir && existsSync(join(dir, adapter.homeDir)) ? join(dir, adapter.homeDir) : undefined;
+  // 接管来的目录就是宿主的全局 home，记录里的 home 也是它自己（dir 没有 home 段）。
+  const home = kind === 'dir' ? undefined : dir;
   // 身份同样从 state 派生；没有 state / state 里不止一个 Pack 时记 external：
   // 多个 Pack 里「第一个」只是对象顺序，拿来当身份会让记录撒谎，updateInstance 也会把别的 Pack 当成同一个。
   const pack = packIdentityFromState(dir, { name: 'external', version: '0.0.0' });
   const record: InstanceRecord = {
     apiVersion: API_VERSION,
     id: newId(),
-    name: opts.name.trim(),
+    name,
     harness: kind,
     root: dir,
     ...(home ? { home } : {}),
+    attached: true,
     isolation,
     pack,
     createdAt: nowIso(),

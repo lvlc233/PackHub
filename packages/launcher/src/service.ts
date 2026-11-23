@@ -113,7 +113,7 @@ export async function importFromFile(opts: ImportFromFileOptions): Promise<Insta
   const ref = template.origin?.ref;
   if (!ref) {
     throw new PalError('invalid-input', '模板里没有 Pack 引用，重建不了', {
-      hint: '用 pal create 重新建，或从 Pack 引用建的实例导出模板',
+      hint: '用 pal install <pack> --host <宿主> 重建，或从 Pack 引用建的实例导出模板',
       details: { file: opts.file },
     });
   }

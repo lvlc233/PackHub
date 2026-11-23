@@ -252,6 +252,58 @@ describe('从备份恢复', () => {
     expect(readFileSync(join(root, 'instance.json'), 'utf8')).toContain(first.id);
   });
 
+  it('attached home 的备份不能恢复：目录不归 PAL', () => {
+    const dir = join(tmp, 'attached-backup');
+    mkdirSync(dir, { recursive: true });
+    const savedRoot = join(tmp, 'attached-src');
+    writeFileSync(
+      join(dir, 'instance.json'),
+      JSON.stringify(
+        {
+          apiVersion: 'packhub.dev/instance/v0',
+          id: '20260101000000-abcdef123456',
+          name: 'attached-src',
+          harness: 'opencode',
+          root: savedRoot,
+          home: savedRoot,
+          attached: true,
+          managed: false,
+          pack: { name: 'demo/pack', version: '1.0.0' },
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        },
+        null,
+        2,
+      ),
+      'utf8',
+    );
+    writeFileSync(
+      join(dir, BACKUP_FILE),
+      JSON.stringify(
+        {
+          apiVersion: BACKUP_API_VERSION,
+          instance: {
+            id: '20260101000000-abcdef123456',
+            name: 'attached-src',
+            harness: 'opencode',
+            pack: 'demo/pack',
+            version: '1.0.0',
+            createdAt: '2026-01-01T00:00:00.000Z',
+          },
+          createdAt: '2026-01-01T00:00:00.000Z',
+          includesSecrets: false,
+          fileCount: 0,
+        },
+        null,
+        2,
+      ),
+      'utf8',
+    );
+
+    expect(() => restoreBackup(dir, { name: 'attached-restore' })).toThrow('attached home 不归 PAL');
+    expect(listInstances().some((row) => row.name === 'attached-restore')).toBe(false);
+  });
+
   it('路径安全：.. 段、非备份目录、不存在的目录都有稳定错误码', async () => {
     await makeSource();
     const backup = backupInstance('src');
