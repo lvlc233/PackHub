@@ -19,6 +19,7 @@ pnpm pal install test/fixtures/packs/team-conventions --new --kind dsh --name de
 # 跑起来：server 型宿主用 start（core 托管）；TUI 型宿主用 run（前台，PAL 设 home 环境变量）
 pnpm pal start demo
 pnpm pal run opencode-env --dir ./some-project
+# 每个环境可放 launch.json（args/env/dir）；pal run <env> --init 生成空模板，--dry-run 看合并结果
 
 # 接管已有目录（目录形态环境），再往空环境里装
 pnpm pal adopt ./existing-env --name legacy
