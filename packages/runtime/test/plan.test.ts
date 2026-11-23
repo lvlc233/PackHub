@@ -43,7 +43,6 @@ describe('计划细节', () => {
     const { parseManifest } = await import('@packhub/kernel');
     const { validateGraph } = await import('@packhub/kernel');
     const { buildPlan } = await import('@packhub/kernel');
-    const { DIR_LAYOUT_VARS } = await import('@packhub/kernel');
 
     const manifest = parseManifest(`apiVersion: packhub.dev/v0
 kind: Pack
@@ -58,11 +57,8 @@ resources:
     source: github:o/r/skills/code-review@9f2c1ab7d4e5f60718293a4b5c6d7e8f90123456
 `).manifest!;
     const { graph } = validateGraph(manifest);
-    // 不传 harness = 平铺目录；落点表显式给平铺那份
-    const { plan } = buildPlan(manifest, graph, {
-      layoutVars: DIR_LAYOUT_VARS,
-      platform: 'linux-x64',
-    });
+    // 不传 harness = 平铺目录（内核按类别问平铺那份回答）
+    const { plan } = buildPlan(manifest, graph, { platform: 'linux-x64' });
     const link = plan!.actions.find((a) => a.op === 'link.skill');
     expect(link && 'from' in link ? link.from : '').toBe('.packhub/cache/skills/rules/skills/code-review');
   });

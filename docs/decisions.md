@@ -3,7 +3,7 @@ kind: decision
 summary: 有意为之的取舍
 verified: 2026-11-23
 decay: 365
-review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增删、锁形状或签名载荷变化、接线规则再变、检查派生规则再变、安装参数或落点表改名、安装对象或命令族边界再变、命令层再出现例外、加 mac 门禁、命令面收缩）
+review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增删、锁形状或签名载荷变化、接线规则再变、检查派生规则再变、安装参数或落点归属改名、安装对象或命令族边界再变、命令层再出现例外、加 mac 门禁、命令面收缩）
 ---
 
 # PackHub 的取舍
@@ -182,3 +182,11 @@ README 只承诺分工：「packhub 做包与发版，pal 安装与运行」；C
 没选另一条：保留这 7 条独立命令，只把帮助里归到「其它」分组。命令数不减少，`pal --help` 仍要把每个运维动作都讲成一个动词；这些动作用的对象又都是现有命令已经管的同一个对象（health 管本机状态、list 管记录、adopt 管接管、verify 管环境体检、config 管环境记录），再各占一个动词等于把「同一个对象」的操作分裂成两处入口。
 
 代价：flag 变多——`health` / `list` / `adopt` / `verify` / `config` 的参数表更长，得读 `--help` 才看得全；发现性降低——原来一眼能看到的 `leftovers` / `audit` 现在要记得挂在哪个命令后面；`core` 不再可手管——`status` / `stop` / `install` / `uninstall` 从命令面消失，进程入口只剩 bin 的内部参数（登录计划任务仍按它拉起），出问题时不能再用 `pal core …` 手动查或停；`cache` 的清理动作没有 CLI 入口，只剩内部 API。
+
+### 落点归适配器，内核不持有布局
+
+现状：内核里没有布局变量表了。宿主注册项的 `destination(kind, ctx)` 逐类回答 skill / knowledge / prompt / mcp / instruction / bin / config / cache 落在哪（路径相对安装根），`ctx` 只说装到哪种范围（`project` / `home`（managed）/ `attached`）与安装根、home 段。计划按资源类别现问宿主，`destination('mcp')` 连 MCP 方言一起给；`${layout.*}` 插值是这些回答的派生视图（`root` 仍是包自己的 `.packhub` 状态根，不是安装根），平铺目录用内核内置的一份回答。`planFor` 不再收落点覆盖：调用方只传 `harness` / `scope` / `root` / `home`。PAL 不再自己算 skillsDir 一类值，`layout.ts` 只留实例形态与 home 段的查表；host 的 `attached: true` 标出「全局落点已验证」，代替以前「写了 `attachedLayout` 就算支持」的隐式判据。
+
+没选另一条：保留一张 `LayoutVars` 当默认（平铺那份表 + 每宿主叠差量，`layoutFor()` 算出最终值，`instanceLayout` / `attachedLayout` 再按范围覆盖）。那张表把「宿主落在哪」变成内核的数据：某个宿主的全局目录多一层、或某个范围的配置文件在 home 里，就得在内核表上再加一层覆盖；落到哪个范围由调用方拼 `Partial<LayoutVars>` 决定，内核判断不了「这个覆盖对这个宿主成立吗」。attached 的能力也藏在 `attachedLayout` 有没有写里，launcher 只能靠派生结果反推。
+
+代价：每个宿主必须实现 `destination`——加宿主多一个必填函数，八类落点与指令面要按范围自己写清（opencode 的 XDG 多一层、hermes 的 YAML 配置、workbody 的 home 内 `mcp.json` 各在模块里）；`${layout.*}` 不再读一张表，而是每个键现问一次 destination（与动作落点同源，但少了「把全部键摆在一起看」的那份结构）；改落点的成本从内核一张表上移到某个宿主的模块，同一处能看到项目 / managed / attached 三份答案，也更容易只改一份忘了另一份——靠单测按范围逐一对一断言兜住。attached 从「写了 `attachedLayout` 就是支持」变成 `attached: true` 加 `destination` 的 attached 分支，两处要一起改。

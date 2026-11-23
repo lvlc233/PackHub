@@ -4,10 +4,18 @@ import { tmpdir } from 'node:os';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { registerHarness } from '@packhub/kernel';
+import type { DestinationKind } from '@packhub/kernel';
 import { createInstance } from '../src/index.ts';
 import { isPalError } from '../src/errors.ts';
 
 const PACK = 'test/fixtures/packs/doc-review';
+
+/** 测试宿主的落点：每类资源落在自己的前缀下，指令在 AGENTS.md（内容不参与断言）。 */
+function testDestination(prefix: string) {
+  return (kind: DestinationKind) => ({
+    path: kind === 'instruction' ? 'AGENTS.md' : kind === 'mcp' ? `${prefix}/mcp.json` : `${prefix}/${kind}`,
+  });
+}
 
 /**
  * 临时注册的测试宿主：只为了验证 --from-home 的复制逻辑。
@@ -16,10 +24,9 @@ const PACK = 'test/fixtures/packs/doc-review';
 registerHarness({
   id: 'testcred',
   label: 'testcred',
-  layout: { skillsDir: '.testcred/skills', configFile: '.testcred/config.json', instructionFile: 'AGENTS.md' },
+  destination: testDestination('.testcred'),
   home: { dir: 'home/testcred', env: 'TESTCRED_HOME' },
   credentialFiles: ['auth.json', 'nested/token.txt'],
-  instructionFile: 'AGENTS.md',
   probe: {
     executable: 'testcred',
     args: () => [],
@@ -32,9 +39,8 @@ registerHarness({
 registerHarness({
   id: 'testcred-empty',
   label: 'testcred-empty',
-  layout: { skillsDir: '.testcred-empty/skills', configFile: '.testcred-empty/config.json', instructionFile: 'AGENTS.md' },
+  destination: testDestination('.testcred-empty'),
   home: { dir: 'home/testcred-empty', env: 'TESTCRED_EMPTY_HOME' },
-  instructionFile: 'AGENTS.md',
   probe: {
     executable: 'testcred-empty',
     args: () => [],

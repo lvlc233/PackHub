@@ -47,7 +47,7 @@ core 崩溃或被结束后由计划任务带回来；起来的第一轮看护就
 | `src/core.ts` / `src/coreClient.ts` / `src/coreTask.ts` | 常驻 core（单例、HTTP 面、看护循环）、客户端（发现/按需拉起/发命令）、用户任务计划 |
 | `src/coreEntry.ts` / `src/coreMain.ts` | core 的内部入口（隐藏动词与参数解析）：不再是命令，只给 coreClient 与计划任务用 |
 | `src/harness.ts` | 宿主发现与版本探测（含 Windows `.cmd` 垫片） |
-| `src/layout.ts` | 每个宿主的 home 段、环境变量、启动参数模板 |
+| `src/layout.ts` | 实例形态与 home 段查表、启动参数模板、落点上下文（`destinationContext`；落点本身由宿主模块回答） |
 | `src/mcp.ts` | 把 Pack 的 mcp 资源写成 dsh 的 `--patch` 层 |
 | `src/health.ts` | 实例体检 |
 | `src/logs.ts` / `src/secrets.ts` | 日志归档、脱敏、凭据落盘 |

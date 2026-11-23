@@ -70,7 +70,7 @@ resources:
 清单里会变成路径或命令的字符串支持 `${...}` 插值：`state[].path`、`install.exec` 的各字段与 `verify` 项。可用命名空间只有三个：
 
 - `${vars.<键>}`：清单的 `vars`；
-- `${layout.<字段>}`：这次安装按 `--harness` 选的落点表——`root` / `cacheDir` / `skillsDir` / `knowledgeDir` / `promptsDir` / `binDir` / `configDir` / `configFile` / `instructionFile`；平铺目录用平铺落点表，它没有 `instructionFile`，写了会报 `undefined-variable`；
+- `${layout.<字段>}`：这次安装的落点回答——落点由宿主自己声明（`destination(kind, ctx)`），插值是从它派生出来的视图：`skillsDir` / `knowledgeDir` / `promptsDir` / `binDir` / `configDir` / `cacheDir` 分别等于对应 `destination(kind)`，`configFile` = `destination('mcp')`、`instructionFile` = `destination('instruction')`，`root` 是包自己的 `.packhub` 状态根（不是安装根）；平铺目录与没有指令面的宿主不派生 `instructionFile`，写了会报 `undefined-variable`；
 - `${state.<id>}`：清单 `state` 块声明的持久目录。
 
 找不到的键报 `undefined-variable`。落点变量的命名空间是 `layout`，不留别名；旧命名空间下的写法会被当成找不到的键，计划期直接报错。
@@ -94,7 +94,7 @@ resources:
 ```
 
 1. `planHash` = 计划自身的哈希，用于确保版本一致性。
-2. `harness` 可选：写 `dsh` / `claude-code` / `codex` / `opencode` / `workbody` / `hermes` 时按该宿主的落点表物化；不写就是平铺目录，计划里没有这个字段。
+2. `harness` 可选：写 `dsh` / `claude-code` / `codex` / `opencode` / `workbody` / `hermes` 时按该宿主的落点回答（`destination`）物化；不写就是平铺目录，计划里没有这个字段。
 3. `plan --json` 在计划对象外带一份 `wiring`：`describeComposition` 从清单派生的接线，只有两组——`capabilities`（能力令牌 → provider 列表，按令牌排序）与 `edges`（`needs` 派生的 provider → consumer 边）。它是 CLI 输出，不进 `planHash`、不进锁，也不进 state 里的计划快照。
 
 动作原语：`fetch`、`unpack`、`copy`、`write`、`delete`、`link.skill`、`link.exec`、`register.mcp`、`exec`、`instruction`、`state.dir`。
@@ -110,7 +110,7 @@ resources:
 | `delete` | 无 | `to`（被删对象） | 不撤销 | — | 否 | 目标不存在算 `noop`，不进 `written` |
 | `link.skill` | 本地 `pack` / 远程 `root` | `to` | 删文件 | — | 否 | codex 额外派生 `<to>/agents/openai.yaml` |
 | `link.exec` | 无（`entry` / `module` 相对安装根） | `to`、`to.cmd` | 删文件 | — | 否 | `.cmd` 只在 win32 生成；`platforms` 不匹配由执行器 `skipped` |
-| `register.mcp` | 无（`spec`） | `path`（缺省用宿主落点表的 `configFile`） | 还原共享配置 | `{path, key, configPath?, format?}` | 是 | `configPath` / `format` 由宿主 MCP 方言决定；`.toml` 用托管块 |
+| `register.mcp` | 无（`spec`） | `path`（缺省用 `destination('mcp')` 的落点） | 还原共享配置 | `{path, key, configPath?, format?}` | 是 | `configPath` / `format` 由宿主 MCP 方言决定；`.toml` 用托管块 |
 | `exec` | 无 | 无 | 不撤销 | — | 否 | 计划里永远 `approval: required` |
 | `instruction` | 无（`content`） | `file` | 摘托管块 | `{file, blockId}` | 是 | 只动 `<!-- packhub:begin/end -->` 之间 |
 | `state.dir` | 无 | 无（只建目录） | 不撤销 | — | 否 | 数据目录，不随升级/卸载删除 |
@@ -119,7 +119,7 @@ resources:
 
 撤销载荷回答「撤销时要动哪一处」：`restore-shared` 给共享配置文件、条目挂的对象路径（`configPath`，缺省 `['mcpServers']`）与要摘的键，`format` 说明文件是 JSON 还是 YAML；`strip-block` 给指令文件与托管块 id。执行器（`deactivatePlan` / `pruneRemoved` / `removePack`）只按 `undo` 的四种方式各做一次，不再按 op 猜路径与键；`state.dir` 只建目录、不产出文件，所以不进文件冲突集合，同一目录挂两个 state id 另报 `duplicate-state-path`。
 
-`register.mcp` 的落点与条目形状由宿主的 MCP 方言决定：宿主注册项的 `mcp` 声明 `file`（写哪个文件，缺省用 `layout.configFile`）、`path`（条目挂哪个对象路径，缺省 `['mcpServers']`）、`format`（缺省 `json`）与 `entry(spec)`（把通用 spec 转成该宿主的条目形状）。计划动作上对应 `path` / `configPath` / `format` 三个可选字段，`spec` 已经是转好的条目；不写方言就是 JSON `mcpServers` + spec 原样。宿主注册项的 `project` 还可以是 `'full'`（缺省，项目里注册技能、指令与 MCP）/ `'pointer'`（项目里只写指路块，不注册 skill，安装时提示；dsh）/ `false`（没有项目级落点，`pal install --project` 直接拒绝，只能装进 home；hermes）。
+`register.mcp` 的落点与条目形状由宿主的 `destination('mcp')` 回答：`path` 是配置文件（按安装范围分叉，例如 managed 的 opencode 在实例 home 的 XDG 目录里），随落点一起给的 `mcp` 方言声明 `path`（条目挂哪个对象路径，缺省 `['mcpServers']`）、`format`（缺省 `json`）、`entry(spec)`（把通用 spec 转成该宿主的条目形状）与可选的 `file`（只覆盖文件名，覆盖不了「这个范围写哪个文件」——那属于落点）。计划动作上对应 `path` / `configPath` / `format` 三个可选字段，`spec` 已经是转好的条目；不写方言就是 JSON `mcpServers` + spec 原样。宿主注册项的 `project` 还可以是 `'full'`（缺省，项目里注册技能、指令与 MCP）/ `'pointer'`（项目里只写指路块，不注册 skill，安装时提示；dsh）/ `false`（没有项目级落点，`pal install --project` 直接拒绝，只能装进 home；hermes）。
 
 派生输出是「install 期生成、计划动作里没有对行动作」的文件（codex 的 `agents/openai.yaml`、`link.exec` 的 `.cmd`）；它们由表的 `paths()` 声明，因此 `planPaths(plan)`、快照、版本镜像与升级清理都能覆盖到。
 

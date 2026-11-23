@@ -6,7 +6,7 @@ packhub 做包与发版，pal 安装与运行。
 
 `packhub` 只碰 Pack 目录：`plan` / `verify` 预览，`lock` / `pack` / `publish` / `sign` 出包与发版。`pal` 负责装和跑：安装类命令 `install` / `uninstall` / `verify` / `rollback` / `update` 的 target 是 home（`--home <路径|名字>`，managed 用名字、attached 用路径或名字）或项目（`--project <目录>`）；`install` 不给 target 时在 PAL 数据目录建一个 managed 命名 home（名字 `<host>-<packSlug>`），`--home` 则装进宿主的真实全局目录（attached）。attached 的默认名撞车会自动改用 `<名字>-attached`；`remove` 对 managed 删整根、对 attached 只摘记录（卸包 + 删 PAL 记录，目录与用户文件保留）；clone / backup / restore / migrate 仍只对 managed。home 侧还有 `adopt` 与起停看护，本机状态看 `list` / `ps` / `health`，审计看 `list --history`。
 
-宿主（`dsh` / `claude-code` / `codex` / `opencode` / `workbody` / `hermes`）在 kernel 的注册表里：每个宿主一个模块，加宿主 = 新模块 + `harness/index.ts` 一行 import；attached home 只对已验证全局布局的宿主开放（opencode / hermes / workbody）；hermes 没有项目级落点（不能用 `--project`，用默认命名 home 或 `--home`）；第三方宿主暂不支持（见 [docs/concepts.md](docs/concepts.md) 的 Harness 词条）。
+宿主（`dsh` / `claude-code` / `codex` / `opencode` / `workbody` / `hermes`）在 kernel 的注册表里：每个宿主一个模块，加宿主 = 新模块 + `harness/index.ts` 一行 import；落点由宿主模块的 `destination` 自己回答，attached home 只对已验证全局落点的宿主开放（opencode / hermes / workbody）；hermes 没有项目级落点（不能用 `--project`，用默认命名 home 或 `--home`）；第三方宿主暂不支持（见 [docs/concepts.md](docs/concepts.md) 的 Harness 词条）。
 
 ```bash
 # 默认 target：在 PAL 数据目录建 managed home，名字 <host>-<packslug>

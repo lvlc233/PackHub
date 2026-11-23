@@ -15,9 +15,7 @@ import type {
   ToolRuntime,
 } from './types.ts';
 import type { CapabilityForm } from './capability.ts';
-import type { LayoutVars } from './layout.ts';
-import type { HarnessId } from './harness/contract.ts';
-import { harness } from './harness/contract.ts';
+import type { Destination, DestinationKind } from './harness/contract.ts';
 import { parseSource } from './ref.ts';
 import { ISSUE_CODES } from './issueCodes.ts';
 import { isPlainObject } from './util.ts';
@@ -34,9 +32,8 @@ export interface InstalledResource {
 export interface KindContext {
   issues: Issue[];
   installed: Map<string, InstalledResource>;
-  layoutVars: LayoutVars;
-  /** 装到哪个宿主；MCP 的配置方言从宿主注册表取。不写 = 平铺/默认方言 */
-  harness?: HarnessId;
+  /** 目标宿主的落点回答：每类资源落在哪（路径相对安装根） */
+  dest(kind: DestinationKind): Destination;
   /** 包目录的绝对路径：tool2 判断本地来源是文件还是目录时读它 */
   packBase: string;
   /** 目标平台（`platform-arch`）：只用来给平台警告，不读 process */
@@ -58,15 +55,16 @@ export interface ResourceKind {
 
 function materializeMcp(ctx: KindContext, res: ResourceSpec): void {
   // MCP 由目标环境自己用 npx/uvx 拉起，安装期只登记，不预先下载包体。
-  // 登记到哪、条目什么形状由宿主的 MCP 方言决定；缺省 = layout.configFile + JSON mcpServers + 原 spec。
-  const host = harness(ctx.harness ?? '');
-  const dialect = host?.mcp;
+  // 登记到哪、条目什么形状由宿主 destination('mcp') 回答（方言随落点一起给）；
+  // 缺省 = `.packhub/config.json` + JSON mcpServers + 原 spec。
+  const target = ctx.dest('mcp');
+  const dialect = target.mcp;
   const base = buildMcpSpec(res, ctx.interp(res.config ?? {}) as Record<string, unknown>);
   const entry = dialect?.entry ? (dialect.entry(base) as Record<string, unknown>) : base;
   ctx.push({
     op: 'register.mcp',
     spec: entry,
-    path: dialect?.file ?? ctx.layoutVars.configFile,
+    path: dialect?.file ?? target.path,
     ...(dialect?.path ? { configPath: [...dialect.path] } : {}),
     ...(dialect?.format ? { format: dialect.format } : {}),
     resource: res.id,
@@ -87,38 +85,39 @@ function materializeSkill(ctx: KindContext, res: ResourceSpec): void {
     return;
   }
   if (parsed.kind === 'local') {
-    ctx.push({ op: 'link.skill', from: parsed.locator, to: `${ctx.layoutVars.skillsDir}/${id}`, fromBase: 'pack', resource: id });
-    ctx.installed.set(id, { type: res.type, kind: 'dir', to: `${ctx.layoutVars.skillsDir}/${id}`, from: parsed.locator });
+    const dir = ctx.dest('skill').path;
+    ctx.push({ op: 'link.skill', from: parsed.locator, to: `${dir}/${id}`, fromBase: 'pack', resource: id });
+    ctx.installed.set(id, { type: res.type, kind: 'dir', to: `${dir}/${id}`, from: parsed.locator });
   } else {
+    const cache = ctx.dest('cache').path;
+    const dir = ctx.dest('skill').path;
     ctx.push({
       op: 'fetch',
       uri: res.source,
-      dest: `${ctx.layoutVars.cacheDir}/${id}.tar.gz`,
+      dest: `${cache}/${id}.tar.gz`,
       ...(res.integrity ? { integrity: res.integrity } : {}),
       ...(res.auth ? { auth: res.auth } : {}),
       resource: id,
     });
     ctx.push({
       op: 'unpack',
-      from: `${ctx.layoutVars.cacheDir}/${id}.tar.gz`,
-      to: `${ctx.layoutVars.cacheDir}/skills/${id}`,
+      from: `${cache}/${id}.tar.gz`,
+      to: `${cache}/skills/${id}`,
       strip: 1,
       fromBase: 'root',
       resource: id,
     });
     // github:owner/repo/sub/path@ref 的 sub/path 只在解包后的仓库里取
-    const from = parsed.subpath
-      ? `${ctx.layoutVars.cacheDir}/skills/${id}/${parsed.subpath}`
-      : `${ctx.layoutVars.cacheDir}/skills/${id}`;
+    const from = parsed.subpath ? `${cache}/skills/${id}/${parsed.subpath}` : `${cache}/skills/${id}`;
     ctx.push({
       op: 'link.skill',
       from,
-      to: `${ctx.layoutVars.skillsDir}/${id}`,
+      to: `${dir}/${id}`,
       fromBase: 'root',
       resource: id,
     });
     // 远程资源的正文要等安装时才取回：能做整文件替换与删除，做不了按锚点改
-    ctx.installed.set(id, { type: res.type, kind: 'dir', to: `${ctx.layoutVars.skillsDir}/${id}` });
+    ctx.installed.set(id, { type: res.type, kind: 'dir', to: `${dir}/${id}` });
   }
 }
 
@@ -126,7 +125,7 @@ function materializeSkill(ctx: KindContext, res: ResourceSpec): void {
 function materializeContent(ctx: KindContext, res: ResourceSpec): void {
   const id = res.id;
   const parsed = parseSource(res.source);
-  const dir = res.type === 'knowledge' ? ctx.layoutVars.knowledgeDir : ctx.layoutVars.promptsDir;
+  const dir = ctx.dest(res.type === 'knowledge' ? 'knowledge' : 'prompt').path;
   const name = fileNameOf(parsed.locator);
   if (parsed.kind === 'local') {
     ctx.push({
@@ -152,10 +151,10 @@ function materializeContent(ctx: KindContext, res: ResourceSpec): void {
 }
 
 function materializeConfig(ctx: KindContext, res: ResourceSpec): void {
-  // config 就是一份配置文件，原样落进 configDir；不合并、不碰 MCP 的配置文件
+  // config 就是一份配置文件，原样落进 config 落点；不合并、不碰 MCP 的配置文件
   const id = res.id;
   const parsed = parseSource(res.source);
-  const dir = ctx.layoutVars.configDir;
+  const dir = ctx.dest('config').path;
   const name = fileNameOf(parsed.locator);
   if (parsed.kind === 'local') {
     ctx.push({
@@ -195,7 +194,9 @@ function materializeTool(ctx: KindContext, res: ResourceSpec): void {
   }
 
   // 执行体整份落地，按 commands 逐条建入口
-  const toolRoot = `${ctx.layoutVars.cacheDir}/tools/${id}`;
+  const cache = ctx.dest('cache').path;
+  const bin = ctx.dest('bin').path;
+  const toolRoot = `${cache}/tools/${id}`;
   const localPath = parsed.kind === 'local' ? resolve(ctx.packBase, parsed.locator) : undefined;
   const sourceIsFile = localPath ? existsSync(localPath) && !statSync(localPath).isDirectory() : false;
   if (parsed.kind === 'local') {
@@ -215,14 +216,14 @@ function materializeTool(ctx: KindContext, res: ResourceSpec): void {
     ctx.push({
       op: 'fetch',
       uri: res.source,
-      dest: `${ctx.layoutVars.cacheDir}/${id}.tar.gz`,
+      dest: `${cache}/${id}.tar.gz`,
       ...(res.integrity ? { integrity: res.integrity } : {}),
       ...(res.auth ? { auth: res.auth } : {}),
       resource: id,
     });
     ctx.push({
       op: 'unpack',
-      from: `${ctx.layoutVars.cacheDir}/${id}.tar.gz`,
+      from: `${cache}/${id}.tar.gz`,
       to: toolRoot,
       strip: 1,
       fromBase: 'root',
@@ -307,7 +308,7 @@ function materializeTool(ctx: KindContext, res: ResourceSpec): void {
       const shimPath = ctx.pushRouteShim(runtime);
       ctx.push({
         op: 'link.exec',
-        to: `${ctx.layoutVars.binDir}/${cmd.name}`,
+        to: `${bin}/${cmd.name}`,
         runtime,
         entry: shimPath,
         module: `${toolRoot}/${exec}`,
@@ -320,7 +321,7 @@ function materializeTool(ctx: KindContext, res: ResourceSpec): void {
     }
     ctx.push({
       op: 'link.exec',
-      to: `${ctx.layoutVars.binDir}/${cmd.name}`,
+      to: `${bin}/${cmd.name}`,
       runtime,
       entry: `${toolRoot}/${exec}`,
       args: cmd.args ?? [],

@@ -94,7 +94,11 @@ export async function updateInstance(
   }
 
   // attached home 用宿主已验证的全局落点；managed 用实例根里的 home 段。
-  const { plan, issues } = planForHome(ctx, kind, record.attached === true ? record.root : undefined);
+  const { plan, issues } = planForHome(
+    ctx,
+    kind,
+    record.attached === true ? { attachedHome: record.root } : { root: record.root },
+  );
   if (!plan) throw new PalError('invalid-input', `生成不了计划：${issues.map((i) => i.message).join('; ')}`);
 
   const before = loadState(record.root);

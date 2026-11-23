@@ -11,12 +11,12 @@ import type {
   ResourceType,
   VerifyCheck,
 } from './types.ts';
-import type { HarnessId } from './harness/contract.ts';
+import type { DestinationContext, HarnessId } from './harness/contract.ts';
+import { requireHarness } from './harness/contract.ts';
 import { interpolate, isPlainObject, canonicalize, sha256 } from './util.ts';
 import { STATE_DIR } from './files.ts';
 import { actionPaths, actionUndo } from './plan-ops.ts';
-import { type LayoutVars } from './layout.ts';
-import { layoutFor } from './harness/contract.ts';
+import { destinationFor, layoutNamespace, PACK_ROOT } from './destinations.ts';
 import type { Graph } from './graph.ts';
 import { RESOURCE_KINDS, fileNameOf, type InstalledResource, type KindContext } from './kinds.ts';
 import { ISSUE_CODES } from './issueCodes.ts';
@@ -24,8 +24,12 @@ import { ISSUE_CODES } from './issueCodes.ts';
 export interface PlanOptions {
   /** 装到哪个宿主；不写 = 平铺到项目里 */
   harness?: HarnessId;
-  /** 覆盖落点变量（全局同步用不同的 skillsDir 等）；只允许 LayoutVars 里的键 */
-  layoutVars: Partial<LayoutVars>;
+  /** 安装范围：项目目录 / managed home / attached home（缺省 project） */
+  scope?: DestinationContext['scope'];
+  /** 安装根（目标目录的绝对路径）：宿主拼绝对落点时才用得上 */
+  root?: string;
+  /** 宿主 home 段（managed / attached 有） */
+  home?: string;
   packDir?: string;
   /** 这些类型的资源交给宿主/外部适配器处理，不进计划（例如全局同步时的 MCP） */
   skipResourceTypes?: ResourceType[];
@@ -42,11 +46,19 @@ export function buildPlan(
   opts: PlanOptions,
 ): { plan?: Plan; issues: Issue[] } {
   const issues: Issue[] = [];
-  const layoutVars: LayoutVars = { ...layoutFor(opts.harness), ...opts.layoutVars };
+  // 落点由宿主自己回答（没有宿主就是平铺目录）；内核只按类别问「这类资源落在哪」
+  const harnessSpec = opts.harness === undefined ? undefined : requireHarness(opts.harness);
+  const destCtx: DestinationContext = {
+    root: opts.root ?? '.',
+    ...(opts.home ? { home: opts.home } : {}),
+    scope: opts.scope ?? 'project',
+  };
+  const dest = destinationFor(harnessSpec, destCtx);
+  // 清单插值命名空间：`${layout.skillsDir}` 之类；全部从宿主的 destination 派生
+  const layout = layoutNamespace(dest);
   const scope: Record<string, unknown> = {
     vars: manifest.vars ?? {},
-    // 清单插值命名空间：`${layout.skillsDir}` 之类；平铺与宿主都从同一张落点表来
-    layout: layoutVars,
+    layout,
   };
 
   const missing: string[] = [];
@@ -65,7 +77,7 @@ export function buildPlan(
       continue;
     }
     stateIds.add(spec.id);
-    const rawPath = spec.path ?? `${layoutVars.root}/state/${spec.id}`;
+    const rawPath = spec.path ?? `${PACK_ROOT}/state/${spec.id}`;
     const resolvedPath = interp(rawPath);
     const rel = typeof resolvedPath === 'string' ? resolvedPath : String(rawPath);
     const normalized = normalizeStatePath(rel);
@@ -100,7 +112,7 @@ export function buildPlan(
   const pushRouteShim = (runtime: 'node' | 'python'): string => {
     const existing = shimEmitted.get(runtime);
     if (existing) return existing;
-    const rel = `${layoutVars.root}/shim/route.${runtime === 'node' ? 'mjs' : 'py'}`;
+    const rel = `${PACK_ROOT}/shim/route.${runtime === 'node' ? 'mjs' : 'py'}`;
     push({ op: 'write', to: rel, content: ROUTE_SHIM[runtime], resource: `shim:${runtime}` });
     shimEmitted.set(runtime, rel);
     return rel;
@@ -110,8 +122,7 @@ export function buildPlan(
   const kindCtx: KindContext = {
     issues,
     installed,
-    layoutVars,
-    ...(opts.harness ? { harness: opts.harness } : {}),
+    dest,
     packBase,
     platform: opts.platform,
     push,
@@ -335,13 +346,13 @@ export function buildPlan(
     }
     return readFileSync(abs, 'utf8').trim();
   })();
-  const instructionFile = layoutVars.instructionFile;
+  const instructionFile = dest('instruction').path;
   if (instructionFile) {
     push({
       op: 'instruction',
       file: instructionFile,
       blockId: manifest.metadata.name,
-      content: instructionBlock(manifest, graph, layoutVars, statePaths, contextText),
+      content: instructionBlock(manifest, graph, layout, statePaths, contextText),
     });
   }
 
@@ -643,7 +654,7 @@ function splitBlock(text: string, eol: string): string[] {
 function instructionBlock(
   manifest: Manifest,
   graph: Graph,
-  layoutVars: LayoutVars,
+  layout: Record<string, string>,
   statePaths: Record<string, string>,
   context?: string,
 ): string {
@@ -677,12 +688,12 @@ function instructionBlock(
     })(),
     '',
     '文件位置：',
-    `- skills：\`${layoutVars.skillsDir}\``,
-    `- 知识：\`${layoutVars.knowledgeDir}\``,
-    `- 提示词：\`${layoutVars.promptsDir}\``,
-    `- 工具入口：\`${layoutVars.binDir}\``,
-    `- 配置片段：\`${layoutVars.configDir}\``,
-    `- MCP 配置：\`${layoutVars.configFile}\``,
+    `- skills：\`${layout.skillsDir}\``,
+    `- 知识：\`${layout.knowledgeDir}\``,
+    `- 提示词：\`${layout.promptsDir}\``,
+    `- 工具入口：\`${layout.binDir}\``,
+    `- 配置片段：\`${layout.configDir}\``,
+    `- MCP 配置：\`${layout.configFile}\``,
     ...(stateLines.length > 0 ? ['', '持久状态（数据，不是包产物）：', ...stateLines] : []),
   ];
   return lines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd();

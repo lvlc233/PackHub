@@ -5,8 +5,9 @@
 // 换来的是「加宿主 = 新文件 + index 一行 import」，launcher / runtime / 探针都不用动。
 //
 // 这里只定义形状与查表；每个宿主的静态知识与探针配方在各模块里。
-
-import { DIR_LAYOUT_VARS, layoutVarsWith, type LayoutVars } from '../layout.ts';
+//
+// 落点也归宿主自己回答（`destination`）：内核不认识「布局表」，只按资源类别问宿主
+// 「这类资源落在哪」。`${layout.*}` 插值是从这些回答派生出来的视图（见 destinations.ts）。
 
 /** 启动时能拿到的上下文，交给启动模板拼参数。PAL 起实例时构造它。 */
 export interface StartContext {
@@ -63,13 +64,13 @@ export interface ProbeRecipe {
 }
 
 /**
- * MCP 配置的「方言」：每个宿主的 MCP 配置文件放在哪、server 条目挂在哪个键下面、
- * 文件是什么格式、条目要转成什么形状。
+ * MCP 配置的「方言」：server 条目挂在哪个键下面、文件是什么格式、条目要转成什么形状。
  *
- * 不写就是默认方言：写 `layout.configFile`、JSON、`mcpServers.<name>`、条目用计划里的 spec 原样。
+ * 配置文件写在哪由 `destination('mcp')` 的 `path` 回答；方言里的 `file` 只能覆盖文件名，
+ * 覆盖不了「这个范围写哪个文件」——那属于落点，不属于方言。
  */
 export interface McpDialect {
-  /** 写哪个文件（相对安装根）；不写就用 layout.configFile */
+  /** 覆盖落点给的文件名（相对安装根）；不写就用 `destination('mcp').path` */
   file?: string;
   /** 配置里放 server 条目的对象路径，例如 ['mcpServers'] / ['mcp','servers'] / ['mcp_servers'] */
   path: string[];
@@ -79,29 +80,52 @@ export interface McpDialect {
   entry?(spec: Record<string, unknown>): unknown;
 }
 
-/** 一个宿主的全部描述：静态知识 + 探针配方。注册后不可变。 */
+/** 资源落点的类别：宿主必须逐个回答「这类资源落在哪」。 */
+export type DestinationKind = 'skill' | 'knowledge' | 'prompt' | 'mcp' | 'instruction' | 'bin' | 'config' | 'cache';
+
+/**
+ * 一次安装的落点上下文：装到哪、属于哪种范围。
+ *
+ * `root` 是安装根（项目目录 / managed 实例根 / attached home 的绝对路径），`home` 是宿主的 home 段
+ * （managed 是 `<root>/home/<宿主>`，attached 就是 root 本身）。计划里的动作路径都相对安装根，
+ * 所以宿主通常只按 `scope` 分叉、直接给相对路径；要拼绝对位置的宿主才读 root / home。
+ */
+export interface DestinationContext {
+  /** 安装根（项目目录 / managed 实例根 / attached home） */
+  root: string;
+  /** 宿主 home 段（managed / attached 有）；没有 home 段的宿主不写 */
+  home?: string;
+  /** 这次装到哪种范围 */
+  scope: 'project' | 'home' | 'attached';
+}
+
+/** 宿主对一类资源落点的回答。 */
+export interface Destination {
+  /**
+   * 落点，相对安装根：目录（skill / knowledge / prompt / bin / config / cache）
+   * 或文件（mcp / instruction）。空字符串 = 这个宿主没有该落点（平铺目录没有指令面）。
+   */
+  path: string;
+  /** 仅 mcp：这个宿主的 MCP 方言（条目挂哪个键、什么格式、条目形状） */
+  mcp?: McpDialect;
+}
+
+/** 一个宿主的全部描述：静态知识 + 落点回答 + 探针配方。注册后不可变。 */
 export interface HarnessSpec {
   id: string;
   label: string;
-  /** 相对平铺落点表的差量（skillsDir / configFile / instructionFile 之类） */
-  layout: Partial<LayoutVars>;
+  /**
+   * 落点回答：这类资源装到哪。返回的路径相对安装根——计划动作就是相对安装根的路径，
+   * 所以这里不拼安装根的绝对路径；按范围（项目 / managed / attached）分叉也在这里做。
+   */
+  destination(kind: DestinationKind, ctx: DestinationContext): Destination;
   /** 实例内的 home 目录（相对实例根）与把它指过去的环境变量；没有 home 段的宿主不写 */
   home?: { dir: string; env: string };
   /**
-   * 实例内落点覆盖（相对实例根）：PAL 把资源装进实例时用。
-   * 默认 skills/knowledge/prompts 落在 `<home>/…`；有些宿主的全局目录多一层（如 opencode 的 XDG）
-   * 或配置文件在 home 里，就用这个函数改。
+   * 全局落点（attached home）已验证：`destination` 的 `scope: 'attached'` 分支可用。
+   * 不写 = 「不支持 attached home」，PAL 在写盘之前明确拒绝，而不是把资源写进宿主不会读的目录。
    */
-  instanceLayout?(homeDir: string): Partial<LayoutVars>;
-  /**
-   * attached home 落点：`pal install --home <路径>` 装进宿主真实的全局目录时用。
-   * 传入的是 home 根（与安装根相同）；返回的落点值相对这个 home（`skills` 就是 `<home>/skills`），
-   * 和 `instanceLayout` 一样直接作为 kernel `planFor(ctx, { layoutVars })` 的覆盖。
-   *
-   * 只有全局布局已验证过的宿主才写这一项；没写就是「不支持 attached home」，
-   * PAL 会明确拒绝，而不是把资源写进一个宿主不会读的目录。
-   */
-  attachedLayout?(home: string): Partial<LayoutVars>;
+  attached?: true;
   /** 宿主可执行文件名 */
   executable?: string;
   /** 探测版本用的参数 */
@@ -111,16 +135,12 @@ export interface HarnessSpec {
    * 只用于备份/归档时剥离，不是安装落点：PAL 不往这些位置写东西。
    */
   credentialFiles?: string[];
-  /** 宿主的项目指令文件名（判「包写进去的块在哪」，探针读它） */
-  instructionFile: string;
   /** 启动时带的 profile 名（宿主能力的一部分）；没有就不带 --profile */
   startProfile?: string;
   /** 启动模板；没有就说明这个宿主没有可托管的常驻服务 */
   start?: StartTemplate;
   /** 不能启动时给用户看的原因（能力说明，不是错误码） */
   noStartReason?: string;
-  /** MCP 配置方言；不写 = JSON `mcpServers` + layout.configFile */
-  mcp?: McpDialect;
   /**
    * 项目级落点能装到什么程度（默认 'full'）：
    * - 'full'：项目里注册技能、指令与 MCP；
@@ -182,13 +202,10 @@ export function isHarnessId(value: unknown): value is HarnessId {
   return typeof value === 'string' && registry.has(value);
 }
 
-/** 选落点表：不传宿主 = 平铺目录（DIR_LAYOUT_VARS）。未知宿主抛错。 */
-export function layoutFor(harnessId?: HarnessId): LayoutVars {
-  if (harnessId === undefined) return DIR_LAYOUT_VARS;
-  return layoutVarsWith(requireHarness(harnessId).layout);
-}
-
-/** 宿主的项目指令文件名（探针找托管块用）。未知宿主抛错。 */
+/** 宿主的项目指令文件名（探针找托管块用；相对项目根）。未知宿主或没有指令面时抛错。 */
 export function instructionFileFor(id: HarnessId): string {
-  return requireHarness(id).instructionFile;
+  const spec = requireHarness(id);
+  const { path } = spec.destination('instruction', { root: '.', scope: 'project' });
+  if (!path) throw new Error(`宿主 ${id} 没有项目指令文件`);
+  return path;
 }

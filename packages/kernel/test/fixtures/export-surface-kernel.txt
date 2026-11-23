@@ -7,7 +7,9 @@ CatalogEntry
 CatalogHit
 Composition
 CompositionContext
-DIR_LAYOUT_VARS
+Destination
+DestinationContext
+DestinationKind
 ExecSpec
 Graph
 GraphEdge
@@ -21,7 +23,6 @@ Issue
 IssueCode
 KindContext
 LOCK_FILE
-LayoutVars
 LoadResult
 LocalOverrides
 LockConsistency
@@ -102,7 +103,6 @@ isHarnessId
 isPlainObject
 isResourceType
 isVolatilePin
-layoutFor
 loadManifest
 loadPack
 mergeLocalOverrides

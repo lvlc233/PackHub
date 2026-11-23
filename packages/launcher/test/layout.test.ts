@@ -4,15 +4,17 @@ import {
   isHarnessId,
   registerHarness,
   requireHarness,
+  type DestinationKind,
   type HarnessSpec,
 } from '@packhub/kernel';
 import {
   adapterFor,
+  destinationContext,
   instanceKinds,
   isInstanceKind,
-  layoutVarsFor,
   parseStartUrl,
   requireAdapter,
+  supportsAttached,
 } from '../src/layout.ts';
 
 const CTX = { port: 51_234, root: 'G:/tmp/pal-instance' };
@@ -22,9 +24,8 @@ function spec(id: string, over: Partial<HarnessSpec> = {}): HarnessSpec {
   return {
     id,
     label: id,
-    layout: { instructionFile: 'TEMP.md', skillsDir: `.${id}/skills` },
+    destination: (kind: DestinationKind) => ({ path: kind === 'instruction' ? 'TEMP.md' : `.${id}/${kind}` }),
     home: { dir: `home/${id}`, env: `${id.toUpperCase()}_HOME` },
-    instructionFile: 'TEMP.md',
     probe: {
       executable: 'echo',
       args: (ctx) => [ctx.prompt],
@@ -36,14 +37,6 @@ function spec(id: string, over: Partial<HarnessSpec> = {}): HarnessSpec {
 }
 
 describe('宿主适配（从注册表派生）', () => {
-  it('dsh 的资源落进实例自己的 home', () => {
-    expect(layoutVarsFor('dsh')).toMatchObject({
-      skillsDir: 'home/dsh/skills',
-      knowledgeDir: 'home/dsh/knowledge',
-    });
-    expect(layoutVarsFor('dir')).toBeUndefined();
-  });
-
   it('从启动输出里取地址与端口', () => {
     expect(parseStartUrl('dsh web: http://127.0.0.1:55860/?token=x', 'dsh')).toEqual({
       url: 'http://127.0.0.1:55860/?token=x',
@@ -101,43 +94,64 @@ describe('宿主适配（从注册表派生）', () => {
     expect(adapterFor('dir')?.noStartReason).toContain('dir 实例');
   });
 
-  it('opencode：实例落点是 XDG 多一层 opencode/', () => {
-    expect(layoutVarsFor('opencode')).toEqual({
-      skillsDir: 'home/opencode/opencode/skills',
-      knowledgeDir: 'home/opencode/opencode/knowledge',
-      promptsDir: 'home/opencode/opencode/prompts',
-      configFile: 'home/opencode/opencode/opencode.json',
-    });
+  it('opencode：managed 的 home 段是 XDG 那一层，adapter 仍按注册表派生', () => {
     const adapter = adapterFor('opencode')!;
     expect(adapter.homeDir).toBe('home/opencode');
     expect(adapter.homeEnv).toBe('XDG_CONFIG_HOME');
     expect(adapter.label).toBe('opencode');
   });
 
-  it('workbody：MCP 配置落在 home 里的 mcp.json', () => {
-    expect(layoutVarsFor('workbody')).toEqual({
-      skillsDir: 'home/codebuddy/skills',
-      knowledgeDir: 'home/codebuddy/knowledge',
-      promptsDir: 'home/codebuddy/prompts',
-      configFile: 'home/codebuddy/mcp.json',
+  it('workbody / hermes 的 home 段与能力说明来自注册表', () => {
+    const workbody = adapterFor('workbody')!;
+    expect(workbody.homeDir).toBe('home/codebuddy');
+    expect(workbody.homeEnv).toBe('CODEBUDDY_CONFIG_DIR');
+    expect(workbody.label).toContain('WorkBuddy');
+    const hermes = adapterFor('hermes')!;
+    expect(hermes.homeDir).toBe('home/hermes');
+    expect(hermes.homeEnv).toBe('HERMES_HOME');
+    expect(hermes.label).toBe('Hermes Agent');
+  });
+});
+
+describe('落点上下文（PAL 只回答范围，落点由宿主回答）', () => {
+  it('managed：root 是实例根，home 是 root 下的 home 段', () => {
+    expect(destinationContext('dsh', { root: 'G:/tmp/pal-instance' })).toEqual({
+      root: 'G:/tmp/pal-instance',
+      home: 'G:/tmp/pal-instance/home/dsh',
+      scope: 'home',
     });
-    const adapter = adapterFor('workbody')!;
-    expect(adapter.homeDir).toBe('home/codebuddy');
-    expect(adapter.homeEnv).toBe('CODEBUDDY_CONFIG_DIR');
-    expect(adapter.label).toContain('WorkBuddy');
+    expect(destinationContext('opencode', { root: '/tmp/inst' })).toMatchObject({
+      scope: 'home',
+      home: '/tmp/inst/home/opencode',
+    });
   });
 
-  it('hermes：实例落点的 MCP 是 home 里的 config.yaml', () => {
-    expect(layoutVarsFor('hermes')).toEqual({
-      skillsDir: 'home/hermes/skills',
-      knowledgeDir: 'home/hermes/knowledge',
-      promptsDir: 'home/hermes/prompts',
-      configFile: 'home/hermes/config.yaml',
+  it('attached：root 就是宿主全局目录，home 与 root 同值', () => {
+    expect(destinationContext('opencode', { attachedHome: '/home/u/.config/opencode' })).toEqual({
+      root: '/home/u/.config/opencode',
+      home: '/home/u/.config/opencode',
+      scope: 'attached',
     });
-    const adapter = adapterFor('hermes')!;
-    expect(adapter.homeDir).toBe('home/hermes');
-    expect(adapter.homeEnv).toBe('HERMES_HOME');
-    expect(adapter.label).toBe('Hermes Agent');
+  });
+
+  it('dir 不是宿主：没有落点上下文', () => {
+    expect(destinationContext('dir', { root: '/tmp/x' })).toBeUndefined();
+  });
+
+  it('attached 只对已验证全局落点的宿主开放', () => {
+    for (const id of ['opencode', 'hermes', 'workbody']) {
+      expect(supportsAttached(id), `${id} 应支持 attached`).toBe(true);
+    }
+    for (const id of ['dir', 'dsh', 'claude-code', 'codex']) {
+      expect(supportsAttached(id), `${id} 不该支持 attached`).toBe(false);
+    }
+  });
+
+  it('落点由宿主回答：managed 范围的值不必经过 PAL', () => {
+    const ctx = destinationContext('opencode', { root: '/tmp/inst' })!;
+    const spec = requireHarness('opencode');
+    expect(spec.destination('skill', ctx).path).toBe('home/opencode/opencode/skills');
+    expect(spec.destination('mcp', ctx).path).toBe('home/opencode/opencode/opencode.json');
   });
 });
 
@@ -154,8 +168,9 @@ describe('临时注册宿主', () => {
     expect(adapter.label).toBe('temp-host');
     expect(adapter.homeDir).toBe('home/temp-host');
     expect(adapter.homeEnv).toBe('TEMP-HOST_HOME');
-    expect(layoutVarsFor('temp-host')).toMatchObject({
-      skillsDir: 'home/temp-host/skills',
+    expect(destinationContext('temp-host', { root: '/tmp/x' })).toMatchObject({
+      scope: 'home',
+      home: '/tmp/x/home/temp-host',
     });
     // adapterFor 每次按注册表现派生（返回等价对象，不是同一个引用）
     expect(requireAdapter('temp-host')).toEqual(adapter);

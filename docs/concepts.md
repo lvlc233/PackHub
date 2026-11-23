@@ -89,7 +89,7 @@ Pack 里的一条能力声明，它相对于 Agent，而不是相对于整个 ha
 
 `pal install <来源>` 只有一个动词，target 三选一：不写（managed 命名 home）/ `--home <路径>`（attached home）/ `--project <目录>`（项目）。`--host` 三种都必填；`--name` 只配前两种。内容展开到文件，登记写进 target 的 `.packhub/state.json`。装成功后打印下一步：managed / attached 都是 `pal run <名字>`（server 型宿主是 `pal start <名字>`），项目是「在宿主里打开 <目录>」。managed 想沿用已有全局凭据时加 `--from-home <路径>`：把该宿主 `credentialFiles` 登记的文件从那个目录复制到新 home 的对应位置（源不存在的跳过并提示，宿主没登记凭据文件就什么都不复制）；attached 直接就是宿主的全局目录，不需要也拒绝这个参数；`--project` 没有 home 段，同样不能用。
 
-attached home 只对有已验证全局布局的宿主开放：opencode（`~/.config/opencode`，skills 在 `<home>/skills`、MCP 在 `<home>/opencode.json`）、hermes（`~/.hermes`，MCP 是 `<home>/config.yaml` 的 `mcp_servers`）、workbody（`~/.codebuddy`，MCP 是 `<home>/mcp.json`）。dsh / claude-code / codex 的全局布局未验证，`--home` 明确拒绝——写错地方比拒绝更贵。
+attached home 只对有已验证全局落点（`destination` 的 `scope: 'attached'` 分支）的宿主开放：opencode（`~/.config/opencode`，skills 在 `<home>/skills`、MCP 在 `<home>/opencode.json`）、hermes（`~/.hermes`，MCP 是 `<home>/config.yaml` 的 `mcp_servers`）、workbody（`~/.codebuddy`，MCP 是 `<home>/mcp.json`）。dsh / claude-code / codex 的全局落点未验证，`--home` 明确拒绝——写错地方比拒绝更贵。
 
 `uninstall` / `update` / `rollback` / `verify` 收 `--home <路径|名字>`（managed 用名字，attached 用路径或名字）或 `--project <目录>`；都不给是用法错，提示二选一。home 的写操作（install / uninstall / update / rollback / remove）要求已停，`verify` 允许运行；attached 与 managed 同规则，且 attached 的 remove 不替用户杀进程——环境还在跑就退 2 提示 `pal stop`。
 
@@ -109,11 +109,13 @@ remove 对两类 home 不同：managed 删整根（默认直接删根，`--keep-
 
 模型循环、工具执行、上下文、界面都在它那里。
 
-`pal install` 的 `--host` 与 `packhub plan` / `verify` 的 `--harness` 选的是宿主：写 = 某个宿主名（`dsh` / `claude-code` / `codex` / `opencode` / `workbody` / `hermes`）；不写 = 平铺目录（中性落点，不属于任何宿主；pal 的 `--host` 必填，不存在「不写」）。`dir` 不是可写的取值，它只是平铺目录那张落点表的名字。装到宿主上就是按那个宿主的落点表物化文件、指令与 MCP 写法。宿主对项目落点分三态：`full`（项目里注册技能、指令与 MCP）、`pointer`（dsh：项目里只写指路块，技能留在全局，安装时提示要装进命名 home）、`false`（hermes：没有项目级落点，拒绝项目安装，只能装进 home）。宿主还可以声明自己的 MCP 方言（写哪个文件、条目挂在哪个键下面、什么格式、条目长什么样），以及一份 attached 落点（装进真实全局目录时用哪套布局）。
+`pal install` 的 `--host` 与 `packhub plan` / `verify` 的 `--harness` 选的是宿主：写 = 某个宿主名（`dsh` / `claude-code` / `codex` / `opencode` / `workbody` / `hermes`）；不写 = 平铺目录（中性落点，不属于任何宿主；pal 的 `--host` 必填，不存在「不写」）。`dir` 不是可写的取值，它只是平铺目录这一形态的名字。装到宿主上就是把文件、指令与 MCP 写法落到那个宿主自己声明的落点上：宿主实现 `destination(kind, ctx)`，逐类回答 skill / knowledge / prompt / mcp / instruction / bin / config / cache 落在哪（路径相对安装根），范围只有 `project` / `home`（managed）/ `attached` 三种；内核不持有任何「布局表」，只按类别问宿主。宿主对项目落点分三态：`full`（项目里注册技能、指令与 MCP）、`pointer`（dsh：项目里只写指路块，技能留在全局，安装时提示要装进命名 home）、`false`（hermes：没有项目级落点，拒绝项目安装，只能装进 home）。宿主还可以声明自己的 MCP 方言（条目挂在哪个键下面、什么格式、条目长什么样；配置文件在哪由 `destination('mcp')` 回答），以及是否已验证 attached 落点（`destination` 的 `scope: 'attached'` 分支可用，`pal install --home` 才允许指过去）。
+
+清单里的 `${layout.*}` 是这套落点回答的派生视图，不是第二份数据：`skillsDir` / `knowledgeDir` / `promptsDir` / `binDir` / `configDir` / `cacheDir` 分别等于对应 `destination(kind)`，`configFile` = `destination('mcp')`、`instructionFile` = `destination('instruction')`，`root` 是包自己的 `.packhub` 状态根（不是安装根）；没有指令面的形态（平铺目录）不派生 `instructionFile`，清单里写了就报未定义变量。宿主改掉自己的回答，插值跟着变。
 
 它在 `pal install` 上是**安装参数**（`--host`）；`packhub plan` / `packhub verify` 只拿 `--harness` 算预览与检查计划，不产生安装。它不是 Pack 属性：不进锁、不进内容哈希，`pack` 与 `lock` 都不接受它；同一个 Pack 装到不同宿主，锁与签名不变，变的只是落点与计划（`planFor` 现算）。清单与资源也都不声明安装形态——旧清单带 `targets` 会被判 schema error。
 
-宿主的全部知识在 kernel 的宿主注册表里：`kernel/src/harness/contract.ts` 定义 `HarnessSpec` 与查表 API，`dsh` / `claude-code` / `codex` / `opencode` / `workbody` / `hermes` 各自一个模块，在模块里 `registerHarness`——落点差异、环境 home 与环境变量、MCP 方言、可执行名与版本参数、凭据文件、指令文件名、启动模板与探针配方都在各自文件里；`harness/index.ts` import 一遍完成注册。加一个宿主 = 新建 `harness/<id>.ts` + 在 index 加一行 import，launcher / runtime / 探针都从注册表查，不用改。`HarnessId` 是运行期字符串：编译期穷尽性没有了，靠 `isHarnessId()` 与 schema 的 pattern 兜底；注册是 import 副作用，重复 id 或非法 id 直接抛错。注册表在代码里、不在用户数据里，第三方宿主仍不能自己加（见 decisions）。
+宿主的全部知识在 kernel 的宿主注册表里：`kernel/src/harness/contract.ts` 定义 `HarnessSpec` 与查表 API，`dsh` / `claude-code` / `codex` / `opencode` / `workbody` / `hermes` 各自一个模块，在模块里 `registerHarness`——落点回答（`destination`）、环境 home 与环境变量、MCP 方言、可执行名与版本参数、凭据文件、启动模板与探针配方都在各自文件里；`harness/index.ts` import 一遍完成注册。加一个宿主 = 新建 `harness/<id>.ts` + 在 index 加一行 import，launcher / runtime / 探针都从注册表查，不用改。`HarnessId` 是运行期字符串：编译期穷尽性没有了，靠 `isHarnessId()` 与 schema 的 pattern 兜底；注册是 import 副作用，重复 id 或非法 id 直接抛错。注册表在代码里、不在用户数据里，第三方宿主仍不能自己加（见 decisions）。
 
 选到宿主只决定落点形态，不等于有了一份能跑的 home：managed home 的根、home 段与运行态由 PAL 建，attached home 就是宿主自己的全局目录；装完只得到文件，要跑起来用 `pal run`（见 Launcher 词条）。
 
@@ -123,7 +125,7 @@ home 的宿主形态用 `--host` 选：`install` 只接受宿主名（`dsh` / `c
 
 适配是 Pack 与某个宿主之间的翻译：把通用声明换成那个宿主认得的说法。
 
-它只回答这个 Pack 在它上面能落成什么样——落点表、指令文件、MCP 写法、技能元数据。
+它只回答这个 Pack 在它上面能落成什么样——每类资源落在哪（`destination`）、指令文件、MCP 写法、技能元数据。
 
 ### Environment（环境）
 

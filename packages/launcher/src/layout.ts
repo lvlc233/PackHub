@@ -1,12 +1,12 @@
-import { isAbsolute, relative } from 'node:path';
+import { isAbsolute, join, relative } from 'node:path';
 import {
   harness,
   harnesses,
   harnessIds,
   isHarnessId,
+  type DestinationContext,
   type HarnessId,
   type HarnessSpec,
-  type LayoutVars,
   type StartTemplate,
 } from '@packhub/kernel';
 import { PalError } from './errors.ts';
@@ -88,46 +88,47 @@ export function requireAdapter(kind: InstanceKind): HarnessAdapter {
 }
 
 /**
- * 装进实例时把资源落到实例自己的 home 段，而不是项目内的 .packhub/。
- * 这样宿主读的是这个实例的 skills，不是全局那一份。`dir` 实例没有 home 段，返回 undefined。
+ * 一次安装的落点上下文：PAL 只回答「装到哪个范围」，落点本身由宿主模块的 `destination` 回答
+ * （kernel 出计划时问它）。`dir` 实例不是宿主，返回 undefined。
  *
- * 默认 skills/knowledge/prompts 落在 `<home>/…`；宿主可以用 spec.instanceLayout 改
- * （例如 opencode 的 XDG 目录多一层 `opencode/`、hermes 的 MCP 配置是 home 里的 config.yaml）。
- * 返回值直接作为 kernel `planFor(ctx, { layoutVars })` 的落点覆盖；键必须是 LayoutVars 的键。
- *
- * 传 `attachedHome` 时改用宿主的 attached 落点（装进真实的全局目录）：值的基准是那个 home，
- * 与 managed 的 `home/<宿主>` 基准不同。
+ * - 项目：root = 项目目录，没有 home 段；
+ * - managed：root = 实例根，home = `<root>/<home.dir>`（资源落进实例自己的 home 段，
+ *   宿主读的是这个实例的那一份，不是全局的）；
+ * - attached：root 就是宿主的全局目录，home 与 root 同值，落点相对它。
  */
-export function layoutVarsFor(
+export function destinationContext(
   kind: InstanceKind,
-  attachedHome?: string,
-): Partial<LayoutVars> | undefined {
-  const spec = kind === 'dir' ? undefined : harness(kind);
-  if (!spec?.home) return undefined;
-  if (attachedHome !== undefined) return spec.attachedLayout?.(attachedHome);
-  const home = spec.home.dir;
+  opts: { root?: string; attachedHome?: string } = {},
+): DestinationContext | undefined {
+  if (kind === 'dir') return undefined;
+  const spec = harness(kind);
+  if (!spec) return undefined;
+  if (opts.attachedHome !== undefined) {
+    return { root: opts.attachedHome, home: opts.attachedHome, scope: 'attached' };
+  }
+  const root = opts.root ?? '.';
   return {
-    skillsDir: `${home}/skills`,
-    knowledgeDir: `${home}/knowledge`,
-    promptsDir: `${home}/prompts`,
-    ...(spec.instanceLayout ? spec.instanceLayout(home) : {}),
+    root,
+    // 计划里的路径统一用 /（安装根之外的调用方也不该看到平台分隔符）
+    ...(spec.home ? { home: join(root, spec.home.dir).replaceAll('\\', '/') } : {}),
+    scope: 'home',
   };
 }
 
-/** 宿主有没有已验证的全局布局（attached home）。dir 不是宿主，永远没有。 */
+/** 宿主有没有已验证的全局落点（attached home）。dir 不是宿主，永远没有。 */
 export function supportsAttached(kind: InstanceKind): boolean {
-  return kind !== 'dir' && harness(kind)?.attachedLayout !== undefined;
+  return kind !== 'dir' && harness(kind)?.attached === true;
 }
 
 /**
- * attached home 只对已验证全局布局的宿主开放：写错地方比拒绝更贵。
+ * attached home 只对已验证全局落点的宿主开放：写错地方比拒绝更贵。
  * 统一在这里报用法错（退出 2），命令层与 create 都从这一条走。
  */
 export function assertAttachedSupported(kind: InstanceKind): void {
   if (supportsAttached(kind)) return;
   throw new PalError(
     'invalid-input',
-    `宿主 ${kind} 暂不支持 attached home（全局布局未验证）；用默认命名 home 或 --project`,
+    `宿主 ${kind} 暂不支持 attached home（全局落点未验证）；用默认命名 home 或 --project`,
   );
 }
 

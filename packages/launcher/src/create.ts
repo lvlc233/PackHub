@@ -5,7 +5,7 @@ import { installPack, loadLock, loadPack, loadState, withLockPins, type ActionOu
 import {
   adapterFor,
   assertAttachedSupported,
-  layoutVarsFor,
+  destinationContext,
   requireAdapter,
   type InstanceKind,
 } from './layout.ts';
@@ -265,15 +265,26 @@ export function packIdentityFromState(
 
 /**
  * 一份 home 的计划：managed 用实例根里的 home 段，attached 用宿主已验证的全局落点。
- * 传 `attachedHome` 时布局以那个目录为根（落点值相对它）。
+ * 落点由宿主模块的 `destination` 回答，PAL 只把范围（scope / root / home）交给 kernel。
+ * 传 `attachedHome` 时以那个目录为根（范围是 attached，落点相对它）。
  */
-export function planForHome(ctx: PackContext, kind: InstanceKind, attachedHome?: string) {
-  const layoutVars = layoutVarsFor(kind, attachedHome);
+export function planForHome(
+  ctx: PackContext,
+  kind: InstanceKind,
+  opts: { root?: string; attachedHome?: string } = {},
+) {
   // dir 是项目目录实例，不是 kernel 的宿主：映射成「不传 harness」（平铺到实例根）。
   // 类型写 Partial<PlanOptions>：键写错（例如旧的 targetVars）会在这里编译报错，而不是被静默忽略。
+  const scope = destinationContext(kind, opts);
   const planOptions: Partial<PlanOptions> = {
     ...(kind === 'dir' ? {} : { harness: kind }),
-    ...(layoutVars ? { layoutVars } : {}),
+    ...(scope
+      ? {
+          scope: scope.scope,
+          root: scope.root,
+          ...(scope.home ? { home: scope.home } : {}),
+        }
+      : {}),
   };
   return planFor(ctx, planOptions);
 }
@@ -316,7 +327,11 @@ export function previewHomePlan(opts: {
     assertAttachedSupported(kind);
   }
   const { ctx } = contextOf(opts.packDir);
-  const { plan, issues } = planForHome(ctx, kind, opts.attachedHome);
+  const { plan, issues } = planForHome(
+    ctx,
+    kind,
+    opts.attachedHome === undefined ? {} : { attachedHome: opts.attachedHome },
+  );
   if (!plan) {
     throw new PalError('invalid-input', `生成不了计划：${issues.map((i) => i.message).join('; ')}`);
   }
@@ -374,7 +389,11 @@ export async function createInstance(opts: CreateInstanceOptions): Promise<Insta
   }
 
   const { ctx, packDir } = contextOf(opts.packDir);
-  const { plan, issues } = planForHome(ctx, kind, attachedHome);
+  const { plan, issues } = planForHome(
+    ctx,
+    kind,
+    attachedHome === undefined ? { root } : { attachedHome },
+  );
   if (!plan) {
     throw new PalError('invalid-input', `生成不了计划：${issues.map((i) => i.message).join('; ')}`);
   }
@@ -512,7 +531,7 @@ export interface InstallIntoInstanceResult {
 
 /**
  * 往一个「空实例」里装 Pack：实例必须已停、state 里还没有包（有包走 update）。
- * 落点用实例记录的 harness（含 dir）算 layoutVars，与 create 装配同一套布局。
+ * 落点由实例记录的 harness（含 dir）决定，与 create 装配同一套范围。
  */
 export async function installIntoInstance(
   idOrName: string,
@@ -535,7 +554,11 @@ export async function installIntoInstance(
   const { ctx, packDir } = contextOf(opts.packDir);
   const kind = record.harness;
   // attached 记录装回它自己的全局目录；managed 用实例根里的 home 段
-  const { plan, issues } = planForHome(ctx, kind, record.attached === true ? record.root : undefined);
+  const { plan, issues } = planForHome(
+    ctx,
+    kind,
+    record.attached === true ? { attachedHome: record.root } : { root: record.root },
+  );
   if (!plan) {
     throw new PalError('invalid-input', `生成不了计划：${issues.map((i) => i.message).join('; ')}`);
   }

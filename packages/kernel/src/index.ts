@@ -48,7 +48,6 @@ export {
   type ResourceKind,
 } from './kinds.ts';
 export { buildPlan, type PlanOptions } from './plan.ts';
-export { DIR_LAYOUT_VARS, type LayoutVars } from './layout.ts';
 export { buildLock, contentHashOf } from './lock.ts';
 export {
   PLAN_OPS,
@@ -216,8 +215,10 @@ export function planFor(
   }
   const built = buildPlan(ctx.manifest, ctx.graph, {
     ...(harness ? { harness } : {}),
-    // 落点表由 buildPlan 按宿主选（layoutFor）；这里只传显式覆盖
-    layoutVars: { ...(opts.layoutVars ?? {}) },
+    // 落点由宿主自己回答（host 的 destination）；这里只把「装到哪种范围」传下去
+    ...(opts.scope ? { scope: opts.scope } : {}),
+    ...(opts.root ? { root: opts.root } : {}),
+    ...(opts.home ? { home: opts.home } : {}),
     packDir: ctx.dir,
     // 平台在这里默认成宿主机；buildPlan 自己不读 process（测试可注入别的平台）
     platform: opts.platform ?? `${process.platform}-${process.arch}`,

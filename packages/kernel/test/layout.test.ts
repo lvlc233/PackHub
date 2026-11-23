@@ -1,24 +1,34 @@
 import { describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import packhubSchema from '../../../schema/packhub.v0.schema.json' with { type: 'json' };
 import {
   HARNESS_ID_PATTERN,
   harness,
   harnessIds,
   isHarnessId,
-  layoutFor,
   registerHarness,
   requireHarness,
+  type DestinationContext,
+  type DestinationKind,
   type HarnessSpec,
 } from '../src/harness/index.ts';
-import { DIR_LAYOUT_VARS, layoutVarsWith } from '../src/layout.ts';
+import { loadPack, planFor } from '../src/index.ts';
+
+/** 落点上下文：项目 / managed / attached 只差 scope（与 root / home）。 */
+function ctx(scope: DestinationContext['scope'], root = '.'): DestinationContext {
+  return { root, scope, ...(scope === 'project' ? {} : { home: `${root}/home/x` }) };
+}
+
+const KINDS: DestinationKind[] = ['skill', 'knowledge', 'prompt', 'mcp', 'instruction', 'bin', 'config', 'cache'];
 
 /** 注册表用例用的最小宿主：形状够、行为不参与。 */
 function spec(id: string, over: Partial<HarnessSpec> = {}): HarnessSpec {
   return {
     id,
     label: id,
-    layout: { instructionFile: 'TEMP.md' },
-    instructionFile: 'TEMP.md',
+    destination: (kind) => ({ path: kind === 'instruction' ? 'TEMP.md' : `.${id}/${kind}` }),
     probe: {
       executable: 'echo',
       args: (ctx) => [ctx.prompt],
@@ -32,8 +42,8 @@ function spec(id: string, over: Partial<HarnessSpec> = {}): HarnessSpec {
 /**
  * 宿主是运行期注册表：`harness/index.ts` import 一遍各宿主模块就算注册。
  *
- * 落点表不再是「一张覆盖所有宿主的常量表」，而是 `layoutFor(id)` 现查注册表、
- * 把模块里的 `layout` 差量叠到平铺约定上；所以这里断言的是「注册表内容」与「派生结果」。
+ * 落点不再是一张内核持有的覆盖表，而是宿主自己的回答：`spec.destination(kind, ctx)`。
+ * 这里断言的是「注册表内容」与「六个宿主对每类资源给出的答案」。
  */
 describe('宿主注册表', () => {
   it('注册了六个宿主，id 都符合 HARNESS_ID_PATTERN', () => {
@@ -61,20 +71,6 @@ describe('宿主注册表', () => {
     expect(harnessIds()).not.toContain('dir');
   });
 
-  it('layoutFor：平铺不碰宿主的落点；每个宿主的差量来自它模块里的 layout', () => {
-    expect(layoutFor()).toBe(DIR_LAYOUT_VARS);
-    expect(DIR_LAYOUT_VARS.instructionFile).toBeUndefined();
-
-    for (const id of harnessIds()) {
-      const specOfId = requireHarness(id);
-      expect(layoutFor(id)).toEqual(layoutVarsWith(specOfId.layout));
-      expect(layoutFor(id)).toMatchObject(specOfId.layout);
-      expect(layoutFor(id).instructionFile).toBeTruthy();
-    }
-    // 未知宿主：不猜，直接抛
-    expect(() => layoutFor('nope')).toThrow(/未知宿主：nope/);
-  });
-
   it('schema 的 scenario.harness 是 string + pattern，不是静态 enum', () => {
     const node = (packhubSchema as unknown as {
       definitions: {
@@ -97,65 +93,149 @@ describe('宿主注册表', () => {
   });
 });
 
-describe('新宿主的静态知识与 MCP 方言', () => {
-  it('opencode：XDG 落点多一层 opencode/，MCP 是 mcp.servers + local/remote 条目', () => {
-    const spec = requireHarness('opencode');
-    expect(spec.layout).toMatchObject({ skillsDir: '.opencode/skills', configFile: 'opencode.json' });
-    expect(spec.home).toEqual({ dir: 'home/opencode', env: 'XDG_CONFIG_HOME' });
-    expect(spec.instanceLayout?.('home/opencode')).toEqual({
-      skillsDir: 'home/opencode/opencode/skills',
-      knowledgeDir: 'home/opencode/opencode/knowledge',
-      promptsDir: 'home/opencode/opencode/prompts',
-      configFile: 'home/opencode/opencode/opencode.json',
-    });
+describe('落点归宿主：每个宿主回答每类资源落在哪', () => {
+  it('项目范围：技能 / MCP / 指令落在宿主认的位置，其余落在包自己的 .packhub', () => {
+    const project: Record<string, Partial<Record<DestinationKind, string>>> = {
+      dsh: { skill: '.packhub/skills', mcp: '.packhub/config.json', instruction: 'AGENTS.md' },
+      'claude-code': { skill: '.claude/skills', mcp: '.mcp.json', instruction: 'CLAUDE.md' },
+      codex: { skill: '.codex/skills', mcp: '.packhub/config.json', instruction: 'AGENTS.md' },
+      opencode: { skill: '.opencode/skills', mcp: 'opencode.json', instruction: 'AGENTS.md' },
+      workbody: { skill: '.codebuddy/skills', mcp: '.mcp.json', instruction: 'CODEBUDDY.md' },
+      hermes: { skill: '.packhub/skills', mcp: 'config.yaml', instruction: 'AGENTS.md' },
+    };
+    for (const [id, expected] of Object.entries(project)) {
+      const specOfId = requireHarness(id);
+      for (const [kind, path] of Object.entries(expected)) {
+        expect(specOfId.destination(kind as DestinationKind, ctx('project')).path, `${id}/${kind}`).toBe(path);
+      }
+      // 包自己的产物不碰宿主：项目范围也一样是 .packhub
+      expect(specOfId.destination('cache', ctx('project')).path).toBe('.packhub/cache');
+      expect(specOfId.destination('bin', ctx('project')).path).toBe('.packhub/bin');
+      expect(specOfId.destination('config', ctx('project')).path).toBe('.packhub/config');
+    }
+  });
 
-    const mcp = spec.mcp!;
-    expect(mcp.path).toEqual(['mcp', 'servers']);
-    expect(mcp.file).toBeUndefined(); // 用 layout.configFile
-    expect(mcp.format).toBeUndefined(); // 默认 JSON
+  it('managed 范围：技能 / 知识 / 提示词进实例 home 段（opencode 多一层 XDG）', () => {
+    const home: Record<string, Partial<Record<DestinationKind, string>>> = {
+      dsh: {
+        skill: 'home/dsh/skills',
+        knowledge: 'home/dsh/knowledge',
+        prompt: 'home/dsh/prompts',
+        mcp: '.packhub/config.json',
+      },
+      'claude-code': {
+        skill: 'home/claude/skills',
+        knowledge: 'home/claude/knowledge',
+        prompt: 'home/claude/prompts',
+        mcp: '.mcp.json',
+      },
+      codex: {
+        skill: 'home/codex/skills',
+        knowledge: 'home/codex/knowledge',
+        prompt: 'home/codex/prompts',
+        mcp: '.packhub/config.json',
+      },
+      opencode: {
+        skill: 'home/opencode/opencode/skills',
+        knowledge: 'home/opencode/opencode/knowledge',
+        prompt: 'home/opencode/opencode/prompts',
+        mcp: 'home/opencode/opencode/opencode.json',
+      },
+      workbody: {
+        skill: 'home/codebuddy/skills',
+        knowledge: 'home/codebuddy/knowledge',
+        prompt: 'home/codebuddy/prompts',
+        mcp: 'home/codebuddy/mcp.json',
+      },
+      hermes: {
+        skill: 'home/hermes/skills',
+        knowledge: 'home/hermes/knowledge',
+        prompt: 'home/hermes/prompts',
+        mcp: 'home/hermes/config.yaml',
+      },
+    };
+    for (const [id, expected] of Object.entries(home)) {
+      const specOfId = requireHarness(id);
+      for (const [kind, path] of Object.entries(expected)) {
+        expect(specOfId.destination(kind as DestinationKind, ctx('home')).path, `${id}/${kind}`).toBe(path);
+      }
+      // managed 的 bin / config / cache 仍在实例自己的 .packhub
+      expect(specOfId.destination('cache', ctx('home')).path).toBe('.packhub/cache');
+    }
+  });
+
+  it('attached 范围只对已验证全局落点的宿主开放，值相对那个 home', () => {
+    expect(requireHarness('opencode').destination('skill', ctx('attached')).path).toBe('skills');
+    expect(requireHarness('opencode').destination('mcp', ctx('attached')).path).toBe('opencode.json');
+    expect(requireHarness('hermes').destination('skill', ctx('attached')).path).toBe('skills');
+    expect(requireHarness('hermes').destination('mcp', ctx('attached')).path).toBe('config.yaml');
+    expect(requireHarness('workbody').destination('skill', ctx('attached')).path).toBe('skills');
+    expect(requireHarness('workbody').destination('mcp', ctx('attached')).path).toBe('mcp.json');
+    // 全局落点未验证的宿主不标 attached：PAL 会拒绝 --home，而不是猜一个目录
+    for (const id of ['dsh', 'claude-code', 'codex']) {
+      expect(requireHarness(id).attached, `${id} 不该是 attached 宿主`).toBeUndefined();
+    }
+    for (const id of ['opencode', 'hermes', 'workbody']) {
+      expect(requireHarness(id).attached, `${id} 应标 attached`).toBe(true);
+    }
+  });
+
+  it('结构：每个注册宿主都实现 destination，路径类落点都是字符串', () => {
+    for (const id of harnessIds()) {
+      const specOfId = requireHarness(id);
+      expect(typeof specOfId.destination, `${id} 应实现 destination`).toBe('function');
+      for (const scope of ['project', 'home', 'attached'] as const) {
+        for (const kind of ['skill', 'knowledge', 'prompt', 'bin', 'config', 'cache'] as const) {
+          const { path } = specOfId.destination(kind, ctx(scope));
+          expect(typeof path, `${id}/${scope}/${kind}`).toBe('string');
+          expect(path.length, `${id}/${scope}/${kind} 不该是空的`).toBeGreaterThan(0);
+        }
+        // mcp 是文件落点：要么是宿主的配置文件，要么是 .packhub 里的登记文件
+        expect(typeof specOfId.destination('mcp', ctx(scope)).path).toBe('string');
+        // 指令文件：六个宿主都有项目指令面
+        expect(specOfId.destination('instruction', ctx('project')).path).toMatch(/\.md$/);
+      }
+    }
+  });
+
+  it('MCP 方言随落点一起给：opencode 是 mcp.servers + local/remote 条目', () => {
+    const mcp = requireHarness('opencode').destination('mcp', ctx('project'));
+    expect(mcp.path).toBe('opencode.json');
+    expect(mcp.mcp?.path).toEqual(['mcp', 'servers']);
+    expect(mcp.mcp?.file).toBeUndefined(); // 文件名由落点回答
+    expect(mcp.mcp?.format).toBeUndefined(); // 默认 JSON
 
     // 本地条目：{ type: 'local', command: [exe, ...args] }
     expect(
-      mcp.entry!({ transport: 'stdio', command: 'npx', args: ['-y', '@scope/x@1.0.0'] }),
+      mcp.mcp!.entry!({ transport: 'stdio', command: 'npx', args: ['-y', '@scope/x@1.0.0'] }),
     ).toEqual({ type: 'local', command: ['npx', '-y', '@scope/x@1.0.0'] });
     // 远程条目：{ type: 'remote', url }
-    expect(mcp.entry!({ transport: 'http', url: 'https://mcp.example.com' })).toEqual({
+    expect(mcp.mcp!.entry!({ transport: 'http', url: 'https://mcp.example.com' })).toEqual({
       type: 'remote',
       url: 'https://mcp.example.com',
     });
     // env 变成 environment
-    expect(
-      mcp.entry!({ command: 'npx', args: ['pkg'], env: { TOKEN: 'x' } }),
-    ).toMatchObject({ type: 'local', environment: { TOKEN: 'x' } });
+    expect(mcp.mcp!.entry!({ command: 'npx', args: ['pkg'], env: { TOKEN: 'x' } })).toMatchObject({
+      type: 'local',
+      environment: { TOKEN: 'x' },
+    });
   });
 
-  it('workbody：项目落点是 .mcp.json，MCP 用默认方言（mcpServers）', () => {
-    const spec = requireHarness('workbody');
-    expect(spec.layout).toMatchObject({
-      skillsDir: '.codebuddy/skills',
-      configFile: '.mcp.json',
-      instructionFile: 'CODEBUDDY.md',
-    });
-    expect(spec.home).toEqual({ dir: 'home/codebuddy', env: 'CODEBUDDY_CONFIG_DIR' });
-    expect(spec.instanceLayout?.('home/codebuddy')).toMatchObject({
-      skillsDir: 'home/codebuddy/skills',
-      configFile: 'home/codebuddy/mcp.json',
-    });
-    // 不写 mcp = 默认方言：JSON + mcpServers.<name> + spec 原样
-    expect(spec.mcp).toBeUndefined();
-    expect(spec.project).toBeUndefined(); // 默认 true
+  it('workbody：项目 MCP 是 .mcp.json、用默认方言（JSON mcpServers）', () => {
+    const specOfId = requireHarness('workbody');
+    expect(specOfId.destination('mcp', ctx('project')).path).toBe('.mcp.json');
+    // 不写方言 = 默认方言：JSON + mcpServers.<name> + spec 原样
+    expect(specOfId.destination('mcp', ctx('project')).mcp).toBeUndefined();
+    expect(specOfId.home).toEqual({ dir: 'home/codebuddy', env: 'CODEBUDDY_CONFIG_DIR' });
+    expect(specOfId.project).toBeUndefined(); // 默认 full
   });
 
   it('hermes：只有全局目录（project=false），MCP 是 YAML 的 mcp_servers', () => {
-    const spec = requireHarness('hermes');
-    expect(spec.project).toBe(false);
-    expect(spec.home).toEqual({ dir: 'home/hermes', env: 'HERMES_HOME' });
-    expect(spec.instanceLayout?.('home/hermes')).toMatchObject({
-      skillsDir: 'home/hermes/skills',
-      configFile: 'home/hermes/config.yaml',
-    });
+    const specOfId = requireHarness('hermes');
+    expect(specOfId.project).toBe(false);
+    expect(specOfId.home).toEqual({ dir: 'home/hermes', env: 'HERMES_HOME' });
 
-    const mcp = spec.mcp!;
+    const mcp = specOfId.destination('mcp', ctx('home')).mcp!;
     expect(mcp.path).toEqual(['mcp_servers']);
     expect(mcp.format).toBe('yaml');
     expect(mcp.entry!({ command: 'npx', args: ['-y', 'pkg'], env: { K: 'V' } })).toEqual({
@@ -166,27 +246,6 @@ describe('新宿主的静态知识与 MCP 方言', () => {
     expect(mcp.entry!({ url: 'https://mcp.example.com' })).toEqual({
       url: 'https://mcp.example.com',
     });
-  });
-
-  it('attached 落点只给已验证全局布局的宿主；值相对 attached home', () => {
-    expect(requireHarness('opencode').attachedLayout?.('/home/u/.config/opencode')).toEqual({
-      skillsDir: 'skills',
-      knowledgeDir: 'knowledge',
-      promptsDir: 'prompts',
-      configFile: 'opencode.json',
-    });
-    expect(requireHarness('hermes').attachedLayout?.('/home/u/.hermes')).toMatchObject({
-      skillsDir: 'skills',
-      configFile: 'config.yaml',
-    });
-    expect(requireHarness('workbody').attachedLayout?.('/home/u/.codebuddy')).toMatchObject({
-      skillsDir: 'skills',
-      configFile: 'mcp.json',
-    });
-    // 全局布局未验证的宿主不写这一项：PAL 会拒绝 --home，而不是猜一个目录
-    for (const id of ['dsh', 'claude-code', 'codex']) {
-      expect(requireHarness(id).attachedLayout, `${id} 不该有 attachedLayout`).toBeUndefined();
-    }
   });
 
   it('宿主 project 三态：dsh pointer、hermes false、其余不写（full）', () => {
@@ -202,20 +261,21 @@ describe('新宿主的静态知识与 MCP 方言', () => {
 });
 
 describe('临时注册', () => {
-  it('registerHarness 之后 harnessIds / isHarnessId / layoutFor 立刻生效', () => {
-    const temp = spec('temp-host', {
-      layout: { instructionFile: 'TEMP.md', skillsDir: '.temp/skills' },
-    });
+  it('registerHarness 之后 harnessIds / isHarnessId / destination 立刻生效', () => {
+    const temp = spec('temp-host');
     registerHarness(temp);
 
     expect(harnessIds()).toContain('temp-host');
     expect(isHarnessId('temp-host')).toBe(true);
     expect(harness('temp-host')).toBe(temp);
     expect(requireHarness('temp-host').label).toBe('temp-host');
-    expect(layoutFor('temp-host').skillsDir).toBe('.temp/skills');
-    expect(layoutFor('temp-host').instructionFile).toBe('TEMP.md');
-    // 注册项只叠自己的差量：其余仍是平铺
-    expect(layoutFor('temp-host').knowledgeDir).toBe(DIR_LAYOUT_VARS.knowledgeDir);
+    expect(requireHarness('temp-host').destination('skill', ctx('project')).path).toBe('.temp-host/skill');
+    expect(requireHarness('temp-host').destination('instruction', ctx('project')).path).toBe('TEMP.md');
+    // 没覆盖的落点仍然由宿主回答（这里是它自己的回答，不是内核的默认表）
+    expect(requireHarness('temp-host').destination('cache', ctx('home')).path).toBe('.temp-host/cache');
+    for (const kind of KINDS) {
+      expect(typeof requireHarness('temp-host').destination(kind, ctx('project')).path).toBe('string');
+    }
   });
 
   it('非法 id 抛错，且不会进注册表', () => {
@@ -225,5 +285,72 @@ describe('临时注册', () => {
 
   it('重复 id 抛错（模块被 import 两次或 id 抄错）', () => {
     expect(() => registerHarness(spec('dsh'))).toThrow(/宿主重复注册：dsh/);
+  });
+});
+
+describe('${layout.*} 是落点的派生视图', () => {
+  /** 一个只用插值的清单：exec 的参数是目录落点，verify 的路径是指令文件。 */
+  function interpPack(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'packhub-layout-'));
+    writeFileSync(
+      join(dir, 'packhub.yaml'),
+      `apiVersion: packhub.dev/v0
+kind: Pack
+metadata: { name: demo/layout, version: 0.0.1 }
+requires: { packhub: ">=0.0.1 <0.1" }
+resources:
+  - id: cfg
+    type: config
+    source: ./cfg.yaml
+install:
+  exec:
+    - command: node
+      args:
+        - "\${layout.skillsDir}"
+        - "\${layout.configFile}"
+        - "\${layout.root}"
+verify:
+  - type: file-exists
+    path: "\${layout.instructionFile}"
+`,
+      'utf8',
+    );
+    writeFileSync(join(dir, 'cfg.yaml'), 'app:\n  flavor: a\n', 'utf8');
+    return dir;
+  }
+
+  it('插值取到宿主 destination 的回答，不另存一份落点表', () => {
+    const dir = interpPack();
+    const ctxOfPack = loadPack(dir);
+    const planOf = (opts: Parameters<typeof planFor>[1]) => planFor(ctxOfPack, opts).plan!;
+
+    // 项目范围：技能 / MCP 在宿主认的位置，root 仍是包自己的 .packhub
+    const project = planOf({ harness: 'opencode' });
+    const projectExec = project.actions.find((a) => a.op === 'exec');
+    expect(projectExec && 'args' in projectExec ? projectExec.args : []).toEqual([
+      '.opencode/skills',
+      'opencode.json',
+      '.packhub',
+    ]);
+    expect(project.verify).toEqual([{ type: 'file-exists', path: 'AGENTS.md' }]);
+
+    // managed 范围：同一个宿主的回答按 scope 分叉（XDG 多一层），插值跟着变
+    const managed = planOf({ harness: 'opencode', scope: 'home', root: '/inst', home: '/inst/home/opencode' });
+    const managedExec = managed.actions.find((a) => a.op === 'exec');
+    expect(managedExec && 'args' in managedExec ? managedExec.args : []).toEqual([
+      'home/opencode/opencode/skills',
+      'home/opencode/opencode/opencode.json',
+      '.packhub',
+    ]);
+    expect(managed.verify).toEqual([{ type: 'file-exists', path: 'AGENTS.md' }]);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('没有指令面的形态（平铺目录）不给 instructionFile：写了报未定义变量', () => {
+    const dir = interpPack();
+    const { plan, issues } = planFor(loadPack(dir));
+    expect(plan).toBeUndefined();
+    expect(issues.some((i) => i.code === 'undefined-variable')).toBe(true);
+    rmSync(dir, { recursive: true, force: true });
   });
 });
