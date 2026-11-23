@@ -46,7 +46,7 @@ review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增
 
 上一条把安装形态收进安装期后，参数仍叫 `--target`，枚举里混着中性落点 `dir` 与三个宿主名。`dir` 不是宿主，只是平铺落点表的名字；写成 `--target dir` 会让人以为 `dir` 是某种宿主形态，作者命令里出现 `--target` 也容易被读成内容层参数。
 
-现在 packhub 只选宿主：`plan` / `install` / `verify` 用 `--harness`，取值只有 `dsh` / `claude-code` / `codex`；不写就是平铺目录，计划里没有 `harness` 字段。PAL 的实例形态另用 `--kind`：`create` 只接受宿主名，`dir` 只出现在 `adopt`（接管已有目录）里；`instance.json` 仍记 `harness` 字段（值含 `dir`），记录格式不动。
+现在 `--harness` 只选宿主：`packhub plan` / `verify` 与 `pal install` 用它，取值是注册表里的宿主名（`dsh` / `claude-code` / `codex` / `opencode` / `workbody` / `hermes`）；不写就是平铺目录，计划里没有 `harness` 字段。PAL 的实例形态另用 `--kind`：`create` 只接受宿主名，`dir` 只出现在 `adopt`（接管已有目录）里；`instance.json` 仍记 `harness` 字段（值含 `dir`），记录格式不动。
 
 没选另一条：保留 `--target` 并把 `dir` 留在枚举里，或让两个命令族统一叫 `--harness`。留 `--target` + `dir` 等于让一个参数同时回答「装到哪个宿主」和「要不要平铺」，每处调用都要先解释 `dir` 不是宿主；统一叫 `--harness` 则 PAL 的 `dir` 得假装成宿主名，实例记录与落点表也要跟着改词。两个命令族用不同参数名是有意的：packhub 的参数决定「内容按哪张落点表物化」，PAL 的参数决定「实例是什么形态」；同名会把这两个概念重新混在一起。
 
@@ -56,11 +56,31 @@ review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增
 
 一个宿主要回答的问题分散在几处：落点表（文件写到哪）、实例 home 与环境变量、可执行名与版本参数、凭据文件、指令文件名、启动模板、探针配方。上一版把静态知识收进 kernel 的一张 `HARNESSES` 大表（`HARNESS_IDS` / `LAYOUT_VARS` 从表派生，加宿主 = 表里加一行、`Record` / `keyof` 编译期卡完备）。表变大之后，所有宿主的启动模板与探针逻辑挤在同一个文件里，改一个宿主也要在同一处翻，而探针配方还留在 runtime——「加宿主」的边界仍然不是一个模块。
 
-现在改成运行期注册表：`kernel/src/harness/contract.ts` 定义 `HarnessSpec` / `ProbeRecipe` 与 `registerHarness` / `harnessIds` / `requireHarness` / `layoutFor` 等查表 API；每个宿主一个模块（`dsh.ts` / `claude-code.ts` / `codex.ts`），在自己的文件里 `registerHarness({...})`，探针配方随模块走；`harness/index.ts` import 三个模块完成注册。加宿主 = 新建 `harness/<id>.ts` + index 一行 import，launcher / runtime / 探针都从注册表查，不用改。注册是 import 副作用：重复 id 或非法 id 在注册时抛错。
+现在改成运行期注册表：`kernel/src/harness/contract.ts` 定义 `HarnessSpec` / `ProbeRecipe` 与 `registerHarness` / `harnessIds` / `requireHarness` / `layoutFor` 等查表 API；每个宿主一个模块（`dsh.ts` / `claude-code.ts` / `codex.ts` / `opencode.ts` / `workbody.ts` / `hermes.ts`），在自己的文件里 `registerHarness({...})`，探针配方随模块走；`harness/index.ts` import 各模块完成注册。加宿主 = 新建 `harness/<id>.ts` + index 一行 import，launcher / runtime / 探针都从注册表查，不用改。注册是 import 副作用：重复 id 或非法 id 在注册时抛错。
 
 没选另一条：保留一张大表，或把宿主描述做成 registry 下发数据 / runtime 插件。大表把一个宿主的全部知识挤在同一个文件里，加宿主改一处但同时改到所有人；数据描述把「怎么装」变成可远程改的输入，要配信任与钉版本，而启动模板、探针配方里还有只能写成代码的行为；runtime 插件要在 kernel 里再开一个执行面（加载时机、失败隔离、版本兼容与信任）。宿主是产品支持集，不是用户扩展点。
 
 代价：`HarnessId` 从编译期联合类型变成运行期 `string`——穷尽性没了，靠 `isHarnessId()` 与 schema 的 `^[a-z][a-z0-9-]*$` pattern 兜底；schema 不能静态枚举宿主名，`scenario.harness` 也只能是 pattern。注册靠 import 副作用：`harness/index.ts` 漏 import 一个模块，那个宿主就不存在，错误只在运行期暴露。第三方宿主仍不能自己加——必须改代码并随 packhub / pal 发版；加宿主仍要动 barrel 的那一行 import。
+
+### MCP 配置按宿主方言
+
+同样是登记一个 MCP server，各宿主放的地方不一样：默认方言是 JSON 的 `mcpServers`（claude-code 的 `.mcp.json`、workbody 的 `.mcp.json` 都走它）；opencode 是 `opencode.json` 里的 `mcp.servers`，条目要转成 `{type:'local',command:[...]}` / `{type:'remote',url}`；hermes 是 `config.yaml` 里的 YAML `mcp_servers`。以前安装期只认一种写法（`layout.configFile` + JSON `mcpServers` + 原样 spec），别的宿主装完 MCP 不生效。
+
+现在宿主注册项可以声明 `mcp` 方言：`file`（写哪个文件，缺省 `layout.configFile`）、`path`（条目挂哪个对象路径，如 `['mcp','servers']`）、`format`（`json` / `yaml`）、`entry(spec)`（条目形状）。计划里的 `register.mcp` 动作带 `path` / `configPath` / `format`，`spec` 已经是转好的条目；安装、卸载、漂移检查都按同一份方言读写。不写方言 = 默认 JSON `mcpServers` + spec 原样。
+
+没选另一条：继续只支持 JSON `mcpServers`，或让每个宿主在 runtime 里各写一套读写分支。只支持一种写法等于把 claude 的形状当成所有宿主的形状；每个宿主一套分支则把「条目挂哪、什么格式」散回各处，卸载和漂移检查还得再对一遍。方言是数据，读写只有一套。
+
+代价：YAML 写回是重新序列化——hermes 的 `config.yaml` 里原有注释与键顺序不保留；workbody 的实例级 MCP 路径（`<home>/mcp.json`）是推断的，没有官方文档确认，真机不对时要改注册项。
+
+### 宿主可以有 project=false
+
+宿主注册项原来隐含「每个宿主都能装进项目目录」：`pal install --into` 只要给 `--harness` 就按落点表物化。hermes 不是这样：它只有全局目录（`~/.hermes`，Windows `%LOCALAPPDATA%\hermes`，`HERMES_HOME` 可改），技能在 `<home>/skills`、MCP 在 `<home>/config.yaml`，没有项目级落点；硬装进项目只会写出一份 hermes 不会读的文件。
+
+现在 `HarnessSpec` 可以声明 `project: false`。这类宿主 `pal install --into` 直接拒绝（用法错，提示用 `pal create --kind <id>` 建实例），`pal create` 按实例落点装配 home；其余宿主默认 `project: true`，行为不变。
+
+没选另一条：让 `pal install` 也能装进全局 home，或强制所有宿主都提供项目级落点。前者把「装进一个目录」的对象扩大到 home，安装 / 卸载 / 回滚都要处理「没有 state 的全局目录」，和 PAL 的实例边界打架；后者等于为一个只有全局目录的宿主编造一份项目落点，装出来的东西没人读。拒绝安装比装出一份假落点便宜。
+
+代价：hermes 用不了目录工作流——`pal install --into`、`pal verify <dir>`、`pal update --dir` 都不适用，只能在实例上装和跑；给这类宿主做项目内联调时得先建实例。`project: false` 是新开关，文档与 `--help` 都要解释「哪些宿主只能 create」；这轮三个新宿主还没登记凭据清单（`credentialFiles` 为空），备份 / 归档不会剥离它们的凭据，是已知欠账。
 
 ### 资源级 targets 与 requires.agent 删除
 
@@ -102,9 +122,9 @@ review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增
 
 ### 安装归 PAL：packhub 只做生产
 
-`packhub` 与 `pal` 按「生产 / 安装与运行」分：`packhub` 只碰 Pack 的生产面——清单、锁、打包、发布、签名，以及 Pack 目录里的预览（`plan` / `verify`），不写用户目录；装进项目、卸载、回滚、更新已装目录、建实例与起停看护都归 `pal`，目录安装与实例安装都在它这里。`pal create` 只建宿主实例（`--kind dsh` / `claude-code` / `codex`），目录形态的实例走 `pal adopt`；`pal audit` 看安装审计（审计由 `pal install` / `pal update` 写），`pal health --hosts` 兼职宿主发现（装没装、版本、能不能起）。`packhub verify` 只验 Pack 目录（检查段）；`pal verify` 验已装目录（漂移 + 检查）。一条命令仍只对一个对象动手：`packhub` 的对象是 Pack，`pal` 的对象是已存在的目录或实例。
+`packhub` 与 `pal` 按「生产 / 安装与运行」分：`packhub` 只碰 Pack 的生产面——清单、锁、打包、发布、签名，以及 Pack 目录里的预览（`plan` / `verify`），不写用户目录；装进项目、卸载、回滚、更新已装目录、建实例与起停看护都归 `pal`，目录安装与实例安装都在它这里。`pal create` 只建宿主实例（`--kind` 取已注册宿主名），目录形态的实例走 `pal adopt`；`pal audit` 看安装审计（审计由 `pal install` / `pal update` 写），`pal health --hosts` 兼职宿主发现（装没装、版本、能不能起）。`packhub verify` 只验 Pack 目录（检查段）；`pal verify` 验已装目录（漂移 + 检查）。一条命令仍只对一个对象动手：`packhub` 的对象是 Pack，`pal` 的对象是已存在的目录或实例。
 
-原来 `packhub install` / `uninstall` / `update` / `rollback` / `diff` 都挂在 `packhub` 下面（它也吃项目目录）。现在目录侧的 `install` / `uninstall` / `verify` / `rollback` 由 `pal` 承接：`pal install <来源> --into <目录> --harness <宿主>` 只写文件与 `.packhub/state.json`，不建实例记录；`pal update` 同时接目录与实例；`create` 只建宿主实例，目录形态走 `adopt`。`diff` 直接删掉——装了什么在 state 里，要和清单比就重新 `plan` / `pal verify`。`packhub audit` 也删了，改成 `pal audit`（审计是 pal 写的东西，看也归 pal）；`pal doctor` 并入 `pal health --hosts`，health 默认查实例，加 flag 才附带宿主发现。`publish` 门禁里的干净安装仍由 runner 内部做，不走 CLI：它是发布流程的一步，不是用户装包。
+原来 `packhub install` / `uninstall` / `update` / `rollback` / `diff` 都挂在 `packhub` 下面（它也吃项目目录）。现在目录侧的 `install` / `uninstall` / `verify` / `rollback` 由 `pal` 承接：`pal install <来源> --into <目录> --harness <宿主>` 只写文件与 `.packhub/state.json`，不建实例记录；`pal update` 的位置参数收实例，目录更新走 `pal update --dir <目录>`；`create` 只建宿主实例，目录形态走 `adopt`。`diff` 直接删掉——装了什么在 state 里，要和清单比就重新 `plan` / `pal verify`。`packhub audit` 也删了，改成 `pal audit`（审计是 pal 写的东西，看也归 pal）；`pal doctor` 并入 `pal health --hosts`，health 默认查实例，加 flag 才附带宿主发现。`publish` 门禁里的干净安装仍由 runner 内部做，不走 CLI：它是发布流程的一步，不是用户装包。
 
 没选另一条：`packhub` 保留 `install`，按「目录 vs 实例」分两套入口，或让 `pal` 只做实例。前者要维持两份安装参数、两套退出码与两份文档，而「装进目录」会同时出现在两个命令族的帮助里；后者则让目录侧没有安装入口，`pal install --into` 这种「先装目录、再决定要不要建实例」的用法无处安放。分界线换成「生产 vs 安装与运行」后，用户只需要记：做包找 `packhub`，装和跑找 `pal`。
 

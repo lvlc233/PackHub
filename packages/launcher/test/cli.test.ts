@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
+import { harnessIds } from '@packhub/kernel';
 import { main } from '../src/cli.ts';
 
 const packageJson = JSON.parse(
@@ -11,7 +12,7 @@ const packageJson = JSON.parse(
 
 /** 只读命令定义，不执行 run：不写盘、不起进程、不碰网络。 */
 interface CommandShape {
-  args?: Record<string, { type?: string; default?: unknown } | undefined>;
+  args?: Record<string, { type?: string; default?: unknown; description?: string } | undefined>;
   subCommands?: Record<string, CommandShape | undefined>;
 }
 
@@ -41,6 +42,31 @@ describe('pal cli：实例形态是 --kind（不再有 --harness）', () => {
       expect(command?.args?.harness).toBeUndefined();
     });
   }
+});
+
+describe('pal cli：harness 列表六项', () => {
+  const SIX = ['dsh', 'claude-code', 'codex', 'opencode', 'workbody', 'hermes'];
+
+  it('注册表就是六个宿主（顺序稳定）', () => {
+    expect(harnessIds()).toEqual(SIX);
+  });
+
+  it('create / adopt 的 --kind 说明列出六个宿主', () => {
+    for (const name of ['create', 'adopt']) {
+      const description = String(subCommands[name]?.args?.kind?.description ?? '');
+      for (const id of SIX) {
+        expect(description, `${name} 的 --kind 应列出 ${id}`).toContain(id);
+      }
+    }
+  });
+
+  it('install 的 --harness 说明列出六个宿主，并说明不用 dir', () => {
+    const description = String(subCommands.install?.args?.harness?.description ?? '');
+    for (const id of SIX) {
+      expect(description, `install --harness 应列出 ${id}`).toContain(id);
+    }
+    expect(description).toContain('不用 dir');
+  });
 });
 
 describe('pal --version', () => {

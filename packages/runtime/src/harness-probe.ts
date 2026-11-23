@@ -161,8 +161,8 @@ export function askHarness(opts: AskOptions): AskResult {
   }
   const recipe = spec.probe;
   const runner = opts.runner ?? DEFAULT_RUNNER;
-  // 只有配方里带 -m 的宿主（目前 codex）会读它
-  const model = opts.model ?? 'gpt-5.6-sol';
+  // 模型默认值优先用配方自己的（如 opencode 的免费档），再退回运行器的全局默认（codex 用它）
+  const model = opts.model ?? recipe.defaultModel ?? 'gpt-5.6-sol';
   const invocation = {
     prompt: opts.prompt,
     model,

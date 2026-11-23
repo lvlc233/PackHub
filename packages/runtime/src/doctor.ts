@@ -78,16 +78,21 @@ export function doctorPack(root: string): DoctorReport {
     }
 
     for (const action of record.actions ?? []) {
-      // 撤销方式决定「怎么检查」：共享配置查 mcpServers 条目，托管块查标记
+      // 撤销方式决定「怎么检查」：共享配置查登记的条目，托管块查标记
       const undo = PLAN_OPS[action.op]?.undo;
       if (undo === 'restore-shared' && action.target && action.resource) {
         const file = join(root, action.target);
         if (existsSync(file)) {
-          const text = readFileSync(file, 'utf8');
+          // 条目挂在哪个对象路径下、文件什么格式由计划里的 MCP 方言决定（旧计划缺省 mcpServers + JSON）
+          const planAction = record.plan?.actions.find((a) => a.actionId === action.actionId);
+          const configPath =
+            planAction?.op === 'register.mcp' ? planAction.configPath ?? ['mcpServers'] : ['mcpServers'];
           const present = file.endsWith('.toml')
-            ? text.includes(`[mcp_servers.${action.resource}]`)
-            : Boolean((JSON.parse(text) as { mcpServers?: Record<string, unknown> }).mcpServers?.[action.resource]);
-          if (!present) finding.configDrift.push(`${action.target}:mcpServers.${action.resource}`);
+            ? readFileSync(file, 'utf8').includes(`[mcp_servers.${action.resource}]`)
+            : Boolean(getPath(readConfigFile(file), [...configPath, action.resource]) !== undefined);
+          if (!present) {
+            finding.configDrift.push(`${action.target}:${configPath.join('.')}.${action.resource}`);
+          }
         }
       }
       if (undo !== 'strip-block' || !action.target || !action.blockId) continue;

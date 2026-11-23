@@ -29,6 +29,7 @@ LockConsistencyStatus
 LockFile
 MANIFEST_FILE
 Manifest
+McpDialect
 ModifySpec
 PACKHUB_ENV
 PACK_NAME_PATTERN
@@ -118,4 +119,3 @@ requireHarness
 searchResources
 sha256
 validateGraph
-

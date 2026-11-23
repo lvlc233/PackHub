@@ -90,15 +90,19 @@ export function requireAdapter(kind: InstanceKind): HarnessAdapter {
  * 装进实例时把资源落到实例自己的 home 段，而不是项目内的 .packhub/。
  * 这样宿主读的是这个实例的 skills，不是全局那一份。`dir` 实例没有 home 段，返回 undefined。
  *
+ * 默认 skills/knowledge/prompts 落在 `<home>/…`；宿主可以用 spec.instanceLayout 改
+ * （例如 opencode 的 XDG 目录多一层 `opencode/`、hermes 的 MCP 配置是 home 里的 config.yaml）。
  * 返回值直接作为 kernel `planFor(ctx, { layoutVars })` 的落点覆盖；键必须是 LayoutVars 的键。
  */
 export function layoutVarsFor(kind: InstanceKind): Partial<LayoutVars> | undefined {
-  const adapter = adapterFor(kind);
-  if (!adapter?.homeDir) return undefined;
+  const spec = kind === 'dir' ? undefined : harness(kind);
+  if (!spec?.home) return undefined;
+  const home = spec.home.dir;
   return {
-    skillsDir: `${adapter.homeDir}/skills`,
-    knowledgeDir: `${adapter.homeDir}/knowledge`,
-    promptsDir: `${adapter.homeDir}/prompts`,
+    skillsDir: `${home}/skills`,
+    knowledgeDir: `${home}/knowledge`,
+    promptsDir: `${home}/prompts`,
+    ...(spec.instanceLayout ? spec.instanceLayout(home) : {}),
   };
 }
 

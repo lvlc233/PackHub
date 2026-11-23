@@ -215,7 +215,17 @@ export type PlanOp =
     }
   | { op: 'delete'; to: string }
   | { op: 'link.skill'; from: string; to: string; fromBase?: PlanActionFromBase }
-  | { op: 'register.mcp'; spec: Record<string, unknown>; path?: string }
+  | {
+      op: 'register.mcp';
+      /** 已经按宿主方言转好的条目（默认方言下就是通用 spec） */
+      spec: Record<string, unknown>;
+      /** 写哪个配置文件；不写就用 layout.configFile */
+      path?: string;
+      /** 配置里放条目的对象路径；默认 ['mcpServers'] */
+      configPath?: string[];
+      /** 配置文件格式；默认 json */
+      format?: 'json' | 'yaml';
+    }
   | {
       op: 'exec';
       command: string;

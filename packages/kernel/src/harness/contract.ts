@@ -50,8 +50,27 @@ export interface ProbeRecipe {
   preview(ctx: ProbeInvocation): string;
   /** 从 stdout 取最终回答 */
   answer(stdout: string): string;
+  /** 调用方没给 model 时用哪个；不写就用运行器的全局默认（目前 gpt-5.6-sol） */
+  defaultModel?: string;
   /** 命中就换成人话（缺凭证 / 没登录）；按顺序取第一个命中 */
   hints?: { test: RegExp; reason: string }[];
+}
+
+/**
+ * MCP 配置的「方言」：每个宿主的 MCP 配置文件放在哪、server 条目挂在哪个键下面、
+ * 文件是什么格式、条目要转成什么形状。
+ *
+ * 不写就是默认方言：写 `layout.configFile`、JSON、`mcpServers.<name>`、条目用计划里的 spec 原样。
+ */
+export interface McpDialect {
+  /** 写哪个文件（相对安装根）；不写就用 layout.configFile */
+  file?: string;
+  /** 配置里放 server 条目的对象路径，例如 ['mcpServers'] / ['mcp','servers'] / ['mcp_servers'] */
+  path: string[];
+  /** 配置文件格式；默认 json（.toml 的文件仍走旧的托管块分支） */
+  format?: 'json' | 'yaml';
+  /** 把计划里的通用 spec 转成这个宿主的条目形状；不写就原样 */
+  entry?(spec: Record<string, unknown>): unknown;
 }
 
 /** 一个宿主的全部描述：静态知识 + 探针配方。注册后不可变。 */
@@ -62,6 +81,12 @@ export interface HarnessSpec {
   layout: Partial<LayoutVars>;
   /** 实例内的 home 目录（相对实例根）与把它指过去的环境变量；没有 home 段的宿主不写 */
   home?: { dir: string; env: string };
+  /**
+   * 实例内落点覆盖（相对实例根）：PAL 把资源装进实例时用。
+   * 默认 skills/knowledge/prompts 落在 `<home>/…`；有些宿主的全局目录多一层（如 opencode 的 XDG）
+   * 或配置文件在 home 里，就用这个函数改。
+   */
+  instanceLayout?(homeDir: string): Partial<LayoutVars>;
   /** 宿主可执行文件名 */
   executable?: string;
   /** 探测版本用的参数 */
@@ -79,6 +104,14 @@ export interface HarnessSpec {
   start?: StartTemplate;
   /** 不能启动时给用户看的原因（能力说明，不是错误码） */
   noStartReason?: string;
+  /** MCP 配置方言；不写 = JSON `mcpServers` + layout.configFile */
+  mcp?: McpDialect;
+  /**
+   * 有没有「装进项目目录」这种落点；默认 true。
+   * hermes 这类只有全局目录（~/.hermes）的宿主为 false——`pal install --into` 会拒绝，
+   * 要装就 `pal create --kind hermes` 建实例。
+   */
+  project?: boolean;
   /** headless 探针配方 */
   probe: ProbeRecipe;
 }

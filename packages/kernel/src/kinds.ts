@@ -1,4 +1,4 @@
-﻿// 资源类型 → 安装动作 / 参数补丁面 / 能力形态的一张描述表。
+// 资源类型 → 安装动作 / 参数补丁面 / 能力形态的一张描述表。
 //
 // buildPlan 的循环只负责顺序、宿主裁剪与 push 编号；每种类型怎么物化都在这里的
 // materialize 里。validateGraph 的参数补丁也按 paramPatch 分叉，不再自己按类型写 if。
@@ -16,6 +16,8 @@ import type {
 } from './types.ts';
 import type { CapabilityForm } from './capability.ts';
 import type { LayoutVars } from './layout.ts';
+import type { HarnessId } from './harness/contract.ts';
+import { harness } from './harness/contract.ts';
 import { parseSource } from './ref.ts';
 import { ISSUE_CODES } from './issueCodes.ts';
 import { isPlainObject } from './util.ts';
@@ -33,6 +35,8 @@ export interface KindContext {
   issues: Issue[];
   installed: Map<string, InstalledResource>;
   layoutVars: LayoutVars;
+  /** 装到哪个宿主；MCP 的配置方言从宿主注册表取。不写 = 平铺/默认方言 */
+  harness?: HarnessId;
   /** 包目录的绝对路径：tool2 判断本地来源是文件还是目录时读它 */
   packBase: string;
   /** 目标平台（`platform-arch`）：只用来给平台警告，不读 process */
@@ -53,11 +57,18 @@ export interface ResourceKind {
 }
 
 function materializeMcp(ctx: KindContext, res: ResourceSpec): void {
-  // MCP 由目标环境自己用 npx/uvx 拉起，安装期只登记，不预先下载包体
+  // MCP 由目标环境自己用 npx/uvx 拉起，安装期只登记，不预先下载包体。
+  // 登记到哪、条目什么形状由宿主的 MCP 方言决定；缺省 = layout.configFile + JSON mcpServers + 原 spec。
+  const host = harness(ctx.harness ?? '');
+  const dialect = host?.mcp;
+  const base = buildMcpSpec(res, ctx.interp(res.config ?? {}) as Record<string, unknown>);
+  const entry = dialect?.entry ? (dialect.entry(base) as Record<string, unknown>) : base;
   ctx.push({
     op: 'register.mcp',
-    spec: buildMcpSpec(res, ctx.interp(res.config ?? {}) as Record<string, unknown>),
-    path: ctx.layoutVars.configFile,
+    spec: entry,
+    path: dialect?.file ?? ctx.layoutVars.configFile,
+    ...(dialect?.path ? { configPath: [...dialect.path] } : {}),
+    ...(dialect?.format ? { format: dialect.format } : {}),
     resource: res.id,
   });
 }

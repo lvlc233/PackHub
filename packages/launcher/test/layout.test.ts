@@ -69,26 +69,76 @@ describe('宿主适配（从注册表派生）', () => {
     expect(adapterFor('dsh')?.start).toBe(start);
   });
 
-  it('实例形态 = dir + 注册表里的宿主；未知形态没有适配器', () => {
+  it('实例形态 = dir + 六个宿主；未知形态没有适配器', () => {
+    expect(instanceKinds()).toEqual([
+      'dir',
+      'dsh',
+      'claude-code',
+      'codex',
+      'opencode',
+      'workbody',
+      'hermes',
+    ]);
     expect(instanceKinds()).toEqual(['dir', ...harnessIds()]);
     for (const kind of instanceKinds()) {
       expect(isInstanceKind(kind)).toBe(true);
       expect(adapterFor(kind)).toBeTruthy();
       expect(requireAdapter(kind)).toBeTruthy();
     }
-    expect(isInstanceKind('opencode')).toBe(false);
-    expect(adapterFor('opencode' as never)).toBeUndefined();
-    expect(() => requireAdapter('opencode' as never)).toThrow(/未知实例形态：opencode/);
+    expect(isInstanceKind('nope')).toBe(false);
+    expect(adapterFor('nope' as never)).toBeUndefined();
+    expect(() => requireAdapter('nope' as never)).toThrow(/未知实例形态：nope/);
   });
 
   it('只有能托管的宿主有启动模板；其余给能力说明而不是空模板', () => {
     expect(requireHarness('dsh').start).toBeTruthy();
-    expect(requireHarness('claude-code').start).toBeUndefined();
-    expect(requireHarness('codex').start).toBeUndefined();
+    for (const id of ['claude-code', 'codex', 'opencode', 'workbody', 'hermes']) {
+      expect(requireHarness(id).start, `${id} 不该有启动模板`).toBeUndefined();
+      expect(adapterFor(id)?.noStartReason, `${id} 应给能力说明`).toBeTruthy();
+    }
     expect(adapterFor('claude-code')?.noStartReason).toContain('Claude Code');
     expect(adapterFor('codex')?.noStartReason).toContain('Codex');
     expect(adapterFor('dir')?.start).toBeUndefined();
     expect(adapterFor('dir')?.noStartReason).toContain('dir 实例');
+  });
+
+  it('opencode：实例落点是 XDG 多一层 opencode/', () => {
+    expect(layoutVarsFor('opencode')).toEqual({
+      skillsDir: 'home/opencode/opencode/skills',
+      knowledgeDir: 'home/opencode/opencode/knowledge',
+      promptsDir: 'home/opencode/opencode/prompts',
+      configFile: 'home/opencode/opencode/opencode.json',
+    });
+    const adapter = adapterFor('opencode')!;
+    expect(adapter.homeDir).toBe('home/opencode');
+    expect(adapter.homeEnv).toBe('XDG_CONFIG_HOME');
+    expect(adapter.label).toBe('opencode');
+  });
+
+  it('workbody：MCP 配置落在 home 里的 mcp.json', () => {
+    expect(layoutVarsFor('workbody')).toEqual({
+      skillsDir: 'home/codebuddy/skills',
+      knowledgeDir: 'home/codebuddy/knowledge',
+      promptsDir: 'home/codebuddy/prompts',
+      configFile: 'home/codebuddy/mcp.json',
+    });
+    const adapter = adapterFor('workbody')!;
+    expect(adapter.homeDir).toBe('home/codebuddy');
+    expect(adapter.homeEnv).toBe('CODEBUDDY_CONFIG_DIR');
+    expect(adapter.label).toContain('WorkBuddy');
+  });
+
+  it('hermes：实例落点的 MCP 是 home 里的 config.yaml', () => {
+    expect(layoutVarsFor('hermes')).toEqual({
+      skillsDir: 'home/hermes/skills',
+      knowledgeDir: 'home/hermes/knowledge',
+      promptsDir: 'home/hermes/prompts',
+      configFile: 'home/hermes/config.yaml',
+    });
+    const adapter = adapterFor('hermes')!;
+    expect(adapter.homeDir).toBe('home/hermes');
+    expect(adapter.homeEnv).toBe('HERMES_HOME');
+    expect(adapter.label).toBe('Hermes Agent');
   });
 });
 

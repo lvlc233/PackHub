@@ -736,12 +736,19 @@ export function removePack(root: string, packKey?: string): RemoveResult {
         ? record.plan.actions.flatMap((a) => {
             const payload = actionUndoPayload(a);
             return payload?.undo === 'restore-shared'
-              ? [{ path: payload.path, resource: payload.key }]
+              ? [
+                  {
+                    path: payload.path,
+                    resource: payload.key,
+                    configPath: payload.configPath,
+                    format: payload.format,
+                  },
+                ]
               : [];
           })
         : record.actions.flatMap((o) =>
             o.op === 'register.mcp' && o.target
-              ? [{ path: o.target, resource: o.resource ?? 'mcp' }]
+              ? [{ path: o.target, resource: o.resource ?? 'mcp', configPath: undefined, format: undefined }]
               : [],
           );
       const blockRefs = record.plan
@@ -774,15 +781,15 @@ export function removePack(root: string, packKey?: string): RemoveResult {
           removed.push(rel);
           continue;
         }
-        if (regs.length > 0 && /\.json$/i.test(rel)) {
-          const data = JSON.parse(readFileSync(abs, 'utf8')) as Record<string, unknown>;
-          const servers = { ...(data.mcpServers as Record<string, unknown> | undefined) };
-          for (const a of regs) delete servers[a.resource];
-          if (Object.keys(servers).length === 0) delete data.mcpServers;
-          else data.mcpServers = servers;
-          const pruned = pruneEmpty(data);
-          if (Object.keys(pruned).length === 0) rmSync(abs, { force: true });
-          else writeFileSync(abs, JSON.stringify(pruned, null, 2) + '\n', 'utf8');
+        if (regs.length > 0) {
+          // 非 TOML：按方言的格式与对象路径摘条目（缺省 JSON mcpServers）
+          const dialect = {
+            configPath: regs[0]!.configPath ?? ['mcpServers'],
+            format: (regs[0]!.format === 'yaml' ? 'yaml' : 'json') as McpConfigFormat,
+          };
+          rewriteMcpConfig(abs, dialect.format, (data) => {
+            for (const a of regs) removeConfigEntry(data, dialect.configPath, a.resource);
+          });
           removed.push(rel);
           continue;
         }
@@ -831,6 +838,81 @@ export function removePack(root: string, packKey?: string): RemoveResult {
   } finally {
     release();
   }
+}
+
+/** register.mcp 的宿主角落：条目挂在哪个对象路径下、文件什么格式（旧计划缺省 mcpServers + JSON）。 */
+type McpConfigFormat = 'json' | 'yaml';
+function mcpDialectOf(action: PlanAction): { configPath: string[]; format: McpConfigFormat } {
+  if (action.op !== 'register.mcp') return { configPath: ['mcpServers'], format: 'json' };
+  return {
+    configPath: action.configPath ?? ['mcpServers'],
+    format: action.format === 'yaml' ? 'yaml' : 'json',
+  };
+}
+
+function readMcpConfig(file: string, format: McpConfigFormat): Record<string, unknown> {
+  const text = readFileSync(file, 'utf8');
+  const data = format === 'yaml' ? (parseYaml(text) ?? {}) : JSON.parse(text);
+  return isPlainObject(data) ? data : {};
+}
+
+function serializeMcpConfig(data: Record<string, unknown>, format: McpConfigFormat): string {
+  return format === 'yaml' ? stringifyYaml(data).trimEnd() + '\n' : JSON.stringify(data, null, 2) + '\n';
+}
+
+/** 沿对象路径拿到容器（缺就建），把条目写进去；已有条目做浅合并（保持旧行为）。 */
+function upsertConfigEntry(
+  data: Record<string, unknown>,
+  configPath: readonly string[],
+  key: string,
+  spec: unknown,
+): Record<string, unknown> {
+  let cur: Record<string, unknown> = data;
+  for (const part of configPath) {
+    const next = cur[part];
+    if (isPlainObject(next)) {
+      cur = next;
+    } else {
+      const created: Record<string, unknown> = {};
+      cur[part] = created;
+      cur = created;
+    }
+  }
+  const existing = cur[key];
+  cur[key] = { ...(isPlainObject(existing) ? existing : {}), ...(isPlainObject(spec) ? spec : {}) };
+  return data;
+}
+
+/** 沿对象路径摘掉条目（调用方再 pruneEmpty 收尾）。 */
+function removeConfigEntry(
+  data: Record<string, unknown>,
+  configPath: readonly string[],
+  key: string,
+): void {
+  let cur: Record<string, unknown> | undefined = data;
+  for (const part of configPath) {
+    const next: unknown = cur[part];
+    if (!isPlainObject(next)) return;
+    cur = next;
+  }
+  delete cur[key];
+}
+
+/** 摘掉条目后重写（或清空到只剩空壳就删文件）。返回是否删了文件。 */
+function rewriteMcpConfig(
+  file: string,
+  format: McpConfigFormat,
+  mutate: (data: Record<string, unknown>) => void,
+): boolean {
+  const data = readMcpConfig(file, format);
+  mutate(data);
+  const pruned = pruneEmpty(data);
+  if (Object.keys(pruned).length === 0) {
+    rmSync(file, { force: true });
+    return true;
+  }
+  writeFileSync(file, serializeMcpConfig(pruned, format), 'utf8');
+  return false;
 }
 
 async function applyAction(
@@ -1073,12 +1155,12 @@ async function applyAction(
           resource: action.resource ?? 'mcp',
         };
       }
-      const current = (existsSync(to) ? readStructured(to) : {}) as Record<string, unknown>;
-      const servers = { ...(current.mcpServers as Record<string, unknown> | undefined) } as Record<string, unknown>;
       const key = action.resource ?? 'mcp';
-      const nextServer = { ...(servers[key] as object | undefined), ...action.spec };
-      const merged = deepMerge(current, { mcpServers: { [key]: nextServer } });
-      const nextText = JSON.stringify(merged, null, 2) + '\n';
+      // 非 TOML：按宿主的 MCP 方言写（缺省 JSON mcpServers）
+      const { configPath, format } = mcpDialectOf(action);
+      const current: Record<string, unknown> = existsSync(to) ? readMcpConfig(to, format) : {};
+      upsertConfigEntry(current, configPath, key, action.spec);
+      const nextText = serializeMcpConfig(current, format);
       const before = existsSync(to) ? readFileSync(to, 'utf8') : '';
       if (before === nextText) {
         return {
@@ -1478,14 +1560,13 @@ export function pruneRemoved(
           removed.push(path);
           break;
         }
-        const data = JSON.parse(readFileSync(abs, 'utf8')) as Record<string, unknown>;
-        const servers = { ...(data.mcpServers as Record<string, unknown> | undefined) };
-        delete servers[server];
-        if (Object.keys(servers).length === 0) delete data.mcpServers;
-        else data.mcpServers = servers;
-        const pruned = pruneEmpty(data);
-        if (Object.keys(pruned).length === 0) rmSync(abs, { force: true });
-        else writeFileSync(abs, JSON.stringify(pruned, null, 2) + '\n', 'utf8');
+        const dialect = {
+          configPath: payload.configPath ?? ['mcpServers'],
+          format: (payload.format === 'yaml' ? 'yaml' : 'json') as McpConfigFormat,
+        };
+        rewriteMcpConfig(abs, dialect.format, (data) => {
+          removeConfigEntry(data, dialect.configPath, server);
+        });
         removed.push(path);
         break;
       }

@@ -1,4 +1,4 @@
-﻿// 安装编排：从「一个来源」一步装进「一个项目」。
+// 安装编排：从「一个来源」一步装进「一个项目」。
 //
 // 两条流，检查强度不同（与旧 CLI install 一致）：
 // - 本地 Pack 目录：作者流。目录里的清单直接算计划，不要求锁与签名；
@@ -14,6 +14,7 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
+  harness,
   harnessIds,
   PACKHUB_ENV,
   STATE_DIR,
@@ -214,6 +215,16 @@ export async function installFromSource(opts: InstallFromSourceOptions): Promise
       'usage',
       `未知宿主：${String(opts.harness)}（可选 ${harnessIds().join(' / ')}；不写 = 平铺目录）`,
     );
+  }
+  // 有些宿主只有全局目录（hermes 的 ~/.hermes），没有项目级落点：装进项目没有意义
+  if (opts.harness !== undefined) {
+    const host = harness(opts.harness);
+    if (host && host.project === false) {
+      throw new InstallSourceError(
+        'usage',
+        `宿主 ${host.id} 没有项目级安装落点：用 pal create --kind ${host.id} 建实例，再把包装进去`,
+      );
+    }
   }
 
   const base: Flow = {

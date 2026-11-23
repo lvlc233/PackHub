@@ -7,5 +7,8 @@
 import './dsh.ts';
 import './claude-code.ts';
 import './codex.ts';
+import './opencode.ts';
+import './workbody.ts';
+import './hermes.ts';
 
 export * from './contract.ts';

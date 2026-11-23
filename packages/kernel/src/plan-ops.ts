@@ -13,11 +13,18 @@ export type PlanOpUndo = 'delete' | 'restore-shared' | 'strip-block' | 'none';
 /**
  * 撤销共享改动要动的那一处（配置里的键 / 指令文件里的块）。
  * 载荷和执行器要做的动作同源：`undo` 与 `PlanOpUndo` 一致，执行器不用再按 op 拼路径。
- * - `restore-shared`：`path` 是共享配置文件，`key` 是 `mcpServers` 下要摘掉的键；
+ * - `restore-shared`：`path` 是共享配置文件，`key` 是配置条目名；`configPath`/`format`
+ *   指定条目挂在哪个对象路径下、文件是什么格式（缺省 = `mcpServers` + JSON）；
  * - `strip-block`：`file` 是指令文件，`blockId` 是要摘掉的托管块。
  */
 export type PlanOpUndoPayload =
-  | { undo: 'restore-shared'; path: string; key: string }
+  | {
+      undo: 'restore-shared';
+      path: string;
+      key: string;
+      configPath?: string[];
+      format?: 'json' | 'yaml';
+    }
   | { undo: 'strip-block'; file: string; blockId: string };
 
 /** codex 的技能选择器要求 `agents/openai.yaml`：install 期生成，计划里没有对行动作。 */
@@ -144,13 +151,16 @@ export const PLAN_OPS: Record<PlanOpName, PlanOpSpec> = {
   'register.mcp': {
     fromBase: noFrom,
     undo: 'restore-shared',
-    // 键与 runtime 卸载时登记的 server 名同源：resource 缺省时是 mcp
+    // 键与 runtime 卸载时登记的 server 名同源：resource 缺省时是 mcp；
+    // 条目挂在哪个对象路径下、文件什么格式由宿主的 MCP 方言决定（缺省 mcpServers + JSON）
     undoPayload: (a) =>
       a.op === 'register.mcp'
         ? {
             undo: 'restore-shared',
             path: a.path ?? `${STATE_DIR}/config.json`,
             key: a.resource ?? 'mcp',
+            ...(a.configPath ? { configPath: a.configPath } : {}),
+            ...(a.format ? { format: a.format } : {}),
           }
         : null,
     paths: (a) => (a.op === 'register.mcp' ? [a.path ?? `${STATE_DIR}/config.json`] : []),

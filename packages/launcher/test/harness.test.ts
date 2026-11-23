@@ -29,12 +29,15 @@ describe('宿主发现', () => {
     expect(dir.kind).toBe('project');
   });
 
-  it('四个宿主的顺序稳定，未知宿主给可选值', () => {
+  it('七个形态（dir + 六宿主）的顺序稳定，未知宿主给可选值', () => {
     expect(discoverAll({ probeVersion: false }).map((info) => info.id)).toEqual([
       'dir',
       'dsh',
       'claude-code',
       'codex',
+      'opencode',
+      'workbody',
+      'hermes',
     ]);
     let caught: unknown;
     try {
@@ -44,6 +47,7 @@ describe('宿主发现', () => {
     }
     expect(isPalError(caught) && caught.code).toBe('unknown-harness');
     expect((caught as { details?: { choices?: string[] } }).details?.choices).toContain('dsh');
+    expect((caught as { details?: { choices?: string[] } }).details?.choices).toContain('hermes');
   });
 
   it('PATH 里找不到就是找不到，不猜', () => {

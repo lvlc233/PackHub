@@ -111,6 +111,7 @@ export function buildPlan(
     issues,
     installed,
     layoutVars,
+    ...(opts.harness ? { harness: opts.harness } : {}),
     packBase,
     platform: opts.platform,
     push,
@@ -474,7 +475,9 @@ function detectConflicts(actions: PlanAction[], harness: HarnessId | undefined):
     }
     if (a.op === 'register.mcp') {
       const path = a.path ?? `${STATE_DIR}/config.json`;
-      const composite = `${path}::mcpServers.${a.resource ?? 'mcp'}`;
+      // 条目挂在哪个对象路径下由宿主的 MCP 方言决定（缺省 mcpServers）
+      const configPath = (a.configPath ?? ['mcpServers']).join('.');
+      const composite = `${path}::${configPath}.${a.resource ?? 'mcp'}`;
       configKeys.set(composite, [...(configKeys.get(composite) ?? []), a.actionId]);
     }
   }

@@ -94,7 +94,7 @@ resources:
 ```
 
 1. `planHash` = 计划自身的哈希，用于确保版本一致性。
-2. `harness` 可选：写 `dsh` / `claude-code` / `codex` 时按该宿主的落点表物化；不写就是平铺目录，计划里没有这个字段。
+2. `harness` 可选：写 `dsh` / `claude-code` / `codex` / `opencode` / `workbody` / `hermes` 时按该宿主的落点表物化；不写就是平铺目录，计划里没有这个字段。
 3. `plan --json` 在计划对象外带一份 `wiring`：`describeComposition` 从清单派生的接线，只有两组——`capabilities`（能力令牌 → provider 列表，按令牌排序）与 `edges`（`needs` 派生的 provider → consumer 边）。它是 CLI 输出，不进 `planHash`、不进锁，也不进 state 里的计划快照。
 
 动作原语：`fetch`、`unpack`、`copy`、`write`、`delete`、`link.skill`、`link.exec`、`register.mcp`、`exec`、`instruction`、`state.dir`。
@@ -110,14 +110,16 @@ resources:
 | `delete` | 无 | `to`（被删对象） | 不撤销 | — | 否 | 目标不存在算 `noop`，不进 `written` |
 | `link.skill` | 本地 `pack` / 远程 `root` | `to` | 删文件 | — | 否 | codex 额外派生 `<to>/agents/openai.yaml` |
 | `link.exec` | 无（`entry` / `module` 相对安装根） | `to`、`to.cmd` | 删文件 | — | 否 | `.cmd` 只在 win32 生成；`platforms` 不匹配由执行器 `skipped` |
-| `register.mcp` | 无（`spec`） | `path`（默认 `.packhub/config.json`） | 还原共享配置 | `{path, key}` | 是 | `.toml` 用托管块 |
+| `register.mcp` | 无（`spec`） | `path`（缺省用宿主落点表的 `configFile`） | 还原共享配置 | `{path, key, configPath?, format?}` | 是 | `configPath` / `format` 由宿主 MCP 方言决定；`.toml` 用托管块 |
 | `exec` | 无 | 无 | 不撤销 | — | 否 | 计划里永远 `approval: required` |
 | `instruction` | 无（`content`） | `file` | 摘托管块 | `{file, blockId}` | 是 | 只动 `<!-- packhub:begin/end -->` 之间 |
 | `state.dir` | 无 | 无（只建目录） | 不撤销 | — | 否 | 数据目录，不随升级/卸载删除 |
 
-「共享」只由动作决定：`register.mcp` 按 key 合并、`instruction` 按托管块追加；落点路径（`.json` / `.toml` / 根目录 `.md`）不改变共享性，私有 `.json` 照常进版本镜像、参与所有权冲突、升级时按普通文件删。
+「共享」只由动作决定：`register.mcp` 按 key 合并、`instruction` 按托管块追加；落点路径（`.json` / `.yaml` / `.toml` / 根目录 `.md`）不改变共享性，私有 `.json` 照常进版本镜像、参与所有权冲突、升级时按普通文件删。
 
-撤销载荷回答「撤销时要动哪一处」：`restore-shared` 给共享配置文件与 `mcpServers` 下要摘的键，`strip-block` 给指令文件与托管块 id。执行器（`deactivatePlan` / `pruneRemoved` / `removePack`）只按 `undo` 的四种方式各做一次，不再按 op 猜路径与键；`state.dir` 只建目录、不产出文件，所以不进文件冲突集合，同一目录挂两个 state id 另报 `duplicate-state-path`。
+撤销载荷回答「撤销时要动哪一处」：`restore-shared` 给共享配置文件、条目挂的对象路径（`configPath`，缺省 `['mcpServers']`）与要摘的键，`format` 说明文件是 JSON 还是 YAML；`strip-block` 给指令文件与托管块 id。执行器（`deactivatePlan` / `pruneRemoved` / `removePack`）只按 `undo` 的四种方式各做一次，不再按 op 猜路径与键；`state.dir` 只建目录、不产出文件，所以不进文件冲突集合，同一目录挂两个 state id 另报 `duplicate-state-path`。
+
+`register.mcp` 的落点与条目形状由宿主的 MCP 方言决定：宿主注册项的 `mcp` 声明 `file`（写哪个文件，缺省用 `layout.configFile`）、`path`（条目挂哪个对象路径，缺省 `['mcpServers']`）、`format`（缺省 `json`）与 `entry(spec)`（把通用 spec 转成该宿主的条目形状）。计划动作上对应 `path` / `configPath` / `format` 三个可选字段，`spec` 已经是转好的条目；不写方言就是 JSON `mcpServers` + spec 原样。宿主注册项还可以声明 `project: false`：这类宿主没有项目级落点（如 hermes 只有全局 home），`pal install --into` 会直接拒绝，只能 `pal create` 建实例。
 
 派生输出是「install 期生成、计划动作里没有对行动作」的文件（codex 的 `agents/openai.yaml`、`link.exec` 的 `.cmd`）；它们由表的 `paths()` 声明，因此 `planPaths(plan)`、快照、版本镜像与升级清理都能覆盖到。
 
@@ -272,7 +274,7 @@ registry 的索引，`search` / `install` / `update` 只读它。
 
 检查从哪来：
 
-- **漂移段（`pal verify`）**：在已装目录里按 state 里的安装记录查磁盘现状——写过的文件/链接在不在、指令托管块、配置里的 `mcpServers` 条目、宿主侧 MCP 登记、`state` 目录、激活指针。不读清单，也不需要作者声明。
+- **漂移段（`pal verify`）**：在已装目录里按 state 里的安装记录查磁盘现状——写过的文件/链接在不在、指令托管块、配置里登记的 MCP 条目（按计划的 `configPath` / `format`）、宿主侧 MCP 登记、`state` 目录、激活指针。不读清单，也不需要作者声明。
 - **自动派生**：检查段从计划自动生成——带 `integrity` 的 `write` 动作生成一条 `knowledge-integrity`；`packhub verify --probe-mcp` 时每个 `register.mcp` 生成一条 `mcp-ready`。派生项排在作者 `verify` 项之后；`knowledge-integrity` 与作者写了同一 `resource` + `integrity` 的项不重复，`mcp-ready` 按 resource 去重。
 - **作者声明**：清单 `verify` 数组只写计划推不出来的检查——`command`（脚本 self-test）与 `scenario`（宿主语义，要真跑一次）。`file-exists` / `config-key` 仍支持，但它们的覆盖与漂移段重叠，属于重复兜底，不再推荐手写；`knowledge-integrity` / `mcp-ready` 字段仍在 schema 里，通常也不用写（期望哈希来自资源声明的 `integrity`，MCP 规格来自计划）。
 - `scenario.harness` 是运行期注册的宿主 id，形状匹配 `^[a-z][a-z0-9-]*$`。schema 不静态列宿主名单；实际能选哪些由 kernel 的注册表决定，没注册的 id 在计划 / 检查期报错。

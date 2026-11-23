@@ -36,9 +36,16 @@ function spec(id: string, over: Partial<HarnessSpec> = {}): HarnessSpec {
  * 把模块里的 `layout` 差量叠到平铺约定上；所以这里断言的是「注册表内容」与「派生结果」。
  */
 describe('宿主注册表', () => {
-  it('注册了三个宿主，id 都符合 HARNESS_ID_PATTERN', () => {
+  it('注册了六个宿主，id 都符合 HARNESS_ID_PATTERN', () => {
     // 顺序 = harness/index.ts 的 import 顺序（CLI 帮助按它列）
-    expect(harnessIds()).toEqual(['dsh', 'claude-code', 'codex']);
+    expect(harnessIds()).toEqual([
+      'dsh',
+      'claude-code',
+      'codex',
+      'opencode',
+      'workbody',
+      'hermes',
+    ]);
     for (const id of harnessIds()) {
       expect(HARNESS_ID_PATTERN.test(id), `${id} 应该匹配 id 规则`).toBe(true);
       expect(isHarnessId(id)).toBe(true);
@@ -47,10 +54,10 @@ describe('宿主注册表', () => {
     }
   });
 
-  it('opencode 没有注册：不是宿主', () => {
-    expect(isHarnessId('opencode')).toBe(false);
-    expect(harness('opencode')).toBeUndefined();
-    expect(harnessIds()).not.toContain('opencode');
+  it('opencode 现在是宿主；dir 仍然不是（不选宿主 = 平铺目录）', () => {
+    expect(isHarnessId('opencode')).toBe(true);
+    expect(harness('opencode')?.id).toBe('opencode');
+    expect(harnessIds()).toContain('opencode');
     expect(harnessIds()).not.toContain('dir');
   });
 
@@ -65,7 +72,7 @@ describe('宿主注册表', () => {
       expect(layoutFor(id).instructionFile).toBeTruthy();
     }
     // 未知宿主：不猜，直接抛
-    expect(() => layoutFor('opencode')).toThrow(/未知宿主：opencode/);
+    expect(() => layoutFor('nope')).toThrow(/未知宿主：nope/);
   });
 
   it('schema 的 scenario.harness 是 string + pattern，不是静态 enum', () => {
@@ -77,7 +84,7 @@ describe('宿主注册表', () => {
     expect(node.type).toBe('string');
     expect(node.enum).toBeUndefined();
     expect(node.pattern).toBe(HARNESS_ID_PATTERN.source);
-    // 三个已注册的宿主都过这条 pattern；opencode 也过（它是合法 id，只是没注册）
+    // 六个已注册的宿主都过这条 pattern
     for (const id of harnessIds()) expect(new RegExp(node.pattern!).test(id)).toBe(true);
     expect(new RegExp(node.pattern!).test('Opencode')).toBe(false);
   });
@@ -87,6 +94,84 @@ describe('宿主注册表', () => {
       properties: { metadata: { properties: Record<string, unknown> } };
     }).properties.metadata;
     expect(Object.keys(metadata.properties)).not.toContain('targets');
+  });
+});
+
+describe('新宿主的静态知识与 MCP 方言', () => {
+  it('opencode：XDG 落点多一层 opencode/，MCP 是 mcp.servers + local/remote 条目', () => {
+    const spec = requireHarness('opencode');
+    expect(spec.layout).toMatchObject({ skillsDir: '.opencode/skills', configFile: 'opencode.json' });
+    expect(spec.home).toEqual({ dir: 'home/opencode', env: 'XDG_CONFIG_HOME' });
+    expect(spec.instanceLayout?.('home/opencode')).toEqual({
+      skillsDir: 'home/opencode/opencode/skills',
+      knowledgeDir: 'home/opencode/opencode/knowledge',
+      promptsDir: 'home/opencode/opencode/prompts',
+      configFile: 'home/opencode/opencode/opencode.json',
+    });
+
+    const mcp = spec.mcp!;
+    expect(mcp.path).toEqual(['mcp', 'servers']);
+    expect(mcp.file).toBeUndefined(); // 用 layout.configFile
+    expect(mcp.format).toBeUndefined(); // 默认 JSON
+
+    // 本地条目：{ type: 'local', command: [exe, ...args] }
+    expect(
+      mcp.entry!({ transport: 'stdio', command: 'npx', args: ['-y', '@scope/x@1.0.0'] }),
+    ).toEqual({ type: 'local', command: ['npx', '-y', '@scope/x@1.0.0'] });
+    // 远程条目：{ type: 'remote', url }
+    expect(mcp.entry!({ transport: 'http', url: 'https://mcp.example.com' })).toEqual({
+      type: 'remote',
+      url: 'https://mcp.example.com',
+    });
+    // env 变成 environment
+    expect(
+      mcp.entry!({ command: 'npx', args: ['pkg'], env: { TOKEN: 'x' } }),
+    ).toMatchObject({ type: 'local', environment: { TOKEN: 'x' } });
+  });
+
+  it('workbody：项目落点是 .mcp.json，MCP 用默认方言（mcpServers）', () => {
+    const spec = requireHarness('workbody');
+    expect(spec.layout).toMatchObject({
+      skillsDir: '.codebuddy/skills',
+      configFile: '.mcp.json',
+      instructionFile: 'CODEBUDDY.md',
+    });
+    expect(spec.home).toEqual({ dir: 'home/codebuddy', env: 'CODEBUDDY_CONFIG_DIR' });
+    expect(spec.instanceLayout?.('home/codebuddy')).toMatchObject({
+      skillsDir: 'home/codebuddy/skills',
+      configFile: 'home/codebuddy/mcp.json',
+    });
+    // 不写 mcp = 默认方言：JSON + mcpServers.<name> + spec 原样
+    expect(spec.mcp).toBeUndefined();
+    expect(spec.project).toBeUndefined(); // 默认 true
+  });
+
+  it('hermes：只有全局目录（project=false），MCP 是 YAML 的 mcp_servers', () => {
+    const spec = requireHarness('hermes');
+    expect(spec.project).toBe(false);
+    expect(spec.home).toEqual({ dir: 'home/hermes', env: 'HERMES_HOME' });
+    expect(spec.instanceLayout?.('home/hermes')).toMatchObject({
+      skillsDir: 'home/hermes/skills',
+      configFile: 'home/hermes/config.yaml',
+    });
+
+    const mcp = spec.mcp!;
+    expect(mcp.path).toEqual(['mcp_servers']);
+    expect(mcp.format).toBe('yaml');
+    expect(mcp.entry!({ command: 'npx', args: ['-y', 'pkg'], env: { K: 'V' } })).toEqual({
+      command: 'npx',
+      args: ['-y', 'pkg'],
+      env: { K: 'V' },
+    });
+    expect(mcp.entry!({ url: 'https://mcp.example.com' })).toEqual({
+      url: 'https://mcp.example.com',
+    });
+  });
+
+  it('其它宿主默认都有项目级落点（project 不写 = true）', () => {
+    for (const id of ['dsh', 'claude-code', 'codex', 'opencode', 'workbody']) {
+      expect(requireHarness(id).project, `${id} 应有项目级落点`).toBeUndefined();
+    }
   });
 });
 

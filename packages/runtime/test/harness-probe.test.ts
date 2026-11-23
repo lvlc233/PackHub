@@ -156,20 +156,57 @@ describe('claude-code 目标（走注册表里的配方）', () => {
   });
 });
 
+describe('opencode 目标（走注册表里的配方）', () => {
+  it('命令是 opencode run --model，默认用配方的免费档模型，剥 ANSI 后比对标记', () => {
+    const dir = project();
+    const seen: { command?: string; args?: string[] } = {};
+    const runner: Runner = (command, args) => {
+      seen.command = command;
+      seen.args = args;
+      return {
+        status: 0,
+        stdout: '\u001b[0m> build · deepseek-v4.1-flash\n\u001b[0m这个项目装了一个整合包：**测试包标题**（0.0.1）。\n',
+        stderr: '',
+      };
+    };
+    const res = probeHarness({ target: 'opencode', projectDir: dir, runner });
+    expect(res.ok).toBe(true);
+    expect(res.answer).not.toContain('\u001b[');
+    expect(seen.command).toBe('opencode');
+    expect(seen.args?.slice(0, 2)).toEqual(['run', '--model']);
+    // 配方自带默认模型（免费档），没显式给 model 时用它
+    expect(seen.args?.[2]).toBe('opencode-go/deepseek-v4.1-flash');
+    expect(res.command).toBe('opencode run --model opencode-go/deepseek-v4.1-flash "<prompt>"');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('显式给 model 时覆盖配方默认值', () => {
+    const dir = project();
+    const seen: { args?: string[] } = {};
+    const runner: Runner = (_command, args) => {
+      seen.args = args;
+      return { status: 0, stdout: '这个项目装了一个整合包：**测试包标题**（0.0.1）。\n', stderr: '' };
+    };
+    probeHarness({ target: 'opencode', projectDir: dir, model: 'other/model', runner });
+    expect(seen.args?.[2]).toBe('other/model');
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
 describe('未知宿主被回绝', () => {
-  it('opencode 不再是宿主：probeHarness 回绝、不执行命令、原因点明未知宿主', () => {
+  it('nope 不是宿主：probeHarness 回绝、不执行命令、原因点明未知宿主', () => {
     const dir = project();
     let called = false;
     const runner: Runner = () => {
       called = true;
       return { status: 0, stdout: '这个项目装了一个整合包：**测试包标题**（0.0.1）。\n', stderr: '' };
     };
-    const res = probeHarness({ target: 'opencode', projectDir: dir, runner });
+    const res = probeHarness({ target: 'nope', projectDir: dir, runner });
     expect(res.ok).toBe(false);
     expect(called, '不认识的宿主不该被执行').toBe(false);
     expect(res.command).toBe('');
     expect(res.reason).toContain('未知宿主');
-    expect(res.reason).toContain('opencode');
+    expect(res.reason).toContain('nope');
     rmSync(dir, { recursive: true, force: true });
   });
 
@@ -180,7 +217,7 @@ describe('未知宿主被回绝', () => {
       called = true;
       return { status: 0, stdout: 'hello\n', stderr: '' };
     };
-    const res = probeSkill({ target: 'opencode', projectDir: dir, skill: 'hello', runner });
+    const res = probeSkill({ target: 'nope', projectDir: dir, skill: 'hello', runner });
     expect(res.ok).toBe(false);
     expect(called).toBe(false);
     expect(res.reason).toContain('未知宿主');
@@ -194,7 +231,7 @@ describe('未知宿主被回绝', () => {
       called = true;
       return { status: 0, stdout: '', stderr: '' };
     };
-    const res = askHarness({ target: 'opencode', projectDir: dir, prompt: 'hi', runner });
+    const res = askHarness({ target: 'nope', projectDir: dir, prompt: 'hi', runner });
     expect(res.ok).toBe(false);
     expect(called).toBe(false);
     expect(res.command).toBe('');
