@@ -139,12 +139,13 @@ describe('落点上下文（PAL 只回答范围，落点由宿主回答）', () 
   });
 
   it('attached 只对已验证全局落点的宿主开放', () => {
-    for (const id of ['opencode', 'hermes', 'workbody', 'claude-code', 'codex']) {
+    for (const id of ['opencode', 'hermes', 'workbody', 'claude-code', 'codex', 'dsh']) {
       expect(supportsAttached(id), `${id} 应支持 attached`).toBe(true);
     }
-    for (const id of ['dir', 'dsh']) {
-      expect(supportsAttached(id), `${id} 不该支持 attached`).toBe(false);
-    }
+    expect(supportsAttached('dir'), 'dir 不该支持 attached').toBe(false);
+    // 没声明 attached 的宿主：不支持，不做隐式回落
+    registerHarness(spec('temp-no-attached'));
+    expect(supportsAttached('temp-no-attached')).toBe(false);
   });
 
   it('落点由宿主回答：managed 范围的值不必经过 PAL', () => {

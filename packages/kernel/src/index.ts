@@ -65,9 +65,11 @@ export {
   actionWritten,
   actionWrittenOwned,
   execWrapperPath,
+  mcpActionPaths,
   ownedKey,
   planOutputsOf,
   planPathsOf,
+  undoSharedPaths,
   type PlanOpFromBase,
   type PlanOpName,
   type PlanOpSpec,
@@ -75,6 +77,16 @@ export {
   type PlanOpUndoPayload,
   type PlanShape,
 } from './plan-ops.ts';
+export {
+  claimServerName,
+  dshMcpLoaderEntry,
+  DSH_MCP_CLIENT,
+  DSH_MCP_ENTRY_PREFIX,
+  mcpConfigRunnable,
+  mcpLoaderConfig,
+  toServerName,
+  type McpLoaderConfig,
+} from './mcp.ts';
 export {
   checkLockConsistency,
   type LockConsistency,

@@ -1,19 +1,24 @@
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { STATE_DIR } from '@packhub/kernel';
+import {
+  claimServerName,
+  DSH_MCP_CLIENT,
+  DSH_MCP_ENTRY_PREFIX,
+  mcpConfigRunnable,
+  mcpLoaderConfig,
+  STATE_DIR,
+  type McpLoaderConfig,
+} from '@packhub/kernel';
 import { writeAtomic } from './atomic.ts';
 
-/** Pack 装进实例后登记的 MCP 服务器（`.packhub/config.json` 里的 mcpServers）。 */
-export interface McpServer {
+/**
+ * Pack 装进实例后登记的 MCP 服务器（`.packhub/config.json` 里的 mcpServers）。
+ *
+ * `serverName` / `transport` 与条目形状由 kernel 的 `mcpLoaderConfig` 归一：attached 安装写
+ * profile patch 时用的是同一份规则，两处写进 dsh 的条目必须一致。
+ */
+export interface McpServer extends McpLoaderConfig {
   id: string;
-  /** dsh 的 mcp-client 要求 [A-Za-z0-9_-]{1,32}，且在一个作用域内唯一 */
-  serverName: string;
-  transport: 'stdio' | 'streamable-http';
-  command?: string;
-  args?: string[];
-  env?: Record<string, string>;
-  url?: string;
-  headers?: Record<string, string>;
 }
 
 const MCP_CONFIG = `${STATE_DIR}/config.json`;
@@ -21,25 +26,6 @@ export const DSH_PATCH_FILE = 'pal-mcp.patch.yml';
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
-}
-
-function asStringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.map((item) => String(item)) : [];
-}
-
-function asStringMap(value: unknown): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [key, item] of Object.entries(asRecord(value))) out[key] = String(item);
-  return out;
-}
-
-/** serverName 只留合法字符；太长就截断并加短哈希，避免两个服务器撞名。 */
-export function toServerName(id: string): string {
-  const cleaned = id.replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'mcp';
-  if (cleaned.length <= 32) return cleaned;
-  let hash = 0;
-  for (const ch of id) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
-  return `${cleaned.slice(0, 23)}-${hash.toString(36).slice(0, 8)}`;
 }
 
 /** 读实例里登记的 MCP 服务器；读不到返回空数组。 */
@@ -56,31 +42,10 @@ export function readMcpServers(root: string): McpServer[] {
   const out: McpServer[] = [];
   const used = new Set<string>();
   for (const [id, raw] of Object.entries(servers)) {
-    const spec = asRecord(raw);
-    let serverName = toServerName(id);
-    for (let n = 1; used.has(serverName); n += 1) serverName = toServerName(`${id}-${n}`);
-    used.add(serverName);
-    const url = typeof spec.url === 'string' ? spec.url : undefined;
-    const command = typeof spec.command === 'string' ? spec.command : undefined;
-    const transport =
-      (typeof spec.transport === 'string' ? spec.transport : undefined) === 'http' || spec.transport === 'streamable-http'
-        ? 'streamable-http'
-        : url && !command
-          ? 'streamable-http'
-          : 'stdio';
-    const server: McpServer = { id, serverName, transport };
-    if (command) server.command = command;
-    const args = asStringArray(spec.args);
-    if (args.length > 0) server.args = args;
-    const env = asStringMap(spec.env);
-    if (Object.keys(env).length > 0) server.env = env;
-    if (url) server.url = url;
-    const headers = asStringMap(spec.headers);
-    if (Object.keys(headers).length > 0) server.headers = headers;
+    const config = mcpLoaderConfig(asRecord(raw), claimServerName(id, used));
     // 两种传输都不成立时跳过：写进 patch 也起不来
-    if (transport === 'stdio' && !command) continue;
-    if (transport === 'streamable-http' && !url) continue;
-    out.push(server);
+    if (!mcpConfigRunnable(config)) continue;
+    out.push({ id, ...config });
   }
   return out;
 }
@@ -93,8 +58,8 @@ function scalar(value: string): string {
 function renderRows(servers: McpServer[]): string {
   const lines: string[] = [];
   for (const server of servers) {
-    lines.push(`    - id: pal-mcp-${server.serverName}`);
-    lines.push("      name: '@deepseek-ai/dsh-mcp-client'");
+    lines.push(`    - id: ${DSH_MCP_ENTRY_PREFIX}${server.serverName}`);
+    lines.push(`      name: '${DSH_MCP_CLIENT}'`);
     lines.push('      config:');
     lines.push(`        serverName: ${scalar(server.serverName)}`);
     lines.push(`        transport: ${server.transport}`);

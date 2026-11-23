@@ -17,6 +17,7 @@ import type {
 } from './types.ts';
 import type { CapabilityForm } from './capability.ts';
 import type { Destination, DestinationKind } from './harness/contract.ts';
+import { claimServerName } from './mcp.ts';
 import { parseSource } from './ref.ts';
 import { ISSUE_CODES } from './issueCodes.ts';
 import { isPlainObject } from './util.ts';
@@ -43,6 +44,8 @@ export interface KindContext {
   platform: string;
   push(action: PlanActionInput): PlanAction;
   interp(value: unknown): unknown;
+  /** 已用掉的 MCP serverName（同一份计划里条目 id 不能撞）：按条目认领的方言才会动它 */
+  usedMcpServerNames: Set<string>;
   /** route shim 每种运行时只写一次，返回它在安装根里的相对路径 */
   pushRouteShim(runtime: 'node' | 'python'): string;
 }
@@ -86,14 +89,39 @@ function materializeMcp(ctx: KindContext, res: ResourceSpec): void {
   const target = ctx.dest('mcp');
   const dialect = target.mcp;
   const base = buildMcpSpec(res, ctx.interp(res.config ?? {}) as Record<string, unknown>);
-  const entry = dialect?.entry ? (dialect.entry(base) as Record<string, unknown>) : base;
+  // 按条目 id 认领的方言（dsh 的 profile patch）：serverName 先在同一份计划里去重，
+  // 条目 id 由方言从它派生；卸载时按这个 id 摘条目，不碰用户的条目。
+  const list = dialect?.list;
+  const serverName = list ? claimServerName(res.id, ctx.usedMcpServerNames) : undefined;
+  const entry = dialect?.entry
+    ? dialect.entry(base, { resource: res.id, ...(serverName ? { serverName } : {}) })
+    : base;
+  const entryRecord = isPlainObject(entry) ? (entry as Record<string, unknown>) : undefined;
+  const entryId =
+    list && serverName
+      ? typeof entryRecord?.id === 'string'
+        ? entryRecord.id
+        : `${list.ownerPrefix}${serverName}`
+      : undefined;
+  // 一个落点落到多个文件（dsh attached 的所有 profile）：动作带完整列表；只有一个文件时不写
+  const paths = target.paths && target.paths.length > 1 ? target.paths : undefined;
   ctx.push({
     op: 'register.mcp',
-    spec: entry,
+    spec: entry as Record<string, unknown>,
     path: dialect?.file ?? target.path,
     ...toBaseField(target.base),
+    ...(paths
+      ? {
+          paths: paths.map((item) => ({
+            path: item.path,
+            ...(item.base && item.base !== 'root' ? { base: item.base } : {}),
+          })),
+        }
+      : {}),
+    ...(entryId ? { entryId } : {}),
     ...(dialect?.path ? { configPath: [...dialect.path] } : {}),
     ...(dialect?.format ? { format: dialect.format } : {}),
+    ...(list ? { list: { ...list } } : {}),
     resource: res.id,
   });
 }

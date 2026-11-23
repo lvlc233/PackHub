@@ -129,6 +129,7 @@ export function buildPlan(
     push,
     interp,
     pushRouteShim,
+    usedMcpServerNames: new Set<string>(),
   };
 
   // 状态目录：建目录，不写文件。放在最前面，后续动作引用 ${state.x} 时目录已经存在。
@@ -457,28 +458,32 @@ const DESTINATION_KINDS: DestinationKind[] = [
  * 这是「绝对路径只来自适配器」的第一道门：清单没有字段能改 base，插值也只会拿到字符串。
  */
 function destinationBaseIssues(
-  dest: (kind: DestinationKind) => { path: string; base?: PathBase },
+  dest: (kind: DestinationKind) => { path: string; base?: PathBase; paths?: { path: string; base?: PathBase }[] },
   ctx: DestinationContext,
 ): Issue[] {
   const issues: Issue[] = [];
   for (const kind of DESTINATION_KINDS) {
-    const { path, base } = dest(kind);
-    if (!path) continue;
-    if (base === 'absolute' && !isAbsolute(path)) {
-      issues.push({
-        code: ISSUE_CODES.badDestinationBase,
-        severity: 'error',
-        message: `destination('${kind}') 声明 base: absolute，但路径不是绝对路径：${path}`,
-        path: `destination.${kind}`,
-      });
-    }
-    if (base === 'home' && !ctx.home) {
-      issues.push({
-        code: ISSUE_CODES.badDestinationBase,
-        severity: 'error',
-        message: `destination('${kind}') 声明 base: home，但这个安装范围没有 home 段：${path}`,
-        path: `destination.${kind}`,
-      });
+    const { path, base, paths } = dest(kind);
+    // 多落点（dsh attached 的每个 profile patch）逐个查：每一项都能带自己的基准
+    const items = paths && paths.length > 0 ? paths : [{ path, base }];
+    for (const item of items) {
+      if (!item.path) continue;
+      if (item.base === 'absolute' && !isAbsolute(item.path)) {
+        issues.push({
+          code: ISSUE_CODES.badDestinationBase,
+          severity: 'error',
+          message: `destination('${kind}') 声明 base: absolute，但路径不是绝对路径：${item.path}`,
+          path: `destination.${kind}`,
+        });
+      }
+      if (item.base === 'home' && !ctx.home) {
+        issues.push({
+          code: ISSUE_CODES.badDestinationBase,
+          severity: 'error',
+          message: `destination('${kind}') 声明 base: home，但这个安装范围没有 home 段：${item.path}`,
+          path: `destination.${kind}`,
+        });
+      }
     }
   }
   return issues;
@@ -490,12 +495,21 @@ function actionBaseIssues(actions: readonly PlanAction[]): Issue[] {
   for (const action of actions) {
     const base = actionToBase(action);
     const target = actionTargetPath(action);
-    if (!target) continue;
-    if (base === 'absolute' && !isAbsolute(target)) {
+    if (target && base === 'absolute' && !isAbsolute(target)) {
       issues.push({
         code: ISSUE_CODES.badDestinationBase,
         severity: 'error',
         message: `动作 ${action.actionId} 的落点是 absolute，但路径不是绝对路径：${target}`,
+      });
+    }
+    // 多落点的动作每个文件各自的基准也要查
+    if (action.op !== 'register.mcp' || !action.paths) continue;
+    for (const item of action.paths) {
+      if ((item.base ?? 'root') !== 'absolute' || isAbsolute(item.path)) continue;
+      issues.push({
+        code: ISSUE_CODES.badDestinationBase,
+        severity: 'error',
+        message: `动作 ${action.actionId} 的落点是 absolute，但路径不是绝对路径：${item.path}`,
       });
     }
   }
@@ -583,9 +597,11 @@ function detectConflicts(actions: PlanAction[], harness: HarnessId | undefined):
     }
     if (a.op === 'register.mcp') {
       const path = ownedKey({ path: a.path ?? `${STATE_DIR}/config.json`, base: actionToBase(a) });
-      // 条目挂在哪个对象路径下由宿主的 MCP 方言决定（缺省 mcpServers）
+      // 条目挂在哪个对象路径下由宿主的 MCP 方言决定（缺省 mcpServers）；
+      // 数组文件（dsh patch）里按条目 id 认领，键就是 entryId
       const configPath = (a.configPath ?? ['mcpServers']).join('.');
-      const composite = `${path}::${configPath}.${a.resource ?? 'mcp'}`;
+      const key = a.entryId ?? a.resource ?? 'mcp';
+      const composite = `${path}::${configPath}.${key}`;
       configKeys.set(composite, [...(configKeys.get(composite) ?? []), a.actionId]);
     }
   }

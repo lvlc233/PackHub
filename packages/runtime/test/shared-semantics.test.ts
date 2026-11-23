@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+﻿import { describe, expect, it } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -101,7 +101,7 @@ describe('.json 产物的私有语义', () => {
     const ctx2 = loadPack(v2);
     const plan2 = planFor(ctx2).plan!;
     await installPack(ctx2, plan2, { root: project, packRoot: v2 });
-    const pruned = pruneRemoved(project, plan1, plan2, installed1.outcomes);
+    const pruned = pruneRemoved(project, plan1, plan2);
 
     expect(pruned.removed).toContain('.packhub/knowledge/table.json');
     expect(pruned.kept).not.toContain('.packhub/knowledge/table.json');

@@ -181,7 +181,9 @@ export async function checkInstance(
   checks.push(runtimeCheck(baseline?.runtime, options.runtime ?? process.version));
 
   let mcp: InstanceHealth['mcp'];
-  if (record.harness === 'dsh') {
+  // attached 的 dsh home 没有「启动时生成的 --patch 层」：MCP 在安装期就写进了各 profile 的
+  // cordis.patch.yml，条目在不在由 pal verify 的漂移段回答，这里不该再报「没接线」
+  if (record.harness === 'dsh' && record.attached !== true) {
     const servers = readMcpServers(record.root);
     const file = record.home ? join(record.home, DSH_PATCH_FILE) : undefined;
     const wired = Boolean(file && existsSync(file));

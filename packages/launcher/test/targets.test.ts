@@ -367,16 +367,77 @@ describe('--home：attached home', () => {
     rmSync(base, { recursive: true, force: true });
   }, 60_000);
 
-  it('attached 只对已验证全局布局的宿主开放：dsh 拒绝', () => {
+  it('dsh：MCP 写进所有已有 profile 的 cordis.patch.yml，用户条目保留；卸载摘干净', () => {
     const palHome = newPalHome('pal-attached-dsh-');
-    const { base, pack } = packFixture();
-    const res = palIn(palHome, ['install', pack, '--host', 'dsh', '--home', join(base, 'h')]);
-    expect(res.status).toBe(2);
-    expect(res.out).toContain('宿主 dsh 暂不支持 attached home');
-    expect(res.out).toContain('用默认命名 home 或 --project');
-    expect(existsSync(join(base, 'h'))).toBe(false);
+    const { base, pack } = packFixture(SKILL_FIXTURE);
+    const attachedHome = join(base, '.dsh');
+    mkdirSync(join(attachedHome, 'profiles', 'web'), { recursive: true });
+    mkdirSync(join(attachedHome, 'profiles', 'desktop'), { recursive: true });
+    const webPatch = join(attachedHome, 'profiles', 'web', 'cordis.patch.yml');
+    const desktopPatch = join(attachedHome, 'profiles', 'desktop', 'cordis.patch.yml');
+    const webUser = [
+      '# 用户自己的 patch 层（这段注释不该丢）',
+      '- id: ui-settings-general',
+      '  name: "@deepseek-ai/dsh-client-ui-settings-general"',
+      '  config:',
+      '    welcomeNoticeVersion: 2026-09-28.1',
+      '',
+    ].join('\n');
+    const desktopUser = [
+      '- id: desktop-only',
+      '  name: "@deepseek-ai/dsh-client-desktop-only"',
+      '',
+    ].join('\n');
+    writeFileSync(webPatch, webUser, 'utf8');
+    writeFileSync(desktopPatch, desktopUser, 'utf8');
+
+    const res = palIn(palHome, ['install', pack, '--host', 'dsh', '--home', attachedHome]);
+    expect(res.status, res.out).toBe(0);
+
+    // 内容落点：技能 / 知识 / 提示词相对 home，指令是 <home>/AGENTS.md
+    expect(existsSync(join(attachedHome, 'skills/doc-review/SKILL.md'))).toBe(true);
+    expect(existsSync(join(attachedHome, 'knowledge/review-rubric.md'))).toBe(true);
+    expect(existsSync(join(attachedHome, 'prompts/reader-brief.md'))).toBe(true);
+    expect(readFileSync(join(attachedHome, 'AGENTS.md'), 'utf8')).toContain(
+      '<!-- packhub:begin lvlc233/doc-review -->',
+    );
+
+    // 两个 profile 都拿到同一条 loader 条目；用户条目原样保留
+    for (const file of [webPatch, desktopPatch]) {
+      const text = readFileSync(file, 'utf8');
+      expect(text).toContain('- id: pal-mcp-markdownlint');
+      expect(text).toContain('@deepseek-ai/dsh-mcp-client');
+      expect(text).toContain('serverName: markdownlint');
+      expect(text).toContain('transport: stdio');
+      expect(text).toContain('command: npx');
+    }
+    const webAfter = readFileSync(webPatch, 'utf8');
+    expect(webAfter).toContain('# 用户自己的 patch 层（这段注释不该丢）');
+    expect(webAfter).toContain('ui-settings-general');
+    expect(webAfter).toContain('welcomeNoticeVersion: 2026-09-28.1');
+    expect(readFileSync(desktopPatch, 'utf8')).toContain('desktop-only');
+
+    const verified = palIn(palHome, ['verify', '--home', attachedHome]);
+    expect(verified.status, verified.out).toBe(0);
+
+    // 外部把 desktop 里的条目删掉：体检报配置漂移
+    writeFileSync(desktopPatch, desktopUser, 'utf8');
+    const drifted = palIn(palHome, ['verify', '--home', attachedHome]);
+    expect(drifted.status, drifted.out).not.toBe(0);
+    expect(drifted.out).toContain('配置被改');
+    expect(drifted.out).toContain('profiles/desktop/cordis.patch.yml');
+
+    // 卸载：两处条目都消失，用户条目保留
+    const removed = palIn(palHome, ['uninstall', '--home', attachedHome]);
+    expect(removed.status, removed.out).toBe(0);
+    for (const file of [webPatch, desktopPatch]) {
+      const text = readFileSync(file, 'utf8');
+      expect(text).not.toContain('pal-mcp-markdownlint');
+    }
+    expect(readFileSync(webPatch, 'utf8')).toContain('ui-settings-general');
+    expect(readFileSync(desktopPatch, 'utf8')).toContain('desktop-only');
     rmSync(base, { recursive: true, force: true });
-  });
+  }, 120_000);
 
   it('hermes / workbody 的 attached 落点：skills + 各自的配置文件', () => {
     const palHome = newPalHome('pal-attached-more-');
@@ -490,16 +551,22 @@ describe('--home：claude-code / codex 的 attached 落点', () => {
     rmSync(base, { recursive: true, force: true });
   }, 60_000);
 
-  it('dsh 仍然拒绝 attached：错误文案列出已支持的宿主', () => {
+  it('dsh attached：一个 profile 都没有时退回 profiles/web，卸载后文件也不留', () => {
     const palHome = newPalHome('pal-attached-dsh-list-');
-    const { base, pack } = packFixture();
-    const res = palIn(palHome, ['install', pack, '--host', 'dsh', '--home', join(base, 'h')]);
-    expect(res.status).toBe(2);
-    expect(res.out).toContain('宿主 dsh 暂不支持 attached home');
-    expect(res.out).toContain('claude-code');
-    expect(res.out).toContain('codex');
+    const { base, pack } = packFixture(SKILL_FIXTURE);
+    const attachedHome = join(base, '.dsh');
+
+    const res = palIn(palHome, ['install', pack, '--host', 'dsh', '--home', attachedHome]);
+    expect(res.status, res.out).toBe(0);
+    const patch = join(attachedHome, 'profiles', 'web', 'cordis.patch.yml');
+    expect(readFileSync(patch, 'utf8')).toContain('- id: pal-mcp-markdownlint');
+
+    const removed = palIn(palHome, ['uninstall', '--home', attachedHome]);
+    expect(removed.status, removed.out).toBe(0);
+    // 这个 patch 文件是安装为「没有 profile」建出来的：摘完条目就不留空壳
+    expect(existsSync(patch)).toBe(false);
     rmSync(base, { recursive: true, force: true });
-  });
+  }, 120_000);
 });
 
 describe('--from-home：managed home 沿用全局凭据', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import packhubSchema from '../../../schema/packhub.v0.schema.json' with { type: 'json' };
@@ -207,9 +207,40 @@ describe('落点归宿主：每个宿主回答每类资源落在哪', () => {
       base: 'home',
     });
 
-    // 全局落点未验证的宿主不标 attached：PAL 会拒绝 --home，而不是猜一个目录
-    expect(requireHarness('dsh').attached, 'dsh 不该是 attached 宿主').toBeUndefined();
-    for (const id of ['opencode', 'hermes', 'workbody', 'claude-code', 'codex']) {
+    // dsh：技能 / 知识 / 提示词 / 指令相对 home；MCP 是每个已有 profile 的 patch 文件
+    const dsh = requireHarness('dsh');
+    expect(dsh.destination('skill', attachedCtx(home))).toMatchObject({ path: 'skills', base: 'home' });
+    expect(dsh.destination('knowledge', attachedCtx(home))).toMatchObject({ path: 'knowledge', base: 'home' });
+    expect(dsh.destination('prompt', attachedCtx(home))).toMatchObject({ path: 'prompts', base: 'home' });
+    expect(dsh.destination('instruction', attachedCtx(home))).toMatchObject({
+      path: 'AGENTS.md',
+      base: 'home',
+    });
+    const dshMcp = dsh.destination('mcp', attachedCtx(home));
+    // 一个 profile 都没有时退回 web：让安装把它建出来；只有一个文件时不写 paths
+    expect(dshMcp).toMatchObject({ path: 'profiles/web/cordis.patch.yml', base: 'home' });
+    expect(dshMcp.paths).toBeUndefined();
+    expect(dshMcp.mcp).toMatchObject({
+      format: 'yaml',
+      list: { field: 'insert', ownerPrefix: 'pal-mcp-' },
+    });
+
+    // 已有多个 profile：paths 是完整列表（字典序，第一个当主文件）
+    const multi = join(tmpdir(), 'packhub-attached-dsh');
+    mkdirSync(join(multi, 'profiles', 'web'), { recursive: true });
+    mkdirSync(join(multi, 'profiles', 'desktop'), { recursive: true });
+    writeFileSync(join(multi, 'profiles', 'web', 'cordis.patch.yml'), '[]\n', 'utf8');
+    writeFileSync(join(multi, 'profiles', 'desktop', 'cordis.patch.yml'), '[]\n', 'utf8');
+    const dshMulti = dsh.destination('mcp', attachedCtx(multi));
+    expect(dshMulti.path).toBe('profiles/desktop/cordis.patch.yml');
+    expect(dshMulti.paths).toEqual([
+      { path: 'profiles/desktop/cordis.patch.yml', base: 'home' },
+      { path: 'profiles/web/cordis.patch.yml', base: 'home' },
+    ]);
+    rmSync(multi, { recursive: true, force: true });
+
+    // 六个宿主都验证过全局落点（dsh 的 MCP 按 profile 走多文件，见上）
+    for (const id of ['opencode', 'hermes', 'workbody', 'claude-code', 'codex', 'dsh']) {
       expect(requireHarness(id).attached, `${id} 应标 attached`).toBe(true);
     }
   });
@@ -246,15 +277,17 @@ describe('落点归宿主：每个宿主回答每类资源落在哪', () => {
 
     // 本地条目：{ type: 'local', command: [exe, ...args] }
     expect(
-      mcp.mcp!.entry!({ transport: 'stdio', command: 'npx', args: ['-y', '@scope/x@1.0.0'] }),
+      mcp.mcp!.entry!({ transport: 'stdio', command: 'npx', args: ['-y', '@scope/x@1.0.0'] }, { resource: 'x' }),
     ).toEqual({ type: 'local', command: ['npx', '-y', '@scope/x@1.0.0'] });
     // 远程条目：{ type: 'remote', url }
-    expect(mcp.mcp!.entry!({ transport: 'http', url: 'https://mcp.example.com' })).toEqual({
+    expect(mcp.mcp!.entry!({ transport: 'http', url: 'https://mcp.example.com' }, { resource: 'r' })).toEqual({
       type: 'remote',
       url: 'https://mcp.example.com',
     });
     // env 变成 environment
-    expect(mcp.mcp!.entry!({ command: 'npx', args: ['pkg'], env: { TOKEN: 'x' } })).toMatchObject({
+    expect(
+      mcp.mcp!.entry!({ command: 'npx', args: ['pkg'], env: { TOKEN: 'x' } }, { resource: 'e' }),
+    ).toMatchObject({
       type: 'local',
       environment: { TOKEN: 'x' },
     });
@@ -277,12 +310,12 @@ describe('落点归宿主：每个宿主回答每类资源落在哪', () => {
     const mcp = specOfId.destination('mcp', ctx('home')).mcp!;
     expect(mcp.path).toEqual(['mcp_servers']);
     expect(mcp.format).toBe('yaml');
-    expect(mcp.entry!({ command: 'npx', args: ['-y', 'pkg'], env: { K: 'V' } })).toEqual({
+    expect(mcp.entry!({ command: 'npx', args: ['-y', 'pkg'], env: { K: 'V' } }, { resource: 'h' })).toEqual({
       command: 'npx',
       args: ['-y', 'pkg'],
       env: { K: 'V' },
     });
-    expect(mcp.entry!({ url: 'https://mcp.example.com' })).toEqual({
+    expect(mcp.entry!({ url: 'https://mcp.example.com' }, { resource: 'h2' })).toEqual({
       url: 'https://mcp.example.com',
     });
   });

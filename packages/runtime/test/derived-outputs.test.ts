@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+﻿import { describe, expect, it } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -58,7 +58,7 @@ describe('派生输出：install 期生成的文件也要进 planPaths', () => {
     });
     expect(installed2.outcomes.filter((o) => o.status === 'failed')).toEqual([]);
     const previous: Plan = plan1; // state 里已被升级并入新 key，直接用安装时的快照
-    const prune = pruneRemoved(project, previous, plan2, installed1.outcomes);
+    const prune = pruneRemoved(project, previous, plan2);
     expect(prune.removed).not.toContain(yamlRel);
     expect(existsSync(join(project, yamlRel))).toBe(true);
     // 更新不会把它当「新计划没产出」删掉，写的还是源里的同一份

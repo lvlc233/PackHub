@@ -256,10 +256,25 @@ export type PlanOp =
       path?: string;
       /** `path` 相对谁；缺省 root */
       toBase?: PathBase;
-      /** 配置里放条目的对象路径；默认 ['mcpServers'] */
+      /**
+       * 同一份登记要落到多个文件时的完整列表（含主文件 `path`，每个文件带自己的基准）。
+       * 只有 mcp 会多文件（dsh attached 写所有已有 profile）；只有一个文件时不出现。
+       */
+      paths?: { path: string; base?: PathBase }[];
+      /**
+       * 条目在文件里的标识；缺省用 `resource`。
+       * 文件顶层是对象时它是按键合并的键；顶层是数组时（`list`）它是条目自己的 `id`。
+       */
+      entryId?: string;
+      /** 配置里放条目的对象路径；默认 ['mcpServers']（文件顶层是数组时不写） */
       configPath?: string[];
       /** 配置文件格式；默认 json */
       format?: 'json' | 'yaml';
+      /**
+       * 文件顶层是数组时的合并规则（dsh 的 patch 层）：条目放进 `field` 列表，
+       * `id` 以 `ownerPrefix` 开头的条目才是本工具写的。
+       */
+      list?: { field: string; ownerPrefix: string };
     }
   | {
       op: 'exec';

@@ -1,7 +1,7 @@
 ---
 kind: contract
 summary: 格式 v0 的数据形状与格式层不变量
-verified: 2026-11-23
+verified: 2026-11-24
 decay: 365
 review: 格式升版、字段增删、apiVersion 变化时
 ---
@@ -110,12 +110,14 @@ resources:
 | `delete` | 无 | `to`（`toBase`，缺省 root） | 不撤销 | — | 否 | 目标不存在算 `noop`，不进 `written` |
 | `link.skill` | 本地 `pack` / 远程缓存基准 | `to`（`toBase`，缺省 root） | 删文件 | — | 否 | codex 额外派生 `<to>/agents/openai.yaml` |
 | `link.exec` | 无（`entry` / `module` 各带基准，缺省 root） | `to`（`toBase`，缺省 root）、`to.cmd` | 删文件 | — | 否 | `.cmd` 只在 win32 生成；`platforms` 不匹配由执行器 `skipped` |
-| `register.mcp` | 无（`spec`） | `path`（`toBase`，缺省 root；缺省用 `destination('mcp')` 的落点） | 还原共享配置 | `{path, base?, key, configPath?, format?}` | 是 | `configPath` / `format` 由宿主 MCP 方言决定；`.toml` 用托管块 |
+| `register.mcp` | 无（`spec`） | `path`（`toBase`，缺省 root；缺省用 `destination('mcp')` 的落点）；多落点时是 `paths` 里的每一项（各自带基准） | 还原共享配置 | `{path, base?, key, paths?, configPath?, format?, list?}` | 是 | `configPath` / `format` / `list` 由宿主 MCP 方言决定；`.toml` 用托管块；数组文件按条目 `id` 认领 |
 | `exec` | 无 | 无 | 不撤销 | — | 否 | 计划里永远 `approval: required` |
 | `instruction` | 无（`content`） | `file`（`toBase`，缺省 root） | 摘托管块 | `{file, base?, blockId}` | 是 | 只动 `<!-- packhub:begin/end -->` 之间 |
 | `state.dir` | 无 | 无（只建目录） | 不撤销 | — | 否 | 数据目录，不随升级/卸载删除 |
 
 **路径基准**：`Destination.base` 只有三个值——`root`（缺省，相对安装根）、`home`（相对宿主 home 段：managed 是 `<root>/home/<宿主>`，attached 就是 root）、`absolute`（原样使用，必须是绝对路径）。动作上对应可选的 `toBase`（`register.mcp` / `instruction` 也用同一个字段），默认 `root`，**默认值不写进 JSON**：同一份清单在现有宿主 / 现有 scope 下，动作与改造前逐字节一致。撤销载荷里的 `base` 同理，只在非 root 时出现。
+
+**多落点（只有 mcp）**：`Destination` 还可以给 `paths`——同一类落点对应的完整文件列表（含主文件 `path`，每项带自己的 `base`），用来表达 dsh 那种「MCP 是 per-profile、要写进所有已有 profile」的宿主。目录 enumeration 在适配器的 `destination` 里做（plan 期读 fs），计划里只留具体文件；`register.mcp` 动作对应地带 `paths`（完整列表）。**只有一个文件时不写 `paths`**：动作、撤销载荷与 `state.written` 都保持单文件形状，与改造前逐字节一致。其余落点忽略 `paths`。
 
 **安全边界**：
 
@@ -125,9 +127,9 @@ resources:
 
 「共享」只由动作决定：`register.mcp` 按 key 合并、`instruction` 按托管块追加；落点路径（`.json` / `.yaml` / `.toml` / 根目录 `.md`）不改变共享性，私有 `.json` 照常进版本镜像、参与所有权冲突、升级时按普通文件删。
 
-撤销载荷回答「撤销时要动哪一处」：`restore-shared` 给共享配置文件、条目挂的对象路径（`configPath`，缺省 `['mcpServers']`）与要摘的键，`format` 说明文件是 JSON 还是 YAML；`strip-block` 给指令文件与托管块 id。执行器（`deactivatePlan` / `pruneRemoved` / `removePack`）只按 `undo` 的四种方式各做一次，不再按 op 猜路径与键；`state.dir` 只建目录、不产出文件，所以不进文件冲突集合，同一目录挂两个 state id 另报 `duplicate-state-path`。
+撤销载荷回答「撤销时要动哪一处」：`restore-shared` 给共享配置文件、条目挂的对象路径（`configPath`，缺省 `['mcpServers']`）与要摘的键，`format` 说明文件是 JSON 还是 YAML；多落点的动作再带 `paths`，每个文件按同一个 `key` 各摘一次。`list` 说明文件顶层是数组：条目放在某一条的 `field`（dsh 是 `insert`）列表里，`id` 以 `ownerPrefix`（dsh 是 `pal-mcp-`）开头的才是本工具写的，用户的条目不动。`strip-block` 给指令文件与托管块 id。执行器（`deactivatePlan` / `pruneRemoved` / `removePack`）只按 `undo` 的四种方式各做一次，不再按 op 猜路径与键；`state.dir` 只建目录、不产出文件，所以不进文件冲突集合，同一目录挂两个 state id 另报 `duplicate-state-path`。
 
-`register.mcp` 的落点与条目形状由宿主的 `destination('mcp')` 回答：`path` 是配置文件（按安装范围分叉，例如 managed 的 opencode 在实例 home 的 XDG 目录里），随落点一起给的 `mcp` 方言声明 `path`（条目挂哪个对象路径，缺省 `['mcpServers']`）、`format`（缺省 `json`）、`entry(spec)`（把通用 spec 转成该宿主的条目形状）与可选的 `file`（只覆盖文件名，覆盖不了「这个范围写哪个文件」——那属于落点）。计划动作上对应 `path` / `configPath` / `format` 三个可选字段，`spec` 已经是转好的条目；不写方言就是 JSON `mcpServers` + spec 原样。宿主注册项的 `project` 还可以是 `'full'`（缺省，项目里注册技能、指令与 MCP）/ `'pointer'`（项目里只写指路块，不注册 skill，安装时提示；dsh）/ `false`（没有项目级落点，`pal install --project` 直接拒绝，只能装进 home；hermes）。
+`register.mcp` 的落点与条目形状由宿主的 `destination('mcp')` 回答：`path` 是配置文件（按安装范围分叉，例如 managed 的 opencode 在实例 home 的 XDG 目录里；多文件时还有 `paths`），随落点一起给的 `mcp` 方言声明 `path`（条目挂哪个对象路径，缺省 `['mcpServers']`；数组文件不写）、`format`（缺省 `json`）、`list`（文件顶层是数组时的合并规则：`field` 放条目、`ownerPrefix` 认领条目 `id`）、`entry(spec, ctx)`（把通用 spec 转成该宿主的条目形状；`ctx.serverName` 是同一次安装里去过重的名字）与可选的 `file`（只覆盖文件名，覆盖不了「这个范围写哪个文件」——那属于落点）。计划动作上对应 `path` / `paths` / `entryId` / `configPath` / `format` / `list` 这些可选字段，`spec` 已经是转好的条目；`entryId` 是条目在文件里的标识（对象文件里是合并用的键，数组文件里是条目自己的 `id`），不写就用 `resource`。不写方言就是 JSON `mcpServers` + spec 原样。宿主注册项的 `project` 还可以是 `'full'`（缺省，项目里注册技能、指令与 MCP）/ `'pointer'`（项目里只写指路块，不注册 skill，安装时提示；dsh）/ `false`（没有项目级落点，`pal install --project` 直接拒绝，只能装进 home；hermes）。dsh attached 的 MCP 条目落到 `<home>/profiles/<profile>/cordis.patch.yml` 里已有的每一个 profile（见 concepts 的 attached 支持列表）。
 
 派生输出是「install 期生成、计划动作里没有对行动作」的文件（codex 的 `agents/openai.yaml`、`link.exec` 的 `.cmd`）；它们由表的 `paths()` 声明，因此 `planPaths(plan)`、快照、版本镜像与升级清理都能覆盖到。
 
@@ -215,7 +217,7 @@ resources:
 不变量：
 
 1. 每个包一条记录，键是 `name@version`；升级时旧版本记录并入新 key，不留旧 key。
-2. `written` 是这个包**拥有**的文件集合（跨多次安装取并集），每条是 `{ path, base }`：`root` 相对安装根、`home` 相对 `record.home`、`absolute` 原样（必须是绝对路径）。卸载据此删除；共享文件（MCP 配置 / 指令块）按计划快照里的 key / 块 id 摘除，不整文件删。
+2. `written` 是这个包**拥有**的文件集合（跨多次安装取并集），每条是 `{ path, base }`：`root` 相对安装根、`home` 相对 `record.home`、`absolute` 原样（必须是绝对路径）。一个 `register.mcp` 落到多个文件时，每个文件各记一条（同一个 `key`，按 `paths` 展开）。卸载据此删除；共享文件（MCP 配置 / 指令块）按计划快照里的 key / 块 id 摘除，不整文件删。
 3. `home` 是这次安装的宿主 home 段（绝对路径）。没有 home 的项目 / 平铺安装不写这个字段；解析 `base: 'home'` 的路径时缺它直接报错，不猜一个目录。
 4. `plan` 是该次安装的计划快照，形如 `PlanSnapshot`：可选 `harness`（平铺目录时不出现）/ `planHash` / `actions` / `verify` / `excluded`，**没有** `apiVersion` 与 `pack`（那两个字段只属于完整 plan）；`diff`、`update`、`planOutputs` 只需要这一份。不参与任何哈希。
 5. `stateDirs` 记录清单 `state` 块声明的目录；这些目录不进 `written`、不进版本镜像、不被快照回滚删除。

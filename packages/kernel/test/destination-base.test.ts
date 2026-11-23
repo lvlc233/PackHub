@@ -118,6 +118,10 @@ describe('Destination.base 的校验与派生', () => {
       for (const field of ['toBase', 'destBase', 'entryBase', 'moduleBase', '"base"']) {
         expect(json.includes(field), `${label} 不该出现 ${field}`).toBe(false);
       }
+      // 多落点 / 数组文件的字段只在 dsh attached 出现；现有形态的动作形状不变
+      for (const field of ['"paths"', '"entryId"', '"list"']) {
+        expect(json.includes(field), `${label} 不该出现 ${field}`).toBe(false);
+      }
     };
 
     // 六个宿主的 project / managed

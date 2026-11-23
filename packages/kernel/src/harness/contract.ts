@@ -63,6 +63,27 @@ export interface ProbeRecipe {
   hints?: { test: RegExp; reason: string }[];
 }
 
+/** 条目转成宿主形状时拿得到的上下文（目前只有 dsh 这种按条目 id 认领的方言用得到）。 */
+export interface McpEntryContext {
+  /** 资源在清单里的 id */
+  resource: string;
+  /** 同一次安装里唯一的 serverName（按资源 id 派生；方言只在需要时用它） */
+  serverName?: string;
+}
+
+/**
+ * 文件顶层是数组时的合并规则（dsh 的 profile patch 层）。
+ *
+ * dsh 的 `cordis.patch.yml` 是一个 patch 列表，MCP 条目放在某一条的 `insert` 列表里，
+ * 每条 loader 用 `id` 标识；不属于我们的条目（不匹配 `ownerPrefix`）一律不动。
+ */
+export interface McpListLayout {
+  /** 放条目的键（dsh 是 insert） */
+  field: string;
+  /** 认领标记：条目 `id` 以它开头才是本工具写的（dsh 是 `pal-mcp-`） */
+  ownerPrefix: string;
+}
+
 /**
  * MCP 配置的「方言」：server 条目挂在哪个键下面、文件是什么格式、条目要转成什么形状。
  *
@@ -72,12 +93,20 @@ export interface ProbeRecipe {
 export interface McpDialect {
   /** 覆盖落点给的文件名（相对安装根）；不写就用 `destination('mcp').path` */
   file?: string;
-  /** 配置里放 server 条目的对象路径，例如 ['mcpServers'] / ['mcp','servers'] / ['mcp_servers'] */
-  path: string[];
+  /**
+   * 配置里放 server 条目的对象路径，例如 ['mcpServers'] / ['mcp','servers'] / ['mcp_servers']。
+   * 文件顶层是数组时（见 `list`）不写。
+   */
+  path?: string[];
   /** 配置文件格式；默认 json（.toml 的文件仍走旧的托管块分支） */
   format?: 'json' | 'yaml';
+  /**
+   * 文件顶层是数组时的合并规则；不写 = 文件是对象，条目按 `path` 逐层挂。
+   * 数组文件里的条目以形状里的 `id` 认领（计划动作带 `entryId`）。
+   */
+  list?: McpListLayout;
   /** 把计划里的通用 spec 转成这个宿主的条目形状；不写就原样 */
-  entry?(spec: Record<string, unknown>): unknown;
+  entry?(spec: Record<string, unknown>, ctx: McpEntryContext): unknown;
 }
 
 /** 资源落点的类别：宿主必须逐个回答「这类资源落在哪」。 */
@@ -99,6 +128,12 @@ export interface DestinationContext {
   scope: 'project' | 'home' | 'attached';
 }
 
+/** 同一类落点对应的一个文件：路径 + 它自己的基准（缺省 root）。 */
+export interface DestinationPath {
+  path: string;
+  base?: 'root' | 'home' | 'absolute';
+}
+
 /** 宿主对一类资源落点的回答。 */
 export interface Destination {
   /**
@@ -117,6 +152,14 @@ export interface Destination {
    * 插值也不能把动作的 base 改成 absolute（见 docs/contract.md 的安全边界）。
    */
   base?: 'root' | 'home' | 'absolute';
+  /**
+   * 同一类落点落到多个文件时的完整列表（含主文件 `path`）；不写 = 只有一个文件。
+   *
+   * 只有 mcp 用得到：dsh 的 MCP 是 per-profile 的，attached 安装要写所有已有 profile 的
+   * patch 文件。目录 enumeration 在这里做（适配器读 fs），计划里只留具体文件。
+   * 只有一个文件时不写这个字段：计划动作与 state 保持单文件形状。
+   */
+  paths?: DestinationPath[];
   /** 仅 mcp：这个宿主的 MCP 方言（条目挂哪个键、什么格式、条目形状） */
   mcp?: McpDialect;
 }

@@ -1,7 +1,7 @@
 ---
 kind: decision
 summary: 有意为之的取舍
-verified: 2026-11-23
+verified: 2026-11-24
 decay: 365
 review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增删、锁形状或签名载荷变化、接线规则再变、检查派生规则再变、安装参数或落点归属改名、路径基准或 state.written 形状再变、安装对象或命令族边界再变、命令层再出现例外、加 mac 门禁、命令面收缩）
 ---
@@ -150,7 +150,7 @@ review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增
 
 代价：
 
-- attached 只对已验证全局布局的宿主开放：opencode（`~/.config/opencode`）、hermes（`~/.hermes`）、workbody（`~/.codebuddy`）；dsh / claude-code / codex 拒绝，因为全局布局未验证——以后验证一个才加一个 `attachedLayout`。拒绝发生在写盘之前。
+- attached 只对已验证全局布局的宿主开放：opencode（`~/.config/opencode`）、hermes（`~/.hermes`）、workbody（`~/.codebuddy`）、claude-code（`~/.claude`，MCP 在 home 旁的 `~/.claude.json`）、codex（`~/.codex`，MCP 是 `config.toml`）、dsh（`~/.dsh`，MCP 是每个已有 profile 的 `cordis.patch.yml`，见「dsh attached 的 MCP 走多 profile patch」）；没验证过的宿主继续拒绝，以后验证一个才加一个 `attached: true`。拒绝发生在写盘之前。
 - 危险操作只对 managed，remove 例外地分成两种语义：managed 删整根；attached 只摘记录——按 state 卸包，删 `instance.json` / `runtime.json` / `baseline.json` 与 `.links` / active 指针，目录与用户文件保留（`detached <名字>（目录保留）`），并且要求先 `pal stop`，PAL 不替用户杀进程。clone / backup / restore / migrate 仍对 attached 直接拒绝（`attached home 不归 PAL`），因为 PAL 不拥有那个目录、也不整根搬它；只卸包不摘记录用 `pal uninstall --home <路径>`。代价是 attach 之后仍有两条退出路径（卸包 / 摘记录），用户得知道 remove 与 uninstall 不是一回事。
 - 默认名是约定，不是用户起的：managed 默认名冲突仍是用法错（`<host>-<packSlug>`），只能 `--name` 换名、`pal update <名字>` 换版本或 `pal run <名字>` 直接跑。attached 没有 PAL 自己的数据目录可退，默认名又最容易撞上同一宿主的前一份记录，所以冲突时自动尝试 `<base>-attached`，再冲突才退 2 提示 `--name`，并在输出里打印最终用的名字；显式 `--name` 冲突不退让（不替用户改名）。`--name` 与 `--project` 互斥（项目没有 home 名）。
 - 全局写盘要有所有权：attached 安装会在宿主全局目录里写 skills、配置（如 `opencode.json` / `config.yaml`）、`instance.json` / `runtime.json` / `baseline.json` 与 `.packhub/`；宿主与别的工具会看到这些多出来的文件。PAL 因此把它们当「宿主的目录」：不删根、不整根备份、不迁移；remove 只把 PAL 自己的记录摘掉。
@@ -206,3 +206,16 @@ README 只承诺分工：「packhub 做包与发版，pal 安装与运行」；C
 没选另一条：保留一张 `LayoutVars` 当默认（平铺那份表 + 每宿主叠差量，`layoutFor()` 算出最终值，`instanceLayout` / `attachedLayout` 再按范围覆盖）。那张表把「宿主落在哪」变成内核的数据：某个宿主的全局目录多一层、或某个范围的配置文件在 home 里，就得在内核表上再加一层覆盖；落到哪个范围由调用方拼 `Partial<LayoutVars>` 决定，内核判断不了「这个覆盖对这个宿主成立吗」。attached 的能力也藏在 `attachedLayout` 有没有写里，launcher 只能靠派生结果反推。
 
 代价：每个宿主必须实现 `destination`——加宿主多一个必填函数，八类落点与指令面要按范围自己写清（opencode 的 XDG 多一层、hermes 的 YAML 配置、workbody 的 home 内 `mcp.json` 各在模块里）；`${layout.*}` 不再读一张表，而是每个键现问一次 destination（与动作落点同源，但少了「把全部键摆在一起看」的那份结构）；改落点的成本从内核一张表上移到某个宿主的模块，同一处能看到项目 / managed / attached 三份答案，也更容易只改一份忘了另一份——靠单测按范围逐一对一断言兜住。attached 从「写了 `attachedLayout` 就是支持」变成 `attached: true` 加 `destination` 的 attached 分支，两处要一起改。
+
+### dsh attached 的 MCP 走多 profile patch
+
+现状：dsh 的 MCP 不是一份 `mcp.json`，而是每个 profile 的 `cordis.patch.yml` 里一条 loader 条目（`id: pal-mcp-<server>`、`name: '@deepseek-ai/dsh-mcp-client'`、`config` 里写 serverName / transport / 启动参数）。attached 安装时 `destination('mcp')` 在 plan 期枚举 `<home>/profiles/*/cordis.patch.yml` 里**已存在**的文件（字典序，第一个当主文件），`Destination.paths` / `register.mcp.paths` 带上完整列表；每个文件顶层是 YAML 数组，条目塞进 `insert` 列表，按 `id` 的 `pal-mcp-` 前缀认领所有权，用户自己的 loader 条目原样保留。一个 profile 都没有时退回 `profiles/web/cordis.patch.yml`，让安装把它建出来（`dsh web` 本来就找它）。
+
+没选另一条：只写 web（最常用的 profile）一份，或按 managed 的做法另生成一份 `pal-mcp.patch.yml` 让每个 profile 引用，或干脆不支持 dsh attached。只写 web 等于「装完在 desktop / headless 里看不到 MCP」，同一个 home 里能力不一致且没有提示；另生成一份共享 patch 需要每个 profile 启动时带 `--patch`，而 attached home 的启动方式不归 PAL（用户直接跑 `dsh`），接线会悄悄失效；不支持 dsh attached 则 `~/.dsh` 里那些本来为它准备的内容（skills / AGENTS.md）装不进去。
+
+代价：
+
+- **profile 事后新增不补**：写的是安装那一刻已存在的 profile。之后 `dsh --profile new` 新建的 profile 没有条目，得重装或手工补；一条「哪些 profile 有 PAL 条目」不会自动收敛。文档与 `pal verify` 只能报漂移，不能替用户补。
+- **多文件所有权**：一个 `register.mcp` 动作对应多个文件，`state.written` 每个文件记一条，撤销载荷带 `paths`（每个文件同一个 `key`）；卸载、升级清理、`pal verify` 的漂移段都要按文件逐个摘 / 逐个查，任一处漏掉就会有一份 profile 静默保留条目。只有一个 profile 时整条链路仍按单文件走（不写 `paths`），旧形状的字节不变。
+- **用户文件被重排**：patch 文件是用户可能手写过的 YAML。合并按文档树读入再写出，注释与用户条目都保留，但缩进 / 引号风格会被重新序列化一次；这是「写进别人的文件」的固有成本，managed 那份整份生成的 patch 不受影响。
+- **同一份条目要两边一致**：launcher 生成 managed 实例的 `pal-mcp.patch.yml` 与 kernel 生成 attached 的 loader 条目必须同形（serverName 合法化 / 截断、transport 归一、env/headers 字符串化）。纯函数抽到 kernel 的 `mcp.ts`，两边共用；以后改 dsh 的条目形状只改一处。

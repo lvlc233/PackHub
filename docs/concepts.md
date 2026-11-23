@@ -1,7 +1,7 @@
 ---
 kind: concept
 summary: 术语与边界（Pack / 资源 / 计划 / 宿主 / 命名 home（managed / attached）/ 项目 / 隔离）
-verified: 2026-11-23
+verified: 2026-11-24
 decay: 365
 review: 环境模型或安装流程改动后
 ---
@@ -89,7 +89,7 @@ Pack 里的一条能力声明，它相对于 Agent，而不是相对于整个 ha
 
 `pal install <来源>` 只有一个动词，target 三选一：不写（managed 命名 home）/ `--home <路径>`（attached home）/ `--project <目录>`（项目）。`--host` 三种都必填；`--name` 只配前两种。内容展开到文件，登记写进 target 的 `.packhub/state.json`。装成功后打印下一步：managed / attached 都是 `pal run <名字>`（server 型宿主是 `pal start <名字>`），项目是「在宿主里打开 <目录>」。managed 想沿用已有全局凭据时加 `--from-home <路径>`：把该宿主 `credentialFiles` 登记的文件从那个目录复制到新 home 的对应位置（源不存在的跳过并提示，宿主没登记凭据文件就什么都不复制）；attached 直接就是宿主的全局目录，不需要也拒绝这个参数；`--project` 没有 home 段，同样不能用。
 
-attached home 只对有已验证全局落点（`destination` 的 `scope: 'attached'` 分支）的宿主开放：opencode（`~/.config/opencode`，skills 在 `<home>/skills`、MCP 在 `<home>/opencode.json`）、claude-code（`~/.claude`，skills / knowledge / prompts / `CLAUDE.md` 相对 home，MCP 是 home 旁边的 `~/.claude.json`，绝对路径）、codex（`~/.codex`，skills / knowledge / prompts / `AGENTS.md` 相对 home，MCP 是 `<home>/config.toml` 的 TOML 托管块）、hermes（`~/.hermes`，MCP 是 `<home>/config.yaml` 的 `mcp_servers`）、workbody（`~/.codebuddy`，MCP 是 `<home>/mcp.json`）。dsh 的全局落点未验证，`--home` 明确拒绝——写错地方比拒绝更贵。
+attached home 只对有已验证全局落点（`destination` 的 `scope: 'attached'` 分支）的宿主开放：opencode（`~/.config/opencode`，skills 在 `<home>/skills`、MCP 在 `<home>/opencode.json`）、claude-code（`~/.claude`，skills / knowledge / prompts / `CLAUDE.md` 相对 home，MCP 是 home 旁边的 `~/.claude.json`，绝对路径）、codex（`~/.codex`，skills / knowledge / prompts / `AGENTS.md` 相对 home，MCP 是 `<home>/config.toml` 的 TOML 托管块）、hermes（`~/.hermes`，MCP 是 `<home>/config.yaml` 的 `mcp_servers`）、workbody（`~/.codebuddy`，MCP 是 `<home>/mcp.json`）、dsh（`~/.dsh`，skills / knowledge / prompts / `AGENTS.md` 相对 home；MCP 是 per-profile 的，写进 `<home>/profiles/<profile>/cordis.patch.yml` 里**已有**的每一个 profile，一个都没有时建 `profiles/web/cordis.patch.yml`——装完再新建的 profile 不会被补上，要补就重装或手工加条目）。
 
 `uninstall` / `update` / `rollback` / `verify` 收 `--home <路径|名字>`（managed 用名字，attached 用路径或名字）或 `--project <目录>`；都不给是用法错，提示二选一。home 的写操作（install / uninstall / update / rollback / remove）要求已停，`verify` 允许运行；attached 与 managed 同规则，且 attached 的 remove 不替用户杀进程——环境还在跑就退 2 提示 `pal stop`。
 
@@ -109,7 +109,7 @@ remove 对两类 home 不同：managed 删整根（默认直接删根，`--keep-
 
 模型循环、工具执行、上下文、界面都在它那里。
 
-`pal install` 的 `--host` 与 `packhub plan` / `verify` 的 `--harness` 选的是宿主：写 = 某个宿主名（`dsh` / `claude-code` / `codex` / `opencode` / `workbody` / `hermes`）；不写 = 平铺目录（中性落点，不属于任何宿主；pal 的 `--host` 必填，不存在「不写」）。`dir` 不是可写的取值，它只是平铺目录这一形态的名字。装到宿主上就是把文件、指令与 MCP 写法落到那个宿主自己声明的落点上：宿主实现 `destination(kind, ctx)`，逐类回答 skill / knowledge / prompt / mcp / instruction / bin / config / cache 落在哪（每条回答带 `path` 与可选的 `base`：`root` 相对安装根、`home` 相对宿主 home 段、`absolute` 必须是绝对路径），范围只有 `project` / `home`（managed）/ `attached` 三种；内核不持有任何「布局表」，只按类别问宿主。宿主对项目落点分三态：`full`（项目里注册技能、指令与 MCP）、`pointer`（dsh：项目里只写指路块，技能留在全局，安装时提示要装进命名 home）、`false`（hermes：没有项目级落点，拒绝项目安装，只能装进 home）。宿主还可以声明自己的 MCP 方言（条目挂在哪个键下面、什么格式、条目长什么样；配置文件在哪由 `destination('mcp')` 回答），以及是否已验证 attached 落点（`destination` 的 `scope: 'attached'` 分支可用，`pal install --home` 才允许指过去）；非 root 基准只允许适配器声明，清单不会因此拿到写任意路径的能力。
+`pal install` 的 `--host` 与 `packhub plan` / `verify` 的 `--harness` 选的是宿主：写 = 某个宿主名（`dsh` / `claude-code` / `codex` / `opencode` / `workbody` / `hermes`）；不写 = 平铺目录（中性落点，不属于任何宿主；pal 的 `--host` 必填，不存在「不写」）。`dir` 不是可写的取值，它只是平铺目录这一形态的名字。装到宿主上就是把文件、指令与 MCP 写法落到那个宿主自己声明的落点上：宿主实现 `destination(kind, ctx)`，逐类回答 skill / knowledge / prompt / mcp / instruction / bin / config / cache 落在哪（每条回答带 `path` 与可选的 `base`：`root` 相对安装根、`home` 相对宿主 home 段、`absolute` 必须是绝对路径；MCP 还可以给 `paths` 表示「同一份登记落到多个文件」，目前只有 dsh attached 用），范围只有 `project` / `home`（managed）/ `attached` 三种；内核不持有任何「布局表」，只按类别问宿主。宿主对项目落点分三态：`full`（项目里注册技能、指令与 MCP）、`pointer`（dsh：项目里只写指路块，技能留在全局，安装时提示要装进命名 home）、`false`（hermes：没有项目级落点，拒绝项目安装，只能装进 home）。宿主还可以声明自己的 MCP 方言（条目挂在哪个键下面、什么格式、条目长什么样、文件是不是数组；配置文件在哪由 `destination('mcp')` 回答），以及是否已验证 attached 落点（`destination` 的 `scope: 'attached'` 分支可用，`pal install --home` 才允许指过去）；非 root 基准只允许适配器声明，清单不会因此拿到写任意路径的能力。
 
 清单里的 `${layout.*}` 是这套落点回答的派生视图，不是第二份数据：`skillsDir` / `knowledgeDir` / `promptsDir` / `binDir` / `configDir` / `cacheDir` 分别等于对应 `destination(kind)`，`configFile` = `destination('mcp')`、`instructionFile` = `destination('instruction')`，`root` 是包自己的 `.packhub` 状态根（不是安装根）；没有指令面的形态（平铺目录）不派生 `instructionFile`，清单里写了就报未定义变量。带 `base: 'home'` 的落点给 home 下的相对路径，带 `base: 'absolute'` 的落点给绝对路径；宿主改掉自己的回答，插值跟着变。
 

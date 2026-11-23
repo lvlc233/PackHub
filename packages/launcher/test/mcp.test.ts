@@ -2,11 +2,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { toServerName } from '@packhub/kernel';
 import {
   DSH_PATCH_FILE,
   readMcpServers,
   renderDshPatch,
-  toServerName,
   writeDshMcpPatch,
 } from '../src/mcp.ts';
 

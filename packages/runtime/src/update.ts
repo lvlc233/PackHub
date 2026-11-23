@@ -1,4 +1,4 @@
-import { join } from 'node:path';
+﻿import { join } from 'node:path';
 import { fetchPack } from './registry.ts';
 import { loadPack, installPack, loadState, loadLock, withLockPins } from './index.ts';
 import { pruneRemoved } from './install.ts';
@@ -57,7 +57,6 @@ export async function updatePack(opts: UpdateOptions): Promise<UpdateResult> {
   const state = loadState(opts.projectDir);
   const key = Object.keys(state.packs).find((k) => k.startsWith(`${opts.name}@`));
   const previous: PlanSnapshot | undefined = key ? state.packs[key]?.plan : undefined;
-  const previousActions = key ? state.packs[key]?.actions ?? [] : [];
   // 没显式指定宿主就沿用上次安装的，避免更新时把 claude-code 的投影换成平铺目录。
   // 旧快照存的是 `target`、没有 `harness`：v0 无兼容承诺，这里不认它，一律当平铺目录
   // （装过宿主的旧安装要重装成带 harness 的快照）。
@@ -87,7 +86,7 @@ export async function updatePack(opts: UpdateOptions): Promise<UpdateResult> {
     });
     // 新版本装完再清旧产物：先删后装会在中途失败时留下空档
     if (previous) {
-      const result = pruneRemoved(opts.projectDir, previous, plan, previousActions);
+      const result = pruneRemoved(opts.projectDir, previous, plan);
       pruned = result.removed;
       warnings = result.warnings;
     }

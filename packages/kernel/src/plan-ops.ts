@@ -24,10 +24,36 @@ export type PlanOpUndoPayload =
       key: string;
       /** 路径基准；缺省 root（旧计划没有这个字段） */
       base?: PathBase;
+      /**
+       * 同一份登记落到了多个文件时的完整列表（含 `path`，每个带自己的基准）。
+       * 只在一个文件时不出现：旧计划与单文件安装的载荷逐字节不变。
+       */
+      paths?: { path: string; base?: PathBase }[];
       configPath?: string[];
       format?: 'json' | 'yaml';
+      /** 文件顶层是数组时的合并规则（dsh 的 patch 层） */
+      list?: { field: string; ownerPrefix: string };
     }
   | { undo: 'strip-block'; file: string; blockId: string; base?: PathBase };
+
+/** `restore-shared` 要动的那几处（路径 + 基准）：多文件时是 `paths`，否则主文件。 */
+export function undoSharedPaths(
+  payload: Extract<PlanOpUndoPayload, { undo: 'restore-shared' }>,
+): OwnedPath[] {
+  if (payload.paths && payload.paths.length > 0) {
+    return payload.paths.map((item) => ({ path: item.path, base: item.base ?? 'root' }));
+  }
+  return [{ path: payload.path, base: payload.base ?? 'root' }];
+}
+
+/** `register.mcp` 的全部落点（路径 + 各自的基准）：`paths` 优先，否则单文件。 */
+export function mcpActionPaths(action: PlanAction): OwnedPath[] {
+  if (action.op !== 'register.mcp') return [];
+  if (action.paths && action.paths.length > 0) {
+    return action.paths.map((item) => ({ path: item.path, base: item.base ?? 'root' }));
+  }
+  return [{ path: action.path ?? `${STATE_DIR}/config.json`, base: action.toBase ?? 'root' }];
+}
 
 /** codex 的技能选择器要求 `agents/openai.yaml`：install 期生成，计划里没有对行动作。 */
 export const CODEX_SKILL_YAML = 'agents/openai.yaml';
@@ -45,8 +71,15 @@ export interface PlanOpSpec {
   undoPayload(action: PlanAction): PlanOpUndoPayload | null;
   /** 这个动作写到安装根的路径（含派生输出）；快照、版本镜像、planPaths、冲突都用它。 */
   paths(action: PlanAction, plan: PlanShape): string[];
+  /**
+   * 这个动作的全部产物（路径 + 各自的基准）；不写 = `paths()` × `actionToBase()`。
+   * 多落点的动作（`register.mcp` 写多个文件）用它：每个文件可以有自己的基准。
+   */
+  outputs?(action: PlanAction, plan: PlanShape): OwnedPath[];
   /** 动作成功时计入 state.written 的路径（平台差异在这里收口）。 */
   written(action: PlanAction, plan: Plan, platform: string): string[];
+  /** 同上的带基准版本；不写 = `written()` × `actionToBase()`。多落点动作用它。 */
+  writtenOwned?(action: PlanAction, plan: Plan, platform: string): OwnedPath[];
   /**
    * 这个动作的产物是否共享（多包可合并）。只由动作语义决定：`register.mcp` 按 key 合并、
    * `instruction` 按托管块追加；其余 op 的产物都是本包私有，路径长什么样都不改变这一点。
@@ -198,14 +231,25 @@ export const PLAN_OPS: Record<PlanOpName, PlanOpSpec> = {
         ? {
             undo: 'restore-shared',
             path: a.path ?? `${STATE_DIR}/config.json`,
-            key: a.resource ?? 'mcp',
+            key: a.entryId ?? a.resource ?? 'mcp',
             ...(baseField(actionToBase(a))),
+            ...(a.paths && a.paths.length > 1
+              ? {
+                  paths: a.paths.map((item) => ({
+                    path: item.path,
+                    ...(item.base && item.base !== 'root' ? { base: item.base } : {}),
+                  })),
+                }
+              : {}),
             ...(a.configPath ? { configPath: a.configPath } : {}),
             ...(a.format ? { format: a.format } : {}),
+            ...(a.list ? { list: a.list } : {}),
           }
         : null,
-    paths: (a) => (a.op === 'register.mcp' ? [a.path ?? `${STATE_DIR}/config.json`] : []),
-    written: (a) => (a.op === 'register.mcp' ? [a.path ?? `${STATE_DIR}/config.json`] : []),
+    paths: (a) => mcpActionPaths(a).map((item) => item.path),
+    outputs: (a) => mcpActionPaths(a),
+    written: (a) => mcpActionPaths(a).map((item) => item.path),
+    writtenOwned: (a) => mcpActionPaths(a),
     shared: () => true,
     inputs: none,
   },
@@ -284,6 +328,8 @@ export function actionPaths(action: PlanAction, plan: PlanShape): string[] {
 
 /** 单个动作的产物（路径 + 基准）。 */
 export function actionOutputs(action: PlanAction, plan: PlanShape): OwnedPath[] {
+  const custom = PLAN_OPS[action.op].outputs?.(action, plan);
+  if (custom) return custom;
   const base = actionToBase(action);
   return actionPaths(action, plan).map((path) => ({ path, base }));
 }
@@ -300,6 +346,8 @@ export function actionWritten(action: PlanAction, plan: Plan, platform: string):
 
 /** 单个动作成功时计入 state.written 的路径（带基准；新 state 用它）。 */
 export function actionWrittenOwned(action: PlanAction, plan: Plan, platform: string): OwnedPath[] {
+  const custom = PLAN_OPS[action.op].writtenOwned?.(action, plan, platform);
+  if (custom) return custom;
   const base = actionToBase(action);
   return actionWritten(action, plan, platform).map((path) => ({ path, base }));
 }

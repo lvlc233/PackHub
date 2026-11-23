@@ -4,7 +4,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { extname, join, resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type { Plan, PlanShape, VerifyCheck } from '@packhub/kernel';
-import { STATE_DIR } from '@packhub/kernel';
+import { isPlainObject, STATE_DIR } from '@packhub/kernel';
 import pkg from '../../../package.json' with { type: 'json' };
 import { askHarness } from './harness-probe.ts';
 import { checksWithDerived } from './derived-checks.ts';
@@ -29,7 +29,13 @@ export interface VerifyOptions {
 export function serverSpecs(plan: PlanShape): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const action of plan.actions) {
-    if (action.op === 'register.mcp' && action.resource) out[action.resource] = action.spec;
+    if (action.op !== 'register.mcp' || !action.resource) continue;
+    // 有的方言把启动规格包在条目里（dsh 的 loader 条目是 {id, name, config}）：探活读里层
+    const inner = action.spec.config;
+    out[action.resource] =
+      isPlainObject(inner) && action.spec.command === undefined && action.spec.url === undefined
+        ? inner
+        : action.spec;
   }
   return out;
 }

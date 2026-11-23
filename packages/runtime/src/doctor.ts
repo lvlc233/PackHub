@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { extname, join } from 'node:path';
-import { parse as parseYaml } from 'yaml';
-import { PLAN_OPS, STATE_DIR, actionToBase } from '@packhub/kernel';
-import { loadState, ownedLabel, resolveOwnedPath } from './install.ts';
+import { join } from 'node:path';
+import { PLAN_OPS, STATE_DIR, actionUndoPayload, undoSharedPaths, type PathBase } from '@packhub/kernel';
+import { loadState, mcpLayoutOfAction, ownedLabel, resolveOwnedPath } from './install.ts';
+import { mcpFileHasEntry } from './mcp-file.ts';
 import { claudeHasMcp } from './host-mcp.ts';
 
 export interface DriftFinding {
@@ -89,31 +89,42 @@ export function doctorPack(root: string): DoctorReport {
       // 撤销方式决定「怎么检查」：共享配置查登记的条目，托管块查标记
       const undo = PLAN_OPS[action.op]?.undo;
       const planAction = record.plan?.actions.find((a) => a.actionId === action.actionId);
-      const targetBase = planAction ? actionToBase(planAction) : 'root';
-      if (undo === 'restore-shared' && action.target && action.resource) {
-        let file: string;
-        try {
-          file = resolveOwnedPath(root, record.home, { path: action.target, base: targetBase });
-        } catch {
-          finding.configDrift.push(`${action.target}:${action.resource}`);
-          continue;
-        }
-        if (existsSync(file)) {
-          // 条目挂在哪个对象路径下、文件什么格式由计划里的 MCP 方言决定（旧计划缺省 mcpServers + JSON）
-          const configPath =
-            planAction?.op === 'register.mcp' ? planAction.configPath ?? ['mcpServers'] : ['mcpServers'];
+      if (undo === 'restore-shared' && (planAction || (action.target && action.resource))) {
+        // 撤销载荷由 PLAN_OPS 表给出：一个动作可能对应多个文件（dsh attached 的每个 profile patch）
+        const payload = planAction ? actionUndoPayload(planAction) : null;
+        const shared =
+          payload?.undo === 'restore-shared'
+            ? { targets: undoSharedPaths(payload), key: payload.key, layout: mcpLayoutOfAction(planAction!) }
+            : {
+                targets: [{ path: action.target!, base: 'root' as PathBase }],
+                key: action.resource ?? 'mcp',
+                layout: { configPath: ['mcpServers'], format: 'json' as const },
+              };
+        for (const target of shared.targets) {
+          let file: string;
+          try {
+            file = resolveOwnedPath(root, record.home, target);
+          } catch {
+            finding.configDrift.push(`${target.path}:${shared.key}`);
+            continue;
+          }
+          if (!existsSync(file)) continue; // 文件不见了由 written 报 filesMissing
+          const text = readFileSync(file, 'utf8');
           const present = file.endsWith('.toml')
-            ? readFileSync(file, 'utf8').includes(`[mcp_servers.${action.resource}]`)
-            : Boolean(getPath(readConfigFile(file), [...configPath, action.resource]) !== undefined);
+            ? text.includes(`[mcp_servers.${shared.key}]`)
+            : mcpFileHasEntry(text, shared.layout, shared.key);
           if (!present) {
-            finding.configDrift.push(`${action.target}:${configPath.join('.')}.${action.resource}`);
+            const where = shared.layout.list ? shared.key : `${shared.layout.configPath.join('.')}.${shared.key}`;
+            finding.configDrift.push(`${target.path}:${where}`);
           }
         }
       }
       if (undo !== 'strip-block' || !action.target || !action.blockId) continue;
+      const planBase: PathBase =
+        planAction?.op === 'instruction' ? planAction.toBase ?? 'root' : 'root';
       let abs: string;
       try {
-        abs = resolveOwnedPath(root, record.home, { path: action.target, base: targetBase });
+        abs = resolveOwnedPath(root, record.home, { path: action.target, base: planBase });
       } catch {
         finding.blocksMissing.push(action.target);
         continue;
@@ -177,18 +188,4 @@ function readActiveFile(root: string): Record<string, ActivePointer> {
   } catch {
     return {};
   }
-}
-
-function readConfigFile(file: string): unknown {
-  const text = readFileSync(file, 'utf8');
-  return extname(file).toLowerCase() === '.json' ? JSON.parse(text) : (parseYaml(text) ?? {});
-}
-
-function getPath(data: unknown, path: string[]): unknown {
-  let cur: unknown = data;
-  for (const part of path) {
-    if (!cur || typeof cur !== 'object') return undefined;
-    cur = (cur as Record<string, unknown>)[part];
-  }
-  return cur;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { planFor } from '@packhub/kernel';
@@ -8,6 +8,7 @@ import {
   installFromSource,
   installPack,
   loadPack,
+  loadState,
   removePack,
 } from '../src/index.ts';
 
@@ -246,6 +247,92 @@ describe('doctor 按方言检查 MCP 条目', () => {
     expect(report.findings.flatMap((f) => f.configDrift)).toContain(
       'config.yaml:mcp_servers.pack-search',
     );
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe('MCP 方言：dsh 的 profile patch（数组文件，按条目 id 认领）', () => {
+  /** 一份 dsh home：给这些 profile 建 patch 文件。 */
+  function dshHome(profiles: string[]): string {
+    const home = mkdtempSync(join(tmpdir(), 'packhub-dsh-home-'));
+    for (const profile of profiles) {
+      mkdirSync(join(home, 'profiles', profile), { recursive: true });
+      writeFileSync(join(home, 'profiles', profile, 'cordis.patch.yml'), '[]\n', 'utf8');
+    }
+    return home;
+  }
+
+  it('两个 profile 都写；state.written 记两个文件；卸载摘干净，用户条目与注释保留', async () => {
+    const dir = stdioWork();
+    const home = dshHome(['web', 'desktop']);
+    const web = join(home, 'profiles', 'web', 'cordis.patch.yml');
+    const desktop = join(home, 'profiles', 'desktop', 'cordis.patch.yml');
+    const webUser = '# 我的 patch 层\n- id: ui-settings-general\n  name: "@deepseek-ai/dsh-client-ui-settings-general"\n';
+    const desktopUser = '- id: desktop-only\n  name: "@deepseek-ai/dsh-client-desktop-only"\n';
+    writeFileSync(web, webUser, 'utf8');
+    writeFileSync(desktop, desktopUser, 'utf8');
+
+    const ctx = loadPack(dir);
+    const { plan } = planFor(ctx, { harness: 'dsh', scope: 'attached', root: home, home });
+    const mcp = plan!.actions.find((a) => a.op === 'register.mcp');
+    if (mcp?.op !== 'register.mcp') throw new Error('计划里应有 register.mcp');
+    expect(mcp.paths?.map((item) => item.path)).toEqual([
+      'profiles/desktop/cordis.patch.yml',
+      'profiles/web/cordis.patch.yml',
+    ]);
+
+    await installPack(ctx, plan!, { root: home, home });
+    for (const file of [web, desktop]) {
+      const text = readFileSync(file, 'utf8');
+      expect(text).toContain('- id: pal-mcp-pack-search');
+      expect(text).toContain('serverName: pack-search');
+    }
+    // 注释与用户自己的 loader 条目原样保留
+    expect(readFileSync(web, 'utf8')).toContain('# 我的 patch 层');
+    expect(readFileSync(web, 'utf8')).toContain('ui-settings-general');
+    expect(readFileSync(desktop, 'utf8')).toContain('desktop-only');
+
+    // 两个 patch 文件都进了 state.written（base: home）
+    const state = loadState(home);
+    const written = state.packs['demo/dialect@0.1.0']!.written.map((item) => `${item.base}:${item.path}`);
+    expect(written).toContain('home:profiles/web/cordis.patch.yml');
+    expect(written).toContain('home:profiles/desktop/cordis.patch.yml');
+
+    // 外部删掉 desktop 里的条目：漂移检查指到那个文件与条目 id
+    writeFileSync(desktop, desktopUser, 'utf8');
+    const report = doctorPack(home);
+    expect(report.ok).toBe(false);
+    expect(report.findings.flatMap((f) => f.configDrift)).toContain(
+      'profiles/desktop/cordis.patch.yml:pal-mcp-pack-search',
+    );
+
+    removePack(home);
+    for (const file of [web, desktop]) {
+      expect(readFileSync(file, 'utf8')).not.toContain('pal-mcp-pack-search');
+    }
+    expect(readFileSync(web, 'utf8')).toContain('ui-settings-general');
+    expect(readFileSync(desktop, 'utf8')).toContain('desktop-only');
+    rmSync(home, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('只有一个 profile：state.written 只记一个文件，撤销载荷不带 paths', async () => {
+    const dir = stdioWork();
+    const home = dshHome(['web']);
+
+    const ctx = loadPack(dir);
+    const { plan } = planFor(ctx, { harness: 'dsh', scope: 'attached', root: home, home });
+    const mcp = plan!.actions.find((a) => a.op === 'register.mcp');
+    if (mcp?.op !== 'register.mcp') throw new Error('计划里应有 register.mcp');
+    expect('paths' in mcp).toBe(false);
+
+    await installPack(ctx, plan!, { root: home, home });
+    const written = loadState(home)
+      .packs['demo/dialect@0.1.0']!.written.map((item) => `${item.base}:${item.path}`);
+    expect(written.filter((item) => item.includes('cordis.patch.yml'))).toEqual([
+      'home:profiles/web/cordis.patch.yml',
+    ]);
+    rmSync(home, { recursive: true, force: true });
     rmSync(dir, { recursive: true, force: true });
   });
 });
