@@ -209,21 +209,35 @@ export async function materializePack(
 ): Promise<string> {
   if (existsSync(join(packRef, MANIFEST_FILE))) return resolve(packRef);
 
-  const dest = join(packCacheRoot(), slug(packRef), variant(packRef, opts.version));
+  // registry 引用允许 `name@version`：拆开后再取；直接来源（.phub / git+ / 本地路径）不拆。
+  let version = opts.version;
+  if (!isDirectSource(packRef)) {
+    const at = packRef.lastIndexOf('@');
+    if (at > 0) {
+      const inline = packRef.slice(at + 1);
+      if (version && version !== inline) {
+        throw new PalError('invalid-input', `版本给了两个：${packRef} 里写 ${inline}，version 是 ${version}；留一个`);
+      }
+      packRef = packRef.slice(0, at);
+      version = inline;
+    }
+  }
+
+  const dest = join(packCacheRoot(), slug(packRef), variant(packRef, version));
 
   // C5：明确版本 + registry 来源时，目录里已有同版本清单就直接复用，不 reset 不 fetch。
   // latest 未知、.phub/git+ 内容可能被上游换掉，都仍然重取。
-  if (!isDirectSource(packRef) && isPinnedVersion(opts.version) && cachedVersion(dest) === opts.version) {
+  if (!isDirectSource(packRef) && isPinnedVersion(version) && cachedVersion(dest) === version) {
     // 命中时只补写缺的 meta（老缓存）：不重新取，也不动目录里的内容；已有合法 meta 就不重写。
     if (!readCacheMeta(dest).meta) {
-      rememberCacheMeta(dest, packRef, 'registry', opts.version, dest, opts.log);
+      rememberCacheMeta(dest, packRef, 'registry', version, dest, opts.log);
     }
-    opts.log?.(`缓存命中 ${packRef}@${opts.version} → ${dest}`);
+    opts.log?.(`缓存命中 ${packRef}@${version} → ${dest}`);
     return dest;
   }
 
   resetDir(dest);
-  opts.log?.(`→ 取 ${packRef}${opts.version ? `@${opts.version}` : ''}`);
+  opts.log?.(`→ 取 ${packRef}${version ? `@${version}` : ''}`);
 
   try {
     if (isDirectSource(packRef)) {
@@ -234,7 +248,7 @@ export async function materializePack(
         });
       }
       // meta 落在缓存目录（dest）这一层；git 仓库的 Pack 根可能在子目录，清单按 Pack 根读。
-      rememberCacheMeta(dest, packRef, resolved.kind, opts.version, resolved.dir, opts.log);
+      rememberCacheMeta(dest, packRef, resolved.kind, version, resolved.dir, opts.log);
       return resolved.dir;
     }
 
@@ -248,7 +262,7 @@ export async function materializePack(
       name: packRef,
       index,
       dest,
-      ...(opts.version ? { version: opts.version, allowUnlisted: true } : {}),
+      ...(version ? { version: version, allowUnlisted: true } : {}),
     });
     if (!manifestFile(fetched.dir)) {
       throw new PalError('invalid-input', `registry 归档里没有 ${MANIFEST_FILE}：${packRef}@${fetched.version}`);
