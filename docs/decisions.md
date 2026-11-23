@@ -46,7 +46,7 @@ review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增
 
 上一条把安装形态收进安装期后，参数仍叫 `--target`，枚举里混着中性落点 `dir` 与三个宿主名。`dir` 不是宿主，只是平铺落点表的名字；写成 `--target dir` 会让人以为 `dir` 是某种宿主形态，作者命令里出现 `--target` 也容易被读成内容层参数。
 
-现在 `--harness` 只选宿主：`packhub plan` / `verify` 与 `pal install` 用它，取值是注册表里的宿主名（`dsh` / `claude-code` / `codex` / `opencode` / `workbody` / `hermes`）；不写就是平铺目录，计划里没有 `harness` 字段。PAL 的实例形态另用 `--kind`：`create` 只接受宿主名，`dir` 只出现在 `adopt`（接管已有目录）里；`instance.json` 仍记 `harness` 字段（值含 `dir`），记录格式不动。
+现在 `--harness` 只选宿主：`packhub plan` / `verify` 与 `pal install` 用它，取值是注册表里的宿主名（`dsh` / `claude-code` / `codex` / `opencode` / `workbody` / `hermes`）；不写就是平铺目录，计划里没有 `harness` 字段。PAL 的实例形态另用 `--kind`：`install --new` 只接受宿主名，`dir` 只出现在 `adopt`（接管已有目录）里；`instance.json` 仍记 `harness` 字段（值含 `dir`），记录格式不动。
 
 没选另一条：保留 `--target` 并把 `dir` 留在枚举里，或让两个命令族统一叫 `--harness`。留 `--target` + `dir` 等于让一个参数同时回答「装到哪个宿主」和「要不要平铺」，每处调用都要先解释 `dir` 不是宿主；统一叫 `--harness` 则 PAL 的 `dir` 得假装成宿主名，实例记录与落点表也要跟着改词。两个命令族用不同参数名是有意的：packhub 的参数决定「内容按哪张落点表物化」，PAL 的参数决定「实例是什么形态」；同名会把这两个概念重新混在一起。
 
@@ -76,11 +76,11 @@ review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增
 
 宿主注册项原来隐含「每个宿主都能装进项目目录」：`pal install --into` 只要给 `--harness` 就按落点表物化。hermes 不是这样：它只有全局目录（`~/.hermes`，Windows `%LOCALAPPDATA%\hermes`，`HERMES_HOME` 可改），技能在 `<home>/skills`、MCP 在 `<home>/config.yaml`，没有项目级落点；硬装进项目只会写出一份 hermes 不会读的文件。
 
-现在 `HarnessSpec` 可以声明 `project: false`。这类宿主 `pal install --into` 直接拒绝（用法错，提示用 `pal create --kind <id>` 建实例），`pal create` 按实例落点装配 home；其余宿主默认 `project: true`，行为不变。
+现在 `HarnessSpec` 可以声明 `project: false`。这类宿主 `pal install --into` 直接拒绝（用法错，提示用 `pal install … --new --kind <id> --name <名字>` 建实例），`--new` 按实例落点装配 home；其余宿主默认 `project: true`，行为不变。
 
 没选另一条：让 `pal install` 也能装进全局 home，或强制所有宿主都提供项目级落点。前者把「装进一个目录」的对象扩大到 home，安装 / 卸载 / 回滚都要处理「没有 state 的全局目录」，和 PAL 的实例边界打架；后者等于为一个只有全局目录的宿主编造一份项目落点，装出来的东西没人读。拒绝安装比装出一份假落点便宜。
 
-代价：hermes 用不了目录工作流——`pal install --into`、`pal verify <dir>`、`pal update --dir` 都不适用，只能在实例上装和跑；给这类宿主做项目内联调时得先建实例。`project: false` 是新开关，文档与 `--help` 都要解释「哪些宿主只能 create」；这轮三个新宿主还没登记凭据清单（`credentialFiles` 为空），备份 / 归档不会剥离它们的凭据，是已知欠账。
+代价：hermes 用不了目录工作流——`pal install --into`、`pal verify --into`、`pal update --into` 都不适用，只能在实例上装和跑；给这类宿主做项目内联调时得先建实例。`project: false` 是新开关，文档与 `--help` 都要解释「哪些宿主只能建实例」；这轮三个新宿主还没登记凭据清单（`credentialFiles` 为空），备份 / 归档不会剥离它们的凭据，是已知欠账。
 
 ### 资源级 targets 与 requires.agent 删除
 
@@ -122,23 +122,33 @@ review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增
 
 ### 安装归 PAL：packhub 只做生产
 
-`packhub` 与 `pal` 按「生产 / 安装与运行」分：`packhub` 只碰 Pack 的生产面——清单、锁、打包、发布、签名，以及 Pack 目录里的预览（`plan` / `verify`），不写用户目录；装进项目、卸载、回滚、更新已装目录、建实例与起停看护都归 `pal`，目录安装与实例安装都在它这里。`pal create` 只建宿主实例（`--kind` 取已注册宿主名），目录形态的实例走 `pal adopt`；`pal audit` 看安装审计（审计由 `pal install` / `pal update` 写），`pal health --hosts` 兼职宿主发现（装没装、版本、能不能起）。`packhub verify` 只验 Pack 目录（检查段）；`pal verify` 验已装目录（漂移 + 检查）。一条命令仍只对一个对象动手：`packhub` 的对象是 Pack，`pal` 的对象是已存在的目录或实例。
+`packhub` 与 `pal` 按「生产 / 安装与运行」分：`packhub` 只碰 Pack 的生产面——清单、锁、打包、发布、签名，以及 Pack 目录里的预览（`plan` / `verify`），不写用户目录；装进项目、卸载、回滚、更新已装目录、建实例与起停看护都归 `pal`，目录安装与实例安装都在它这里。`pal install --new` 建实例并装包，目录形态的实例走 `pal adopt`；`pal audit` 看安装审计（审计由 `pal install` / `pal update` 写），`pal health --hosts` 兼职宿主发现（装没装、版本、能不能起）。`packhub verify` 只验 Pack 目录（检查段）；`pal verify` 验已装目录（漂移 + 检查）。一条命令仍只对一个对象动手：`packhub` 的对象是 Pack，`pal` 的对象是已存在的目录或实例。
 
-原来 `packhub install` / `uninstall` / `update` / `rollback` / `diff` 都挂在 `packhub` 下面（它也吃项目目录）。现在目录侧的 `install` / `uninstall` / `verify` / `rollback` 由 `pal` 承接：`pal install <来源> --into <目录> --harness <宿主>` 只写文件与 `.packhub/state.json`，不建实例记录；`pal update` 的位置参数收实例，目录更新走 `pal update --dir <目录>`；`create` 只建宿主实例，目录形态走 `adopt`。`diff` 直接删掉——装了什么在 state 里，要和清单比就重新 `plan` / `pal verify`。`packhub audit` 也删了，改成 `pal audit`（审计是 pal 写的东西，看也归 pal）；`pal doctor` 并入 `pal health --hosts`，health 默认查实例，加 flag 才附带宿主发现。`publish` 门禁里的干净安装仍由 runner 内部做，不走 CLI：它是发布流程的一步，不是用户装包。
+原来 `packhub install` / `uninstall` / `update` / `rollback` / `diff` 都挂在 `packhub` 下面（它也吃项目目录）。现在目录侧与实例侧的 `install` / `uninstall` / `verify` / `rollback` / `update` 都由 `pal` 承接，且都收同一组 target（`--into <目录>` 项目级 / `--instance <实例>` 全局环境）：`--into` 只写文件与 `.packhub/state.json`，不建实例记录；`--instance` 写实例根，要求实例已停（verify 除外）。`create` 已删，建实例并装包走 `install --new`，目录形态走 `adopt`。`diff` 直接删掉——装了什么在 state 里，要和清单比就重新 `plan` / `pal verify`。`packhub audit` 也删了，改成 `pal audit`（审计是 pal 写的东西，看也归 pal）；`pal doctor` 并入 `pal health --hosts`，health 默认查实例，加 flag 才附带宿主发现。`publish` 门禁里的干净安装仍由 runner 内部做，不走 CLI：它是发布流程的一步，不是用户装包。
 
 没选另一条：`packhub` 保留 `install`，按「目录 vs 实例」分两套入口，或让 `pal` 只做实例。前者要维持两份安装参数、两套退出码与两份文档，而「装进目录」会同时出现在两个命令族的帮助里；后者则让目录侧没有安装入口，`pal install --into` 这种「先装目录、再决定要不要建实例」的用法无处安放。分界线换成「生产 vs 安装与运行」后，用户只需要记：做包找 `packhub`，装和跑找 `pal`。
 
-代价：`pal` 的命令面变大——目录四件套、实例管理与起停看护、`audit` 与宿主体检挤在一个 CLI 里，`pal --help` 要同时讲目录、实例、本机状态三类事；README 的承诺从「一条命令装进新项目」改成「packhub 做包、pal 装和跑」，老用户得改习惯。`create` 少了 `--kind dir`：要一份目录形态的实例得先有目录再 `pal adopt`，比原来一步建多一步。`publish` 与 `pal` 各有一条安装路径：前者是门禁里的内部干净安装，后者是用户可见的目录安装，两条路径的检查范围不同（发布跑全部清单检查，`pal install` 装后复核只跑只读项），解释成本落在文档上。`packhub` 用户想装包还得多学一个 `pal` 入口。
+代价：`pal` 的命令面变大——目录四件套、实例管理与起停看护、`audit` 与宿主体检挤在一个 CLI 里，`pal --help` 要同时讲目录、实例、本机状态三类事；README 的承诺从「一条命令装进新项目」改成「packhub 做包、pal 装和跑」，老用户得改习惯。`create` 消失：建实例并装包走 `install --new`；要目录形态的实例仍得先有目录再 `pal adopt`，比一步建多一步。`publish` 与 `pal` 各有一条安装路径：前者是门禁里的内部干净安装，后者是用户可见的安装，两条路径的检查范围不同（发布跑全部清单检查，`pal install` 装后复核只跑只读项），解释成本落在文档上。`packhub` 用户想装包还得多学一个 `pal` 入口。
+
+### 安装只有一个动词，作用域由 target 决定
+
+安装类命令原来按对象分：`pal install --into` 装目录，`pal create` 建实例，`pal update --dir` 更新目录、`pal update <实例>` 更新实例。同一件事（把 Pack 装到某处）有多个动词与两套参数，`create` 还要单独回答「先建实例再装包」，`update --dir` 又和 `--instance` 分叉。
+
+现在 `pal install <来源>` 只有一个动词，target 三选一：`--into <目录> --harness <宿主>`（项目级，只写这个目录）、`--instance <实例>`（实例级，写已有实例根；要求已停且还是空实例）、`--new --kind <宿主> --name <名字>`（新建实例再装，替代 `pal create`）。`uninstall` / `update` / `rollback` / `verify` 收同一组 target（`--into` / `--instance`），`update --dir` 删除。实例的写操作（install / uninstall / update / rollback）要求实例已停，`verify` 允许运行。
+
+没选另一条：保留 `create` 作为建实例入口，或让 `update` 继续按位置参数猜目录/实例。`create` 与 `install --new` 是同一段编排（取包、建实例、装、设当前），分两个动词就要维护两份参数与两份帮助，且「先建后装」中间失败时两个入口的清理路径要各写一遍；`update <目录>` 的猜测在「读命令不写盘」那条已经证明会逼出「位置参数只收实例 + 显式 flag」的补丁，统一成 target 后 `--into` / `--instance` 一眼能看出作用域。
+
+代价：命令面变化——`pal create` 消失（用 `install --new`），`update --dir` 消失（用 `update --into`），脚本与肌肉记忆都要改；`install` 的参数表变长（三个 target 互斥 + 各 target 的附加参数），`--into` 必须带 `--harness`、`--new` 必须带 `--kind` / `--name`，漏写只能报用法错；实例 target 的前置条件更显式（install 要求空实例、写操作要求已停、verify 允许运行），比「先 create 再装」多了「停实例」这一步。
 
 ### 读命令不写盘，动作显式
 
 `pal list` 原来调 `listInstances()`，顺手把坏记录挪进隔离区；`pal ps` 原来叫 `pal status`，一跑就刷新状态写盘。读命令带写副作用，用户只是想看一眼也会改机器状态，脚本里更不敢随便调。现在 `list` 与 `ps` 都是纯读：`list` 把坏记录原样列出来（`坏记录 <目录> <原因>`），不动文件；`ps` 只出账本（在跑、端口、运行时长、端口冲突、已死的 pid），要看最新状态得显式 `pal ps --refresh`——它才按 pid 探测并写回记录。
 
-同一原则落到另外两处：`pal recover` 改名 `pal leftovers`，只读列出隔离区 / 失败现场 / 归档区里的东西，不移动、不删除（原来「recover」听起来像会做恢复，实际只是看）；`pal update` 的位置参数只收实例，更新已装目录要写 `pal update --dir <目录>`。后者把「更新实例」和「更新目录」分成两个显式入口：位置参数拿到一个装过包的目录时不再猜，直接提示用 `--dir`；目录重装仍可 `pal install --into`。
+同一原则落到另外两处：`pal recover` 改名 `pal leftovers`，只读列出隔离区 / 失败现场 / 归档区里的东西，不移动、不删除（原来「recover」听起来像会做恢复，实际只是看）；`pal update` 也不再按位置参数猜作用域——目录与实例分别用 `--into` / `--instance`（后来统一成 target 模型，见「安装只有一个动词」）。
 
 没选另一条：让 `list` / `ps` 继续顺手整理（list 隔离坏记录、status 刷新状态），或让 `update <目录>` 按参数形状猜。读命令的副作用只在「记录坏了 / 进程死了」时发生，那恰恰是用户最不敢让它自动改的时候；猜目录则让一个位置参数同时表示实例与路径，报错信息也得两边解释。显式 flag 多打几个字，换来「看到什么就是什么」。
 
-代价：`list` 不再自动清理坏记录，坏记录会一直出现在列表里，直到人工搬走或修好；`ps` 不刷新时可能显示 `stale`（pid 已死但记录没改），得记得加 `--refresh` 才是最新。`recover` 的老用户要改记 `leftovers`，且这个名字不再暗示能恢复；`update <目录>` 的老习惯要改成 `--dir`，否则会被当成实例名报错。`pal --help` 的参数更多了（`--refresh`、`--dir`），但每个写操作都只在显式 flag 后面发生。
+代价：`list` 不再自动清理坏记录，坏记录会一直出现在列表里，直到人工搬走或修好；`ps` 不刷新时可能显示 `stale`（pid 已死但记录没改），得记得加 `--refresh` 才是最新。`recover` 的老用户要改记 `leftovers`，且这个名字不再暗示能恢复；`update <目录>` 的老习惯要改成 `--into`，否则会因缺少 target 报用法错。`pal --help` 的参数更多了（`--refresh`、`--into` / `--instance`），但每个写操作都只在显式 flag 后面发生。
 
 ### 命令面大于 README 的承诺
 

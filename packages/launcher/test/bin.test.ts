@@ -73,19 +73,19 @@ describe('pal bin --version', () => {
 });
 
 describe('pal bin --help', () => {
-  it('打印根命令用法（含 pal 与一级子命令 create）并退出 0', async () => {
+  it('打印根命令用法（含 pal 与一级子命令 install）并退出 0', async () => {
     const result = await pal('--help');
     expect(result.code, `stderr：${result.stderr}`).toBe(0);
     expect(result.stdout).toContain('pal');
-    expect(result.stdout).toContain('create');
+    expect(result.stdout).toContain('install');
   }, 30_000);
 
   it('带子命令时打印那个子命令的用法', async () => {
-    const result = await pal('create', '--help');
+    const result = await pal('install', '--help');
     expect(result.code, `stderr：${result.stderr}`).toBe(0);
-    expect(result.stdout).toContain('pal create');
-    // pack 是位置参数，用法里以 <PACK> 出现
-    expect(result.stdout).toContain('PACK');
+    expect(result.stdout).toContain('pal install');
+    // 来源是位置参数，用法里以 <SOURCE> 出现
+    expect(result.stdout).toContain('SOURCE');
   }, 30_000);
 });
 

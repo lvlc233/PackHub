@@ -27,12 +27,12 @@ async function resolveValue<T>(
  */
 const HELP_GROUPS: { title: string; names: string[] }[] = [
   {
-    title: '安装目录（对象是已存在的目录；新建实例用 pal create）',
+    title: '安装（target = 目录 / 实例）',
     names: ['install', 'uninstall', 'verify', 'rollback', 'update'],
   },
   {
     title: '实例',
-    names: ['create', 'adopt', 'list', 'show', 'start', 'stop', 'restart', 'ps', 'core', 'health', 'logs', 'use', 'current', 'remove', 'config'],
+    names: ['adopt', 'list', 'show', 'start', 'stop', 'restart', 'ps', 'core', 'health', 'logs', 'use', 'current', 'remove', 'config'],
   },
   { title: '搬运', names: ['scan', 'clone', 'rename', 'migrate', 'export', 'import', 'backup', 'restore'] },
   { title: '其它', names: ['cache', 'rebaseline', 'audit', 'leftovers'] },

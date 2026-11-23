@@ -119,7 +119,7 @@ resources:
 
 撤销载荷回答「撤销时要动哪一处」：`restore-shared` 给共享配置文件、条目挂的对象路径（`configPath`，缺省 `['mcpServers']`）与要摘的键，`format` 说明文件是 JSON 还是 YAML；`strip-block` 给指令文件与托管块 id。执行器（`deactivatePlan` / `pruneRemoved` / `removePack`）只按 `undo` 的四种方式各做一次，不再按 op 猜路径与键；`state.dir` 只建目录、不产出文件，所以不进文件冲突集合，同一目录挂两个 state id 另报 `duplicate-state-path`。
 
-`register.mcp` 的落点与条目形状由宿主的 MCP 方言决定：宿主注册项的 `mcp` 声明 `file`（写哪个文件，缺省用 `layout.configFile`）、`path`（条目挂哪个对象路径，缺省 `['mcpServers']`）、`format`（缺省 `json`）与 `entry(spec)`（把通用 spec 转成该宿主的条目形状）。计划动作上对应 `path` / `configPath` / `format` 三个可选字段，`spec` 已经是转好的条目；不写方言就是 JSON `mcpServers` + spec 原样。宿主注册项还可以声明 `project: false`：这类宿主没有项目级落点（如 hermes 只有全局 home），`pal install --into` 会直接拒绝，只能 `pal create` 建实例。
+`register.mcp` 的落点与条目形状由宿主的 MCP 方言决定：宿主注册项的 `mcp` 声明 `file`（写哪个文件，缺省用 `layout.configFile`）、`path`（条目挂哪个对象路径，缺省 `['mcpServers']`）、`format`（缺省 `json`）与 `entry(spec)`（把通用 spec 转成该宿主的条目形状）。计划动作上对应 `path` / `configPath` / `format` 三个可选字段，`spec` 已经是转好的条目；不写方言就是 JSON `mcpServers` + spec 原样。宿主注册项还可以声明 `project: false`：这类宿主没有项目级落点（如 hermes 只有全局 home），`pal install --into` 会直接拒绝，只能 `pal install … --new` 建实例再装。
 
 派生输出是「install 期生成、计划动作里没有对行动作」的文件（codex 的 `agents/openai.yaml`、`link.exec` 的 `.cmd`）；它们由表的 `paths()` 声明，因此 `planPaths(plan)`、快照、版本镜像与升级清理都能覆盖到。
 

@@ -1,17 +1,18 @@
-﻿import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
-import { MANIFEST_FILE, planFor, type PackContext, type PlanOptions } from '@packhub/kernel';
-import { installPack, loadLock, loadPack, loadState, withLockPins } from '@packhub/runtime';
+import { MANIFEST_FILE, planFor, type PackContext, type Plan, type PlanOptions } from '@packhub/kernel';
+import { installPack, loadLock, loadPack, loadState, withLockPins, type ActionOutcome } from '@packhub/runtime';
 import { layoutVarsFor, requireAdapter, type InstanceKind } from './layout.ts';
 import { baselineFromState, writeBaseline } from './baseline.ts';
 import { withInstanceLock } from './lock.ts';
 import { API_VERSION, readRecord, recordFile, runtimeFile, type InstanceRecord } from './records.ts';
 import { assertIsolationSupported, parseIsolation, type Isolation } from './isolation.ts';
 import { readPalConfig } from './config.ts';
-import { dropActive, readActiveMap, writeActiveMap } from './catalog.ts';
+import { dropActive, readActiveMap, requireInstance, writeActiveMap } from './catalog.ts';
 import { failInstance } from './quarantine.ts';
 import { writeInstance } from './recordWrite.ts';
 import { instancesRoot, newId } from './paths.ts';
+import { isPidAlive } from './process.ts';
 import { nowIso } from './time.ts';
 import { PalError } from './errors.ts';
 import { assertHarness, assertExternalRoot, assertNameFree } from './validators.ts';
@@ -317,8 +318,137 @@ export async function createInstance(opts: CreateInstanceOptions): Promise<Insta
   return record;
 }
 
-/* ---------- 接管 ---------- */
+/* ---------- 装进已有实例（安装 target = 实例） ---------- */
 
+export interface InstallIntoInstanceOptions {
+  /** 已经落到本地的 Pack 目录 */
+  packDir: string;
+  /** 原始 Pack 引用（写进记录，供 update 复用） */
+  packRef?: string;
+  overwrite?: boolean;
+  allowExec?: boolean;
+  dryRun?: boolean;
+}
+
+export interface InstallIntoInstanceResult {
+  record: InstanceRecord;
+  plan: Plan;
+  outcomes: ActionOutcome[];
+  dryRun: boolean;
+}
+
+/**
+ * 往一个「空实例」里装 Pack：实例必须已停、state 里还没有包（有包走 update）。
+ * 落点用实例记录的 harness（含 dir）算 layoutVars，与 create 装配同一套布局。
+ */
+export async function installIntoInstance(
+  idOrName: string,
+  opts: InstallIntoInstanceOptions,
+): Promise<InstallIntoInstanceResult> {
+  const record = requireInstance(idOrName);
+  if (record.pid && isPidAlive(record.pid)) {
+    throw new PalError('invalid-input', `实例还在运行，先停掉再装：pid ${record.pid}`, {
+      hint: `pal stop ${record.id}`,
+    });
+  }
+  const state = loadState(record.root);
+  const installed = Object.keys(state.packs);
+  if (installed.length > 0) {
+    throw new PalError('invalid-input', `实例里已经有包：${installed.join(', ')}`, {
+      hint: `换版本用 pal update --instance ${record.name}；要重装先 pal uninstall --instance ${record.name}。`,
+    });
+  }
+
+  const packDir = resolve(opts.packDir);
+  const loaded = loadPack(packDir);
+  if (!loaded.manifest) {
+    const detail = loaded.issues.filter((i) => i.severity === 'error').map((i) => i.message).join('; ');
+    throw new PalError('invalid-input', `清单有问题${detail ? `：${detail}` : ''}`, {
+      hint: `确认 Pack 目录里有 ${MANIFEST_FILE}，且清单能被解析`,
+      details: { packDir },
+    });
+  }
+  const read = loadLock(packDir);
+  if (read.problem) throw new PalError('invalid-input', read.problem.message);
+  const ctx: PackContext = withLockPins(loaded, read.lock);
+  const errors = ctx.issues.filter((i) => i.severity === 'error');
+  if (errors.length > 0) {
+    throw new PalError('invalid-input', `清单有问题：${errors.map((i) => i.message).join('; ')}`);
+  }
+
+  const kind = record.harness;
+  const layoutVars = layoutVarsFor(kind);
+  const planOptions: Partial<PlanOptions> = {
+    ...(kind === 'dir' ? {} : { harness: kind }),
+    ...(layoutVars ? { layoutVars } : {}),
+  };
+  const { plan, issues } = planFor(ctx, planOptions);
+  if (!plan) {
+    throw new PalError('invalid-input', `生成不了计划：${issues.map((i) => i.message).join('; ')}`);
+  }
+
+  const dryRun = opts.dryRun === true;
+  let outcomes: ActionOutcome[] = [];
+  await withInstanceLock(record.root, 'install', async () => {
+    const result = await installPack(ctx, plan, {
+      root: record.root,
+      packRoot: packDir,
+      dryRun,
+      ...(opts.overwrite ? { overwrite: true } : {}),
+      ...(opts.allowExec ? { allowExec: true } : {}),
+    });
+    outcomes = result.outcomes;
+    const failed = outcomes.filter((o) => o.status === 'failed');
+    if (failed.length > 0) {
+      throw new PalError(
+        'install-failed',
+        `安装未完成：${failed
+          .map((o) => `${o.actionId}=${o.status}${o.message ? `（${o.message}）` : ''}`)
+          .join(', ')}`,
+        { details: { outcomes: failed } },
+      );
+    }
+  });
+
+  if (dryRun) return { record, plan, outcomes, dryRun: true };
+
+  const pack = {
+    ...packIdentityFromState(record.root, {
+      name: ctx.manifest.metadata.name,
+      version: ctx.manifest.metadata.version,
+    }),
+    ...(opts.packRef ? { ref: opts.packRef } : {}),
+  };
+  writeBaseline(record.root, {
+    pack: pack.name,
+    version: pack.version,
+    harness: kind,
+    planHash: plan.planHash,
+    files: baselineFromState(record.root),
+  });
+  const adapter = requireAdapter(kind);
+  const next: InstanceRecord = {
+    ...record,
+    pack,
+    // 接管来的空目录可能没记 home；装完补上，start 才知道该指哪个 home
+    ...(record.home === undefined && adapter.homeDir
+      ? { home: join(record.root, adapter.homeDir) }
+      : {}),
+    status: 'installed',
+    updatedAt: nowIso(),
+    origin: {
+      ...(record.origin ?? {}),
+      kind: 'pack',
+      ...(opts.packRef ? { ref: opts.packRef } : {}),
+      dir: packDir,
+    },
+  };
+  delete next.lastError;
+  writeInstance(next);
+  return { record: next, plan, outcomes, dryRun: false };
+}
+
+/* ---------- 接管 ---------- */
 export interface AdoptOptions {
   dir: string;
   name: string;

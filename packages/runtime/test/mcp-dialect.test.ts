@@ -251,7 +251,7 @@ describe('doctor 按方言检查 MCP 条目', () => {
 });
 
 describe('没有项目级落点的宿主：安装被拒', () => {
-  it('hermes 装进项目 → usage 错误，指向 pal create --kind hermes，且不落盘', async () => {
+  it('hermes 装进项目 → usage 错误（没有项目级落点），且不落盘', async () => {
     const dir = stdioWork();
     const project = join(dir, 'project');
 
@@ -268,7 +268,7 @@ describe('没有项目级落点的宿主：安装被拒', () => {
     const error = caught as { name?: string; failure?: string; message?: string };
     expect(error.name).toBe('InstallSourceError');
     expect(error.failure).toBe('usage');
-    expect(error.message).toContain('pal create --kind hermes');
+    expect(error.message).toContain('没有项目级安装落点');
     // 拒绝发生在建目录之前
     expect(existsSync(project)).toBe(false);
     rmSync(dir, { recursive: true, force: true });

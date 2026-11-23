@@ -82,9 +82,9 @@ Pack 里的一条能力声明，它相对于 Agent，而不是相对于整个 ha
 
 安装把 Pack 落进一个目录的过程：项目目录或实例根。内容展开到文件，登记写进该目录的 `.packhub/state.json`。
 
-安装由 `pal` 执行，`packhub` 不写用户目录：目录侧是 `pal install <来源> --into <目录> --harness <宿主>`（只写文件与 state，不建实例记录），已存在的目录另有 `pal uninstall` / `pal verify` / `pal rollback`，目录更新用 `pal update --dir <目录>`。要一份能跑起来的环境仍在实例上——`pal create --kind <宿主>` 建宿主实例，目录形态的实例用 `pal adopt` 接管已有目录，起停与看护归启动器。
+安装由 `pal` 执行，`packhub` 不写用户目录。`pal install <来源>` 只有一个动词，作用域由 target 决定，三选一：`--into <目录> --harness <宿主>`（项目级，只写这个目录，不建实例记录）、`--instance <实例>`（实例级，装进已有实例根；要求实例已停且还是空实例）、`--new --kind <宿主> --name <名字>`（新建实例再装）。`uninstall` / `update` / `rollback` / `verify` 收同一组 target（`--into` / `--instance`）；实例的写操作（install / uninstall / update / rollback）要求已停，`verify` 允许运行。目录是项目级落点，实例是全局环境（home 与运行态都在实例上）；要一份能跑起来的环境用实例，目录形态的实例用 `pal adopt` 接管已有目录。
 
-安装只发生在目录，不在别处发生；全局环境不是安装的落点，而是实例的 home（见 Launcher 词条）。
+安装只发生在 target 里，不在别处发生；目录只是文件落点，实例的 home 与运行态在实例上（见 Launcher 词条）。
 
 安装是事务性的：要么全部成功，要么按快照回到安装前，不留半套。
 
@@ -100,7 +100,7 @@ Pack 里的一条能力声明，它相对于 Agent，而不是相对于整个 ha
 
 模型循环、工具执行、上下文、界面都在它那里。
 
-`--harness` 只有两类：不写 = 平铺目录（中性落点，不属于任何宿主）；写 = 某个宿主名（`dsh` / `claude-code` / `codex` / `opencode` / `workbody` / `hermes`）。`dir` 不是可写的取值，它只是平铺目录那张落点表的名字。装到宿主上就是按那个宿主的落点表物化文件、指令与 MCP 写法。宿主可以声明自己的 MCP 方言（写哪个文件、条目挂在哪个键下面、什么格式、条目长什么样）；hermes 这类只有全局目录的宿主是 `project: false`——不能 `pal install --into`，只能 `pal create --kind hermes` 建实例。
+`--harness` 只有两类：不写 = 平铺目录（中性落点，不属于任何宿主）；写 = 某个宿主名（`dsh` / `claude-code` / `codex` / `opencode` / `workbody` / `hermes`）。`dir` 不是可写的取值，它只是平铺目录那张落点表的名字。装到宿主上就是按那个宿主的落点表物化文件、指令与 MCP 写法。宿主可以声明自己的 MCP 方言（写哪个文件、条目挂在哪个键下面、什么格式、条目长什么样）；hermes 这类只有全局目录的宿主是 `project: false`——不能 `pal install --into`，只能 `pal install <pack> --new --kind hermes --name <名字>` 建实例再装。
 
 它在 `pal install` 上是**安装参数**；`packhub plan` / `packhub verify` 只拿它算预览与检查计划，不产生安装。它不是 Pack 属性：不进锁、不进内容哈希，`pack` 与 `lock` 都不接受它；同一个 Pack 装到不同宿主，锁与签名不变，变的只是落点与计划（`planFor` 现算）。清单与资源也都不声明安装形态——旧清单带 `targets` 会被判 schema error。
 
@@ -108,7 +108,7 @@ Pack 里的一条能力声明，它相对于 Agent，而不是相对于整个 ha
 
 `--harness` 只决定目录内的落点形态，不等于有了一份宿主环境：home、进程、端口都不在目录里，装完只得到一份文件；要跑起来用实例（见 Launcher 词条）。
 
-启动器的实例形态用 `pal … --kind` 选：`create` 只接受宿主名（`dsh` / `claude-code` / `codex` / `opencode` / `workbody` / `hermes`）；目录形态的实例由 `pal adopt` 接管已有目录产生。`dir` 是实例形态（项目目录实例），属于 PAL，不是宿主；`instance.json` 仍记 `harness` 字段（值含 `dir`）。
+启动器的实例形态用 `pal … --kind` 选：`install --new` 只接受宿主名（`dsh` / `claude-code` / `codex` / `opencode` / `workbody` / `hermes`）；目录形态的实例由 `pal adopt` 接管已有目录产生。`dir` 是实例形态（项目目录实例），属于 PAL，不是宿主；`instance.json` 仍记 `harness` 字段（值含 `dir`）。
 
 ### Adapter（适配）
 
@@ -138,7 +138,7 @@ Pack 里的一条能力声明，它相对于 Agent，而不是相对于整个 ha
 
 ### Launcher（启动器）
 
-启动器（`pal`）管两类对象：已存在的目录与实例。目录侧是 `install` / `uninstall` / `verify` / `rollback`，目录更新用 `pal update --dir <目录>`（位置参数只收实例）；这些目录命令只写文件与 `.packhub/state.json`，不建实例记录。实例侧：`create` 建实例（必须选宿主）、`adopt` 接管已有目录，两者默认把新实例设为它宿主的当前实例；`use` 改当前、`current` 看当前，`start` 不写目标时用当前实例（多个宿主各有当前实例时要求显式指定）。`list` / `ps` 是纯读：`list` 把坏记录原样列出、不隔离；`ps` 默认只出账本（在跑、端口、运行时长、端口冲突、已死的 pid），加 `--refresh` 才按 pid 探测并写回记录。`health` 体检实例（`--hosts` 附带宿主发现），`audit` 看安装审计，`leftovers` 只读列出隔离区 / 失败现场 / 归档区（不移动、不删除）。列、复制、迁移、备份、删除实例与起停看护都在这里。实例是运行入口：要跑起来、要一份全局环境，都在实例上发生，不在目录里。
+启动器（`pal`）管实例与安装 target。安装类命令 `install` / `uninstall` / `verify` / `rollback` / `update` 用 target 二选一：`--into <目录>`（项目级，只写这个目录）或 `--instance <实例>`（全局环境，写实例根）；`install` 另有 `--new --kind <宿主> --name <名字>`，新建实例再装（替代原来的 `create`）。实例的写操作（install / uninstall / update / rollback）要求实例已停，`verify` 允许运行；`--instance` 安装还要求实例是空的。`adopt` 接管已有目录，`adopt` 与 `install --new` 默认把新实例设为它宿主的当前实例；`use` 改当前、`current` 看当前，`start` 不写目标时用当前实例（多个宿主各有当前实例时要求显式指定）。`list` / `ps` 是纯读：`list` 把坏记录原样列出、不隔离；`ps` 默认只出账本（在跑、端口、运行时长、端口冲突、已死的 pid），加 `--refresh` 才按 pid 探测并写回记录。`health` 体检实例（`--hosts` 附带宿主发现），`audit` 看安装审计，`leftovers` 只读列出隔离区 / 失败现场 / 归档区（不移动、不删除）。列、复制、迁移、备份、删除实例与起停看护都在这里。实例是运行入口：要跑起来、要一份全局环境，都在实例上发生，不在目录里。
 
 实现上分两层：常驻的 core 独占启停与看护（CLI 只是它的客户端），core 被杀了由用户任务计划带回来。
 

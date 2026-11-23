@@ -30,18 +30,44 @@ describe('pal cli --json', () => {
   }
 });
 
-describe('pal cli：实例形态是 --kind（不再有 --harness）', () => {
-  // create 只建宿主实例（默认 dsh）；adopt 接管已有目录，dir 是它的形态值
-  for (const name of ['create', 'adopt']) {
-    it(`${name} 声明 --kind（string，默认 dsh）`, () => {
+describe('pal cli：target 统一后的参数面', () => {
+  it('adopt 仍然声明 --kind（string，默认 dsh），没有 --harness', () => {
+    const command = subCommands.adopt;
+    expect(command, 'adopt 应存在').toBeTruthy();
+    expect(command?.args?.kind?.type, 'adopt --kind 类型').toBe('string');
+    expect(command?.args?.kind?.default, 'adopt --kind 默认值').toBe('dsh');
+    expect(command?.args?.harness).toBeUndefined();
+  });
+
+  it('create 已删除', () => {
+    expect(subCommands.create, 'create 应已并入 install --new').toBeUndefined();
+  });
+
+  it('install 声明 target 三选一与 --new 配套参数', () => {
+    const command = subCommands.install;
+    expect(command, 'install 应存在').toBeTruthy();
+    expect(command?.args?.into?.type).toBe('string');
+    expect(command?.args?.instance?.type).toBe('string');
+    expect(command?.args?.new?.type).toBe('boolean');
+    expect(command?.args?.new?.default).toBe(false);
+    expect(command?.args?.kind?.type).toBe('string');
+    expect(command?.args?.name?.type).toBe('string');
+    expect(command?.args?.harness?.type).toBe('string');
+    expect(command?.args?.source?.type).toBe('positional');
+    // --new 的记录：三类 target 的说明里至少一处写明互斥
+    const into = String(command?.args?.into?.description ?? '');
+    expect(into).toContain('三选一');
+  });
+
+  it('uninstall / verify / rollback / update 都收 --into 与 --instance，不再有 --dir', () => {
+    for (const name of ['uninstall', 'verify', 'rollback', 'update']) {
       const command = subCommands[name];
       expect(command, `${name} 应存在`).toBeTruthy();
-      expect(command?.args?.kind?.type, `${name} --kind 类型`).toBe('string');
-      expect(command?.args?.kind?.default, `${name} --kind 默认值`).toBe('dsh');
-      // 旧的 --harness 参数应该已经删掉，不然两份参数会各说各话
-      expect(command?.args?.harness).toBeUndefined();
-    });
-  }
+      expect(command?.args?.into?.type, `${name} --into`).toBe('string');
+      expect(command?.args?.instance?.type, `${name} --instance`).toBe('string');
+      expect(command?.args?.dir, `${name} 不该再有 --dir`).toBeUndefined();
+    }
+  });
 });
 
 describe('pal cli：harness 列表六项', () => {
@@ -51,21 +77,11 @@ describe('pal cli：harness 列表六项', () => {
     expect(harnessIds()).toEqual(SIX);
   });
 
-  it('create / adopt 的 --kind 说明列出六个宿主', () => {
-    for (const name of ['create', 'adopt']) {
-      const description = String(subCommands[name]?.args?.kind?.description ?? '');
-      for (const id of SIX) {
-        expect(description, `${name} 的 --kind 应列出 ${id}`).toContain(id);
-      }
-    }
-  });
-
-  it('install 的 --harness 说明列出六个宿主，并说明不用 dir', () => {
-    const description = String(subCommands.install?.args?.harness?.description ?? '');
+  it('adopt 的 --kind 说明列出六个宿主', () => {
+    const description = String(subCommands.adopt?.args?.kind?.description ?? '');
     for (const id of SIX) {
-      expect(description, `install --harness 应列出 ${id}`).toContain(id);
+      expect(description, `adopt 的 --kind 应列出 ${id}`).toContain(id);
     }
-    expect(description).toContain('不用 dir');
   });
 });
 
@@ -76,17 +92,18 @@ describe('pal --version', () => {
 });
 
 describe('pal 命令面：doctor 并入 health --hosts，audit 归 pal', () => {
-  it('一共 32 条命令：没有 status / recover / doctor，有 leftovers', () => {
+  it('一共 31 条命令：没有 create / status / recover / doctor，有 leftovers', () => {
     const names = Object.keys(subCommands);
-    expect(names).toHaveLength(32);
-    expect(new Set(names).size).toBe(32);
-    // status 合并进 ps（默认纯读，--refresh 才刷新）；recover 改名 leftovers
+    expect(names).toHaveLength(31);
+    expect(new Set(names).size).toBe(31);
+    // create 并入 install --new；status 合并进 ps（默认纯读，--refresh 才刷新）；recover 改名 leftovers
+    expect(names).not.toContain('create');
     expect(names).not.toContain('status');
     expect(names).not.toContain('recover');
     expect(names).not.toContain('doctor');
     expect(names).toContain('leftovers');
     expect(names).toContain('ps');
-    // 目录对象命令仍是一级命令
+    // 安装类命令仍是一级命令
     for (const name of ['install', 'uninstall', 'verify', 'rollback', 'update']) {
       expect(names.includes(name), `${name} 应存在`).toBe(true);
     }

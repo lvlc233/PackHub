@@ -58,13 +58,13 @@ function readJson<T>(file: string): T {
   return JSON.parse(readFileSync(file, 'utf8')) as T;
 }
 
-describe('pal create：三个新宿主的 home 布局', () => {
+describe('pal install --new：三个新宿主的 home 布局', () => {
   it('opencode：XDG 落点多一层 opencode/，MCP 写进 opencode.json', () => {
     const base = mkdtempSync(join(tmpdir(), 'pal-create-oc-'));
     const pack = makeMcpPack(base, 'pack');
     const root = join(base, 'inst');
 
-    const res = pal(['create', pack, '--name', 'oc', '--kind', 'opencode', '--root', root]);
+    const res = pal(['install', pack, '--new', '--name', 'oc', '--kind', 'opencode', '--root', root]);
     expect(res.status, res.out).toBe(0);
     // 技能/知识落进 home/opencode/opencode/…（XDG_CONFIG_HOME 那一层）
     expect(existsSync(join(root, 'home/opencode/opencode/knowledge/guide.md'))).toBe(true);
@@ -83,7 +83,7 @@ describe('pal create：三个新宿主的 home 布局', () => {
     const pack = makeMcpPack(base, 'pack');
     const root = join(base, 'inst');
 
-    const res = pal(['create', pack, '--name', 'wb', '--kind', 'workbody', '--root', root]);
+    const res = pal(['install', pack, '--new', '--name', 'wb', '--kind', 'workbody', '--root', root]);
     expect(res.status, res.out).toBe(0);
     expect(existsSync(join(root, 'home/codebuddy/knowledge/guide.md'))).toBe(true);
     const config = readJson<{ mcpServers: Record<string, unknown> }>(
@@ -99,7 +99,7 @@ describe('pal create：三个新宿主的 home 布局', () => {
     const pack = makeMcpPack(base, 'pack');
     const root = join(base, 'inst');
 
-    const res = pal(['create', pack, '--name', 'hm', '--kind', 'hermes', '--root', root]);
+    const res = pal(['install', pack, '--new', '--name', 'hm', '--kind', 'hermes', '--root', root]);
     expect(res.status, res.out).toBe(0);
     expect(existsSync(join(root, 'home/hermes/knowledge/guide.md'))).toBe(true);
     const yaml = readFileSync(join(root, 'home/hermes/config.yaml'), 'utf8');
@@ -143,7 +143,7 @@ describe('pal install --into：项目级落点按方言', () => {
     rmSync(base, { recursive: true, force: true });
   });
 
-  it('hermes 没有项目级落点：--harness hermes 退 2，指向 pal create --kind hermes', () => {
+  it('hermes 没有项目级落点：--harness hermes 退 2，指向新建实例再装', () => {
     const base = mkdtempSync(join(tmpdir(), 'pal-ins-hermes-'));
     const pack = makeMcpPack(base, 'pack');
     const project = join(base, 'project');
@@ -151,7 +151,7 @@ describe('pal install --into：项目级落点按方言', () => {
     const res = pal(['install', pack, '--into', project, '--harness', 'hermes']);
     expect(res.status).toBe(2);
     expect(res.out).toContain('没有项目级安装落点');
-    expect(res.out).toContain('pal create --kind hermes');
+    expect(res.out).toContain('hermes');
     // 拒绝在建目录之前：没有半套安装
     expect(existsSync(project)).toBe(false);
     rmSync(base, { recursive: true, force: true });

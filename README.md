@@ -4,18 +4,21 @@ packhub 做包与发版，pal 安装与运行。
 
 ## 两个命令族
 
-`packhub` 只碰 Pack 目录：`plan` / `verify` 预览，`lock` / `pack` / `publish` / `sign` 出包与发版。`pal` 负责装和跑：目录侧 `install` / `uninstall` / `verify` / `rollback`，目录更新用 `update --dir`（位置参数只收实例）；实例侧 `create` / `adopt` 与起停看护，本机状态看 `list` / `ps` / `health`，审计看 `audit`。
+`packhub` 只碰 Pack 目录：`plan` / `verify` 预览，`lock` / `pack` / `publish` / `sign` 出包与发版。`pal` 负责装和跑：安装类命令 `install` / `uninstall` / `verify` / `rollback` / `update` 的 target 是 `--into <目录>`（项目级）或 `--instance <实例>`（全局环境）；`install` 还能 `--new --kind <宿主> --name <名字>` 新建实例再装；实例侧还有 `adopt` 与起停看护，本机状态看 `list` / `ps` / `health`，审计看 `audit`。
 
-宿主（`dsh` / `claude-code` / `codex` / `opencode` / `workbody` / `hermes`）在 kernel 的注册表里：每个宿主一个模块，加宿主 = 新模块 + `harness/index.ts` 一行 import；hermes 只有实例级落点（`pal install` 装不了，用 `pal create`），第三方宿主暂不支持（见 [docs/concepts.md](docs/concepts.md) 的 Harness 词条）。
+宿主（`dsh` / `claude-code` / `codex` / `opencode` / `workbody` / `hermes`）在 kernel 的注册表里：每个宿主一个模块，加宿主 = 新模块 + `harness/index.ts` 一行 import；hermes 只有实例级落点（不能用 `--into`，用 `--new --kind hermes` 建实例），第三方宿主暂不支持（见 [docs/concepts.md](docs/concepts.md) 的 Harness 词条）。
 
 ```bash
-# 装进已有目录
+# 项目级 target：装进已有目录
 pnpm pal install test/fixtures/packs/team-conventions --into tmp/demo-project --harness dsh
-pnpm pal verify tmp/demo-project
+pnpm pal verify --into tmp/demo-project
 
-# 建实例：必须选宿主；目录形态用 adopt 接管已有目录
-pnpm pal create test/fixtures/packs/team-conventions --name demo --kind dsh
-pnpm pal adopt ./existing-env --name legacy   # 接管已有目录（目录形态实例，不是宿主）
+# 实例级 target：新建实例再装
+pnpm pal install test/fixtures/packs/team-conventions --new --kind dsh --name demo
+
+# 接管已有目录（目录形态实例），再往空实例里装
+pnpm pal adopt ./existing-env --name legacy
+pnpm pal install test/fixtures/packs/team-conventions --instance legacy
 
 pnpm pal health demo --hosts   # 实例体检 + 宿主发现（装没装、版本、能不能起）
 pnpm pal audit                 # install / update 写的审计

@@ -31,16 +31,22 @@ function pal(args: string[]): { status: number | null; out: string } {
 }
 
 describe('pal 命令面（CLI 级）', () => {
-  it('pal create 不建目录形态实例：--kind dir 退 2 并指向 adopt / install', () => {
-    const base = mkdtempSync(join(tmpdir(), 'pal-cli-create-'));
+  it('pal create 已删：按未知命令拒绝', () => {
+    const res = pal(['create']);
+    expect(res.status).toBe(1);
+    expect(res.out).toContain('Unknown command');
+    expect(res.out).toContain('create');
+  });
+
+  it('install --new --kind dir 退 2：dir 不是宿主，指向 adopt / install --into', () => {
+    const base = mkdtempSync(join(tmpdir(), 'pal-cli-newdir-'));
     const pack = join(base, 'pack');
     cpSync(FIXTURE, pack, { recursive: true });
 
-    const res = pal(['create', pack, '--name', 'c1', '--kind', 'dir']);
+    const res = pal(['install', pack, '--new', '--name', 'c1', '--kind', 'dir']);
     expect(res.status).toBe(2);
-    expect(res.out).toContain('不建目录形态实例');
+    expect(res.out).toContain('--kind 不收 dir');
     expect(res.out).toContain('pal adopt');
-    expect(res.out).toContain('pal install');
     rmSync(base, { recursive: true, force: true });
   });
 

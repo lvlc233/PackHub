@@ -24,19 +24,20 @@ function printRecord(rec: InstanceRecord): void {
 function createKindOf(raw: unknown): InstanceRecord['harness'] {
   const value = String(raw ?? 'dsh');
   if (value === 'dir') {
-    throw new PalError('invalid-input', 'pal create 不建目录形态实例：dir 是项目目录实例', {
-      hint: '目录形态用 pal adopt 接管已有目录；装进已有目录用 pal install；新建宿主实例才用 pal create。',
+    throw new PalError('invalid-input', '--kind 不收 dir：dir 是项目目录实例形态', {
+      hint: '目录形态用 pal adopt 接管已有目录；装进已有目录用 pal install --into；新建宿主实例用 pal install --new。',
     });
   }
   if (!isHarnessId(value)) {
     throw new PalError('invalid-input', `未知实例形态：${value}`, {
-      hint: `可选 ${harnessIds().join(' / ')}；目录形态用 pal adopt / pal install。`,
+      hint: `可选 ${harnessIds().join(' / ')}；目录形态用 pal adopt / pal install --into。`,
     });
   }
   return value as InstanceRecord['harness'];
 }
 
-export const create = defineCommand({
+// 原顶层 create 命令的流程；现在只作为 `pal install --new` 的内部实现，不再单独暴露。
+export const createCmd = defineCommand({
   meta: { name: 'create', description: '从 Pack 建一份实例' },
   args: {
     pack: {
@@ -48,7 +49,7 @@ export const create = defineCommand({
     kind: {
       type: 'string',
       default: 'dsh',
-      description: `实例形态：${harnessIds().join(' | ')}（只有宿主才建实例）。目录形态用 pal adopt；装进已有目录用 pal install`,
+      description: `实例形态：${harnessIds().join(' | ')}（只有宿主才建实例）。目录形态用 pal adopt；装进已有目录用 pal install --into`,
     },
     index: { type: 'string', description: `registry 索引（路径或 URL；也可用 ${PACKHUB_ENV.index}）` },
     'from-home': {
@@ -106,7 +107,7 @@ export const create = defineCommand({
     }
     if (rec.home && !args['from-home']) {
       console.log(
-        `  新 home 里没有模型凭据：要沿用全局环境用 pal create --from-home <${
+        `  新 home 里没有模型凭据：要沿用全局环境用 pal install --new --from-home <${
           rec.harness === 'dsh' ? '~/.dsh' : `~/.${rec.harness}`
         }>，或用 pal adopt 接管已有目录。`,
       );

@@ -34,7 +34,7 @@ import { PalError } from './errors.ts';
 function harnessHint(): string {
   return `${harnessIds().join(' / ')}（安装参数；不用 dir）`;
 }
-const INSTANCE_HINT = '已存在的目录用这些命令；新建实例用 pal create。';
+const INSTANCE_HINT = '装进已有目录用 pal install --into <目录>；新建实例用 pal install --new。';
 
 /** 解析 --harness：只认宿主名（dir 是 PAL 的实例形态，不是安装参数）。 */
 function parseInstallHarness(raw: unknown): HarnessId {
@@ -55,7 +55,7 @@ function printIssues(issues: readonly Issue[], log: (line: string) => void): voi
   }
 }
 
-function printPlanSummary(plan: Plan, log: (line: string) => void): void {
+export function printPlanSummary(plan: Plan, log: (line: string) => void): void {
   log(`${plan.pack.name}@${plan.pack.version} → ${plan.harness ? `harness=${plan.harness}` : '平铺目录'}`);
   for (const action of plan.actions) {
     const dest = 'to' in action ? action.to : 'dest' in action ? action.dest : 'path' in action ? action.path : '';
@@ -113,7 +113,7 @@ export const installDir = defineCommand({
     // 必填但手动校验：citty 的 required 缺失走 internal（退出 1），这里按用法错退出 2
     if (args.harness === undefined) {
       throw new PalError('invalid-input', '缺少 --harness', {
-        hint: `必须指定按哪个宿主的落点表物化：${harnessHint()}；装进已有目录用 pal install，新建实例用 pal create。`,
+        hint: `必须指定按哪个宿主的落点表物化：${harnessHint()}；装进已有目录用 pal install --into，新建实例用 pal install --new。`,
       });
     }
     const harness = parseInstallHarness(args.harness);
@@ -310,7 +310,7 @@ export async function updateStateDir(
   const keys = Object.keys(state.packs);
   if (keys.length === 0) {
     throw new PalError('invalid-input', `这个目录没有安装记录：${dir}（state 里没有包）`, {
-      hint: '装进这个目录用 pal install --into <目录>；新建实例用 pal create。',
+      hint: '装进这个目录用 pal install --into <目录>；新建实例用 pal install --new。',
     });
   }
   const indexRef = resolveRegistry(opts.index);
