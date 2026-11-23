@@ -2,6 +2,7 @@ import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process';
 import { join } from 'node:path';
 import { PACKHUB_ENV } from '@packhub/kernel';
 import { readCoreInfo, type CoreInfo } from './core.ts';
+import { CORE_ENTRY } from './coreMain.ts';
 import { PalError, type PalErrorCode } from './errors.ts';
 import { palHome } from './paths.ts';
 import { isPidAlive } from './process.ts';
@@ -49,7 +50,7 @@ export async function probeCore(options: CoreClientOptions = {}): Promise<CoreIn
 }
 
 /**
- * 拉起 core：同一条命令行（node + 当前入口 + core run），脱离本进程。
+ * 拉起 core：同一条命令行（node + 当前入口 + 内部入口 run），脱离本进程。
  * 它自己抢锁；抢不到说明别人已经起了，客户端只要等 /health 通。
  */
 export function spawnCore(home: string, options: CoreClientOptions = {}): ChildProcess {
@@ -60,7 +61,7 @@ export function spawnCore(home: string, options: CoreClientOptions = {}): ChildP
     });
   }
   const spawnFn = options.spawn ?? (nodeSpawn as unknown as (file: string, args: string[], opts: Record<string, unknown>) => ChildProcess);
-  const child = spawnFn(process.execPath, [...process.execArgv, entry, 'core', 'run'], {
+  const child = spawnFn(process.execPath, [...process.execArgv, entry, CORE_ENTRY, 'run'], {
     cwd: process.cwd(),
     env: { ...process.env, [PACKHUB_ENV.home]: home, ...(options.env ?? {}) },
     detached: true,
@@ -95,7 +96,7 @@ export async function ensureCore(options: CoreClientOptions = {}): Promise<CoreI
     await sleep(120);
   }
   throw new PalError('core-unavailable', 'PAL core 没有起来', {
-    hint: `看 ${join(home, 'core.log')}；也可以在终端跑 pal core run 看它为什么退`,
+    hint: `看 ${join(home, 'core.log')}；也可以在终端跑同一入口的 ${CORE_ENTRY} run 看它为什么退`,
     details: { home, exitCode: child.exitCode },
   });
 }

@@ -121,7 +121,7 @@ export async function updateInstance(
     const shown = localChanges.slice(0, 5).join('、');
     const more = localChanges.length > 5 ? ` 等 ${localChanges.length} 个文件` : '';
     throw new PalError('invalid-input', `更新会覆盖本地改过的文件：${shown}${more}；确认覆盖请加 --force`, {
-      hint: '先备份改动，或 pal rebaseline <id> 把当前内容认作基线；确实要覆盖就带 --force（API: body.force=true）',
+      hint: '先备份改动，或 pal verify --environment <环境> --accept 把当前内容认作基线；确实要覆盖就带 --force（API: body.force=true）',
       details: { localChanges },
     });
   }

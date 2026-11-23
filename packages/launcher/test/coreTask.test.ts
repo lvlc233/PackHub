@@ -12,10 +12,11 @@ import {
 } from '../src/coreTask.ts';
 import { isPalError } from '../src/errors.ts';
 import { palHome } from '../src/paths.ts';
+import { CORE_ENTRY } from '../src/coreEntry.ts';
 
 const spec: CoreTaskCommand = {
   command: 'C:\\Program Files\\nodejs\\node.exe',
-  args: ['--experimental-strip-types', 'C:\\work\\pack\\packages\\launcher\\src\\bin.ts', 'core', 'start'],
+  args: ['--experimental-strip-types', 'C:\\work\\pack\\packages\\launcher\\src\\bin.ts', CORE_ENTRY, 'start'],
   workingDirectory: 'C:\\work\\pack',
   userId: 'DESKTOP-1\\neo',
 };
@@ -46,10 +47,10 @@ describe('计划任务 XML', () => {
     expect(xml).toContain('C:\\a&amp;b');
   });
 
-  it('入口取当前进程：node 路径 + argv[1] + core start，并钉住数据目录', () => {
+  it('入口取当前进程：node 路径 + argv[1] + 内部入口 start，并钉住数据目录', () => {
     const command = coreTaskCommand();
     expect(command.command).toBe(process.execPath);
-    expect(command.args.slice(-4, -2)).toEqual(['core', 'start']);
+    expect(command.args.slice(-4, -2)).toEqual([CORE_ENTRY, 'start']);
     expect(command.args[command.args.indexOf('--home') + 1]).toBe(palHome());
     expect(command.args).toContain(process.argv[1]);
     expect(command.userId).toContain(process.env.USERNAME ?? '');

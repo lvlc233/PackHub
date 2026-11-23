@@ -309,18 +309,24 @@ describe('scan：只读', () => {
   });
 });
 
-describe('pal scan CLI', () => {
+describe('pal adopt --scan CLI', () => {
   interface CommandShape {
-    args?: Record<string, { type?: string; default?: unknown } | undefined>;
+    args?: Record<string, { type?: string; default?: unknown; required?: boolean } | undefined>;
   }
 
-  const command = (main as unknown as { subCommands?: Record<string, CommandShape | undefined> })
-    .subCommands?.['scan'];
+  const subCommands = (main as unknown as { subCommands?: Record<string, CommandShape | undefined> })
+    .subCommands;
+  const command = subCommands?.['adopt'];
 
-  it('挂了 scan 子命令：depth 默认 2，有 --json', () => {
-    expect(command, 'scan 应存在').toBeTruthy();
+  it('--scan 挂在 adopt 上：depth 默认 2，有 --json，dir 位参不再必填', () => {
+    expect(command, 'adopt 应存在').toBeTruthy();
+    expect(command?.args?.scan?.type).toBe('boolean');
+    expect(command?.args?.scan?.default).toBe(false);
     expect(command?.args?.depth?.default).toBe(String(DEFAULT_SCAN_DEPTH));
     expect(command?.args?.json?.type).toBe('boolean');
     expect(command?.args?.json?.default).toBe(false);
+    expect(command?.args?.dir?.required).toBe(false);
+    // scan 不再是根命令
+    expect(subCommands?.['scan']).toBeUndefined();
   });
 });

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { coreCall, ensureCore, probeCore } from '../src/coreClient.ts';
 import { coreFilePath, type CoreInfo } from '../src/core.ts';
+import { CORE_ENTRY } from '../src/coreEntry.ts';
 import { isPalError } from '../src/errors.ts';
 
 let tmp: string;
@@ -109,7 +110,9 @@ describe('core 客户端：发现与按需拉起', () => {
     expect(spawn).toHaveBeenCalledTimes(1);
     const [file, args] = spawn.mock.calls[0]!;
     expect(file).toBe(process.execPath);
-    expect(args.slice(-2)).toEqual(['core', 'run']);
+    expect(args.slice(-2)).toEqual([CORE_ENTRY, 'run']);
+    // core 已不是命令：拉起走 bin 的内部入口，手打 pal core 是未知命令
+    expect(CORE_ENTRY).not.toBe('core');
   });
 
   it('spawn 了也等不到 health：core-unavailable，并把 home 带进 details', async () => {

@@ -12,6 +12,7 @@ import { checkAll, checkInstance } from '../health.ts';
 import { listLogs, readEvents, readLog, tailLog } from '../logs.ts';
 import { palHomeInfo } from '../paths.ts';
 import { PalError } from '../errors.ts';
+import { collectLeftovers, printLeftovers } from './carry.ts';
 import { requireTarget } from './shared.ts';
 
 export const start = defineCommand({
@@ -189,7 +190,8 @@ function hostDiscovery(): {
 export const health = defineCommand({
   meta: {
     name: 'health',
-    description: '体检：默认查实例（进程、端口、home、基线漂移、MCP 接线）；--hosts 先打宿主发现（node 版本、宿主在不在/版本/能否启动）',
+    description:
+      '体检：默认查实例（进程、端口、home、基线漂移、MCP 接线）；--hosts 先打宿主发现；--leftovers 只列隔离区/失败现场/归档区',
   },
   args: {
     target: { type: 'positional', required: false, description: '实例 id 或名字；不写就全查' },
@@ -198,9 +200,24 @@ export const health = defineCommand({
       default: false,
       description: '先打宿主发现（原 pal doctor）：node 版本、宿主在不在、什么版本、能不能起；之后的实例体检照旧',
     },
+    leftovers: {
+      type: 'boolean',
+      default: false,
+      description:
+        '只列遗留物（原 pal leftovers）：隔离区 / 失败现场 / 归档区里有什么，只读、不移动、不删除；不体检实例，不要求目标',
+    },
     json: { type: 'boolean', default: false },
   },
   async run({ args }) {
+    if (args.leftovers) {
+      if (args.hosts || args.target !== undefined) {
+        throw new PalError('invalid-input', '--leftovers 是全局的：不和 --hosts / 实例目标一起用', {
+          hint: '看实例体检就 pal health <实例>，看宿主发现就 pal health --hosts，看遗留物就 pal health --leftovers。',
+        });
+      }
+      printLeftovers(collectLeftovers(), Boolean(args.json));
+      return;
+    }
     const discovered = args.hosts ? hostDiscovery() : undefined;
     const reports = args.target ? [await checkInstance(String(args.target))] : await checkAll();
     if (args.json) {

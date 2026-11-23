@@ -9,6 +9,7 @@
 import { writeSync } from 'node:fs';
 import { renderUsage, runCommand, type CommandDef, type CommandMeta, type SubCommandsDef } from 'citty';
 import { main } from './cli.ts';
+import { CORE_ENTRY, runCoreEntry } from './coreMain.ts';
 import { PalError, errorBody } from './errors.ts';
 
 const rawArgs = process.argv.slice(2);
@@ -49,10 +50,9 @@ const HELP_GROUPS: { title: string; names: string[] }[] = [
   },
   {
     title: '环境',
-    names: ['adopt', 'list', 'show', 'run', 'start', 'stop', 'restart', 'ps', 'core', 'health', 'logs', 'use', 'current', 'remove', 'config'],
+    names: ['adopt', 'list', 'show', 'run', 'start', 'stop', 'restart', 'ps', 'health', 'logs', 'use', 'current', 'remove', 'config'],
   },
-  { title: '搬运', names: ['scan', 'clone', 'rename', 'migrate', 'export', 'import', 'backup', 'restore'] },
-  { title: '其它', names: ['cache', 'rebaseline', 'audit', 'leftovers'] },
+  { title: '搬运', names: ['clone', 'migrate', 'export', 'import', 'backup', 'restore'] },
 ];
 
 /** 一条命令的一行描述；meta 可能是函数 / Promise，按 citty 的规则先求值。 */
@@ -106,6 +106,12 @@ async function printHelp(): Promise<void> {
 }
 
 async function run(): Promise<void> {
+  // core 的内部入口（隐藏动词，不是命令）：coreClient 的按需拉起与登录计划任务走这里，
+  // 手打的 `pal core` 则是未知命令，help 里也没有它。
+  if (rawArgs[0] === CORE_ENTRY) {
+    await runCoreEntry(rawArgs.slice(1));
+    return;
+  }
   // 只有 --version 一个参数时才算「查版本」，和 citty 一致
   if (rawArgs.length === 1 && rawArgs[0] === '--version') {
     const meta = await resolveValue<CommandMeta>(main.meta);

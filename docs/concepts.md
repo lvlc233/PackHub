@@ -1,7 +1,7 @@
 ---
 kind: concept
 summary: 术语与边界（Pack / 资源 / 计划 / 宿主 / 安装目标 / 环境 / 隔离）
-verified: 2026-11-22
+verified: 2026-11-23
 decay: 365
 review: 环境模型或安装流程改动后
 ---
@@ -138,9 +138,9 @@ Pack 里的一条能力声明，它相对于 Agent，而不是相对于整个 ha
 
 ### Launcher（启动器）
 
-启动器（`pal`）管环境与安装 target。安装类命令 `install` / `uninstall` / `verify` / `rollback` / `update` 用 target 二选一：`--project <目录>`（项目：宿主会打开的项目目录，只写这个目录）或 `--environment <环境>`（环境：宿主的 home / 环境根）；`install` 另有 `--new --kind <宿主> --name <名字>`，新建环境再装。环境的写操作（install / uninstall / update / rollback）要求环境已停，`verify` 允许运行；`--environment` 安装还要求环境是空的。启动分两种：server 型宿主（dsh）用 `start`，由 core 托管、等 URL；TUI 型宿主（claude-code / codex / opencode / workbody / hermes）用 `run <环境> [--dir <目录>]`，PAL 设好该环境的 home 环境变量后前台 exec 宿主进程，退出即结束（不写 pid、不进 core）；对 TUI 型宿主用 `start` 会提示改用 `run`。每个环境可以在根下放 `launch.json`（`args` / `env` / `dir`）：`run <环境>` 会把它合并进去（宿主默认 < `launch.json` < `--dir`），`--init` 生成空模板，`--dry-run` 打印合并后的命令/env/cwd。`adopt` 接管已有目录，`adopt` 与 `install --new` 默认把新环境设为它宿主的当前环境；`use` 改当前、`current` 看当前，`start` 不写目标时用当前环境（多个宿主各有当前环境时要求显式指定）。`list` / `ps` 是纯读：`list` 把坏记录原样列出、不隔离；`ps` 默认只出账本（在跑、端口、运行时长、端口冲突、已死的 pid），加 `--refresh` 才按 pid 探测并写回记录。`health` 体检环境（`--hosts` 附带宿主发现），`audit` 看安装审计，`leftovers` 只读列出隔离区 / 失败现场 / 归档区（不移动、不删除）。列、复制、迁移、备份、删除环境与起停看护都在这里。环境是运行入口：要跑起来，就在环境上发生，不在项目目录里。
+启动器（`pal`）管环境与安装 target。安装类命令 `install` / `uninstall` / `verify` / `rollback` / `update` 用 target 二选一：`--project <目录>`（项目：宿主会打开的项目目录，只写这个目录）或 `--environment <环境>`（环境：宿主的 home / 环境根）；`install` 另有 `--new --kind <宿主> --name <名字>`，新建环境再装。环境的写操作（install / uninstall / update / rollback）要求环境已停，`verify` 允许运行；`--environment` 安装还要求环境是空的。启动分两种：server 型宿主（dsh）用 `start`，由 core 托管、等 URL；TUI 型宿主（claude-code / codex / opencode / workbody / hermes）用 `run <环境> [--dir <目录>]`，PAL 设好该环境的 home 环境变量后前台 exec 宿主进程，退出即结束（不写 pid、不进 core）；对 TUI 型宿主用 `start` 会提示改用 `run`。每个环境可以在根下放 `launch.json`（`args` / `env` / `dir`）：`run <环境>` 会把它合并进去（宿主默认 < `launch.json` < `--dir`），`--init` 生成空模板，`--dry-run` 打印合并后的命令/env/cwd。`adopt` 接管已有目录，`adopt` 与 `install --new` 默认把新环境设为它宿主的当前环境；`use` 改当前、`current` 看当前，`start` 不写目标时用当前环境（多个宿主各有当前环境时要求显式指定）。`list` / `ps` 是纯读：`list` 把坏记录原样列出、不隔离；`ps` 默认只出账本（在跑、端口、运行时长、端口冲突、已死的 pid），加 `--refresh` 才按 pid 探测并写回记录。`health` 体检环境（`--hosts` 附带宿主发现；`--leftovers` 只读列出隔离区 / 失败现场 / 归档区，不移动、不删除）；`list --history` 看安装审计；`adopt --scan` 只读扫目录（不接管、不写记录）；`verify --environment <环境> --accept` 把当前磁盘状态认作基线；`config <环境> --name <新名字>` 只给那份环境改名。列、复制、迁移、备份、删除环境与起停看护都在这里。环境是运行入口：要跑起来，就在环境上发生，不在项目目录里。
 
-实现上分两层：常驻的 core 独占启停与看护（CLI 只是它的客户端），core 被杀了由用户任务计划带回来。
+实现上分两层：常驻的 core 独占启停与看护（CLI 只是它的客户端；core 没有可发现的命令，进程入口只剩 bin 的内部参数），core 被杀了由用户任务计划带回来。
 
 ### Registry（仓库）
 

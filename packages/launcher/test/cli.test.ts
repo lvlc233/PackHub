@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { harnessIds } from '@packhub/kernel';
 import { main } from '../src/cli.ts';
+import { CORE_ENTRY } from '../src/coreEntry.ts';
 
 const packageJson = JSON.parse(
   readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
@@ -12,14 +13,17 @@ const packageJson = JSON.parse(
 
 /** 只读命令定义，不执行 run：不写盘、不起进程、不碰网络。 */
 interface CommandShape {
-  args?: Record<string, { type?: string; default?: unknown; description?: string } | undefined>;
+  args?: Record<
+    string,
+    { type?: string; default?: unknown; description?: string; required?: boolean } | undefined
+  >;
   subCommands?: Record<string, CommandShape | undefined>;
 }
 
 const subCommands = (main as unknown as CommandShape).subCommands ?? {};
 
 describe('pal cli --json', () => {
-  for (const name of ['show', 'rename', 'migrate', 'use', 'current']) {
+  for (const name of ['show', 'config', 'migrate', 'use', 'current']) {
     it(`${name} 声明 --json（boolean，默认 false）`, () => {
       const command = subCommands[name];
       expect(command, `${name} 应存在`).toBeTruthy();
@@ -96,32 +100,57 @@ describe('pal --version', () => {
   });
 });
 
-describe('pal 命令面：doctor 并入 health --hosts，audit 归 pal', () => {
-  it('一共 32 条命令：没有 create / status / recover / doctor，有 run / leftovers', () => {
+describe('pal 命令面：25 条，诊断并进 flag', () => {
+  it('一共 25 条命令：core / leftovers / audit / scan / cache / rebaseline / rename 都不是命令', () => {
     const names = Object.keys(subCommands);
-    expect(names).toHaveLength(32);
-    expect(new Set(names).size).toBe(32);
-    // create 并入 install --new；status 合并进 ps（默认纯读，--refresh 才刷新）；recover 改名 leftovers
-    expect(names).not.toContain('create');
-    expect(names).not.toContain('status');
-    expect(names).not.toContain('recover');
-    expect(names).not.toContain('doctor');
-    expect(names).toContain('leftovers');
-    expect(names).toContain('run');
-    expect(names).toContain('ps');
+    expect(names).toHaveLength(25);
+    expect(new Set(names).size).toBe(25);
+    // 历史入口：create → install --new；status → ps；doctor → health --hosts；recover → health --leftovers
+    // 这一轮：leftovers / audit / scan / rebaseline / rename 并进 flag，core / cache 从 CLI 移除
+    for (const removed of [
+      'create',
+      'status',
+      'recover',
+      'doctor',
+      'watch',
+      'core',
+      'cache',
+      'leftovers',
+      'audit',
+      'scan',
+      'rebaseline',
+      'rename',
+    ]) {
+      expect(names, `${removed} 不该是命令`).not.toContain(removed);
+    }
+    // core 的常驻进程还在，但只剩内部入口：它不是子命令
+    expect(subCommands[CORE_ENTRY], `${CORE_ENTRY} 是内部入口，不是命令`).toBeUndefined();
     // 安装类命令仍是一级命令
     for (const name of ['install', 'uninstall', 'verify', 'rollback', 'update']) {
       expect(names.includes(name), `${name} 应存在`).toBe(true);
     }
   });
 
-  it('doctor 不再是命令；health 声明 --hosts；audit 是根命令', () => {
+  it('被并进 flag 的诊断都是 boolean（默认 false），改名带 --name，list 的审计带 --tail', () => {
+    expect(subCommands.health?.args?.leftovers?.type).toBe('boolean');
+    expect(subCommands.health?.args?.leftovers?.default).toBe(false);
+    expect(subCommands.list?.args?.history?.type).toBe('boolean');
+    expect(subCommands.list?.args?.history?.default).toBe(false);
+    expect(subCommands.list?.args?.tail?.default).toBe('20');
+    expect(subCommands.adopt?.args?.scan?.type).toBe('boolean');
+    expect(subCommands.adopt?.args?.scan?.default).toBe(false);
+    expect(subCommands.verify?.args?.accept?.type).toBe('boolean');
+    expect(subCommands.verify?.args?.accept?.default).toBe(false);
+    expect(subCommands.config?.args?.name?.type).toBe('string');
+    expect(subCommands.config?.args?.target?.type).toBe('positional');
+    // 位参不再必填：adopt --scan 不带目录也能跑
+    expect(subCommands.adopt?.args?.dir?.required).toBe(false);
+  });
+
+  it('doctor 不再是命令；health 声明 --hosts', () => {
     expect(subCommands.doctor, 'doctor 应已并入 health --hosts').toBeUndefined();
     expect(subCommands.health?.args?.hosts?.type).toBe('boolean');
     expect(subCommands.health?.args?.hosts?.default).toBe(false);
-    expect(subCommands.audit, 'audit 应是根命令').toBeTruthy();
-    expect(subCommands.audit?.args?.json?.type).toBe('boolean');
-    expect(subCommands.audit?.args?.tail?.default).toBe('20');
   });
 
   interface HealthShape {

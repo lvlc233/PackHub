@@ -4,7 +4,7 @@ packhub 做包与发版，pal 安装与运行。
 
 ## 两个命令族
 
-`packhub` 只碰 Pack 目录：`plan` / `verify` 预览，`lock` / `pack` / `publish` / `sign` 出包与发版。`pal` 负责装和跑：安装类命令 `install` / `uninstall` / `verify` / `rollback` / `update` 的 target 是 `--project <目录>`（项目，宿主会打开的目录）或 `--environment <环境>`（宿主的 home）；`install` 还能 `--new --kind <宿主> --name <名字>` 新建环境再装；环境侧还有 `adopt` 与起停看护，本机状态看 `list` / `ps` / `health`，审计看 `audit`。
+`packhub` 只碰 Pack 目录：`plan` / `verify` 预览，`lock` / `pack` / `publish` / `sign` 出包与发版。`pal` 负责装和跑：安装类命令 `install` / `uninstall` / `verify` / `rollback` / `update` 的 target 是 `--project <目录>`（项目，宿主会打开的目录）或 `--environment <环境>`（宿主的 home）；`install` 还能 `--new --kind <宿主> --name <名字>` 新建环境再装；环境侧还有 `adopt` 与起停看护，本机状态看 `list` / `ps` / `health`，审计看 `list --history`。
 
 宿主（`dsh` / `claude-code` / `codex` / `opencode` / `workbody` / `hermes`）在 kernel 的注册表里：每个宿主一个模块，加宿主 = 新模块 + `harness/index.ts` 一行 import；hermes 没有项目级落点（不能用 `--project`，用 `--new --kind hermes` 建环境），第三方宿主暂不支持（见 [docs/concepts.md](docs/concepts.md) 的 Harness 词条）。
 
@@ -21,12 +21,15 @@ pnpm pal start demo
 pnpm pal run opencode-env --dir ./some-project
 # 每个环境可放 launch.json（args/env/dir）；pal run <env> --init 生成空模板，--dry-run 看合并结果
 
-# 接管已有目录（目录形态环境），再往空环境里装
+# 接管已有目录（目录形态环境），再往空环境里装；只看不接管用 adopt --scan
 pnpm pal adopt ./existing-env --name legacy
 pnpm pal install test/fixtures/packs/team-conventions --environment legacy
 
-pnpm pal health demo --hosts   # 环境体检 + 宿主发现（装没装、版本、能不能起）
-pnpm pal audit                 # install / update 写的审计
+pnpm pal health demo --hosts     # 环境体检 + 宿主发现（装没装、版本、能不能起）
+pnpm pal health --leftovers      # 隔离区 / 失败现场 / 归档区里有什么（只读）
+pnpm pal list --history          # install / update 写的审计
+pnpm pal verify --environment demo --accept   # 本地改动被接受，体检不再报漂移
+pnpm pal config demo --name demo-2            # 给环境改名
 ```
 
 ## 代码分层

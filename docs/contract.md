@@ -1,7 +1,7 @@
 ---
 kind: contract
 summary: 格式 v0 的数据形状与格式层不变量
-verified: 2026-11-22
+verified: 2026-11-23
 decay: 365
 review: 格式升版、字段增删、apiVersion 变化时
 ---
@@ -206,7 +206,7 @@ resources:
 
 装好与否的判定、并发、回退、所有权与卸载顺序是行为，写在 `packages/runtime/src/install.ts`（`applyPlan` / `acquireLock` / `removePack` / `rollbackPack`）。
 
-安装审计不写进 state：`pal install` / `pal update` 每次追加一行到本机 `$PACKHUB_HOME/audit.jsonl`（`at` / `action` / 包与版本 / `planHash` / `ok`），`pal audit` 读它。审计是「这台机器上发生过什么」的旁挂记录，不进锁、不进内容哈希；记录字段见 `packages/runtime/src/audit.ts`。
+安装审计不写进 state：`pal install` / `pal update` 每次追加一行到本机 `$PACKHUB_HOME/audit.jsonl`（`at` / `action` / 包与版本 / `planHash` / `ok`），`pal list --history` 读它。审计是「这台机器上发生过什么」的旁挂记录，不进锁、不进内容哈希；记录字段见 `packages/runtime/src/audit.ts`。
 
 ## 5 Index（`packhub.dev/index/v0`）
 

@@ -132,7 +132,7 @@ export function acquireCoreLock(home: string = palHome()): number {
       const holder = lockHolder(file);
       if (holder !== undefined && isPidAlive(holder)) {
         throw new PalError('busy', `PAL core 已经在运行（pid ${holder}）`, {
-          hint: 'pal core status 看它在哪；要换一个 core 先 pal core stop',
+          hint: '看 core.json 里的 pid 与地址；要换一个 core 先停掉它（内部入口：__core stop）',
           details: { home, pid: holder },
         });
       }
@@ -288,7 +288,7 @@ export async function startCore(options: StartCoreOptions = {}): Promise<PalCore
       const params = (body.params ?? {}) as Record<string, unknown>;
       const handler = rpc[op];
       if (!handler) throw new PalError('invalid-input', `core 不认识这个操作：${op}`, {
-        hint: 'core 只认 start / stop / restart / watch / status / shutdown；CLI 用 pal core status 查它在做什么',
+        hint: 'core 只认 start / stop / restart / watch / status / shutdown；内部入口 __core status 能看它在做什么',
       });
       sendJson(res, 200, { ok: true, result: await handler(params) });
       return;

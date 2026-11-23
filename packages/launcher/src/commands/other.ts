@@ -1,9 +1,8 @@
-// pal config / cache / rebaseline / audit / use / current：配置、缓存与“当前实例”这类杂项。
+// pal config / use / current：配置、当前实例，以及并进 flag 的诊断输出（审计）。
 import { defineCommand } from 'citty';
 import { auditPath, readAudit } from '@packhub/runtime';
 import { existsSync } from 'node:fs';
-import { rebaselineInstance } from '../index.ts';
-import { cacheStats, cleanCache, formatBytes, planClean, scanCache } from '../cache.ts';
+import { rebaselineInstance, renameInstance, type Baseline } from '../index.ts';
 import { activeEntries, setActive } from '../active.ts';
 import { CONFIG_VERSION, parseIsolationSpec, readPalConfig, writePalConfig } from '../config.ts';
 import { ISOLATION_LAYERS } from '../isolation.ts';
@@ -18,15 +17,81 @@ import {
 } from '../paths.ts';
 import { assertAbsolutePath } from '../validators.ts';
 import { PalError } from '../errors.ts';
-import { confirm, requireTarget } from './shared.ts';
+import { requireTarget } from './shared.ts';
+
+/**
+ * 读安装审计并打印（原 pal audit 的实现；现在是 `pal list --history`）。
+ * 默认 20 条，`--tail` 改条数；--json 只输出审计数组。
+ */
+export function printAudit(tail: number, json: boolean): void {
+  const entries = readAudit(Number.isFinite(tail) && tail > 0 ? tail : 20);
+  if (json) {
+    console.log(JSON.stringify(entries, null, 2));
+    return;
+  }
+  if (entries.length === 0) {
+    console.log(`还没有审计记录：${auditPath()}`);
+    return;
+  }
+  for (const entry of entries) {
+    console.log(
+      `${entry.at.slice(0, 19)}  ${entry.action.padEnd(8)} ${`${entry.pack ?? ''}@${entry.version ?? ''}`.padEnd(34)} ${entry.ok === false ? 'x' : '✓'}  ${entry.planHash?.slice(0, 14) ?? ''}`,
+    );
+  }
+  console.log(`\n${auditPath()}`);
+}
+
+/** 把当前磁盘状态认作基线（原 pal rebaseline 的实现；现在是 `pal verify --accept`）。 */
+export function acceptBaseline(target: string): Baseline {
+  return rebaselineInstance(requireTarget(target));
+}
+
+/** `config <环境> --name <新名字>`：只改这一份环境的名字，不碰全局配置。 */
+function renameEnv(args: {
+  target: unknown;
+  name: unknown;
+  home: unknown;
+  'set-isolation': unknown;
+  force: unknown;
+  json: boolean;
+}): void {
+  const target = String(args.target ?? '').trim();
+  if (!target) {
+    throw new PalError('invalid-input', '--name 要给环境：pal config <环境> --name <新名字>', {
+      hint: '地名参数写在 --name 前：pal config demo --name demo-2；只看全局配置就别写环境名。',
+    });
+  }
+  if (args.name === undefined) {
+    throw new PalError('invalid-input', `给环境 ${target} 时要 --name`, {
+      hint: 'pal config <环境> --name <新名字>；只看全局配置就别写环境名。',
+    });
+  }
+  if (args.home !== undefined || args['set-isolation'] !== undefined || args.force === true) {
+    throw new PalError('invalid-input', '给环境改名时不能同时改全局配置', {
+      hint: '--home / --set-isolation / --force 只用于不带环境名的 pal config；改名只写 instance.json 里的 name。',
+    });
+  }
+  const rec = renameInstance(target, String(args.name));
+  if (args.json) {
+    console.log(JSON.stringify(rec, null, 2));
+    return;
+  }
+  console.log(`✓ ${rec.id} → ${rec.name}`);
+}
 
 export const config = defineCommand({
   meta: {
     name: 'config',
     description:
-      'PAL 数据目录与新建实例的默认隔离策略（<数据目录>/pal.json）；隔离策略只影响之后新建的实例',
+      'PAL 数据目录与新建实例的默认隔离策略（<数据目录>/pal.json）；给环境名 + --name 只给那个环境改名',
   },
   args: {
+    target: {
+      type: 'positional',
+      required: false,
+      description: '环境 id 或名字：只改这一份环境的名字（配 --name）；不写就是看/改全局配置',
+    },
+    name: { type: 'string', description: '配环境名用：这个环境的新名字（与已有环境重名时拒绝）' },
     'set-isolation': {
       type: 'string',
       description: '改成 layer=mode,...；只覆盖写出来的层，其余沿用当前值。只影响之后新建的实例',
@@ -44,6 +109,10 @@ export const config = defineCommand({
     json: { type: 'boolean', default: false },
   },
   run({ args }) {
+    if (args.target !== undefined || args.name !== undefined) {
+      renameEnv(args);
+      return;
+    }
     const homeArg = args.home === undefined ? undefined : assertAbsolutePath(args.home, '数据目录', 'home');
     if (homeArg !== undefined) {
       const before = palHomeInfo();
@@ -109,123 +178,6 @@ export const config = defineCommand({
   },
 });
 
-export const cache = defineCommand({
-  meta: {
-    name: 'cache',
-    description: '看取包缓存（ls，默认）或清缓存（clean --all|--ref|--older-than）',
-  },
-  args: {
-    action: {
-      type: 'positional',
-      required: false,
-      default: 'ls',
-      description: 'ls（默认）| clean',
-    },
-    all: { type: 'boolean', default: false, description: 'clean：清掉全部缓存条目' },
-    ref: { type: 'string', description: 'clean：只清这个 Pack 引用（按 meta.ref 或目录 slug 匹配）' },
-    'older-than': {
-      type: 'string',
-      description: 'clean：只清目录 mtime 早于 N 天的条目',
-    },
-    yes: { type: 'boolean', default: false, description: 'clean：跳过确认' },
-    json: { type: 'boolean', default: false },
-  },
-  async run({ args }) {
-    const action = String(args.action ?? 'ls');
-    if (action === 'ls') {
-      const scan = scanCache();
-      const stats = cacheStats(scan.entries);
-      if (args.json) {
-        console.log(
-          JSON.stringify(
-            {
-              root: scan.root,
-              count: stats.count,
-              totalBytes: stats.totalBytes,
-              entries: scan.entries,
-              problems: scan.problems,
-            },
-            null,
-            2,
-          ),
-        );
-        return;
-      }
-      if (scan.entries.length === 0) console.log('缓存是空的');
-      for (const entry of scan.entries) {
-        const ref = entry.ref ?? `${entry.slug}/${entry.variant}`;
-        const version = entry.version ?? '-';
-        const fetched = entry.fetchedAt ? `${entry.fetchedAt.replace('T', ' ').slice(0, 19)}` : '（无 meta）';
-        console.log(`${ref}\t${version}\t${formatBytes(entry.bytes)}\t${fetched}`);
-        console.log(`  ${entry.dir}`);
-        for (const problem of entry.problems) console.log(`  ! ${problem}`);
-      }
-      for (const problem of scan.problems) console.log(`! ${problem.dir}\t${problem.reason}`);
-      console.log(`共 ${stats.count} 条，${formatBytes(stats.totalBytes)}`);
-      return;
-    }
-    if (action !== 'clean') {
-      throw new PalError('invalid-input', `cache 只有 ls 与 clean 两种动作：${action}`, {
-        hint: 'pal cache [ls] | pal cache clean --all | --ref <引用> | --older-than <天数>',
-      });
-    }
-
-    const opts = {
-      ...(args.all ? { all: true } : {}),
-      ...(args.ref !== undefined ? { ref: String(args.ref) } : {}),
-      ...(args['older-than'] !== undefined ? { olderThanDays: Number(args['older-than']) } : {}),
-    };
-    // 先按选择器算出命中项：没给选择器在这里就报 invalid-input，也拿来做确认文案。
-    const picked = planClean(opts);
-    const pickedBytes = picked.reduce((sum, entry) => sum + entry.bytes, 0);
-    // 没命中就不必让非交互调用方再补 --yes。
-    const ok =
-      picked.length === 0
-        ? true
-        : await confirm(`清掉 ${picked.length} 条取包缓存（${formatBytes(pickedBytes)}）？`, Boolean(args.yes));
-    if (!ok) {
-      console.log('已取消');
-      return;
-    }
-    const result = cleanCache(opts);
-    if (args.json) {
-      console.log(JSON.stringify(result, null, 2));
-      return;
-    }
-    for (const dir of result.removed) console.log(`- ${dir}`);
-    for (const error of result.errors) console.log(`! ${error}`);
-    console.log(`已清 ${result.removed.length} 条，保留 ${result.kept} 条`);
-  },
-});
-
-export const audit = defineCommand({
-  meta: {
-    name: 'audit',
-    description: '看本机的安装审计（pal install（--new/--project/--environment）/ update 等写的那份；与 packhub 共用同一文件）',
-  },
-  args: {
-    tail: { type: 'string', default: '20', description: '只看最近 N 条' },
-    json: { type: 'boolean', default: false },
-  },
-  run({ args }) {
-    const entries = readAudit(Number(args.tail) || 20);
-    if (args.json) {
-      console.log(JSON.stringify(entries, null, 2));
-      return;
-    }
-    if (entries.length === 0) {
-      console.log(`还没有审计记录：${auditPath()}`);
-      return;
-    }
-    for (const entry of entries) {
-      console.log(
-        `${entry.at.slice(0, 19)}  ${entry.action.padEnd(8)} ${`${entry.pack ?? ''}@${entry.version ?? ''}`.padEnd(34)} ${entry.ok === false ? 'x' : '✓'}  ${entry.planHash?.slice(0, 14) ?? ''}`,
-      );
-    }
-    console.log(`\n${auditPath()}`);
-  },
-});
-
 export const use = defineCommand({
   meta: {
     name: 'use',
@@ -273,21 +225,5 @@ export const current = defineCommand({
     for (const entry of entries) {
       console.log(`${entry.harness}\t${entry.record?.id ?? '(已删除)'}\t${entry.record?.name ?? ''}`);
     }
-  },
-});
-
-export const rebaseline = defineCommand({
-  meta: { name: 'rebaseline', description: '把当前磁盘状态认作基线（接受本地改动）' },
-  args: {
-    target: { type: 'positional', required: true, description: '实例 id 或名字' },
-    json: { type: 'boolean', default: false },
-  },
-  run({ args }) {
-    const baseline = rebaselineInstance(requireTarget(args.target));
-    console.log(
-      args.json
-        ? JSON.stringify(baseline, null, 2)
-        : `✓ 基线已更新：${baseline.files.length} 个文件（${baseline.pack}@${baseline.version}）`,
-    );
   },
 });

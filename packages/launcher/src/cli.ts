@@ -1,22 +1,12 @@
 // pal 命令面：只在 commands/* 里定义，这里做组装。bin.ts 只拿 main。
+// core 不是命令：常驻进程的内部入口在 coreMain.ts，由 bin.ts 在参数解析前直接分派。
 import { defineCommand } from 'citty';
 import pkg from '../package.json' with { type: 'json' };
 import { adopt, list, remove, show } from './commands/instance.ts';
 import { health, logs, ps, restart, start, stop } from './commands/lifecycle.ts';
 import { run } from './commands/run.ts';
-import {
-  backup,
-  clone,
-  exportCmd,
-  importCmd,
-  leftovers,
-  migrate,
-  rename,
-  restore,
-  scan,
-} from './commands/carry.ts';
-import { core } from './commands/core.ts';
-import { audit, cache, config, current, rebaseline, use } from './commands/other.ts';
+import { backup, clone, exportCmd, importCmd, migrate, restore } from './commands/carry.ts';
+import { config, current, use } from './commands/other.ts';
 import { install, rollback, uninstall, update, verify } from './commands/dir.ts';
 
 export const main = defineCommand({
@@ -35,30 +25,23 @@ export const main = defineCommand({
     config,
     list,
     show,
-    cache,
     remove,
     start,
     run,
     stop,
     restart,
     ps,
-    core,
     health,
-    audit,
     logs,
     use,
     current,
-    scan,
     adopt,
     clone,
-    rename,
     migrate,
     update,
-    rebaseline,
     export: exportCmd,
     import: importCmd,
     backup,
     restore,
-    leftovers,
   },
 });

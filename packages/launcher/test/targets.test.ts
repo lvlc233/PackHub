@@ -200,6 +200,24 @@ describe('帮助分组', () => {
       expect(installGroup).toContain(name);
     }
   });
+
+  it('根帮助恰好 25 条命令：没有 core / cache 与被并进 flag 的旧命令，也没有「其它」分组', () => {
+    const res = pal(['--help']);
+    expect(res.status).toBe(0);
+    const commandLines = res.out.split(/\r?\n/).filter((line) => /^ {2}\S/.test(line));
+    expect(commandLines).toHaveLength(25);
+    for (const removed of ['core', 'cache', 'leftovers', 'audit', 'scan', 'rebaseline', 'rename']) {
+      expect(res.out, `根帮助不该再列 ${removed}`).not.toMatch(new RegExp(`^ {2}${removed}\\s`, 'm'));
+    }
+    expect(res.out).not.toContain('其它：');
+    // 搬运组只剩搬运：scan / rename 已并进 adopt --scan / config --name
+    const carryGroup = res.out.slice(res.out.indexOf('搬运：'));
+    for (const name of ['clone', 'migrate', 'export', 'import', 'backup', 'restore']) {
+      expect(carryGroup).toContain(name);
+    }
+    expect(carryGroup).not.toContain('scan');
+    expect(carryGroup).not.toContain('rename');
+  });
 });
 
 describe('宿主 project 三态', () => {

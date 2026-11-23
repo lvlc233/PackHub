@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,11 +15,11 @@ afterAll(() => {
   rmSync(HOME, { recursive: true, force: true });
 });
 
-function pal(args: string[]): { status: number | null; out: string } {
+function pal(args: string[], cwd = ROOT): { status: number | null; out: string } {
   const env: NodeJS.ProcessEnv = { ...process.env };
   delete env.PACKHUB_INDEX;
   const res = spawnSync(process.execPath, ['--experimental-strip-types', BIN, ...args], {
-    cwd: ROOT,
+    cwd,
     encoding: 'utf8',
     timeout: 120_000,
     env: {
@@ -30,6 +31,26 @@ function pal(args: string[]): { status: number | null; out: string } {
   return { status: res.status, out: `${res.stdout ?? ''}${res.stderr ?? ''}` };
 }
 
+/** 临时目录里放一份 fixture 包，返回 { base, pack }。 */
+function packFixture(): { base: string; pack: string } {
+  const base = mkdtempSync(join(tmpdir(), 'pal-cli-'));
+  const pack = join(base, 'pack');
+  cpSync(FIXTURE, pack, { recursive: true });
+  return { base, pack };
+}
+
+interface Baseline {
+  files: { path: string; sha256: string }[];
+}
+
+function readBaseline(root: string): Baseline {
+  return JSON.parse(readFileSync(join(root, 'baseline.json'), 'utf8')) as Baseline;
+}
+
+function sha256Of(file: string): string {
+  return createHash('sha256').update(readFileSync(file)).digest('hex');
+}
+
 describe('pal 命令面（CLI 级）', () => {
   it('pal create 已删：按未知命令拒绝', () => {
     const res = pal(['create']);
@@ -39,9 +60,7 @@ describe('pal 命令面（CLI 级）', () => {
   });
 
   it('install --new --kind dir 退 2：dir 不是宿主，指向 adopt / install --project', () => {
-    const base = mkdtempSync(join(tmpdir(), 'pal-cli-newdir-'));
-    const pack = join(base, 'pack');
-    cpSync(FIXTURE, pack, { recursive: true });
+    const { base, pack } = packFixture();
 
     const res = pal(['install', pack, '--new', '--name', 'c1', '--kind', 'dir']);
     expect(res.status).toBe(2);
@@ -57,8 +76,18 @@ describe('pal 命令面（CLI 级）', () => {
     expect(res.out).toContain('doctor');
   });
 
-  it('顶层 status / recover 已不是命令：status 并入 ps，recover 改名 leftovers', () => {
-    for (const removed of ['status', 'recover']) {
+  it('被移除的命令按未知命令拒绝：status / recover / core / cache / leftovers / audit / scan / rebaseline / rename', () => {
+    for (const removed of [
+      'status',
+      'recover',
+      'core',
+      'cache',
+      'leftovers',
+      'audit',
+      'scan',
+      'rebaseline',
+      'rename',
+    ]) {
       const res = pal([removed]);
       expect(res.status, `${removed} 应该被当未知命令`).toBe(1);
       expect(res.out).toContain('Unknown command');
@@ -66,24 +95,47 @@ describe('pal 命令面（CLI 级）', () => {
     }
   });
 
-  it('pal leftovers 只读列出隔离区 / 失败现场 / 归档区，不删也不搬', () => {
-    const res = pal(['leftovers']);
+  it('pal health --leftovers 只读列出隔离区 / 失败现场 / 归档区，不删也不搬', () => {
+    const res = pal(['health', '--leftovers']);
     expect(res.status).toBe(0);
     expect(res.out).toContain('quarantine');
     expect(res.out).toContain('failed');
     expect(res.out).toContain('archive');
     expect(res.out).toContain('只读');
+
+    // 遗留物是全局的：带实例目标 / --hosts 都是用法错（不是悄悄忽略）
+    for (const mixed of [
+      ['health', 'demo', '--leftovers'],
+      ['health', '--leftovers', '--hosts'],
+    ]) {
+      const bad = pal(mixed);
+      expect(bad.status).toBe(2);
+      expect(bad.out).toContain('--leftovers 是全局的');
+    }
   });
 
-  it('pal audit 读安装审计：pal install 写、pal audit 读', () => {
-    const base = mkdtempSync(join(tmpdir(), 'pal-cli-audit-'));
-    const pack = join(base, 'pack');
+  it('pal health --leftovers --json：root + 三个区各一个数组', () => {
+    const res = pal(['health', '--leftovers', '--json']);
+    expect(res.status).toBe(0);
+    const body = JSON.parse(res.out.slice(res.out.indexOf('{'), res.out.lastIndexOf('}') + 1)) as {
+      root?: string;
+      quarantine?: unknown[];
+      failed?: unknown[];
+      archive?: unknown[];
+    };
+    expect(typeof body.root).toBe('string');
+    expect(body.quarantine).toEqual([]);
+    expect(body.failed).toEqual([]);
+    expect(body.archive).toEqual([]);
+  });
+
+  it('pal list --history 读安装审计：pal install 写、pal list --history 读', () => {
+    const { base, pack } = packFixture();
     const project = join(base, 'project');
-    cpSync(FIXTURE, pack, { recursive: true });
 
     expect(pal(['install', pack, '--project', project, '--harness', 'dsh']).status).toBe(0);
 
-    const json = pal(['audit', '--json']);
+    const json = pal(['list', '--history', '--json']);
     expect(json.status).toBe(0);
     const body = JSON.parse(json.out.slice(json.out.indexOf('['), json.out.lastIndexOf(']') + 1)) as {
       action: string;
@@ -101,10 +153,135 @@ describe('pal 命令面（CLI 级）', () => {
     });
     expect(entry.root).toBe(project);
 
-    const text = pal(['audit']);
+    const text = pal(['list', '--history']);
     expect(text.status).toBe(0);
     expect(text.out).toContain('install');
     expect(text.out).toContain('lvlc233/team-conventions@0.0.2');
+
+    // 不带 --history 时仍是实例列表，不是审计
+    const plain = pal(['list', '--json']);
+    const plainBody = JSON.parse(
+      plain.out.slice(plain.out.indexOf('{'), plain.out.lastIndexOf('}') + 1),
+    ) as { instances?: unknown[] };
+    expect(Array.isArray(plainBody.instances)).toBe(true);
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  it('pal adopt --scan 只读扫描：不需要目录位参，也不写记录', () => {
+    const { base, pack } = packFixture();
+
+    // 不给目录：扫当前目录
+    const res = pal(['adopt', '--scan'], base);
+    expect(res.status, res.out).toBe(0);
+    expect(res.out).toContain('team-conventions');
+    expect(res.out).toContain('只读扫描，没有写盘');
+
+    // 给目录：扫那个目录
+    const withDir = pal(['adopt', '--scan', base, '--json']);
+    expect(withDir.status, withDir.out).toBe(0);
+    const entries = JSON.parse(
+      withDir.out.slice(withDir.out.indexOf('['), withDir.out.lastIndexOf(']') + 1),
+    ) as { kind: string; dir: string }[];
+    expect(entries.some((entry) => entry.dir === pack)).toBe(true);
+
+    // 只读：没有接管出任何实例
+    const list = pal(['list', '--json']);
+    const body = JSON.parse(list.out.slice(list.out.indexOf('{'), list.out.lastIndexOf('}') + 1)) as {
+      instances?: unknown[];
+    };
+    expect(body.instances).toEqual([]);
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  it('pal adopt 接管仍然只写记录：--name 必填', () => {
+    const { base } = packFixture();
+    const env = join(base, 'env');
+    mkdirSync(env, { recursive: true });
+
+    const noName = pal(['adopt', env]);
+    expect(noName.status).toBe(2);
+    expect(noName.out).toContain('--name');
+
+    const ok = pal(['adopt', env, '--name', 'legacy', '--kind', 'dir']);
+    expect(ok.status, ok.out).toBe(0);
+    expect(ok.out).toContain('接管');
+    expect(pal(['show', 'legacy']).status).toBe(0);
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  it('pal verify --accept 把环境当前磁盘状态认作基线；项目 target 退 2', () => {
+    const { base, pack } = packFixture();
+    const root = join(base, 'inst');
+    expect(
+      pal(['install', pack, '--new', '--kind', 'dsh', '--name', 'demo', '--root', root]).status,
+    ).toBe(0);
+
+    const edited = join(root, 'home/dsh/knowledge/style-guide.md');
+    appendFileSync(edited, '\n本地改动\n', 'utf8');
+    const before = readBaseline(root).files.find((file) => file.path === 'home/dsh/knowledge/style-guide.md')!;
+    expect(before.sha256).not.toBe(sha256Of(edited));
+
+    // 体检（health）能看见这处本地改动
+    const healthBefore = pal(['health', 'demo']);
+    expect(healthBefore.status).toBe(0);
+    expect(healthBefore.out).toContain('~ 改过：home/dsh/knowledge/style-guide.md');
+
+    const accepted = pal(['verify', '--environment', 'demo', '--accept']);
+    expect(accepted.status, accepted.out).toBe(0);
+    expect(accepted.out).toContain('基线已更新：');
+    expect(accepted.out).toContain('lvlc233/team-conventions@0.0.2');
+
+    const after = readBaseline(root).files.find((file) => file.path === 'home/dsh/knowledge/style-guide.md')!;
+    expect(after.sha256).toBe(sha256Of(edited));
+    const healthAfter = pal(['health', 'demo']);
+    expect(healthAfter.out).not.toContain('~ 改过：home/dsh/knowledge/style-guide.md');
+
+    // 项目没有基线：--accept 是用法错
+    const project = pal(['verify', '--project', base, '--accept']);
+    expect(project.status).toBe(2);
+    expect(project.out).toContain('项目没有基线，--accept 只用于环境');
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  it('pal config <环境> --name 改名：重名拒绝，不与全局配置混用', () => {
+    const { base, pack } = packFixture();
+    expect(
+      pal(['install', pack, '--new', '--kind', 'dsh', '--name', 'demo', '--root', join(base, 'demo')])
+        .status,
+    ).toBe(0);
+    expect(
+      pal(['install', pack, '--new', '--kind', 'dsh', '--name', 'other', '--root', join(base, 'other')])
+        .status,
+    ).toBe(0);
+
+    const renamed = pal(['config', 'demo', '--name', 'demo-2']);
+    expect(renamed.status, renamed.out).toBe(0);
+    expect(renamed.out).toContain('demo-2');
+    expect(pal(['show', 'demo-2']).status).toBe(0);
+
+    // 重名：name-taken，退出 1
+    const dup = pal(['config', 'other', '--name', 'demo-2']);
+    expect(dup.status).toBe(1);
+    expect(dup.out).toContain('实例名已存在');
+
+    // 给环境名却没给 --name：用法错
+    const missing = pal(['config', 'demo-2']);
+    expect(missing.status).toBe(2);
+    expect(missing.out).toContain('--name');
+
+    // 改名与全局配置互斥
+    const mixed = pal(['config', 'demo-2', '--name', 'demo-3', '--set-isolation', 'session=shared']);
+    expect(mixed.status).toBe(2);
+    expect(mixed.out).toContain('不能同时改全局配置');
+
+    // 不带环境名：仍是全局配置视图
+    const plain = pal(['config', '--json']);
+    const body = JSON.parse(plain.out.slice(plain.out.indexOf('{'), plain.out.lastIndexOf('}') + 1)) as {
+      home?: string;
+      isolation?: unknown;
+    };
+    expect(typeof body.home).toBe('string');
+    expect(body.isolation).toBeTruthy();
     rmSync(base, { recursive: true, force: true });
   });
 

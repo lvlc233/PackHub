@@ -1,7 +1,7 @@
 ---
 kind: decision
 summary: 有意为之的取舍
-verified: 2026-11-22
+verified: 2026-11-23
 decay: 365
 review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增删、锁形状或签名载荷变化、接线规则再变、检查派生规则再变、安装参数或落点表改名、命令族边界再变、命令层再出现例外、加 mac 门禁、命令面收缩）
 ---
@@ -122,9 +122,9 @@ review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增
 
 ### 安装归 PAL：packhub 只做生产
 
-`packhub` 与 `pal` 按「生产 / 安装与运行」分：`packhub` 只碰 Pack 的生产面——清单、锁、打包、发布、签名，以及 Pack 目录里的预览（`plan` / `verify`），不写用户目录；装进项目、卸载、回滚、更新已装目录、建环境与起停看护都归 `pal`，项目安装与环境安装都在它这里。`pal install --new` 建环境并装包，目录形态的环境走 `pal adopt`；`pal audit` 看安装审计（审计由 `pal install` / `pal update` 写），`pal health --hosts` 兼职宿主发现（装没装、版本、能不能起）。`packhub verify` 只验 Pack 目录（检查段）；`pal verify` 验已装目录（漂移 + 检查）。一条命令仍只对一个对象动手：`packhub` 的对象是 Pack，`pal` 的对象是项目或环境。
+`packhub` 与 `pal` 按「生产 / 安装与运行」分：`packhub` 只碰 Pack 的生产面——清单、锁、打包、发布、签名，以及 Pack 目录里的预览（`plan` / `verify`），不写用户目录；装进项目、卸载、回滚、更新已装目录、建环境与起停看护都归 `pal`，项目安装与环境安装都在它这里。`pal install --new` 建环境并装包，目录形态的环境走 `pal adopt`；`pal audit`（现在并进 `pal list --history`）看安装审计（审计由 `pal install` / `pal update` 写），`pal health --hosts` 兼职宿主发现（装没装、版本、能不能起）。`packhub verify` 只验 Pack 目录（检查段）；`pal verify` 验已装目录（漂移 + 检查）。一条命令仍只对一个对象动手：`packhub` 的对象是 Pack，`pal` 的对象是项目或环境。
 
-原来 `packhub install` / `uninstall` / `update` / `rollback` / `diff` 都挂在 `packhub` 下面（它也吃项目目录）。现在项目侧与环境侧的 `install` / `uninstall` / `verify` / `rollback` / `update` 都由 `pal` 承接，且都收同一组 target（`--project <目录>` 项目 / `--environment <环境>` 宿主的 home）：`--project` 只写文件与 `.packhub/state.json`，不建环境记录；`--environment` 写环境根，要求环境已停（verify 除外）。`create` 已删，建环境并装包走 `install --new`，目录形态走 `adopt`。`diff` 直接删掉——装了什么在 state 里，要和清单比就重新 `plan` / `pal verify`。`packhub audit` 也删了，改成 `pal audit`（审计是 pal 写的东西，看也归 pal）；`pal doctor` 并入 `pal health --hosts`，health 默认查环境，加 flag 才附带宿主发现。`publish` 门禁里的干净安装仍由 runner 内部做，不走 CLI：它是发布流程的一步，不是用户装包。
+原来 `packhub install` / `uninstall` / `update` / `rollback` / `diff` 都挂在 `packhub` 下面（它也吃项目目录）。现在项目侧与环境侧的 `install` / `uninstall` / `verify` / `rollback` / `update` 都由 `pal` 承接，且都收同一组 target（`--project <目录>` 项目 / `--environment <环境>` 宿主的 home）：`--project` 只写文件与 `.packhub/state.json`，不建环境记录；`--environment` 写环境根，要求环境已停（verify 除外）。`create` 已删，建环境并装包走 `install --new`，目录形态走 `adopt`。`diff` 直接删掉——装了什么在 state 里，要和清单比就重新 `plan` / `pal verify`。`packhub audit` 也删了，改成 `pal audit`（审计是 pal 写的东西，看也归 pal；现在并进 `pal list --history`）；`pal doctor` 并入 `pal health --hosts`，health 默认查环境，加 flag 才附带宿主发现。`publish` 门禁里的干净安装仍由 runner 内部做，不走 CLI：它是发布流程的一步，不是用户装包。
 
 没选另一条：`packhub` 保留 `install`，按「项目 vs 环境」分两套入口，或让 `pal` 只做环境。前者要维持两份安装参数、两套退出码与两份文档，而「装进项目」会同时出现在两个命令族的帮助里；后者则让项目侧没有安装入口，`pal install --project` 这种「先装项目、再决定要不要建环境」的用法无处安放。分界线换成「生产 vs 安装与运行」后，用户只需要记：做包找 `packhub`，装和跑找 `pal`。
 
@@ -146,11 +146,11 @@ review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增
 
 `pal list` 原来调 `listInstances()`，顺手把坏记录挪进隔离区；`pal ps` 原来叫 `pal status`，一跑就刷新状态写盘。读命令带写副作用，用户只是想看一眼也会改机器状态，脚本里更不敢随便调。现在 `list` 与 `ps` 都是纯读：`list` 把坏记录原样列出来（`坏记录 <目录> <原因>`），不动文件；`ps` 只出账本（在跑、端口、运行时长、端口冲突、已死的 pid），要看最新状态得显式 `pal ps --refresh`——它才按 pid 探测并写回记录。
 
-同一原则落到另外两处：`pal recover` 改名 `pal leftovers`，只读列出隔离区 / 失败现场 / 归档区里的东西，不移动、不删除（原来「recover」听起来像会做恢复，实际只是看）；`pal update` 也不再按位置参数猜作用域——项目与环境分别用 `--project` / `--environment`（后来统一成 target 模型，见「安装只有一个动词」）。
+同一原则落到另外两处：`pal recover` 改名 `pal leftovers`，只读列出隔离区 / 失败现场 / 归档区里的东西，不移动、不删除（原来「recover」听起来像会做恢复，实际只是看；后来 leftovers 并进 `pal health --leftovers`，见「命令面收缩」）；`pal update` 也不再按位置参数猜作用域——项目与环境分别用 `--project` / `--environment`（后来统一成 target 模型，见「安装只有一个动词」）。
 
 没选另一条：让 `list` / `ps` 继续顺手整理（list 隔离坏记录、status 刷新状态），或让 `update <目录>` 按参数形状猜。读命令的副作用只在「记录坏了 / 进程死了」时发生，那恰恰是用户最不敢让它自动改的时候；猜目录则让一个位置参数同时表示环境与路径，报错信息也得两边解释。显式 flag 多打几个字，换来「看到什么就是什么」。
 
-代价：`list` 不再自动清理坏记录，坏记录会一直出现在列表里，直到人工搬走或修好；`ps` 不刷新时可能显示 `stale`（pid 已死但记录没改），得记得加 `--refresh` 才是最新。`recover` 的老用户要改记 `leftovers`，且这个名字不再暗示能恢复；`update <目录>` 的老习惯要改成 `--project`，否则会因缺少 target 报用法错。`pal --help` 的参数更多了（`--refresh`、`--project` / `--environment`），但每个写操作都只在显式 flag 后面发生。
+代价：`list` 不再自动清理坏记录，坏记录会一直出现在列表里，直到人工搬走或修好；`ps` 不刷新时可能显示 `stale`（pid 已死但记录没改），得记得加 `--refresh` 才是最新。`recover` 的老用户要改记 `leftovers`（现在是 `health --leftovers`），且这个名字不再暗示能恢复；`update <目录>` 的老习惯要改成 `--project`，否则会因缺少 target 报用法错。`pal --help` 的参数更多了（`--refresh`、`--project` / `--environment`），但每个写操作都只在显式 flag 后面发生。
 
 ### 命令面大于 README 的承诺
 
@@ -159,3 +159,11 @@ README 只承诺分工：「packhub 做包与发版，pal 安装与运行」；C
 没选另一条：把命令面裁到只留 README 提到的那几个入口，或让 README 逐条承诺命令。裁掉等于砍能力入口（发布、trust 都有测试）；逐个承诺则每加一条命令都要改 README 并保证说明跟得上，而说明在格式稳定前一定会和代码对不上——README 自己的话：错的说明比没有说明更贵。
 
 代价：README 那句分工不构成对任意命令的承诺，命令面每条都得有人核（`--help` 是唯一被测试盯着的出口）；对外解释得靠 `--help`，不能只看 README。
+
+### 命令面收缩：运维命令并进 flag
+
+一级命令里去掉 7 条运维命令：`core` 整条移除（常驻 core 与 coreClient 照旧内部使用，进程入口只剩 bin 的内部参数）；`cache` 移除（取包缓存的代码留在模块里给内部调用，不再有 CLI 入口）；`leftovers` → `pal health --leftovers`，`audit` → `pal list --history`，`scan` → `pal adopt --scan`，`rebaseline` → `pal verify --accept`，`rename` → `pal config <环境> --name <新名字>`。功能都还在，只是从「一个动词」改成「现有命令上的显式 flag」；命令总数由测试与 `--help` 的分组盯，别处不抄数字。
+
+没选另一条：保留这 7 条独立命令，只把帮助里归到「其它」分组。命令数不减少，`pal --help` 仍要把每个运维动作都讲成一个动词；这些动作用的对象又都是现有命令已经管的同一个对象（health 管本机状态、list 管记录、adopt 管接管、verify 管环境体检、config 管环境记录），再各占一个动词等于把「同一个对象」的操作分裂成两处入口。
+
+代价：flag 变多——`health` / `list` / `adopt` / `verify` / `config` 的参数表更长，得读 `--help` 才看得全；发现性降低——原来一眼能看到的 `leftovers` / `audit` 现在要记得挂在哪个命令后面；`core` 不再可手管——`status` / `stop` / `install` / `uninstall` 从命令面消失，进程入口只剩 bin 的内部参数（登录计划任务仍按它拉起），出问题时不能再用 `pal core …` 手动查或停；`cache` 的清理动作没有 CLI 入口，只剩内部 API。

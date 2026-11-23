@@ -55,7 +55,7 @@ function manifestFile(dir: string): string | undefined {
   return existsSync(direct) ? direct : undefined;
 }
 
-/** 每份取回来的 Pack 目录里放一份，给 pal cache 看（不含凭据）。 */
+/** 每份取回来的 Pack 目录里放一份，给取包缓存模块看（不含凭据）。 */
 export const CACHE_META = '.pal-cache.json';
 
 /**

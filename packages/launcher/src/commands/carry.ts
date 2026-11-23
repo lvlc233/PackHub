@@ -1,14 +1,10 @@
-// pal scan / clone / rename / migrate / export / import / backup / restore / leftovers：搬运与遗留物。
+// pal clone / migrate / export / import / backup / restore：搬运。
+// 只读的 scan 与 leftovers 已并进 flags（adopt --scan / health --leftovers），
+// 实现在这里，由命令层调用，输出与原来一致。
 import { defineCommand } from 'citty';
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
-import {
-  cloneInstance,
-  exportTemplate,
-  migrateInstance,
-  renameInstance,
-  writeTemplate,
-} from '../index.ts';
+import { cloneInstance, exportTemplate, migrateInstance, writeTemplate } from '../index.ts';
 import { importFromFile } from '../service.ts';
 import { backupInstance, restoreBackup } from '../backup.ts';
 import { archiveRoot, failedRoot, instancesRoot, quarantineRoot } from '../paths.ts';
@@ -16,6 +12,8 @@ import { scanDirectory, DEFAULT_SCAN_DEPTH, type ScanEntry } from '../scan.ts';
 import { assertExternalRoot } from '../validators.ts';
 import { PalError } from '../errors.ts';
 import { requireTarget } from './shared.ts';
+
+/* ---------- 只读扫描（adopt --scan） ---------- */
 
 function scanLine(entry: ScanEntry): string {
   const head = `${entry.kind}\t${entry.dir}`;
@@ -32,46 +30,82 @@ function scanLine(entry: ScanEntry): string {
   return parts.join('\t');
 }
 
-export const scan = defineCommand({
-  meta: {
-    name: 'scan',
-    description: '只读扫描目录：找出已有实例、Pack 目录与装过 Pack 的环境（不写盘，不接管）',
-  },
-  args: {
-    dir: { type: 'positional', required: true, description: '要扫的目录；相对路径按当前目录解析' },
-    depth: {
-      type: 'string',
-      default: String(DEFAULT_SCAN_DEPTH),
-      description: '往下扫几层：目录本身算第 0 层，默认 2',
-    },
-    json: { type: 'boolean', default: false },
-  },
-  run({ args }) {
-    const depth = Number(args.depth);
-    if (!Number.isInteger(depth) || depth < 0) {
-      throw new PalError('invalid-input', `--depth 要 0 或正整数，收到：${String(args.depth)}`, {
-        hint: '目录本身算第 0 层；默认 2，表示再看两层子目录',
-      });
-    }
-    const dir = resolve(String(args.dir));
-    if (!existsSync(dir)) {
-      throw new PalError('not-found', `目录不存在：${dir}`, { hint: 'scan 只读，不会替你创建目录' });
-    }
-    if (!statSync(dir).isDirectory()) {
-      throw new PalError('invalid-input', `不是目录：${dir}`);
-    }
-    const result = scanDirectory(dir, { depth });
-    if (args.json) {
-      // --json 只输出候选数组；目录读不了这类问题走 problems，不混进候选
-      console.log(JSON.stringify(result.entries, null, 2));
-      return;
-    }
-    if (result.entries.length === 0) console.log('没扫到实例、Pack 或环境');
-    for (const entry of result.entries) console.log(scanLine(entry));
-    for (const problem of result.problems) console.log(`! ${problem.dir}\t${problem.reason}`);
-    console.log(`共 ${result.entries.length} 条候选（只读扫描，没有写盘）`);
-  },
-});
+/**
+ * 只读扫描一个目录并打印结果（原 pal scan 的实现）。
+ * 不写盘、不接管；`dir` 由调用方给（adopt --scan 不写位置参数时传当前目录）。
+ */
+export function printScan(dir: string, options: { depth: string; json: boolean }): void {
+  const depth = Number(options.depth);
+  if (!Number.isInteger(depth) || depth < 0) {
+    throw new PalError('invalid-input', `--depth 要 0 或正整数，收到：${options.depth}`, {
+      hint: '目录本身算第 0 层；默认 2，表示再看两层子目录',
+    });
+  }
+  const target = resolve(dir);
+  if (!existsSync(target)) {
+    throw new PalError('not-found', `目录不存在：${target}`, {
+      hint: '扫描只读，不会替你创建目录',
+    });
+  }
+  if (!statSync(target).isDirectory()) {
+    throw new PalError('invalid-input', `不是目录：${target}`);
+  }
+  const result = scanDirectory(target, { depth });
+  if (options.json) {
+    // --json 只输出候选数组；目录读不了这类问题走 problems，不混进候选
+    console.log(JSON.stringify(result.entries, null, 2));
+    return;
+  }
+  if (result.entries.length === 0) console.log('没扫到实例、Pack 或环境');
+  for (const entry of result.entries) console.log(scanLine(entry));
+  for (const problem of result.problems) console.log(`! ${problem.dir}\t${problem.reason}`);
+  console.log(`共 ${result.entries.length} 条候选（只读扫描，没有写盘）`);
+}
+
+/* ---------- 遗留物（health --leftovers） ---------- */
+
+export interface Leftovers {
+  root: string;
+  quarantine: string[];
+  failed: string[];
+  archive: string[];
+}
+
+/** 只读收集隔离区 / 失败现场 / 归档区（原 pal leftovers 的实现）。 */
+export function collectLeftovers(): Leftovers {
+  const dirs = { quarantine: quarantineRoot(), failed: failedRoot(), archive: archiveRoot() };
+  const report: Leftovers = { root: instancesRoot(), quarantine: [], failed: [], archive: [] };
+  for (const key of ['quarantine', 'failed', 'archive'] as const) {
+    report[key] = existsSync(dirs[key]) ? listDir(dirs[key]) : [];
+  }
+  return report;
+}
+
+/** 打印遗留物报告；`--json` 的形状与原来的 pal leftovers --json 一致。 */
+export function printLeftovers(report: Leftovers, json: boolean): void {
+  if (json) {
+    console.log(JSON.stringify(report, null, 2));
+    return;
+  }
+  console.log(`实例根：${report.root}`);
+  for (const key of ['quarantine', 'failed', 'archive'] as const) {
+    console.log(`${key}：${report[key].length === 0 ? '（空）' : ''}`);
+    for (const entry of report[key]) console.log(`  ${entry}`);
+  }
+  console.log('· 只读：隔离区与归档区里的东西没有被删；要搬回去或删掉由人来做。');
+}
+
+function listDir(dir: string): string[] {
+  try {
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+  } catch {
+    return [];
+  }
+}
+
+/* ---------- 搬运命令 ---------- */
 
 export const clone = defineCommand({
   meta: { name: 'clone', description: '复制一份实例（连 home 一起拷，可独立改）' },
@@ -91,23 +125,6 @@ export const clone = defineCommand({
       ...(root ? { root } : {}),
     });
     console.log(args.json ? JSON.stringify(rec, null, 2) : `✓ 复制成 ${rec.id}（${rec.root}）`);
-  },
-});
-
-export const rename = defineCommand({
-  meta: { name: 'rename', description: '给实例改名' },
-  args: {
-    target: { type: 'positional', required: true, description: '实例 id 或名字' },
-    name: { type: 'positional', required: true, description: '新名字' },
-    json: { type: 'boolean', default: false },
-  },
-  run({ args }) {
-    const rec = renameInstance(requireTarget(args.target), String(args.name));
-    if (args.json) {
-      console.log(JSON.stringify(rec, null, 2));
-      return;
-    }
-    console.log(`✓ ${rec.id} → ${rec.name}`);
   },
 });
 
@@ -237,38 +254,3 @@ export const restore = defineCommand({
     if (!rec.home) console.log('· 备份里没有 home 段：这份实例只有实例根内容。');
   },
 });
-
-export const leftovers = defineCommand({
-  meta: {
-    name: 'leftovers',
-    description: '只读列出隔离区/失败现场/归档区里有什么（不移动、不删除）',
-  },
-  args: { json: { type: 'boolean', default: false } },
-  run({ args }) {
-    const dirs = { quarantine: quarantineRoot(), failed: failedRoot(), archive: archiveRoot() };
-    const out: Record<string, string[]> = {};
-    for (const [key, dir] of Object.entries(dirs)) {
-      out[key] = existsSync(dir) ? listDir(dir) : [];
-    }
-    if (args.json) {
-      console.log(JSON.stringify({ root: instancesRoot(), ...out }, null, 2));
-      return;
-    }
-    console.log(`实例根：${instancesRoot()}`);
-    for (const [key, entries] of Object.entries(out)) {
-      console.log(`${key}：${entries.length === 0 ? '（空）' : ''}`);
-      for (const entry of entries) console.log(`  ${entry}`);
-    }
-    console.log('· 只读：隔离区与归档区里的东西没有被删；要搬回去或删掉由人来做。');
-  },
-});
-
-function listDir(dir: string): string[] {
-  try {
-    return readdirSync(dir, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name);
-  } catch {
-    return [];
-  }
-}

@@ -94,7 +94,7 @@ function readText(file: string): { text?: string; problem?: string } {
 /**
  * 从 packhub.yaml 读 metadata.name / metadata.version。
  *
- * 走 kernel 的 loadManifest：`pal scan` 与 create / update 必须对同一份 YAML 给出同一个答案
+ * 走 kernel 的 loadManifest：`adopt --scan` 与 create / update 必须对同一份 YAML 给出同一个答案
  * （YAML 锚点、行内写法、带注释的值……这些语义只有解析器说得清，这里不再维护第二套）。
  * 读不了或不合法时 problem 带 kernel 的报错；缺哪个字段由 readPackEntry 补成人话。
  */

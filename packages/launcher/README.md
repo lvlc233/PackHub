@@ -2,34 +2,30 @@
 
 把 Pack 装进一个独立的实例，并按宿主把它跑起来：`建实例 → 起 dsh → 停进程`。实例有自己的 home、端口、日志和基线，所以同一台机器上可以并存多个互不干扰的 agent 环境。
 
-用户面的入口是 `pal` 命令。启停与看护归常驻 core（`pal core`），CLI 只是 core 的客户端。
+用户面的入口是 `pal` 命令。启停与看护归常驻 core（它不是一条命令，CLI 只是它的客户端）。
 
 ## 上手
 
 ```bash
-pnpm pal doctor                                   # 宿主装没装、什么版本、能不能起
-pnpm pal create registry/packs/lvlc233/doc-review/0.1.0 --name demo --harness dsh --from-home ~/.dsh
-pnpm pal start demo                               # 起 dsh web，端口自动分配
-pnpm pal health demo                              # 进程、端口、home、基线、MCP 接线
-pnpm pal update demo --version 0.2.0               # 换 Pack 版本（清掉上一版独有的文件；本地改过要 --force）
-pnpm pal rebaseline demo                           # 本地改动被接受，体检不再报漂移
+pnpm pal health --hosts                              # 宿主装没装、什么版本、能不能起
+pnpm pal install registry/packs/lvlc233/doc-review/0.1.0 --new --name demo --kind dsh --from-home ~/.dsh
+pnpm pal start demo                                  # 起 dsh web，端口自动分配
+pnpm pal health demo                                 # 进程、端口、home、基线、MCP 接线
+pnpm pal update --environment demo --version 0.2.0   # 换 Pack 版本（清掉上一版独有的文件；本地改过要 --force）
+pnpm pal verify --environment demo --accept          # 本地改动被接受，体检不再报漂移
+pnpm pal list --history                              # install / update 写的审计
+pnpm pal health --leftovers                          # 隔离区 / 失败现场 / 归档区里有什么（只读）
 pnpm pal stop demo
-pnpm pal remove demo --keep-data                  # 先卸包，再把剩下的根挪进归档区
+pnpm pal remove demo --keep-data                     # 先卸包，再把剩下的根挪进归档区
 ```
 
 `update` 默认不覆盖：Pack 写过的文件被本地改过时整次拒绝、一个文件都不写，确认覆盖要加 `--force`（API 是 `body.force`）。普通 `remove` 只删实例根，不单独卸包（删不动就整根归档）。
 
 ## 常驻 core
 
-实例的启停与看护只有一个执行者：`pal core`。它在 `<数据目录>/core.json` 写回环地址与 token，`core.lock` 保证单例；CLI 经 `coreCall` 把命令转给它。没有 core 时，任何一条启动/停止命令都会按需把它拉起来。
+实例的启停与看护只有一个执行者：常驻 core。它在 `<数据目录>/core.json` 写回环地址与 token，`core.lock` 保证单例；CLI 经 `coreCall` 把命令转给它。没有 core 时，任何一条启动/停止命令都会按需把它拉起来。
 
-```bash
-pnpm pal core status     # 在不在、pid、地址、登录任务
-pnpm pal core start      # 按需拉起（已经在跑就什么都不做）
-pnpm pal core stop       # 只停监督者；实例进程继续跑，下次命令会拉起新 core 接管
-pnpm pal core install    # 注册用户任务计划：登录拉起 + 每分钟兜底检查
-pnpm pal core uninstall
-```
+core 不是一条 pal 命令：进程入口是 `bin.ts` 的内部参数（`src/coreMain.ts`），由 `coreClient` 与登录计划任务按需拉起，所以它没有可手管的子命令。要看它在不在，看 `<数据目录>/core.json` 里的 pid 与地址；排障看 `core.log`；要停掉它，就结束 core.json 里那个 pid（实例进程不动，下一条命令会拉起新 core 接管）。
 
 core 崩溃或被结束后由计划任务带回来；起来的第一轮看护就是接管：活着的 running 实例继续跑，pid 已死的按重启预算处理，不会出现双实例。
 
@@ -47,6 +43,7 @@ core 崩溃或被结束后由计划任务带回来；起来的第一轮看护就
 | `src/cache.ts` / `src/scan.ts` / `src/ps.ts` / `src/backup.ts` | 取包缓存、目录扫描、并发账本、备份恢复 |
 | `src/start.ts` / `src/watch.ts` | 起停、就绪探测、退出码与看护；`watch.ts` 是 core 的轮询看护（接管来的实例） |
 | `src/core.ts` / `src/coreClient.ts` / `src/coreTask.ts` | 常驻 core（单例、HTTP 面、看护循环）、客户端（发现/按需拉起/发命令）、用户任务计划 |
+| `src/coreEntry.ts` / `src/coreMain.ts` | core 的内部入口（隐藏动词与参数解析）：不再是命令，只给 coreClient 与计划任务用 |
 | `src/harness.ts` | 宿主发现与版本探测（含 Windows `.cmd` 垫片） |
 | `src/layout.ts` | 每个宿主的 home 段、环境变量、启动参数模板 |
 | `src/mcp.ts` | 把 Pack 的 mcp 资源写成 dsh 的 `--patch` 层 |

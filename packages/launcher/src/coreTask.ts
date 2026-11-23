@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { quoteArg } from '@packhub/kernel';
 import { PalError } from './errors.ts';
 import { palHome } from './paths.ts';
+import { CORE_ENTRY } from './coreEntry.ts';
 
 /**
  * 让操作系统把 core 拉起来：注册一个当前用户的开机/登录任务，并让它在 core 异常退出后自动重起。
@@ -47,21 +48,21 @@ function escapeXml(text: string): string {
     .replace(/'/g, '&apos;');
 }
 
-/** 当前用户与入口：`pal core install` 注册的就是这条命令。 */
+/** 当前用户与入口：计划任务注册的就是这条命令（core 的内部入口，不是一条 pal 命令）。 */
 export function coreTaskCommand(): CoreTaskCommand {
   const entry = process.argv[1];
   if (!entry) {
     throw new PalError('invalid-input', '找不到 PAL 的入口，没法注册计划任务', {
-      hint: '从 pal 命令或打包后的 pal.cjs 调用 pal core install',
+      hint: '从 pal 命令或打包后的 pal.cjs 调用',
     });
   }
   const user = process.env.USERNAME ?? '';
   const domain = process.env.USERDOMAIN ?? process.env.COMPUTERNAME ?? '';
   return {
     command: process.execPath,
-    // 每次跑 pal core start：已经在跑就什么都不做，没人看护就补一个。
+    // 每次跑 `__core start`：已经在跑就什么都不做，没人看护就补一个。
     // 带上 --home：任务不继承用户的环境变量，不能靠它去猜 core 该落哪个数据目录。
-    args: [...process.execArgv, entry, 'core', 'start', '--home', palHome()],
+    args: [...process.execArgv, entry, CORE_ENTRY, 'start', '--home', palHome()],
     workingDirectory: process.cwd(),
     userId: domain ? `${domain}\\${user}` : user,
   };
@@ -80,7 +81,7 @@ export function coreTaskXml(spec: CoreTaskCommand): string {
   return `<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>PackHub PAL core：常驻看护托管实例；由 pal core install 注册。</Description>
+    <Description>PackHub PAL core：常驻看护托管实例；由 PAL 内部入口注册。</Description>
     <URI>\\${escapeXml(CORE_TASK_NAME)}</URI>
   </RegistrationInfo>
   <Triggers>
@@ -147,12 +148,12 @@ const defaultRunner: TaskRunner = (command, args) => {
 function requireWindows(): void {
   if (process.platform !== 'win32') {
     throw new PalError('invalid-input', '系统任务启动只在 Windows 上支持', {
-      hint: '其它平台先靠 pal core run 挂在进程管理器里；CLI 照样按需拉起 core',
+      hint: '其它平台先靠内部入口把 core 挂在进程管理器里；CLI 照样按需拉起 core',
     });
   }
 }
 
-/** 注册（或覆盖）开机任务；返回任务名与 XML，方便 pal health --hosts/日志里核对。 */
+/** 注册（或覆盖）开机任务；返回任务名与 XML，方便排障时核对。 */
 export function installCoreTask(
   spec: CoreTaskCommand = coreTaskCommand(),
   runner: TaskRunner = defaultRunner,

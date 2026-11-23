@@ -10,9 +10,12 @@ import {
 } from '../index.ts';
 import { createFromRef } from '../service.ts';
 import { parseIsolationSpec, readPalConfig } from '../config.ts';
+import { DEFAULT_SCAN_DEPTH } from '../scan.ts';
 import { discoverAll } from '../harness.ts';
 import { PalError } from '../errors.ts';
 import { assertExternalRoot } from '../validators.ts';
+import { printScan } from './carry.ts';
+import { printAudit } from './other.ts';
 import { confirm, requireTarget } from './shared.ts';
 
 function printRecord(rec: InstanceRecord): void {
@@ -116,18 +119,53 @@ export const createCmd = defineCommand({
 });
 
 export const adopt = defineCommand({
-  meta: { name: 'adopt', description: '接管一个已经存在的环境（只写记录，不动目录）' },
+  meta: {
+    name: 'adopt',
+    description:
+      '接管一个已经存在的环境（只写记录，不动目录）；--scan 只读扫描目录，找出已有实例 / Pack 目录 / 装过 Pack 的环境',
+  },
   args: {
-    dir: { type: 'positional', required: true, description: '已有环境目录' },
-    name: { type: 'string', required: true, description: '实例名' },
+    dir: {
+      type: 'positional',
+      required: false,
+      description: '已有环境目录；配 --scan 时是要扫的目录，不写就扫当前目录',
+    },
+    name: { type: 'string', description: '实例名（接管时必填；--scan 不需要）' },
     kind: {
       type: 'string',
       default: 'dsh',
       description: `实例形态：dir（项目目录实例，不是宿主）| ${harnessIds().join(' | ')}`,
     },
+    scan: {
+      type: 'boolean',
+      default: false,
+      description:
+        '--scan：只读扫目录（找出已有实例、Pack 目录与装过 Pack 的环境），不接管、不写记录；不需要 --name',
+    },
+    depth: {
+      type: 'string',
+      default: String(DEFAULT_SCAN_DEPTH),
+      description: '配 --scan：往下扫几层，目录本身算第 0 层，默认 2',
+    },
     json: { type: 'boolean', default: false },
   },
   run({ args }) {
+    if (args.scan) {
+      // 只读：不要求 --name，也不写记录；目录不给就扫当前目录
+      const dir = args.dir === undefined ? '.' : String(args.dir);
+      printScan(dir, { depth: String(args.depth), json: Boolean(args.json) });
+      return;
+    }
+    if (args.dir === undefined) {
+      throw new PalError('invalid-input', '接管要指定目录：pal adopt <目录> --name <名字>', {
+        hint: '只看不接管用 pal adopt --scan；装进已有项目用 pal install --project。',
+      });
+    }
+    if (args.name === undefined) {
+      throw new PalError('invalid-input', '接管要给 --name', {
+        hint: 'pal adopt <目录> --name <名字>；只看不接管用 pal adopt --scan。',
+      });
+    }
     const rec = adoptInstance({
       dir: String(args.dir),
       name: String(args.name),
@@ -138,9 +176,30 @@ export const adopt = defineCommand({
 });
 
 export const list = defineCommand({
-  meta: { name: 'list', description: '列出实例（纯读：坏记录只列出来，不隔离、不移动）' },
-  args: { json: { type: 'boolean', default: false } },
+  meta: {
+    name: 'list',
+    description:
+      '列出实例（纯读：坏记录只列出来，不隔离、不移动）；--history 改成打印安装审计',
+  },
+  args: {
+    history: {
+      type: 'boolean',
+      default: false,
+      description:
+        '打印本机的安装审计（pal install / update 等写的那份；与 packhub 共用同一文件），可与 --json 组合',
+    },
+    tail: {
+      type: 'string',
+      default: '20',
+      description: '配 --history：只看最近 N 条，默认 20',
+    },
+    json: { type: 'boolean', default: false },
+  },
   run({ args }) {
+    if (args.history) {
+      printAudit(Number(args.tail), Boolean(args.json));
+      return;
+    }
     // 纯读：坏记录留给人工处理；listInstances() 会顺手把坏记录挪进隔离区，不能在 list 里用
     const scan = scanInstances();
     const rows = scan.records;

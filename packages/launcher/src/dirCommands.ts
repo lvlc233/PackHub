@@ -219,7 +219,11 @@ export const verifyDir = defineCommand({
       (line) => console.error(line),
     );
     if (args.json) {
-      console.log(JSON.stringify({ dir, drift, checks }, null, 2));
+      // baseline 只在 verify --accept 时由命令层内部传入（不是 CLI 参数）：并进同一份 JSON
+      const accepted = (args as Record<string, unknown>).baseline;
+      const payload =
+        accepted === undefined ? { dir, drift, checks } : { dir, baseline: JSON.parse(String(accepted)), drift, checks };
+      console.log(JSON.stringify(payload, null, 2));
     } else {
       console.log('漂移：已装记录 vs 磁盘');
       if (drift.packs.length === 0) {

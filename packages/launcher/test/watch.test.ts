@@ -7,6 +7,9 @@ import { readRecord } from '../src/records.ts';
 import { writeInstance } from '../src/recordWrite.ts';
 import { readEvents } from '../src/logs.ts';
 import { main } from '../src/cli.ts';
+import { CORE_ENTRY } from '../src/coreEntry.ts';
+import { parseCoreEntryArgs } from '../src/coreMain.ts';
+import { DEFAULT_CORE_INTERVAL_MS } from '../src/core.ts';
 import { attachSupervisor } from '../src/start.ts';
 import { watchOnce } from '../src/watch.ts';
 
@@ -204,25 +207,33 @@ describe('pal watch：headless 看护', () => {
   });
 });
 
-describe('pal core CLI', () => {
+describe('pal core：已从命令面移除，只剩 bin 的内部入口', () => {
   interface CommandShape {
     args?: Record<string, { type?: string; default?: unknown } | undefined>;
     subCommands?: Record<string, CommandShape | undefined>;
   }
 
   const subCommands = (main as unknown as { subCommands?: Record<string, CommandShape | undefined> }).subCommands;
-  const core = subCommands?.['core'];
 
-  it('看护不再是一个可和 serve 并开的命令：watch 子命令已删', () => {
+  it('watch / core 都不是命令，内部入口也不进 subCommands', () => {
     expect(subCommands?.['watch']).toBeUndefined();
+    expect(subCommands?.['core']).toBeUndefined();
+    expect(subCommands?.[CORE_ENTRY]).toBeUndefined();
   });
 
-  it('core 子命令带 run / start / status / stop / install / uninstall', () => {
-    expect(core, 'core 应存在').toBeTruthy();
-    expect(Object.keys(core?.subCommands ?? {}).sort()).toEqual(
-      ['install', 'run', 'start', 'status', 'stop', 'uninstall'].sort(),
-    );
-    expect(core?.subCommands?.run?.args?.interval?.type).toBe('string');
-    expect(core?.subCommands?.run?.args?.interval?.default).toBe('2000');
+  it('内部入口的解析：run 的 interval 默认 2000、port 默认 0，多余动作与未知标志都报错', () => {
+    expect(parseCoreEntryArgs(['run'])).toMatchObject({
+      action: 'run',
+      port: 0,
+      intervalMs: DEFAULT_CORE_INTERVAL_MS,
+      json: false,
+    });
+    expect(DEFAULT_CORE_INTERVAL_MS).toBe(2000);
+    expect(parseCoreEntryArgs(['start', '--home', 'D:\\PackHubData']).home).toBe('D:\\PackHubData');
+    expect(parseCoreEntryArgs(['status', '--json']).json).toBe(true);
+    expect(() => parseCoreEntryArgs([])).toThrow(/需要动作/);
+    expect(() => parseCoreEntryArgs(['nope'])).toThrow(/未知动作/);
+    expect(() => parseCoreEntryArgs(['run', '--interval', '0'])).toThrow(/正整数/);
+    expect(() => parseCoreEntryArgs(['run', '--bogus'])).toThrow(/未知参数/);
   });
 });

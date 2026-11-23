@@ -17,6 +17,7 @@ import {
   verifyDir as verifyDirCmd,
 } from '../dirCommands.ts';
 import { PalError } from '../errors.ts';
+import { acceptBaseline } from './other.ts';
 import { createCmd } from './instance.ts';
 
 /** 直接复用 dirCommands 里的目录实现：参数补成它认识的形状，输出/退出码不变。 */
@@ -243,18 +244,51 @@ export const verify = defineCommand({
   meta: {
     name: 'verify',
     description:
-      '体检 target：--project <目录>（项目）或 --environment <环境>（宿主的 home）；漂移 + 清单检查 + 计划派生检查（环境可运行）',
+      '体检 target：--project <目录>（项目）或 --environment <环境>（宿主的 home）；漂移 + 清单检查 + 计划派生检查（环境可运行）；--accept 把环境当前磁盘状态认作基线',
   },
   args: {
     project: { type: 'string', description: '项目级 target：已装过包的项目目录' },
     environment: { type: 'string', description: '环境级 target：环境名/id（可运行）' },
+    accept: {
+      type: 'boolean',
+      default: false,
+      description:
+        '环境 target：把当前磁盘状态认作基线（接受本地改动），之后体检不再报漂移；项目没有基线，不能用',
+    },
     json: { type: 'boolean', default: false },
   },
   async run({ args }) {
     const target = parseTarget(args, { allowNew: false });
-    const dir =
-      target === 'project' ? String(args.project) : requireInstance(String(args.environment)).root;
-    await invoke(verifyDirCmd as unknown as CommandDef<never>, { dir, json: Boolean(args.json) });
+    if (target === 'project') {
+      if (args.accept) {
+        throw new PalError('invalid-input', '项目没有基线，--accept 只用于环境', {
+          hint: '项目体检看漂移与检查项；要接受环境里的本地改动，用 pal verify --environment <环境> --accept。',
+        });
+      }
+      await invoke(verifyDirCmd as unknown as CommandDef<never>, {
+        dir: String(args.project),
+        json: Boolean(args.json),
+      });
+      return;
+    }
+    const rec = requireInstance(String(args.environment));
+    if (!args.accept) {
+      await invoke(verifyDirCmd as unknown as CommandDef<never>, {
+        dir: rec.root,
+        json: Boolean(args.json),
+      });
+      return;
+    }
+    const baseline = acceptBaseline(rec.id);
+    if (!args.json) {
+      console.log(`✓ 基线已更新：${baseline.files.length} 个文件（${baseline.pack}@${baseline.version}）`);
+    }
+    // --json：baseline 交给 verifyDir 并进同一份 JSON，stdout 上不留两段 JSON
+    await invoke(verifyDirCmd as unknown as CommandDef<never>, {
+      dir: rec.root,
+      json: Boolean(args.json),
+      baseline: JSON.stringify(baseline),
+    });
   },
 });
 

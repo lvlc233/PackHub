@@ -3,7 +3,7 @@ import { join } from 'node:path';
 
 /**
  * 「正在停止」标记只靠磁盘上的文件，不 import index/start：
- * `pal stop` 与看护进程（`pal core`）可能是两个进程，内存里的 Set 跨不过去。
+ * `pal stop` 与看护进程（常驻 core）可能是两个进程，内存里的 Set 跨不过去。
  */
 export const STOPPING_MARK = '.pal-stopping';
 /** 标记有效期：正常 stop 最多等 10s；60s 足够覆盖一次异常的停止过程，又不会长时间压掉真实崩溃。 */

@@ -269,7 +269,7 @@ function selectorFor(opts: CleanOptions): CleanSelector {
   if (opts.olderThanDays !== undefined) given.push('--older-than');
   if (given.length === 0) {
     throw new PalError('invalid-input', '清缓存要说清清哪些：--all、--ref <引用> 或 --older-than <天数>', {
-      hint: '三者必须显式给一个；可以先跑 pal cache 看清楚再决定',
+      hint: '三者必须显式给一个；要看清命中项先跑 scanCache / planClean（清缓存的 CLI 入口已收进内部 API）',
     });
   }
   if (given.length > 1) {
