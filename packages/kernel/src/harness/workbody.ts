@@ -29,8 +29,12 @@ registerHarness({
   executable: 'codebuddy',
   versionArgs: ['--version'],
   instructionFile: 'CODEBUDDY.md',
-  noStartReason:
-    'WorkBuddy / CodeBuddy 是终端交互程序，没有可托管的常驻服务；PAL 只负责给它装配 home（技能、MCP、指令）。',
+  start: {
+    mode: 'foreground',
+    command: 'codebuddy',
+    args: () => [],
+    url: /^$/,
+  },
   // MCP 用默认方言：JSON + mcpServers.<name>
   probe: {
     executable: 'codebuddy',

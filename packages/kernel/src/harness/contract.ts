@@ -22,11 +22,17 @@ export interface StartContext {
 
 /** 启动模板：命令 + 参数拼法 + 从输出里认地址的正则。 */
 export interface StartTemplate {
+  /**
+   * 启动形态：
+   * - `server`（默认）：常驻、监听端口，由 core 托管、等 URL；
+   * - `foreground`：前台 TUI，由 `pal run` 直接 exec，退出即结束。
+   */
+  mode?: 'server' | 'foreground';
   /** 可执行文件名（走 PATH 发现，或 PAL_<HARNESS>_BIN 覆盖） */
   command: string;
   /** 由上下文拼参数；不经过 shell */
   args(ctx: StartContext): string[];
-  /** 从启动输出里认地址 */
+  /** 从启动输出里认地址；foreground 宿主用不到，给一个永不匹配的正则 */
   url: RegExp;
   /** 等地址的默认超时 */
   readyTimeoutMs?: number;

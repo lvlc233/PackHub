@@ -97,16 +97,17 @@ describe('pal --version', () => {
 });
 
 describe('pal 命令面：doctor 并入 health --hosts，audit 归 pal', () => {
-  it('一共 31 条命令：没有 create / status / recover / doctor，有 leftovers', () => {
+  it('一共 32 条命令：没有 create / status / recover / doctor，有 run / leftovers', () => {
     const names = Object.keys(subCommands);
-    expect(names).toHaveLength(31);
-    expect(new Set(names).size).toBe(31);
+    expect(names).toHaveLength(32);
+    expect(new Set(names).size).toBe(32);
     // create 并入 install --new；status 合并进 ps（默认纯读，--refresh 才刷新）；recover 改名 leftovers
     expect(names).not.toContain('create');
     expect(names).not.toContain('status');
     expect(names).not.toContain('recover');
     expect(names).not.toContain('doctor');
     expect(names).toContain('leftovers');
+    expect(names).toContain('run');
     expect(names).toContain('ps');
     // 安装类命令仍是一级命令
     for (const name of ['install', 'uninstall', 'verify', 'rollback', 'update']) {

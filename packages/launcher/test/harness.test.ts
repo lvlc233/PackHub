@@ -21,12 +21,13 @@ describe('宿主发现', () => {
     expect(skipped.version).toBe(probed.version);
   });
 
-  it('不能启动的宿主给能力说明，不是只说不支持', () => {
+  it('前台宿主可启动；dir 给能力说明，不是只说不支持', () => {
     const claude = discoverHarness('claude-code', { probeVersion: false });
-    expect(claude.startable).toBe(false);
-    expect(claude.reason).toContain('Claude Code');
+    expect(claude.startable).toBe(true);
     const dir = discoverHarness('dir', { probeVersion: false });
     expect(dir.kind).toBe('project');
+    expect(dir.startable).toBe(false);
+    expect(dir.reason).toContain('dir');
   });
 
   it('七个形态（dir + 六宿主）的顺序稳定，未知宿主给可选值', () => {

@@ -1,6 +1,7 @@
 // pal start / stop / restart / ps / health / logs：实例的运行态。
 import { defineCommand } from 'citty';
 import pkg from '../../package.json' with { type: 'json' };
+import { requireHarness } from '@packhub/kernel';
 import { requireInstance, writeInstance, type InstanceRecord } from '../index.ts';
 import { activeEntries } from '../active.ts';
 import { coreCall } from '../coreClient.ts';
@@ -47,6 +48,13 @@ export const start = defineCommand({
       id = actives[0]!.record!.id;
     }
     const rec = requireInstance(id);
+    const spec = requireHarness(rec.harness);
+    if (spec.start?.mode === 'foreground') {
+      throw new PalError(
+        'invalid-input',
+        `宿主 ${rec.harness} 是前台 TUI：用 pal run ${rec.id} [--dir <目录>]；server 型才用 pal start`,
+      );
+    }
     if (args.restart) {
       const mode = String(args.restart);
       if (mode !== 'on-failure' && mode !== 'never') {

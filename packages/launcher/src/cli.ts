@@ -3,6 +3,7 @@ import { defineCommand } from 'citty';
 import pkg from '../package.json' with { type: 'json' };
 import { adopt, list, remove, show } from './commands/instance.ts';
 import { health, logs, ps, restart, start, stop } from './commands/lifecycle.ts';
+import { run } from './commands/run.ts';
 import {
   backup,
   clone,
@@ -37,6 +38,7 @@ export const main = defineCommand({
     cache,
     remove,
     start,
+    run,
     stop,
     restart,
     ps,

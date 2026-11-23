@@ -20,8 +20,12 @@ registerHarness({
   versionArgs: ['--version'],
   credentialFiles: ['auth.json', '.credentials.json'],
   instructionFile: 'CLAUDE.md',
-  noStartReason:
-    'Claude Code 是终端交互程序，没有可托管的常驻服务；PAL 只负责给它装配 home（技能、MCP、指令）。',
+  start: {
+    mode: 'foreground',
+    command: 'claude',
+    args: () => [],
+    url: /^$/,
+  },
   probe: {
     executable: 'claude',
     args: (ctx) => ['-p', ctx.prompt, '--max-budget-usd', '0.05', '--no-session-persistence'],

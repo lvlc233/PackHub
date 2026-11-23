@@ -19,7 +19,12 @@ registerHarness({
   versionArgs: ['--version'],
   credentialFiles: ['auth.json'],
   instructionFile: 'AGENTS.md',
-  noStartReason: 'Codex 是终端交互程序，没有可托管的常驻服务；PAL 只负责给它装配 home。',
+  start: {
+    mode: 'foreground',
+    command: 'codex',
+    args: () => [],
+    url: /^$/,
+  },
   probe: {
     executable: 'codex',
     args: (ctx) => ['exec', '--skip-git-repo-check', '--sandbox', 'read-only', '-m', ctx.model, ctx.prompt],

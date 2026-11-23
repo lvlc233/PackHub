@@ -30,8 +30,12 @@ registerHarness({
   executable: 'opencode',
   versionArgs: ['--version'],
   instructionFile: 'AGENTS.md',
-  noStartReason:
-    'opencode serve 目前没有托管启动：用你自己的终端跑 opencode；PAL 只负责装配 home 与项目落点。',
+  start: {
+    mode: 'foreground',
+    command: 'opencode',
+    args: () => [],
+    url: /^$/,
+  },
   mcp: {
     path: ['mcp', 'servers'],
     // opencode 的条目形状：本地 { type:"local", command:[exe,...args] }，远程 { type:"remote", url }

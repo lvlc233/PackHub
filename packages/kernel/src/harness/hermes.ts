@@ -24,8 +24,12 @@ registerHarness({
   executable: 'hermes',
   versionArgs: ['--version'],
   instructionFile: 'AGENTS.md',
-  noStartReason:
-    'Hermes 是终端交互程序，没有可托管的常驻服务；PAL 只负责给它装配 home（技能、MCP、指令）。',
+  start: {
+    mode: 'foreground',
+    command: 'hermes',
+    args: () => [],
+    url: /^$/,
+  },
   // 没有项目级落点：pal install --project 会拒绝，改用 pal install --new --kind hermes 建环境
   project: false,
   mcp: {

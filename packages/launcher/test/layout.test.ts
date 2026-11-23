@@ -90,14 +90,13 @@ describe('宿主适配（从注册表派生）', () => {
     expect(() => requireAdapter('nope' as never)).toThrow(/未知实例形态：nope/);
   });
 
-  it('只有能托管的宿主有启动模板；其余给能力说明而不是空模板', () => {
-    expect(requireHarness('dsh').start).toBeTruthy();
+  it('六个宿主都有启动模板：dsh 是 server，其余是 foreground；dir 给能力说明', () => {
+    expect(requireHarness('dsh').start?.mode ?? 'server').toBe('server');
     for (const id of ['claude-code', 'codex', 'opencode', 'workbody', 'hermes']) {
-      expect(requireHarness(id).start, `${id} 不该有启动模板`).toBeUndefined();
-      expect(adapterFor(id)?.noStartReason, `${id} 应给能力说明`).toBeTruthy();
+      expect(requireHarness(id).start?.mode, `${id} 应是前台启动`).toBe('foreground');
+      expect(adapterFor(id)?.start, `${id} 应有启动模板`).toBeTruthy();
+      expect(adapterFor(id)?.noStartReason).toBeUndefined();
     }
-    expect(adapterFor('claude-code')?.noStartReason).toContain('Claude Code');
-    expect(adapterFor('codex')?.noStartReason).toContain('Codex');
     expect(adapterFor('dir')?.start).toBeUndefined();
     expect(adapterFor('dir')?.noStartReason).toContain('dir 实例');
   });

@@ -265,6 +265,12 @@ export async function startInstanceDetailed(
 ): Promise<StartResult> {
   const rec = requireInstance(idOrName);
   const adapter = requireAdapter(rec.harness);
+  if (adapter.start?.mode === 'foreground') {
+    throw new PalError('not-startable', `${adapter.label} 是前台 TUI，不是常驻服务`, {
+      hint: '用 pal run <环境> [--dir <目录>] 在终端里前台启动',
+      details: { harness: rec.harness },
+    });
+  }
   if (!adapter.start) {
     throw new PalError('not-startable', `${adapter.label} 没有可启动的常驻服务`, {
       hint: adapter.noStartReason ?? '这个宿主只支持装配 home，PAL 不托管它的进程',
