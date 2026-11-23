@@ -20,7 +20,7 @@ import { writeInstance } from './recordWrite.ts';
 import { PalError } from './errors.ts';
 import { isPidAlive } from './process.ts';
 import { packIdentityFromState, planForHome } from './create.ts';
-import { assertProfileName, assertProfileTarget } from './validators.ts';
+import { assertProfileTarget, updateProfileTarget } from './validators.ts';
 
 /**
  * 更新与重新基准化：从 index.ts 搬出（C1）。
@@ -44,6 +44,8 @@ export interface UpdateInstanceResult {
    * 每条只带实例内相对路径与原因，不带绝对路径；文件会留在实例里。
    */
   warnings: string[];
+  /** dsh attached 换过安装范围时才有：换之前 / 之后的 profile（不写字段 = all） */
+  profileChange?: { from?: string; to?: string };
 }
 
 /**
@@ -133,25 +135,13 @@ export async function updateInstance(
     });
   }
   const kind = record.harness;
-  // 显式给的 profile 先校验；没给就沿用记录里的（缺省不写 = all）。
-  // update 只按记录里的 profile 重装；换 profile 是改变安装范围，走 uninstall + install。
-  const explicitProfile = opts.profile === undefined ? undefined : assertProfileName(opts.profile);
-  if (explicitProfile !== undefined) {
-    assertProfileTarget(kind, record.attached === true);
-    if (record.profile !== explicitProfile) {
-      const installed = record.profile ? `profile「${record.profile}」` : 'all（所有已有 profile）';
-      throw new PalError(
-        'invalid-input',
-        `这个 home 是按 ${installed} 装的，update 不能改成「${explicitProfile}」`,
-        {
-          hint:
-            `换 profile 先 pal uninstall --home ${record.name} 再 pal install ... --profile ${explicitProfile}；` +
-            'update 只按记录里的 profile 重装',
-        },
-      );
-    }
-  }
-  const profile = explicitProfile ?? record.profile;
+  // 显式给的 profile 先校验；`--profile all` 是显式「全部已有 profile」（记录里不写 profile），
+  // 不写就沿用记录里的（缺省不写 = all）。换 profile 只改安装范围，不需要重新 install：
+  // 旧 scope 的 pal-mcp-* 条目由下面的 pruneRemoved 按上一版计划快照摘掉。
+  if (opts.profile !== undefined) assertProfileTarget(kind, record.attached === true);
+  const explicitTarget = opts.profile === undefined ? undefined : updateProfileTarget(opts.profile);
+  const profile = opts.profile === undefined ? record.profile : explicitTarget;
+  const switching = opts.profile !== undefined && profile !== record.profile;
   const loaded = loadPack(resolve(opts.packDir));
   if (!loaded.manifest) {
     const detail = loaded.issues.filter((i) => i.severity === 'error').map((i) => i.message).join('; ');
@@ -227,59 +217,64 @@ export async function updateInstance(
   const warnings: string[] = [];
 
   await withInstanceLock(record.root, 'update', async () => {
-    if (!changed) return;
-    // 同一 Pack 的新版本要能覆盖旧版本写过的文件；overwrite 只放开"自己的包"
-    await installPack(ctx, plan, {
-      root: record.root,
-      packRoot: resolve(opts.packDir),
-      overwrite: true,
-      ...(home ? { home } : {}),
-    });
+    // 记录与文件分开处理：换 profile 可能算出逐字节相同的计划（Pack 没有 MCP、目标 profile
+    // 又恰好是枚举时排第一的那个），这时文件不用动，记录仍要换成新的范围。
+    let pack = record.pack;
+    if (changed) {
+      // 同一 Pack 的新版本要能覆盖旧版本写过的文件；overwrite 只放开"自己的包"
+      await installPack(ctx, plan, {
+        root: record.root,
+        packRoot: resolve(opts.packDir),
+        overwrite: true,
+        ...(home ? { home } : {}),
+      });
 
-    // 旧产物清理交给 runtime：私有的整份删、共享配置按 key / 块摘，用户自己的条目留下。
-    // 报告由计划输出推导：removedFiles = 上一版产物里这一版不再产出的（删除失败的也报，
-    // 与之前的行为一致）；addedFiles = 这一版新增的产物。
-    const produced = outputAbsOf(record.root, home, planOutputs(plan));
-    const oldProduced = previous ? outputAbsOf(record.root, home, planOutputs(previous)) : [];
-    // 可移除的旧产物：撤销方式是 `none` 的动作（exec / state.dir / delete）本来就不清
-    const oldRemovable = previous
-      ? outputAbsOf(
-          record.root,
-          home,
-          previous.actions
-            .filter((action) => actionUndo(action) !== 'none')
-            .flatMap((action) => actionOutputs(action, previous)),
-        )
-      : [];
-    const stillProduced = (abs: string): boolean =>
-      produced.some((p) => p === abs || abs.startsWith(`${p}${sep}`) || p.startsWith(`${abs}${sep}`));
-    if (previous) {
-      const pruned = pruneRemoved(record.root, previous, plan);
-      removedFiles = oldRemovable
-        .filter((abs) => !stillProduced(abs))
-        .map((abs) => ownedLabel(record.root, abs));
-      warnings.push(...pruned.warnings);
-    } else {
-      warnings.push('旧 state 没有计划快照，跳过旧文件清理；重装一次可恢复完整清理');
+      // 旧产物清理交给 runtime：私有的整份删、共享配置按 key / 块摘，用户自己的条目留下。
+      // 报告由计划输出推导：removedFiles = 上一版产物里这一版不再产出的（删除失败的也报，
+      // 与之前的行为一致）；addedFiles = 这一版新增的产物。
+      const produced = outputAbsOf(record.root, home, planOutputs(plan));
+      const oldProduced = previous ? outputAbsOf(record.root, home, planOutputs(previous)) : [];
+      // 可移除的旧产物：撤销方式是 `none` 的动作（exec / state.dir / delete）本来就不清
+      const oldRemovable = previous
+        ? outputAbsOf(
+            record.root,
+            home,
+            previous.actions
+              .filter((action) => actionUndo(action) !== 'none')
+              .flatMap((action) => actionOutputs(action, previous)),
+          )
+        : [];
+      const stillProduced = (abs: string): boolean =>
+        produced.some((p) => p === abs || abs.startsWith(`${p}${sep}`) || p.startsWith(`${abs}${sep}`));
+      if (previous) {
+        const pruned = pruneRemoved(record.root, previous, plan);
+        removedFiles = oldRemovable
+          .filter((abs) => !stillProduced(abs))
+          .map((abs) => ownedLabel(record.root, abs));
+        warnings.push(...pruned.warnings);
+      } else {
+        warnings.push('旧 state 没有计划快照，跳过旧文件清理；重装一次可恢复完整清理');
+      }
+      // 「新增」按计划产物比对：旧 plan 的产物 + 旧 written（旧 state 没有快照时只能看 written）
+      const oldKnown = new Set([...oldProduced, ...outputAbsOf(record.root, home, oldWritten)]);
+      addedFiles = produced.filter((abs) => !oldKnown.has(abs)).map((abs) => ownedLabel(record.root, abs));
+
+      // 身份跟 create 一样只认 state：装完恰好一个 Pack 时以它为准，记录里的漂移在这里被纠正；
+      // state 读不出来（0/多个/损坏）才退回清单里的名字版本。
+      pack = packIdentityFromState(record.root, {
+        name: ctx.manifest.metadata.name,
+        version: ctx.manifest.metadata.version,
+      });
+
+      writeBaseline(record.root, {
+        pack: pack.name,
+        version: pack.version,
+        harness: kind,
+        planHash: plan.planHash,
+        files: baselineFromState(record.root),
+      });
     }
-    // 「新增」按计划产物比对：旧 plan 的产物 + 旧 written（旧 state 没有快照时只能看 written）
-    const oldKnown = new Set([...oldProduced, ...outputAbsOf(record.root, home, oldWritten)]);
-    addedFiles = produced.filter((abs) => !oldKnown.has(abs)).map((abs) => ownedLabel(record.root, abs));
-
-    // 身份跟 create 一样只认 state：装完恰好一个 Pack 时以它为准，记录里的漂移在这里被纠正；
-    // state 读不出来（0/多个/损坏）才退回清单里的名字版本。
-    const pack = packIdentityFromState(record.root, {
-      name: ctx.manifest.metadata.name,
-      version: ctx.manifest.metadata.version,
-    });
-
-    writeBaseline(record.root, {
-      pack: pack.name,
-      version: pack.version,
-      harness: kind,
-      planHash: plan.planHash,
-      files: baselineFromState(record.root),
-    });
+    if (!changed && !switching) return;
 
     const next: InstanceRecord = {
       ...record,
@@ -288,8 +283,10 @@ export async function updateInstance(
         ...(opts.packRef ? { ref: opts.packRef } : record.pack.ref ? { ref: record.pack.ref } : {}),
       },
       status: 'installed',
-      ...(profile ? { profile } : {}),
     };
+    // 记录里的 profile 跟着这次的范围走：换回 all 就删掉字段（缺省不写 = all）
+    if (profile) next.profile = profile;
+    else delete next.profile;
     delete next.lastError;
     writeInstance(next);
   });
@@ -306,6 +303,7 @@ export async function updateInstance(
     addedFiles,
     localChanges: [...new Set([...localChanges, ...localChangesAfter])],
     warnings,
+    ...(switching ? { profileChange: { from: record.profile, to: profile } } : {}),
   };
 }
 

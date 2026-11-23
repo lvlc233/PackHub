@@ -37,7 +37,11 @@ export interface InstanceHealth {
   ok: boolean;
   checks: HealthCheck[];
   drift?: BaselineDrift;
-  mcp?: { servers: number; wired: boolean; file?: string; files?: string[] };
+  /**
+   * MCP 接线。attached dsh 额外带 `scope`（记录里的 profile，缺省 `all`）与
+   * `outOfScope`（当前磁盘上存在、但不在 scope 里的 profile；不是漂移，省略 = 没有）。
+   */
+  mcp?: { servers: number; wired: boolean; file?: string; files?: string[]; scope?: string; outOfScope?: string[] };
   /** attached dsh：记录里的 MCP 条目在 profile patch 里不见了（`<相对 home 的路径>:<条目 id>`） */
   mcpMissing?: string[];
 }
@@ -106,6 +110,14 @@ interface DshMcpReport {
   files: string[];
   /** 缺的条目：`<相对 home 的路径>:<条目 id>` */
   missing: string[];
+  /** 当前磁盘上有、但不在记录 scope 里的 profile 名（没记 profile 时为空） */
+  outOfScope: string[];
+}
+
+/** `profiles/<名字>/cordis.patch.yml` → `<名字>`；形状不是预期的跳过。 */
+function profileNameOf(rel: string): string | undefined {
+  const parts = rel.split('/');
+  return parts.length === 3 && parts[0] === 'profiles' ? parts[1] : undefined;
 }
 
 /**
@@ -113,8 +125,10 @@ interface DshMcpReport {
  * `--patch` 层。读回这些文件，按 state 计划里的期望条目查在不在：
  *
  * - 记录里有 `profile`：只查 `<home>/profiles/<profile>/cordis.patch.yml`（安装也只写了它）；
+ *   当前磁盘上的其它 profile 不报缺条目（那不是在 scope 内装过的东西），只列进 `outOfScope`。
  * - 没写（= all）：查**当前磁盘上的所有** profile patch（`dshProfilePatches`），而不只是 state
- *   里那次安装写过的——安装后新建的 profile 没有条目，这里要能报出来。
+ *   里那次安装写过的——安装后新建的 profile 没有条目，这里要能报出来。all 的 scope 覆盖一切，
+ *   `outOfScope` 恒为空。
  *
  * 期望条目按「文件 → 条目 id」分配（计划里的 `paths`）；新 profile 没有安装记录，按 state 计划里
  * 全部 `pal-mcp-*` 条目要求它（多 Pack 时每一条都该在有这个 profile 的地方出现）。
@@ -143,10 +157,12 @@ function dshAttachedMcp(record: InstanceRecord): DshMcpReport {
   }
   const home = record.home ?? record.root;
   const allKeys = new Set([...expected.values()].flatMap((set) => [...set]));
-  // 当前有哪些 profile 问宿主的枚举（与 plan 期写哪些文件同一份判据），不是只看 state
-  const current = record.profile ? [] : dshProfilePatches(home);
-  const rels = record.profile
-    ? [`profiles/${record.profile}/${PROFILE_PATCH_SUFFIX}`]
+  // 当前有哪些 profile 问宿主的枚举（与 plan 期写哪些文件同一份判据），不是只看 state。
+  // 有 profile 记录时也要枚举：scope 外的 profile 虽然不查条目，但要能报「未安装」。
+  const current = dshProfilePatches(home);
+  const scope = record.profile;
+  const rels = scope
+    ? [`profiles/${scope}/${PROFILE_PATCH_SUFFIX}`]
     : [...new Set([...expected.keys(), ...current])].sort();
   const missing: string[] = [];
   const files: string[] = [];
@@ -162,7 +178,12 @@ function dshAttachedMcp(record: InstanceRecord): DshMcpReport {
       missing.push(`${rel}:${key}`);
     }
   }
-  return { servers: allKeys.size, files, missing };
+  const outOfScope = scope
+    ? [...new Set(current.map(profileNameOf).filter((name): name is string => name !== undefined))]
+        .filter((name) => name !== scope)
+        .sort()
+    : [];
+  return { servers: allKeys.size, files, missing, outOfScope };
 }
 
 /** 一个实例的健康检查：进程、端口、home、基线、MCP 接线。只读，不改状态。 */
@@ -258,6 +279,7 @@ export async function checkInstance(
   // attached 的 dsh home 没有「启动时生成的 --patch 层」：MCP 在安装期就写进了各 profile 的
   // cordis.patch.yml（记录里有 --profile 时只写那一个）。这里按 state 里的计划读回 patch，
   // 缺条目就报出来——与 pal verify 的配置漂移看同一份事实，但 health 不用先跑 verify。
+  // scope 外、但当前存在的 profile 什么都不缺：它们只是「还没装」，进 outOfScope，不进 mcpMissing。
   if (record.harness === 'dsh' && record.attached === true) {
     try {
       const report = dshAttachedMcp(record);
@@ -265,6 +287,8 @@ export async function checkInstance(
       mcp = {
         servers: report.servers,
         wired: report.missing.length === 0,
+        scope: record.profile ?? 'all',
+        ...(report.outOfScope.length > 0 ? { outOfScope: report.outOfScope } : {}),
         ...(report.files.length === 1 ? { file: report.files[0]! } : {}),
         ...(report.files.length > 1 ? { files: report.files } : {}),
       };

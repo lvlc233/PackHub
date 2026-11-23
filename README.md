@@ -6,7 +6,7 @@ packhub 做包与发版，pal 安装与运行。
 
 `packhub` 只碰 Pack 目录：`plan` / `verify` 预览，`lock` / `pack` / `publish` / `sign` 出包与发版。`pal` 负责装和跑：安装类命令 `install` / `uninstall` / `verify` / `rollback` / `update` 的 target 是 home（`--home <路径|名字>`，managed 用名字、attached 用路径或名字）或项目（`--project <目录>`）；`install` 不给 target 时在 PAL 数据目录建一个 managed 命名 home（名字 `<host>-<packSlug>`），`--home` 则装进宿主的真实全局目录（attached）。attached 的默认名撞车会自动改用 `<名字>-attached`；`remove` 对 managed 删整根、对 attached 只摘记录（卸包 + 删 PAL 记录，目录与用户文件保留）；clone / backup / restore / migrate 仍只对 managed。home 侧还有 `adopt` 与起停看护，本机状态看 `list` / `ps` / `health`，审计看 `list --history`。
 
-宿主（`dsh` / `claude-code` / `codex` / `opencode` / `workbody` / `hermes`）在 kernel 的注册表里：每个宿主一个模块，加宿主 = 新模块 + `harness/index.ts` 一行 import；落点由宿主模块的 `destination` 自己回答，attached home 只对已验证全局落点的宿主开放（opencode / claude-code / codex / hermes / workbody / dsh）；hermes 没有项目级落点（不能用 `--project`，用默认命名 home 或 `--home`）；第三方宿主暂不支持（见 [docs/concepts.md](docs/concepts.md) 的 Harness 词条）。dsh 的 MCP 是 per-profile 的：attached 安装默认写进 `<home>/profiles/*/cordis.patch.yml` 里**已有**的每一个 profile；加 `--profile <名字>` 只装那一个（profile 不存在会报错、不创建），一个 profile 都没有且没指定时也报错（先启动一次 dsh 生成 profile）；装完再新建的 profile 不在安装时补，但 `pal health` 会枚举当前所有 profile 报它缺条目（警告），跑一次 `pal update` 重新枚举 profile 就补上（也可以带 `--profile` 重装那一个）。
+宿主（`dsh` / `claude-code` / `codex` / `opencode` / `workbody` / `hermes`）在 kernel 的注册表里：每个宿主一个模块，加宿主 = 新模块 + `harness/index.ts` 一行 import；落点由宿主模块的 `destination` 自己回答，attached home 只对已验证全局落点的宿主开放（opencode / claude-code / codex / hermes / workbody / dsh）；hermes 没有项目级落点（不能用 `--project`，用默认命名 home 或 `--home`）；第三方宿主暂不支持（见 [docs/concepts.md](docs/concepts.md) 的 Harness 词条）。dsh 的 MCP 是 per-profile 的：attached 安装默认写进 `<home>/profiles/*/cordis.patch.yml` 里**已有**的每一个 profile；加 `--profile <名字>` 只装那一个（profile 不存在会报错、不创建），一个 profile 都没有且没指定时也报错（先启动一次 dsh 生成 profile）；装完再新建的 profile 不在安装时补，`pal health` 会枚举当前所有 profile——`all` 记录把缺条目的报成警告，单个 profile 的记录把其它 profile 显示成 scope 外「未安装」并提示 `pal update --profile <名字>`；`pal update --profile <名字>` 可以直接换安装范围（`--profile all` 回到全部），旧 profile 的本包条目摘掉、用户条目保留，不必先 uninstall。
 
 ```bash
 # 默认 target：在 PAL 数据目录建 managed home，名字 <host>-<packslug>
@@ -34,6 +34,10 @@ pnpm pal uninstall --home ~/.codex
 pnpm pal install test/fixtures/packs/team-conventions --host dsh --home ~/.dsh
 # 只装一个 profile：其余 profile 的 patch 不动；profile 不存在则退 2，不会创建
 pnpm pal install test/fixtures/packs/team-conventions --host dsh --home ~/.dsh --profile web
+# 换安装范围不用先 uninstall：web → desktop（摘掉 web 的 pal-mcp-*、写进 desktop、记录同步），
+# --profile all 回到全部已有 profile
+pnpm pal update --home ~/.dsh --profile desktop
+pnpm pal update --home ~/.dsh --profile all
 pnpm pal verify --home ~/.dsh
 pnpm pal uninstall --home ~/.dsh
 # 默认名已被别的 attached home 占用时自动改用 <名字>-attached（输出里打印最终名字）

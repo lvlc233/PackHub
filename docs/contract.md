@@ -228,7 +228,7 @@ resources:
 6. `generations` 每次安装追加一条，更早的会被裁掉（保留策略在 `install.ts`）；`existed` / `created` 是回退的依据。安装根之外的绝对路径记在 `existedExternal` / `createdExternal`（安装前复制进快照目录的 `external/`），rollback 与失败回滚同样恢复 / 删除它们。
 7. **旧 state 兼容读**：更早的 `written` 是 `string[]`，读端按 `base: 'root'` 归一，不因为读而重写文件；只有下一次真正写 state 时才变成新形状。
 
-dsh attached 的 profile 不进 state：它是安装参数，记在 PAL 的 `instance.json`（可选 `profile`，缺省不写 = all）。state 只按实际写过的路径记 `written`——`--profile web` 时只有 `profiles/web/cordis.patch.yml` 一条；卸载按 `written` 摘，不需要 profile。`update` / `verify` / `health` 不带 `--profile` 时用记录里的选择，`install` 不沿用（缺省语义仍是 all）。`update` 不接受换 profile：它只按记录里的 profile 重装，换安装范围是 uninstall + install。`health` 对 `all` 记录枚举**当前磁盘上的所有** profile（`dshProfilePatches`），新出现、还没有条目的 profile 进 `mcpMissing`（警告，不阻断 `ok`）；`update` 重算计划时会重新枚举 profile，把这些条目补进去。
+dsh attached 的 profile 不进 state：它是安装参数，记在 PAL 的 `instance.json`（可选 `profile`，缺省不写 = all）。state 只按实际写过的路径记 `written`——`--profile web` 时只有 `profiles/web/cordis.patch.yml` 一条；卸载按 `written` 摘，不需要 profile。`update` / `verify` / `health` 不带 `--profile` 时用记录里的选择，`install` 不沿用（缺省语义仍是 all）。`update --profile <名字>` 可以换安装范围，`--profile all` 是显式回到全部已有 profile（记录里删掉 `profile`）：旧 profile 的 `pal-mcp-*` 条目按上一版计划快照摘掉、新 profile 写入，用户自己的条目留下，`instance.json` 与 state 的 `written` / 计划快照一起换，不需要重新 install；目标 profile 不存在仍报 `profile-missing`、什么都不写。`verify` / `uninstall` 的 `--profile` 只核对记录。`health` 对 attached dsh 枚举**当前磁盘上的所有** profile（`dshProfilePatches`）：scope 内缺条目的进 `mcpMissing`（警告，不阻断 `ok`）；scope 外、但当前存在的 profile 不进 `mcpMissing`，进 `mcp.outOfScope`（不是漂移，见 §5.6）。`all` 记录的 scope 覆盖所有当前 profile；`update` 重算计划时会重新枚举 profile，把这些条目补进去。
 
 装好与否的判定、并发、回退、所有权与卸载顺序是行为，写在 `packages/runtime/src/install.ts`（`applyPlan` / `acquireLock` / `removePack` / `rollbackPack`）。
 
@@ -306,6 +306,29 @@ registry 的索引，`search` / `install` / `update` 只读它。
 - `scenario.harness` 是运行期注册的宿主 id，形状匹配 `^[a-z][a-z0-9-]*$`。schema 不静态列宿主名单；实际能选哪些由 kernel 的注册表决定，没注册的 id 在计划 / 检查期报错。
 - `pal install` 装后自动复核包含派生项（只读）；`publish` 门禁在干净目录里跑清单检查 + 派生段（不受装后只读子集的限制）。
 - `--probe-mcp` 只影响这一次 `packhub verify`：对计划里每个 MCP server 真发一次 `initialize`（stdio 起进程 / http 发请求），默认关闭——起进程或联网有副作用与耗时。
+
+## 5.6 Health 报告（`pal health --json`）
+
+不是带 `apiVersion` 的文件，只是命令的输出形状；字段定义在 `packages/launcher/src/health.ts` 的 `InstanceHealth`。
+
+```jsonc
+[
+  {
+    "id": "…",
+    "name": "…",
+    "status": "installed",
+    "ok": true,
+    "checks": [{ "name": "mcp", "status": "warn", "detail": "…" }],
+    "mcp": { "servers": 1, "wired": false, "scope": "web", "file": "…", "outOfScope": ["desktop"] },
+    "mcpMissing": ["profiles/web/cordis.patch.yml:pal-mcp-markdownlint"]
+  }
+]
+```
+
+- `ok`：没有任何 `checks[].status === 'fail'`；`warn` 不阻断。
+- `mcp`：`servers` 是计划里登记过的 MCP 条目数（去重），`wired` 是 scope 内一个都不缺；`file` 单文件、`files` 多文件，都是查过的 profile patch。
+- 只有 attached dsh 带 `scope` 与 `outOfScope`：`scope` 是记录里的 `profile`，没记就是 `"all"`；`outOfScope` 是当前磁盘上存在、但不在 scope 里的 profile 名，没有时不出现。scope 外的 profile **不参与** `mcpMissing`——它们只是还没装，不是漂移。
+- `mcpMissing`：`<相对 home 的路径>:<条目 id>`，只在 scope 内缺 `pal-mcp-*` 条目时出现；对应 `checks` 里一条 `warn`，不把实例判成故障。
 
 ## 6 签名旁挂（`packhub.dev/signatures/v0`）
 

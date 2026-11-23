@@ -131,6 +131,22 @@ export function assertProfileName(value: unknown): string {
 }
 
 /**
+ * `update --profile all` 的显式「全部」取值：dsh 的 profile 名不会是 `all`（它自己用
+ * web / desktop / headless 这类），所以能当保留值。记录里不写 profile 就是 all。
+ */
+export const PROFILE_ALL = 'all';
+
+/**
+ * `update --profile` 的目标：`all` 是显式切回全部已有 profile（返回 undefined，记录里不写
+ * profile），其余先过安全边界（会拼进落点路径）。不写 flag 的「沿用记录」由调用方决定，
+ * 这里不接 undefined。
+ */
+export function updateProfileTarget(value: unknown): string | undefined {
+  const name = assertProfileName(value);
+  return name === PROFILE_ALL ? undefined : name;
+}
+
+/**
  * `--profile` 只对 dsh 的 attached home 有意义：MCP 是 per-profile 的，只有它按 profile 分叉。
  * 项目落点、managed home、其它宿主都没有这层语义；传了就是用法错（退出 2），不静默忽略。
  */

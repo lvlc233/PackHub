@@ -222,13 +222,13 @@ README 只承诺分工：「packhub 做包与发版，pal 安装与运行」；C
 
 ### dsh attached 的 profile：默认 all，显式选择才收窄
 
-现状：`pal install` / `pal update --home <dsh home>` 支持 `--profile <名字>`。不写 = 枚举 `<home>/profiles/*/cordis.patch.yml`，所有已存在 profile 都装；一个都没有 → plan 期 error `no-profiles`，不再替安装造 `profiles/web`。写 = 只装那一个（`<home>/profiles/<名字>/cordis.patch.yml`），profile 不存在报 `profile-missing`、不创建；名字不是单段目录名报 `bad-profile`；配 `--project`、managed home 或其它宿主是用法错（退 2）。记录（`instance.json`）记 `profile`（缺省不写 = all），`update` / `verify` / `health` 不带 flag 时沿用；`install` 不沿用（缺省语义仍是 all）。`health` 按记录里的 profile（没记就枚举**当前磁盘上的所有** profile patch）读回 `pal-mcp-*` 条目，缺的进 `mcpMissing`（警告，不阻断 `ok`）——安装后新建的 profile 因此会显示「缺条目」，`all` 记录跑一次 `pal update` 就补上。`verify` 仍只按 state 里的安装记录查漂移，不枚举新 profile。
+现状：`pal install` / `pal update --home <dsh home>` 支持 `--profile <名字>`。不写 = 枚举 `<home>/profiles/*/cordis.patch.yml`，所有已存在 profile 都装；一个都没有 → plan 期 error `no-profiles`，不再替安装造 `profiles/web`。写 = 只装那一个（`<home>/profiles/<名字>/cordis.patch.yml`），profile 不存在报 `profile-missing`、不创建；名字不是单段目录名报 `bad-profile`；配 `--project`、managed home 或其它宿主是用法错（退 2）。记录（`instance.json`）记 `profile`（缺省不写 = all），`update` / `verify` / `health` 不带 flag 时沿用；`install` 不沿用（缺省语义仍是 all）。`update --profile <名字>` 可以换安装范围，`--profile all` 回到全部已有 profile：旧 scope 的 `pal-mcp-*` 条目按上一版计划快照摘掉，不需要先 uninstall（见「update 可以换 profile」）。`health` 按记录里的 profile（没记就枚举**当前磁盘上的所有** profile patch）读回 `pal-mcp-*` 条目，scope 内缺的进 `mcpMissing`（警告，不阻断 `ok`）；scope 外、但当前存在的 profile 进 `mcp.outOfScope`（不是漂移，见「health 的 outOfScope」）。`verify` 仍只按 state 里的安装记录查漂移，不枚举新 profile。
 
 没选另一条：一个 profile 都没有时继续自动造 `profiles/web`（原行为），或让 `--profile` 顺手创建缺失的 profile。
 
 自动造 web 等于 PAL 替 dsh 编一份默认 profile：dsh 的 profile（web / desktop / headless）由它自己启动时生成，内容与 PAL 造出来的空壳不是一回事，装完 `dsh web` 会拿到这份空壳而不是宿主原本的配置；失败还会被藏起来——用户以为装好了，实际只多了一个 PAL 编的 profile。顺手创建同样越界：profile 是宿主的状态，创建它要写宿主管理的目录与默认内容。
 
-代价：新机器第一次装 dsh attached home 前必须先跑一次 `dsh`（或 `dsh --profile <名字>`）生成 profile，否则 install 退 2；`--profile` 不能用来「先建后装」。装完再新建的 profile 不会在安装时被补，但 `pal health` 枚举当前 profile 时会把缺条目的报出来（warn），`all` 记录跑一次 `pal update` 就补（要装进某一个新 profile 也可以带 `--profile` 单独重装那一个）。`profile` 是记录字段、不是 state 字段：`update` 不接受换 profile——它只按记录里的 profile 重装，换安装范围是先 `pal uninstall --home <home>` 再 `pal install … --profile <新 profile>`。`verify --profile` 只核对记录（漂移仍按 state 里的安装记录走），不能拿它去验一个没装过的 profile。
+代价：新机器第一次装 dsh attached home 前必须先跑一次 `dsh`（或 `dsh --profile <名字>`）生成 profile，否则 install 退 2；`--profile` 不能用来「先建后装」。装完再新建的 profile 不会在安装时被补，但 `pal health` 枚举当前 profile 时会把缺条目的报出来（warn），`all` 记录跑一次 `pal update` 就补（要装进某一个新 profile 也可以带 `--profile` 换过去）。`profile` 是记录字段、不是 state 字段：`update --profile` 换范围时摘旧条目靠上一版计划快照，没有快照的旧 state 只报 warning、旧范围的条目会留下（与升级清理同一条件）。`verify --profile` 只核对记录（漂移仍按 state 里的安装记录走），不能拿它去验一个没装过的 profile。
 
 ### update 的旧产物清理只走计划快照
 
@@ -237,6 +237,26 @@ README 只承诺分工：「packhub 做包与发版，pal 安装与运行」；C
 没选另一条：沿用改造前的做法——把「旧 `written` 里、新计划不再产出」的路径直接 `rmSync`。共享配置文件（`.claude.json` / `cordis.patch.yml` / `opencode.json` / `.mcp.json` 等）本来是多包、多工具与用户共写的：整文件删掉会连用户自己的条目一起没，而且清理逻辑与卸载走两套（按 key 摘 vs 整份删），一处改了另一处不跟。收成 `pruneRemoved` 后升级清理与卸载共用同一份撤销表（`PLAN_OPS` 的 `undo` 与撤销载荷）。
 
 代价：清理的依据从「`written` 并集」变成「上一版计划快照」。旧 state 没有 `plan` 时更新不做任何旧文件清理，只报一条 warning（「旧 state 没有计划快照，跳过旧文件清理；重装一次可恢复完整清理」）——本包旧条目会留在共享文件里、旧私有文件也会留到下一次重装才清；这是刻意的：没有快照时唯一能算出的集合是 `written`，按它整文件删正是要修掉的行为。快照来自安装时写下的计划，Pack 的旧版本必须是由这一版代码（或至少写了 `state.packs[*].plan` 的版本）装的，否则第一次 update 拿不到快照。删除失败的文件不再从 `state.written` 里摘掉（记录「真的删掉了什么」），会留到下一次 update 再试。
+
+### update 可以换 profile：清理安全后才放开
+
+现状：`pal update --profile <名字>` 能把 attached dsh 的安装范围从一个 profile 换到另一个，`--profile all` 回到全部已有 profile。旧范围的 `pal-mcp-*` 条目随旧产物清理一起摘掉（用户自己的条目逐字节保留），`instance.json` 的 `profile` 与 state 的 `written` / 计划快照一起换；不需要先 uninstall。目标 profile 不存在仍是 `profile-missing` 用法错，什么都不写。
+
+没选另一条：继续要求「换 profile 先 uninstall 再 install」，或换范围时按 `written` 整文件删旧 profile 的 patch。
+
+在旧产物清理还是「按 written 整文件删」的年代，这条限制是必要的：换范围≈摘旧范围写的条目，而整文件删会把用户写在同一份 patch 里的 loader 条目一起带走。清理改走 `pruneRemoved(previousPlanSnapshot, nextPlan)` 之后，摘旧范围与升级清理用的是同一份撤销表（共享配置按 key / 块摘），换 profile 的风险与一次普通升级相同，限制失去依据。继续禁止只让人多跑两条命令，还容易忘掉重新 install 新范围。
+
+代价：换范围仍要求目标 profile 已存在（PAL 不创建 profile）；旧 state 没有计划快照时摘不掉旧范围的条目，只报一条 warning（与升级清理同一条件）；`all` 是 `--profile` 的保留值，真有名为 `all` 的 profile 时没法用它指那一个。
+
+### health 的 outOfScope：scope 外不是漂移
+
+现状：`pal health` 对 attached dsh 枚举当前磁盘上的所有 profile。记录 scope 内的 profile 缺 `pal-mcp-*` 条目进 `mcpMissing`（`warn`，不阻断 `ok`）；scope 外、但当前存在的 profile 不进 `mcpMissing`，只进 `mcp.outOfScope`，文本里一行「未安装（scope=web）：desktop」，并提示 `pal update --profile <名字>`。
+
+没选另一条：把 scope 外缺条目的 profile 也报成 `mcpMissing`，或干脆不列它们。
+
+报成漂移等于说「按这个 scope 装的东西坏了」，而按 web 装的记录本来就没动过 desktop——没有漂移可言；每次都报还会把真正的漂移（scope 内条目被删）淹掉。完全不列则让人看不出同一个 home 里别的 profile 还没接线，`pal health` 作为「这台机器现在什么样」的入口就缺一块。
+
+代价：`mcp.outOfScope` 只在 profile-scoped 记录上出现（all 记录没有 scope 外），`--json` 的消费者要知道缺这个字段代表「没有 scope 外的 profile」；文本里那一行是提示不是检查项，不进 `checks`、不影响 `ok`。
 
 ### dsh patch 按文本编辑，不整份重排
 

@@ -80,22 +80,89 @@ describe('attached dsh 的 MCP 检查', () => {
     const healthy = await checkInstance('dsh-profile');
     expect(healthy.ok).toBe(true);
     expect(healthy.mcpMissing).toBeUndefined();
-    expect(healthy.mcp).toMatchObject({ servers: 1, wired: true, file: patch('web') });
+    expect(healthy.mcp).toMatchObject({ servers: 1, wired: true, file: patch('web'), scope: 'web' });
     expect(healthy.checks.find((check) => check.name === 'mcp')?.status).toBe('ok');
 
-    // desktop 没装过条目也不算缺：记录只认 web
+    // desktop 没装过条目也不算缺：记录只认 web；它只是 scope 外「还没装」
     expect(readFileSync(patch('desktop'), 'utf8')).toBe('[]\n');
+    expect(healthy.mcpMissing).toBeUndefined();
+    expect(healthy.mcp?.outOfScope).toEqual(['desktop']);
     expect(healthy.checks.find((check) => check.name === 'mcp')?.detail).toContain('profile web');
 
-    // 外部把 web 的条目删掉：health 报出来，但不把实例判成故障
+    // 外部把 web 的条目删掉：health 报出来，但不把实例判成故障；outOfScope 仍是「没装」不是漂移
     writeFileSync(patch('web'), '[]\n', 'utf8');
     const broken = await checkInstance('dsh-profile');
     expect(broken.ok).toBe(true);
     expect(broken.mcp?.wired).toBe(false);
     expect(broken.mcpMissing).toEqual(['profiles/web/cordis.patch.yml:pal-mcp-markdownlint']);
+    expect(broken.mcp?.outOfScope).toEqual(['desktop']);
     const mcpCheck = broken.checks.find((check) => check.name === 'mcp');
     expect(mcpCheck?.status).toBe('warn');
     expect(mcpCheck?.detail).toContain('pal-mcp-markdownlint');
+
+    // update --profile desktop 换 scope：记录换成 desktop，条目写进 desktop，web 变成 scope 外。
+    // web 的 patch 上一步被外部改过（漂移），换范围要 --force 才肯覆盖。
+    const switched = await updateInstance('dsh-profile', {
+      packDir: 'test/fixtures/packs/doc-review',
+      profile: 'desktop',
+      force: true,
+    });
+    expect(switched.profileChange).toEqual({ from: 'web', to: 'desktop' });
+    expect(switched.record.profile).toBe('desktop');
+    expect(readFileSync(patch('desktop'), 'utf8')).toContain('- id: pal-mcp-markdownlint');
+    // state.written 与基线跟着换：旧 profile 的文件不再归这个包
+    const state = JSON.parse(readFileSync(join(home, '.packhub/state.json'), 'utf8')) as {
+      packs: Record<string, { written: { path: string; base?: string }[]; plan?: { actions?: unknown[] } }>;
+    };
+    const written = Object.values(state.packs).flatMap((pack) => pack.written.map((item) => item.path));
+    expect(written).toContain('profiles/desktop/cordis.patch.yml');
+    expect(written).not.toContain('profiles/web/cordis.patch.yml');
+    const baselined = readBaseline(switched.record.root)!.files.map((file) => file.path);
+    expect(baselined).toContain('profiles/desktop/cordis.patch.yml');
+    expect(baselined).not.toContain('profiles/web/cordis.patch.yml');
+
+    const after = await checkInstance('dsh-profile');
+    expect(after.ok).toBe(true);
+    expect(after.mcpMissing).toBeUndefined();
+    expect(after.mcp).toMatchObject({ wired: true, file: patch('desktop'), scope: 'desktop' });
+    expect(after.mcp?.outOfScope).toEqual(['web']);
+  });
+
+  it('换 profile 时 Pack 没有 MCP 资源：记录与 scope 也跟着换，health 照样分 scope', async () => {
+    const { home } = dshAttachedHome('.dsh-no-mcp', ['web', 'desktop']);
+    await createInstance({
+      name: 'dsh-no-mcp',
+      harness: 'dsh',
+      packDir: 'test/fixtures/packs/team-conventions',
+      attachedHome: home,
+      profile: 'web',
+    });
+
+    const result = await updateInstance('dsh-no-mcp', {
+      packDir: 'test/fixtures/packs/team-conventions',
+      profile: 'desktop',
+    });
+    // 没有 MCP 条目，但指令块里的 MCP 配置路径随 profile 变，计划仍然变；记录一起换
+    expect(result.changed).toBe(true);
+    expect(result.profileChange).toEqual({ from: 'web', to: 'desktop' });
+    expect(result.record.profile).toBe('desktop');
+
+    const report = await checkInstance('dsh-no-mcp');
+    expect(report.mcp?.scope).toBe('desktop');
+    expect(report.mcp?.servers).toBe(0);
+    expect(report.mcp?.outOfScope).toEqual(['web']);
+
+    // 切回 all：desktop 是枚举时排第一的 profile，计划与单 desktop 逐字节相同（changed=false），
+    // 但记录里的范围仍必须换成 all
+    const back = await updateInstance('dsh-no-mcp', {
+      packDir: 'test/fixtures/packs/team-conventions',
+      profile: 'all',
+    });
+    expect(back.changed).toBe(false);
+    expect(back.record.profile).toBeUndefined();
+    const all = await checkInstance('dsh-no-mcp');
+    expect(all.mcp?.scope).toBe('all');
+    expect(all.mcp?.outOfScope).toBeUndefined();
   });
 
   it('没记 profile（all）：枚举当前所有 profile；装完后新建的 profile 缺条目进 mcpMissing，update 后消失', async () => {
@@ -111,6 +178,9 @@ describe('attached dsh 的 MCP 检查', () => {
     expect(healthy.ok).toBe(true);
     expect(healthy.mcpMissing).toBeUndefined();
     expect(healthy.mcp?.files).toHaveLength(2);
+    // all 的 scope 覆盖所有当前 profile：没有 scope 外的
+    expect(healthy.mcp?.scope).toBe('all');
+    expect(healthy.mcp?.outOfScope).toBeUndefined();
 
     // 安装之后新建的 profile 不在 state 里：health 枚举当前 profile，报它缺条目
     mkdirSync(join(home, 'profiles', 'later'), { recursive: true });

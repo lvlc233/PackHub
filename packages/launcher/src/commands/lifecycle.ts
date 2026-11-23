@@ -247,6 +247,13 @@ export const health = defineCommand({
     for (const report of reports) {
       console.log(`${report.ok ? '✓' : 'x'} ${report.name}\t${report.status}`);
       for (const check of report.checks) console.log(`  [${check.status}] ${check.name}: ${check.detail}`);
+      // 记录 scope 外的 profile 不是漂移：单独一行说明没装，并给装进它的下一步
+      if (report.mcp?.outOfScope?.length) {
+        console.log(
+          `  未安装（scope=${report.mcp.scope ?? 'all'}）：${report.mcp.outOfScope.join(', ')}；` +
+            '要装到该 profile：pal update --profile <名字>',
+        );
+      }
       if (report.drift && (report.drift.missing.length || report.drift.changed.length)) {
         for (const file of report.drift.missing) console.log(`    - 缺：${file}`);
         for (const file of report.drift.changed) console.log(`    ~ 改过：${file}`);

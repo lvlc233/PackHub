@@ -123,14 +123,16 @@ function requireStopped(rec: InstanceRecord): void {
 /**
  * uninstall / verify 的 `--profile`：只对 dsh attached 有意义，只用来核对记录里的选择。
  * 这两个命令按 state.written 干活，profile 不能收窄它们；记录里写的是别的 profile 就退 2，
- * 免得让人以为换个 profile 就能只处理那一份。
+ * 免得让人以为换个 profile 就能只处理那一份。换安装范围是 update 的事。
  */
 function requireRecordedProfile(rec: InstanceRecord, profile: string | undefined): void {
   if (profile === undefined) return;
   assertProfileTarget(rec.harness, rec.attached === true);
   if (rec.profile !== undefined && rec.profile !== profile) {
     throw new PalError('invalid-input', `这个 home 是按 profile「${rec.profile}」装的，不是「${profile}」`, {
-      hint: `漂移 / 卸载按 state 里的安装记录走；要换成 ${profile} 先 pal uninstall --home ${rec.name} 再 pal install … --profile ${profile}`,
+      hint:
+        `漂移 / 卸载按 state 里的安装记录走，不按 profile 收窄；要换安装范围用 ` +
+        `pal update --home ${rec.name} --profile ${profile}（摘旧 profile 的条目、写新的）`,
     });
   }
 }
@@ -555,7 +557,7 @@ export const update = defineCommand({
     profile: {
       type: 'string',
       description:
-        '只对 --home 的 dsh attached home 有意义：核对这次更新沿用的 profile（不写用记录里的）；换 profile 要先 uninstall 再重装',
+        '只对 --home 的 dsh attached home 有意义：把安装范围换成这个 profile（摘掉旧 profile 的 pal-mcp-* 条目、写进新的，记录一起改）；不写沿用记录里的，--profile all 显式切回全部已有 profile；profile 不存在退 2',
     },
     json: { type: 'boolean', default: false },
   },
@@ -593,6 +595,11 @@ export const update = defineCommand({
       return;
     }
     console.log(`${result.changed ? '✓' : '·'} ${result.from} → ${result.to}`);
+    if (result.profileChange) {
+      const from = result.profileChange.from ?? 'all';
+      const to = result.profileChange.to ?? 'all';
+      console.log(`  profile：${from} → ${to}`);
+    }
     if (result.addedFiles.length > 0) console.log(`  + ${result.addedFiles.length} 个文件`);
     if (result.removedFiles.length > 0) console.log(`  - ${result.removedFiles.length} 个旧文件已清掉`);
     for (const file of result.removedFiles.slice(0, 10)) console.log(`    ${file}`);

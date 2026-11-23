@@ -208,17 +208,130 @@ describe('dsh attached 的 profile 选择', () => {
     expect(readFileSync(patch('desktop'), 'utf8')).toBe(desktopBefore);
     expect(showJson(palHome, NAME).profile).toBe('web');
 
-    // 换 profile 不允许：update 只按记录里的 profile 重装，换范围先卸再装
-    const switched = palIn(palHome, ['update', '--home', home, '--profile', 'desktop']);
-    expect(switched.status, switched.out).toBe(2);
-    expect(switched.out).toContain('不能改成');
-    expect(switched.out).toContain('pal uninstall');
-
     // --project 上给 --profile 是用法错
     const byProject = palIn(palHome, ['update', '--project', join(base, 'proj'), '--profile', 'web']);
     expect(byProject.status, byProject.out).toBe(2);
     expect(byProject.out).toContain('--profile 只对');
   }, 120_000);
+
+  it('update --profile 换范围：web → desktop，旧条目摘掉、用户条目保留、记录与 health 一起换', () => {
+    const palHome = newPalHome('pal-dsh-profile-switch-');
+    const { base, pack } = packCopy();
+    const { home, patch } = dshHome(base, { web: WEB_USER, desktop: DESKTOP_USER });
+    expect(palIn(palHome, ['install', pack, '--host', 'dsh', '--home', home, '--profile', 'web']).status).toBe(0);
+    expect(readFileSync(patch('web'), 'utf8')).toContain('pal-mcp-markdownlint');
+
+    const switched = palIn(palHome, ['update', '--home', home, '--profile', 'desktop']);
+    expect(switched.status, switched.out).toBe(0);
+    expect(switched.out).toContain('profile：web → desktop');
+    // 旧 profile：本包条目摘掉，用户自己的内容逐字节不动
+    expect(readFileSync(patch('web'), 'utf8')).toBe(WEB_USER);
+    expect(readFileSync(patch('web'), 'utf8')).not.toContain('pal-mcp-');
+    // 新 profile：条目写进去，用户条目保留
+    const desktopText = readFileSync(patch('desktop'), 'utf8');
+    expect(desktopText).toContain('- id: pal-mcp-markdownlint');
+    expect(desktopText).toContain('desktop-only');
+    expect(desktopText.startsWith(DESKTOP_USER)).toBe(true);
+    expect(showJson(palHome, NAME).profile).toBe('desktop');
+
+    // verify 按新记录核对：desktop 有条目、web 不在 scope 里，不报漂移
+    const verified = palIn(palHome, ['verify', '--home', home]);
+    expect(verified.status, verified.out).toBe(0);
+
+    // health：desktop 正常，web 是 scope 外「未安装」而不是 mcpMissing
+    const text = palIn(palHome, ['health', NAME]);
+    expect(text.status, text.out).toBe(0);
+    expect(text.out).toContain('未安装（scope=desktop）：web');
+    expect(text.out).toContain('pal update --profile');
+    const json = palIn(palHome, ['health', NAME, '--json']);
+    expect(json.status, json.out).toBe(0);
+    const report = JSON.parse(json.out.slice(json.out.indexOf('{'), json.out.lastIndexOf('}') + 1)) as {
+      mcp?: { scope?: string; wired?: boolean; outOfScope?: string[] };
+      mcpMissing?: string[];
+    };
+    expect(report.mcp).toMatchObject({ scope: 'desktop', wired: true, outOfScope: ['web'] });
+    expect(report.mcpMissing).toBeUndefined();
+  }, 120_000);
+
+  it('update --profile 换范围：all → web，其它 profile 的条目摘掉', () => {
+    const palHome = newPalHome('pal-dsh-profile-all-to-web-');
+    const { base, pack } = packCopy();
+    const { home, patch } = dshHome(base, { web: WEB_USER, desktop: DESKTOP_USER });
+    expect(palIn(palHome, ['install', pack, '--host', 'dsh', '--home', home]).status).toBe(0);
+    for (const name of ['web', 'desktop']) {
+      expect(readFileSync(patch(name), 'utf8')).toContain('pal-mcp-markdownlint');
+    }
+
+    const switched = palIn(palHome, ['update', '--home', home, '--profile', 'web']);
+    expect(switched.status, switched.out).toBe(0);
+    expect(switched.out).toContain('profile：all → web');
+    expect(readFileSync(patch('desktop'), 'utf8')).toBe(DESKTOP_USER);
+    expect(readFileSync(patch('web'), 'utf8')).toContain('pal-mcp-markdownlint');
+    expect(showJson(palHome, NAME).profile).toBe('web');
+
+    const json = palIn(palHome, ['health', NAME, '--json']);
+    expect(json.status, json.out).toBe(0);
+    const report = JSON.parse(json.out.slice(json.out.indexOf('{'), json.out.lastIndexOf('}') + 1)) as {
+      mcp?: { scope?: string; outOfScope?: string[] };
+    };
+    expect(report.mcp).toMatchObject({ scope: 'web', outOfScope: ['desktop'] });
+  }, 120_000);
+
+  it('update --profile all：从单个 profile 切回全部已有 profile', () => {
+    const palHome = newPalHome('pal-dsh-profile-web-to-all-');
+    const { base, pack } = packCopy();
+    const { home, patch } = dshHome(base, { web: WEB_USER, desktop: DESKTOP_USER });
+    expect(palIn(palHome, ['install', pack, '--host', 'dsh', '--home', home, '--profile', 'web']).status).toBe(0);
+    expect(readFileSync(patch('desktop'), 'utf8')).toBe(DESKTOP_USER);
+
+    const switched = palIn(palHome, ['update', '--home', home, '--profile', 'all']);
+    expect(switched.status, switched.out).toBe(0);
+    expect(switched.out).toContain('profile：web → all');
+    expect(readFileSync(patch('web'), 'utf8')).toContain('pal-mcp-markdownlint');
+    expect(readFileSync(patch('desktop'), 'utf8')).toContain('pal-mcp-markdownlint');
+    expect(readFileSync(patch('desktop'), 'utf8')).toContain('desktop-only');
+    expect(showJson(palHome, NAME).profile).toBeUndefined();
+
+    const json = palIn(palHome, ['health', NAME, '--json']);
+    const report = JSON.parse(json.out.slice(json.out.indexOf('{'), json.out.lastIndexOf('}') + 1)) as {
+      mcp?: { scope?: string; outOfScope?: string[] };
+    };
+    expect(report.mcp).toMatchObject({ scope: 'all' });
+    expect(report.mcp?.outOfScope).toBeUndefined();
+  }, 120_000);
+
+  it('update --profile 指向不存在的 profile：退 2，记录与 patch 都不动', () => {
+    const palHome = newPalHome('pal-dsh-profile-switch-missing-');
+    const { base, pack } = packCopy();
+    const { home, patch } = dshHome(base, { web: WEB_USER, desktop: DESKTOP_USER });
+    expect(palIn(palHome, ['install', pack, '--host', 'dsh', '--home', home, '--profile', 'web']).status).toBe(0);
+    const webBefore = readFileSync(patch('web'), 'utf8');
+    const desktopBefore = readFileSync(patch('desktop'), 'utf8');
+
+    const res = palIn(palHome, ['update', '--home', home, '--profile', 'nope']);
+    expect(res.status, res.out).toBe(2);
+    expect(res.out).toContain('nope');
+    expect(res.out).toContain('先启动一次 dsh');
+    expect(showJson(palHome, NAME).profile).toBe('web');
+    expect(readFileSync(patch('web'), 'utf8')).toBe(webBefore);
+    expect(readFileSync(patch('desktop'), 'utf8')).toBe(desktopBefore);
+    expect(existsSync(join(home, 'profiles', 'nope'))).toBe(false);
+  }, 120_000);
+
+  it('update --profile 配 --project / 别的 target 仍是用法错（退 2）', () => {
+    const palHome = newPalHome('pal-dsh-profile-update-misuse-');
+    const { base, pack } = packCopy();
+    const byProject = palIn(palHome, ['update', '--project', join(base, 'proj'), '--profile', 'web']);
+    expect(byProject.status, byProject.out).toBe(2);
+    expect(byProject.out).toContain('--profile 只对');
+    // managed home / 别的宿主同样拒：--profile 没有 per-profile 语义
+    const host = palIn(palHome, ['install', pack, '--host', 'dsh', '--name', 'managed-dsh']);
+    expect(host.status, host.out).toBe(0);
+    const managed = palIn(palHome, ['update', '--home', 'managed-dsh', '--profile', 'web']);
+    expect(managed.status, managed.out).toBe(2);
+    expect(managed.out).toContain('--profile 只对');
+  }, 120_000);
+
 
   it('update 去掉一个 MCP 资源：两个 profile 的条目摘掉，用户内容逐字节不变', () => {
     const palHome = newPalHome('pal-dsh-profile-update-mcp-');
