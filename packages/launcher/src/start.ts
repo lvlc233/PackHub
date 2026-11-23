@@ -1,4 +1,4 @@
-﻿import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process';
+import { spawn as nodeSpawn, type ChildProcess } from 'node:child_process';
 import {
   closeSync,
   existsSync,
@@ -9,7 +9,7 @@ import {
 } from 'node:fs';
 import { extname, join } from 'node:path';
 import { parseStartUrl, requireAdapter, type HarnessAdapter } from './layout.ts';
-import { listInstances, readInstance, requireInstance, writeInstance, nowIso, type InstanceRecord } from './index.ts';
+import { readInstance, requireInstance, scanInstances, writeInstance, nowIso, type InstanceRecord } from './index.ts';
 import { mergeRecord, partitionRecord } from './records.ts';
 import { PalError } from './errors.ts';
 import { discoverHarness, requireHarnessBinary, whichSync } from './harness.ts';
@@ -817,7 +817,8 @@ export function statusView(records: InstanceRecord[], isAlive: (pid: number) => 
 
 /** 进程已经不在了的实例标成 broken，并记下端口收回了；其余原样返回。 */
 export function refreshStatuses(isAlive: (pid: number) => boolean = isPidAlive): InstanceRecord[] {
-  return listInstances().map((rec) => {
+  // 纯读扫描：刷新只写 runtime 状态，不顺手隔离坏记录（那是 pal list 之外的显式动作）
+  return scanInstances().records.map((rec) => {
     const next = deriveStatus(rec, isAlive);
     if (next !== rec) {
       // stale 是视图字段：即便某份记录里混进了它，落盘前也剥掉

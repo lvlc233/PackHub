@@ -26,13 +26,16 @@ async function resolveValue<T>(
  * 子命令自己的 --help 仍用 citty 的 renderUsage（参数表由 citty 生成，避免两套）。
  */
 const HELP_GROUPS: { title: string; names: string[] }[] = [
-  { title: '安装目录（对象是已存在的目录）', names: ['install', 'uninstall', 'verify', 'rollback', 'update'] },
+  {
+    title: '安装目录（对象是已存在的目录；新建实例用 pal create）',
+    names: ['install', 'uninstall', 'verify', 'rollback', 'update'],
+  },
   {
     title: '实例',
-    names: ['create', 'adopt', 'list', 'show', 'start', 'stop', 'restart', 'status', 'ps', 'core', 'health', 'logs', 'use', 'current', 'remove', 'config'],
+    names: ['create', 'adopt', 'list', 'show', 'start', 'stop', 'restart', 'ps', 'core', 'health', 'logs', 'use', 'current', 'remove', 'config'],
   },
-  { title: '搬运', names: ['scan', 'clone', 'rename', 'migrate', 'export', 'import', 'backup', 'restore', 'recover'] },
-  { title: '其它', names: ['cache', 'rebaseline', 'audit'] },
+  { title: '搬运', names: ['scan', 'clone', 'rename', 'migrate', 'export', 'import', 'backup', 'restore'] },
+  { title: '其它', names: ['cache', 'rebaseline', 'audit', 'leftovers'] },
 ];
 
 /** 一条命令的一行描述；meta 可能是函数 / Promise，按 citty 的规则先求值。 */

@@ -1,4 +1,4 @@
-﻿// 目录对象命令：install / uninstall / verify / rollback 作用于「一个已存在的目录」，
+// 目录对象命令：install / uninstall / verify / rollback 作用于「一个已存在的目录」，
 // 不创建 PAL 实例记录。新建实例仍走 create（pal create）。
 //
 // 与实例路径的分工：
@@ -85,7 +85,7 @@ function requireInstalledState(dir: string): ReturnType<typeof loadState> {
 export const installDir = defineCommand({
   meta: {
     name: 'install',
-    description: `把来源装进一个已存在的目录（只写文件与 ${STATE_FILE}）。${INSTANCE_HINT}`,
+    description: `把来源装进一个已存在的目录（只写文件与 ${STATE_FILE}）`,
   },
   args: {
     source: {
@@ -178,7 +178,7 @@ export const installDir = defineCommand({
 export const uninstallDir = defineCommand({
   meta: {
     name: 'uninstall',
-    description: `按目录里的 ${STATE_FILE} 反向删掉已装文件。${INSTANCE_HINT}`,
+    description: `按目录里的 ${STATE_FILE} 反向删掉已装文件`,
   },
   args: {
     dir: { type: 'positional', required: true, description: '已装过包的目录' },
@@ -203,7 +203,7 @@ export const uninstallDir = defineCommand({
 export const verifyDir = defineCommand({
   meta: {
     name: 'verify',
-    description: `体检一个已安装目录：漂移 + 清单检查 + 计划派生检查。${INSTANCE_HINT}`,
+    description: '体检一个已安装目录：漂移 + 清单检查 + 计划派生检查',
   },
   args: {
     dir: { type: 'positional', required: true, description: '已装过包的目录' },
@@ -274,7 +274,7 @@ export const verifyDir = defineCommand({
 export const rollbackDir = defineCommand({
   meta: {
     name: 'rollback',
-    description: `退回一个已安装目录的上一次安装之前。${INSTANCE_HINT}`,
+    description: '退回一个已安装目录的上一次安装之前',
   },
   args: {
     dir: { type: 'positional', required: true, description: '已装过包的目录' },
@@ -298,20 +298,19 @@ export const rollbackDir = defineCommand({
 /* ---------- update 的目录分支 ---------- */
 
 /**
- * `pal update <TARGET>`：TARGET 是含 `.packhub/state.json` 的目录时按目录更新，
- * 读 state 里装的包与上次 harness，按 registry 最新版重装；返回 false 表示交给实例语义。
+ * `pal update --dir <path>`：按目录更新，读 state 里装的包与上次 harness，
+ * 按 registry 最新版重装。这个入口是显式的：目录没装过包直接报用法错。
  */
-export async function updateStateDirIfTarget(
+export async function updateStateDir(
   target: string,
   opts: { index?: string; version?: string; json: boolean },
-): Promise<boolean> {
+): Promise<void> {
   const dir = resolve(target);
-  if (!existsSync(join(dir, STATE_FILE))) return false;
   const state = loadState(dir);
   const keys = Object.keys(state.packs);
   if (keys.length === 0) {
     throw new PalError('invalid-input', `这个目录没有安装记录：${dir}（state 里没有包）`, {
-      hint: INSTANCE_HINT,
+      hint: '装进这个目录用 pal install --into <目录>；新建实例用 pal create。',
     });
   }
   const indexRef = resolveRegistry(opts.index);
@@ -337,5 +336,4 @@ export async function updateStateDirIfTarget(
     for (const warning of result.warnings) console.log(`  ! ${warning}`);
   }
   if (opts.json) console.log(JSON.stringify({ dir, results }, null, 2));
-  return true;
 }

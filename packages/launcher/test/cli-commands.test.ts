@@ -51,6 +51,24 @@ describe('pal 命令面（CLI 级）', () => {
     expect(res.out).toContain('doctor');
   });
 
+  it('顶层 status / recover 已不是命令：status 并入 ps，recover 改名 leftovers', () => {
+    for (const removed of ['status', 'recover']) {
+      const res = pal([removed]);
+      expect(res.status, `${removed} 应该被当未知命令`).toBe(1);
+      expect(res.out).toContain('Unknown command');
+      expect(res.out).toContain(removed);
+    }
+  });
+
+  it('pal leftovers 只读列出隔离区 / 失败现场 / 归档区，不删也不搬', () => {
+    const res = pal(['leftovers']);
+    expect(res.status).toBe(0);
+    expect(res.out).toContain('quarantine');
+    expect(res.out).toContain('failed');
+    expect(res.out).toContain('archive');
+    expect(res.out).toContain('只读');
+  });
+
   it('pal audit 读安装审计：pal install 写、pal audit 读', () => {
     const base = mkdtempSync(join(tmpdir(), 'pal-cli-audit-'));
     const pack = join(base, 'pack');

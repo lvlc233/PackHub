@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -195,14 +195,89 @@ describe('pal ps：并发账本', () => {
 describe('pal ps CLI', () => {
   interface CommandShape {
     args?: Record<string, { type?: string; default?: unknown } | undefined>;
+    run: (ctx: { args: Record<string, unknown> }) => unknown;
   }
 
   const command = (main as unknown as { subCommands?: Record<string, CommandShape | undefined> })
     .subCommands?.['ps'];
 
-  it('挂了 ps 子命令，声明 --json（boolean，默认 false）', () => {
+  /** 跑一次 ps 命令，收集 console.log 输出（不 spawn，命令层直接跑）。 */
+  function runPs(args: Record<string, unknown>): string[] {
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, 'log').mockImplementation((line?: unknown) => {
+      lines.push(String(line));
+    });
+    try {
+      command!.run({ args });
+    } finally {
+      spy.mockRestore();
+    }
+    return lines;
+  }
+
+  it('挂了 ps 子命令，声明 --json 与 --refresh（boolean，默认 false）', () => {
     expect(command, 'ps 应存在').toBeTruthy();
     expect(command?.args?.json?.type).toBe('boolean');
     expect(command?.args?.json?.default).toBe(false);
+    // 刷新要显式 --refresh；默认纯读
+    expect(command?.args?.refresh?.type).toBe('boolean');
+    expect(command?.args?.refresh?.default).toBe(false);
+  });
+
+  it('默认不改 runtime.json：死 pid 只在视图里标 stale', () => {
+    const deadPid = 2_147_483_647;
+    const dir = writeRecord('20260102000000-000000000001', {
+      name: 'dead',
+      pid: deadPid,
+      port: 43215,
+      startedAt: '2026-01-02T00:00:00.000Z',
+    });
+    const runtimePath = join(dir, 'runtime.json');
+    const before = readFileSync(runtimePath, 'utf8');
+    const beforeStat = statSync(runtimePath);
+
+    const text = runPs({ json: false }).join('\n');
+    expect(text).toContain('stale');
+    expect(text).toContain('pal ps --refresh 才会刷新');
+
+    expect(readFileSync(runtimePath, 'utf8')).toBe(before);
+    const afterStat = statSync(runtimePath);
+    expect(afterStat.mtimeMs).toBe(beforeStat.mtimeMs);
+    expect(JSON.parse(before).pid).toBe(deadPid);
+  });
+
+  it('--refresh 才写盘：死 pid 的记录被刷成 broken，pid 与端口收回', () => {
+    const deadPid = 2_147_483_647;
+    const dir = writeRecord('20260102000000-000000000002', {
+      name: 'dead',
+      pid: deadPid,
+      port: 43216,
+      startedAt: '2026-01-02T00:00:00.000Z',
+    });
+    const runtimePath = join(dir, 'runtime.json');
+    const before = readFileSync(runtimePath, 'utf8');
+
+    // 先默认跑一遍：不写
+    runPs({ json: true });
+    expect(readFileSync(runtimePath, 'utf8')).toBe(before);
+
+    const lines = runPs({ json: true, refresh: true });
+    const runtime = JSON.parse(readFileSync(runtimePath, 'utf8')) as {
+      status?: string;
+      pid?: number;
+      ports?: unknown[];
+    };
+    expect(runtime.status).toBe('broken');
+    expect(runtime.pid).toBeUndefined();
+    expect(runtime.ports).toEqual([]);
+
+    // 刷完再出账本：这条记录不在「在跑」里了
+    const report = JSON.parse(lines.join('\n')) as {
+      instances: { id: string }[];
+      total: { running: number; stale: number };
+    };
+    expect(report.instances.map((item) => item.id)).not.toContain('20260102000000-000000000002');
+    expect(report.total.running).toBe(0);
+    expect(report.total.stale).toBe(0);
   });
 });

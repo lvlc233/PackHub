@@ -82,7 +82,7 @@ Pack 里的一条能力声明，它相对于 Agent，而不是相对于整个 ha
 
 安装把 Pack 落进一个目录的过程：项目目录或实例根。内容展开到文件，登记写进该目录的 `.packhub/state.json`。
 
-安装由 `pal` 执行，`packhub` 不写用户目录：目录侧是 `pal install <来源> --into <目录> --harness <宿主>`（只写文件与 state，不建实例记录），已存在的目录另有 `pal uninstall` / `pal verify` / `pal rollback` / `pal update`。要一份能跑起来的环境仍在实例上——`pal create --kind <宿主>` 建宿主实例，目录形态的实例用 `pal adopt` 接管已有目录，起停与看护归启动器。
+安装由 `pal` 执行，`packhub` 不写用户目录：目录侧是 `pal install <来源> --into <目录> --harness <宿主>`（只写文件与 state，不建实例记录），已存在的目录另有 `pal uninstall` / `pal verify` / `pal rollback`，目录更新用 `pal update --dir <目录>`。要一份能跑起来的环境仍在实例上——`pal create --kind <宿主>` 建宿主实例，目录形态的实例用 `pal adopt` 接管已有目录，起停与看护归启动器。
 
 安装只发生在目录，不在别处发生；全局环境不是安装的落点，而是实例的 home（见 Launcher 词条）。
 
@@ -138,7 +138,7 @@ Pack 里的一条能力声明，它相对于 Agent，而不是相对于整个 ha
 
 ### Launcher（启动器）
 
-启动器（`pal`）管两类对象：已存在的目录与实例。目录侧是 `install` / `uninstall` / `verify` / `rollback`，`update` 目录与实例都接；这些目录命令只写文件与 `.packhub/state.json`，不建实例记录。实例侧列、创建、复制、迁移、备份、删除实例并照看起停；新建实例用 `pal create`（必须选宿主），接管已有目录用 `pal adopt`。实例状态用 `pal health` 看，加 `--hosts` 时附带宿主发现（装没装、版本、能不能起）；安装审计用 `pal audit` 看。实例是运行入口：要跑起来、要一份全局环境，都在实例上发生，不在目录里。
+启动器（`pal`）管两类对象：已存在的目录与实例。目录侧是 `install` / `uninstall` / `verify` / `rollback`，目录更新用 `pal update --dir <目录>`（位置参数只收实例）；这些目录命令只写文件与 `.packhub/state.json`，不建实例记录。实例侧：`create` 建实例（必须选宿主）、`adopt` 接管已有目录，两者默认把新实例设为它宿主的当前实例；`use` 改当前、`current` 看当前，`start` 不写目标时用当前实例（多个宿主各有当前实例时要求显式指定）。`list` / `ps` 是纯读：`list` 把坏记录原样列出、不隔离；`ps` 默认只出账本（在跑、端口、运行时长、端口冲突、已死的 pid），加 `--refresh` 才按 pid 探测并写回记录。`health` 体检实例（`--hosts` 附带宿主发现），`audit` 看安装审计，`leftovers` 只读列出隔离区 / 失败现场 / 归档区（不移动、不删除）。列、复制、迁移、备份、删除实例与起停看护都在这里。实例是运行入口：要跑起来、要一份全局环境，都在实例上发生，不在目录里。
 
 实现上分两层：常驻的 core 独占启停与看护（CLI 只是它的客户端），core 被杀了由用户任务计划带回来。
 

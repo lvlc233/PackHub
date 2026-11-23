@@ -195,7 +195,7 @@ describe('pal 目录对象：verify / uninstall', () => {
 });
 
 describe('pal 目录对象：update / rollback', () => {
-  it('先装旧版，再用 pal update 目录语义更到新版；rollback 回到旧版', async () => {
+  it('先装旧版，再用 pal update --dir 更到新版；rollback 回到旧版', async () => {
     const base = tmp('pal-dir-update-');
     const index = await makeRegistry(base, [
       { version: '0.1.0', body: '# v1\n' },
@@ -206,7 +206,7 @@ describe('pal 目录对象：update / rollback', () => {
     expect(pal(['install', 'demo/upd@0.1.0', '--into', project, '--harness', 'dsh', '--index', index]).status).toBe(0);
     expect(readFileSync(join(project, '.packhub/knowledge/rules.md'), 'utf8')).toBe('# v1\n');
 
-    const updated = pal(['update', project, '--index', index]);
+    const updated = pal(['update', '--dir', project, '--index', index]);
     expect(updated.status).toBe(0);
     expect(updated.out).toContain('demo/upd@0.1.0 → demo/upd@0.2.0');
     expect(readFileSync(join(project, '.packhub/knowledge/rules.md'), 'utf8')).toBe('# v2\n');
@@ -219,6 +219,21 @@ describe('pal 目录对象：update / rollback', () => {
     rmSync(base, { recursive: true, force: true });
   });
 
+  it('update 的位置参数只收实例：给一个已装目录退 2，并指向 --dir / install --into', () => {
+    const base = tmp('pal-dir-update-positional-');
+    const pack = join(base, 'pack');
+    const project = join(base, 'project');
+    cpSync(FIXTURE, pack, { recursive: true });
+    expect(pal(['install', pack, '--into', project, '--harness', 'dsh']).status).toBe(0);
+
+    const res = pal(['update', project]);
+    expect(res.status).toBe(2);
+    expect(res.out).toContain('update 的位置参数只收实例');
+    expect(res.out).toContain('pal update --dir');
+    expect(res.out).toContain('pal install --into');
+    rmSync(base, { recursive: true, force: true });
+  });
+
   it('目录 update 没有索引：前置条件错，指出要 --index', () => {
     const base = tmp('pal-dir-update-noidx-');
     const pack = join(base, 'pack');
@@ -226,7 +241,7 @@ describe('pal 目录对象：update / rollback', () => {
     cpSync(FIXTURE, pack, { recursive: true });
     expect(pal(['install', pack, '--into', project, '--harness', 'dsh']).status).toBe(0);
 
-    const res = pal(['update', project]);
+    const res = pal(['update', '--dir', project]);
     expect(res.status).toBe(2);
     expect(res.out).toContain('按目录更新需要一个 registry 索引');
     rmSync(base, { recursive: true, force: true });

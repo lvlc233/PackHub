@@ -38,6 +38,7 @@ import { isPidAlive } from '../src/process.ts';
 import { isStopping, stoppingMarkFile } from '../src/stopMark.ts';
 import { baselineDrift } from '../src/health.ts';
 import { archiveRoot, failedRoot, palConfigFile, quarantineRoot } from '../src/paths.ts';
+import { main } from '../src/cli.ts';
 
 const PACK = 'test/fixtures/packs/doc-review';
 
@@ -143,6 +144,23 @@ function listDirNames(dir: string): string[] {
   } catch {
     return [];
   }
+}
+
+/** 跑一次 `pal list`（命令层），把 console.log 的输出收集回来：list 是纯读的。 */
+async function runList(args: Record<string, unknown> = {}): Promise<string[]> {
+  const command = (main as unknown as {
+    subCommands: Record<string, { run: (ctx: { args: Record<string, unknown> }) => unknown }>;
+  }).subCommands.list!;
+  const lines: string[] = [];
+  const spy = vi.spyOn(console, 'log').mockImplementation((line?: unknown) => {
+    lines.push(String(line));
+  });
+  try {
+    await command.run({ args });
+  } finally {
+    spy.mockRestore();
+  }
+  return lines;
 }
 
 /** 造一个指定版本、写一组 knowledge 文件的 Pack；同一名字的两个目录就是两个版本。 */
@@ -387,7 +405,7 @@ describe('实例配置', () => {
     }
   });
 
-  it('坏记录移进隔离区，不再静默消失', async () => {
+  it('pal list 纯读：坏记录只列出来，不移动、不建隔离区', async () => {
     const good = await createInstance({ name: 'good', harness: 'dir', packDir: PACK });
     const badDir = join(tmp, 'instances', 'broken-one');
     mkdirSync(badDir, { recursive: true });
@@ -396,16 +414,24 @@ describe('实例配置', () => {
     const scan = scanInstances();
     expect(scan.broken.map((bad) => bad.dir)).toEqual([badDir]);
 
-    const rows = listInstances();
-    expect(rows.map((row) => row.id)).toEqual([good.id]);
-    expect(existsSync(badDir)).toBe(false);
-    const quarantined = listDirNames(quarantineRoot());
-    expect(quarantined).toHaveLength(1);
-    const reason = readFileSync(join(quarantineRoot(), quarantined[0]!, 'reason.json'), 'utf8');
-    expect(reason).toContain('instance.json');
+    const text = (await runList()).join('\n');
+    expect(text).toContain(good.id);
+    expect(text).toContain('坏记录');
+    expect(text).toContain(badDir);
+
+    const json = JSON.parse((await runList({ json: true })).join('\n')) as {
+      instances: { id: string }[];
+      broken: { dir: string }[];
+    };
+    expect(json.instances.map((row) => row.id)).toEqual([good.id]);
+    expect(json.broken.map((bad) => bad.dir)).toEqual([badDir]);
+
+    // 纯读：目录原地不动，也不建隔离区
+    expect(existsSync(badDir)).toBe(true);
+    expect(listDirNames(quarantineRoot())).toEqual([]);
   });
 
-  it('runtime.json 损坏也算坏记录：readRecordResult / scan / 隔离口径一致', async () => {
+  it('runtime.json 损坏也算坏记录：readRecordResult / scan / pal list 口径一致且不改盘', async () => {
     const record = await createInstance({ name: 'bad-runtime', harness: 'dir', packDir: PACK });
     writeFileSync(runtimeFile(record.root), '{ not json', 'utf8');
 
@@ -414,9 +440,11 @@ describe('实例配置', () => {
     expect(read.error).toContain('runtime.json');
     expect(scanInstances().broken.map((bad) => bad.dir)).toContain(record.root);
 
-    const rows = listInstances();
-    expect(rows.map((row) => row.id)).not.toContain(record.id);
-    expect(existsSync(record.root)).toBe(false);
+    const text = (await runList()).join('\n');
+    expect(text).toContain('坏记录');
+    expect(text).toContain(record.root);
+    expect(existsSync(record.root)).toBe(true);
+    expect(listDirNames(quarantineRoot())).toEqual([]);
   });
 
   it('建实例失败：复用已有目录时不删目录；自己建的根移进失败区', async () => {
