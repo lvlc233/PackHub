@@ -28,7 +28,12 @@ function stripAnsi(text: string): string {
 registerHarness({
   id: 'codex',
   label: 'Codex',
-  destination: (kind, ctx) => (ctx.scope === 'project' ? PROJECT(kind) : HOME(kind)),
+  destination: (kind, ctx) => {
+    if (ctx.scope === 'attached') {
+      throw new Error('宿主 codex 没有 attached 落点：launcher 应在写盘前拒绝');
+    }
+    return ctx.scope === 'project' ? PROJECT(kind) : HOME(kind);
+  },
   home: { dir: HOME_DIR, env: 'CODEX_HOME' },
   executable: 'codex',
   versionArgs: ['--version'],

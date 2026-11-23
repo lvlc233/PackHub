@@ -26,7 +26,7 @@ export function reportIssues(issues: Issue[], ctx = 'packhub'): boolean {
  *
  * 预览/检查参数：只有宿主名，不写 = 平铺目录。
  *
- * 它只决定「按哪个宿主的落点表算计划」，不写清单、不安装；拼错/传 dir 都按用法错退出（2）。
+ * 它只决定「按哪个宿主的落点算计划」，不写清单、不安装；拼错/传 dir 都按用法错退出（2）。
  */
 export function parseHarness(raw: string | undefined): HarnessId | undefined {
   if (raw === undefined) return undefined;

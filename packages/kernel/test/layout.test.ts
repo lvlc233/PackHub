@@ -185,6 +185,11 @@ describe('落点归宿主：每个宿主回答每类资源落在哪', () => {
       const specOfId = requireHarness(id);
       expect(typeof specOfId.destination, `${id} 应实现 destination`).toBe('function');
       for (const scope of ['project', 'home', 'attached'] as const) {
+        // 没有 declared attached 能力的宿主：attached 直接抛错，不许回落
+        if (scope === 'attached' && specOfId.attached !== true) {
+          expect(() => specOfId.destination('skill', ctx(scope)), `${id}/attached 应拒绝`).toThrow(/attached/);
+          continue;
+        }
         for (const kind of ['skill', 'knowledge', 'prompt', 'bin', 'config', 'cache'] as const) {
           const { path } = specOfId.destination(kind, ctx(scope));
           expect(typeof path, `${id}/${scope}/${kind}`).toBe('string');

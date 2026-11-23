@@ -29,7 +29,12 @@ function stripAnsi(text: string): string {
 registerHarness({
   id: 'claude-code',
   label: 'Claude Code',
-  destination: (kind, ctx) => (ctx.scope === 'project' ? PROJECT(kind) : HOME(kind)),
+  destination: (kind, ctx) => {
+    if (ctx.scope === 'attached') {
+      throw new Error('宿主 claude-code 没有 attached 落点：launcher 应在写盘前拒绝');
+    }
+    return ctx.scope === 'project' ? PROJECT(kind) : HOME(kind);
+  },
   home: { dir: HOME_DIR, env: 'CLAUDE_CONFIG_DIR' },
   executable: 'claude',
   versionArgs: ['--version'],

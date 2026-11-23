@@ -56,7 +56,7 @@ export interface InstallFromSourceOptions {
   source: string;
   /** 项目根：装到这里 */
   projectDir: string;
-  /** 按哪个宿主的落点表物化；不写 = 平铺目录 */
+  /** 按哪个宿主的落点物化；不写 = 平铺目录 */
   harness?: HarnessId;
   /** registry 索引（本地路径或 URL）；registry 名必填，其它来源忽略 */
   index?: string;

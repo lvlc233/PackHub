@@ -360,7 +360,7 @@ export function buildPlan(
     push({
       op: 'exec',
       command: interp(spec.command) as string,
-      args: interpolate(spec.args ?? [], scope, []) as string[],
+      args: interp(spec.args ?? []) as string[],
       ...(spec.cwd ? { cwd: interp(spec.cwd) as string } : {}),
       ...(spec.env ? { env: interp(spec.env) as Record<string, string> } : {}),
       ...(spec.timeout ? { timeout: spec.timeout } : {}),

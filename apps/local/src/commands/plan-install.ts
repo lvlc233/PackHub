@@ -25,7 +25,7 @@ export const plan = command({
     json: { type: 'boolean', default: false },
     harness: {
       type: 'string',
-      description: `预览参数：按哪个宿主的落点表算计划（${harnessIds().join(' / ')}）；不写 = 平铺目录；真正安装用 pal install`,
+      description: `预览参数：按哪个宿主的落点算计划（${harnessIds().join(' / ')}）；不写 = 平铺目录；真正安装用 pal install`,
     },
   },
   run({ args }) {
@@ -54,7 +54,7 @@ export const verify = command({
     dir: { type: 'positional', required: false, default: '.', description: '要体检的 Pack 目录（含清单）' },
     harness: {
       type: 'string',
-      description: `检查参数：按哪个宿主的落点表算检查计划（${harnessIds().join(' / ')}）；不写 = 平铺目录，--probe 时探针默认 dsh`,
+      description: `检查参数：按哪个宿主的落点算检查计划（${harnessIds().join(' / ')}）；不写 = 平铺目录，--probe 时探针默认 dsh`,
     },
     probe: {
       type: 'boolean',

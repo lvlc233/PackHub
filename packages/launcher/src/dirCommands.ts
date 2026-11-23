@@ -114,7 +114,7 @@ export const installDir = defineCommand({
     // 必填但手动校验：citty 的 required 缺失走 internal（退出 1），这里按用法错退出 2
     if (args.host === undefined) {
       throw new PalError('invalid-input', '缺少 --host', {
-        hint: `必须指定按哪个宿主的落点表物化：${harnessHint()}；用户面用 pal install --project <目录> --host <宿主>。`,
+        hint: `必须指定按哪个宿主的落点物化：${harnessHint()}；用户面用 pal install --project <目录> --host <宿主>。`,
       });
     }
     const harness = parseInstallHost(args.host);

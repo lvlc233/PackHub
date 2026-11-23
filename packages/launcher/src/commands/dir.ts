@@ -153,7 +153,7 @@ export const install = defineCommand({
     },
     host: {
       type: 'string',
-      description: `按哪个宿主的落点表装（必填）：${harnessIds().join(' / ')}`,
+      description: `按哪个宿主的落点装（必填）：${harnessIds().join(' / ')}`,
     },
     name: {
       type: 'string',

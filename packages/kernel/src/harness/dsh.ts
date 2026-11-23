@@ -52,7 +52,12 @@ registerHarness({
   // 项目里只写指路块（AGENTS.md），技能不注册进项目；要注册技能得建环境
   project: 'pointer',
   // DSH 的 skills 与 MCP 目前挂在 profile（全局）；项目落点只有指令块
-  destination: (kind, ctx) => (ctx.scope === 'project' ? PROJECT(kind) : HOME(kind)),
+  destination: (kind, ctx) => {
+    if (ctx.scope === 'attached') {
+      throw new Error('宿主 dsh 没有 attached 落点：launcher 应在写盘前拒绝');
+    }
+    return ctx.scope === 'project' ? PROJECT(kind) : HOME(kind);
+  },
   home: { dir: HOME_DIR, env: 'DSH_HOME' },
   executable: 'dsh',
   versionArgs: ['--version'],

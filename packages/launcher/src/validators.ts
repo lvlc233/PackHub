@@ -42,7 +42,7 @@ export function hostArg(raw: unknown, what: string): HarnessId {
   const value = String(raw ?? '').trim();
   if (!value) {
     throw new PalError('invalid-input', `${what} 需要 --host`, {
-      hint: `按哪个宿主的落点表：${harnessIds().join(' / ')}`,
+      hint: `按哪个宿主的落点：${harnessIds().join(' / ')}`,
     });
   }
   if (!isHarnessId(value)) {
