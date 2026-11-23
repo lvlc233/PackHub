@@ -276,14 +276,15 @@ describe('--home：attached home', () => {
     rmSync(base, { recursive: true, force: true });
   }, 60_000);
 
-  it('attached home：remove / clone / migrate / backup 全部拒绝；卸包走 uninstall --home', () => {
+  it('attached home：remove 只摘记录（目录保留）；clone / migrate / backup 仍拒绝', () => {
     const palHome = newPalHome('pal-attached-guard-');
     const { base, pack } = packFixture(SKILL_FIXTURE);
     const attachedHome = join(base, 'opencode-home');
     expect(palIn(palHome, ['install', pack, '--host', 'opencode', '--home', attachedHome]).status).toBe(0);
+    // 用户自己的文件：摘记录后必须还在
+    writeFileSync(join(attachedHome, 'mine.txt'), 'keep', 'utf8');
 
     for (const args of [
-      ['remove', 'opencode-lvlc233-doc-review'],
       ['clone', 'opencode-lvlc233-doc-review', '--name', 'copy'],
       ['migrate', 'opencode-lvlc233-doc-review', join(base, 'moved')],
       ['backup', 'opencode-lvlc233-doc-review'],
@@ -291,13 +292,78 @@ describe('--home：attached home', () => {
       const bad = palIn(palHome, args);
       expect(bad.status, `${args[0]} 应拒绝 attached home`).toBe(2);
       expect(bad.out).toContain('attached home 不归 PAL');
-      expect(bad.out).toContain('pal uninstall --home');
+      expect(bad.out).toContain('remove 只摘记录');
     }
-    expect(existsSync(join(attachedHome, 'skills/doc-review/SKILL.md'))).toBe(true);
 
-    const removed = palIn(palHome, ['uninstall', '--home', attachedHome]);
+    const removed = palIn(palHome, ['remove', 'opencode-lvlc233-doc-review', '--yes']);
     expect(removed.status, removed.out).toBe(0);
+    expect(removed.out).toContain('detached opencode-lvlc233-doc-review（目录保留）');
+    // 卸包：PAL 装进去的 skill 没了；目录与用户文件都在
     expect(existsSync(join(attachedHome, 'skills/doc-review/SKILL.md'))).toBe(false);
+    expect(readFileSync(join(attachedHome, 'mine.txt'), 'utf8')).toBe('keep');
+    expect(existsSync(attachedHome)).toBe(true);
+    expect(existsSync(join(attachedHome, 'instance.json'))).toBe(false);
+    expect(existsSync(join(attachedHome, 'runtime.json'))).toBe(false);
+    const list = listJson(palHome);
+    expect(list.instances.map((row) => row.name)).not.toContain('opencode-lvlc233-doc-review');
+    rmSync(base, { recursive: true, force: true });
+  }, 60_000);
+
+  it('attached remove：还在运行就退 2 提示 pal stop，目录与记录不动', () => {
+    const palHome = newPalHome('pal-attached-running-');
+    const { base, pack } = packFixture(SKILL_FIXTURE);
+    const attachedHome = join(base, 'opencode-home');
+    expect(palIn(palHome, ['install', pack, '--host', 'opencode', '--home', attachedHome]).status).toBe(0);
+
+    const root = String(showJson(palHome, 'opencode-lvlc233-doc-review').root);
+    const runtime = readFileSync(join(root, 'runtime.json'), 'utf8');
+    writeFileSync(
+      join(root, 'runtime.json'),
+      JSON.stringify({ ...(JSON.parse(runtime) as object), status: 'running', pid: process.pid, spawnPid: process.pid }),
+      'utf8',
+    );
+
+    const refused = palIn(palHome, ['remove', 'opencode-lvlc233-doc-review', '--yes']);
+    expect(refused.status, refused.out).toBe(2);
+    expect(refused.out).toContain('还在运行');
+    expect(refused.out).toContain('pal stop');
+    expect(existsSync(join(attachedHome, 'skills/doc-review/SKILL.md'))).toBe(true);
+    expect(existsSync(join(attachedHome, 'instance.json'))).toBe(true);
+    rmSync(base, { recursive: true, force: true });
+  }, 60_000);
+
+  it('attached 默认名冲突自动改用 <base>-attached；再冲突才退 2；显式 --name 冲突不退让', () => {
+    const palHome = newPalHome('pal-attached-name-');
+    const { base, pack } = packFixture(SKILL_FIXTURE);
+
+    const first = palIn(palHome, ['install', pack, '--host', 'opencode', '--home', join(base, 'home-1')]);
+    expect(first.status, first.out).toBe(0);
+    expect(first.out).toContain('✓ opencode-lvlc233-doc-review');
+
+    // 默认名已存在：自动区分成 -attached，并在输出里打印最终用的名字
+    const second = palIn(palHome, ['install', pack, '--host', 'opencode', '--home', join(base, 'home-2')]);
+    expect(second.status, second.out).toBe(0);
+    expect(second.out).toContain('✓ opencode-lvlc233-doc-review-attached');
+    expect(second.out).toContain('默认名 opencode-lvlc233-doc-review 已存在');
+    const names = listJson(palHome).instances.map((row) => row.name);
+    expect(names).toContain('opencode-lvlc233-doc-review');
+    expect(names).toContain('opencode-lvlc233-doc-review-attached');
+
+    // 两个候选都被占用：退 2，提示 --name，不写目录
+    const thirdHome = join(base, 'home-3');
+    const third = palIn(palHome, ['install', pack, '--host', 'opencode', '--home', thirdHome]);
+    expect(third.status, third.out).toBe(2);
+    expect(third.out).toContain('同名 home 已存在：opencode-lvlc233-doc-review');
+    expect(third.out).toContain('也被占用');
+    expect(third.out).toContain('--name');
+    expect(existsSync(thirdHome)).toBe(false);
+
+    // 显式 --name 冲突：不退让、不自动改名
+    const explicit = palIn(palHome, [
+      'install', pack, '--host', 'opencode', '--home', join(base, 'home-4'), '--name', 'opencode-lvlc233-doc-review',
+    ]);
+    expect(explicit.status, explicit.out).toBe(2);
+    expect(explicit.out).toContain('同名 home 已存在：opencode-lvlc233-doc-review');
     rmSync(base, { recursive: true, force: true });
   }, 60_000);
 
@@ -330,6 +396,64 @@ describe('--home：attached home', () => {
       mcpServers: Record<string, unknown>;
     };
     expect(Object.keys(config.mcpServers)).toContain('markdownlint');
+    rmSync(base, { recursive: true, force: true });
+  });
+});
+
+describe('--from-home：managed home 沿用全局凭据', () => {
+  it('与 --home / --project 冲突：退 2，不写任何东西', () => {
+    const palHome = newPalHome('pal-from-home-conflict-');
+    const { base, pack } = packFixture();
+    const fromHome = join(base, 'opencode-global');
+    mkdirSync(fromHome, { recursive: true });
+
+    const withHome = palIn(palHome, [
+      'install', pack, '--host', 'opencode', '--home', join(base, 'attached'), '--from-home', fromHome,
+    ]);
+    expect(withHome.status, withHome.out).toBe(2);
+    expect(withHome.out).toContain('--from-home 只能配默认 target');
+    expect(withHome.out).toContain('attached');
+    expect(existsSync(join(base, 'attached'))).toBe(false);
+
+    const withProject = palIn(palHome, [
+      'install', pack, '--host', 'dsh', '--project', join(base, 'proj'), '--from-home', fromHome,
+    ]);
+    expect(withProject.status, withProject.out).toBe(2);
+    expect(withProject.out).toContain('--from-home 只能配默认 target');
+    expect(existsSync(join(base, 'proj'))).toBe(false);
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  it('opencode 没有登记凭据文件：不复制任何东西，并明确提示', () => {
+    const palHome = newPalHome('pal-from-home-empty-');
+    const { base, pack } = packFixture();
+    const fromHome = join(base, 'opencode-global');
+    mkdirSync(fromHome, { recursive: true });
+    writeFileSync(join(fromHome, 'auth.json'), '{"token":"x"}\n', 'utf8');
+
+    const res = palIn(palHome, ['install', pack, '--host', 'opencode', '--from-home', fromHome]);
+    expect(res.status, res.out).toBe(0);
+    expect(res.out).toContain('宿主没有登记凭据文件');
+    const root = String(showJson(palHome, 'opencode-lvlc233-team-conventions').root);
+    expect(existsSync(join(root, 'home/opencode/auth.json'))).toBe(false);
+    rmSync(base, { recursive: true, force: true });
+  });
+
+  it('dsh：按 credentialFiles 把凭据复制进新 home，源不存在的跳过并提示', () => {
+    const palHome = newPalHome('pal-from-home-copy-');
+    const { base, pack } = packFixture();
+    const fromHome = join(base, 'dsh-global');
+    mkdirSync(fromHome, { recursive: true });
+    writeFileSync(join(fromHome, 'auth.json'), '{"token":"global"}\n', 'utf8');
+    // .credentials.yaml 故意不建：源不存在应当跳过并提示
+
+    const res = palIn(palHome, ['install', pack, '--host', 'dsh', '--from-home', fromHome]);
+    expect(res.status, res.out).toBe(0);
+    expect(res.out).toContain('--from-home 复制凭据：auth.json');
+    expect(res.out).toContain('--from-home 跳过 .credentials.yaml');
+    const root = String(showJson(palHome, 'dsh-lvlc233-team-conventions').root);
+    expect(readFileSync(join(root, 'home/dsh/auth.json'), 'utf8')).toBe('{"token":"global"}\n');
+    expect(existsSync(join(root, 'home/dsh/.credentials.yaml'))).toBe(false);
     rmSync(base, { recursive: true, force: true });
   });
 });
@@ -405,7 +529,7 @@ describe('帮助与命令面', () => {
     const palHome = newPalHome('pal-help-install-');
     const res = palIn(palHome, ['install', '--help']);
     expect(res.status).toBe(0);
-    for (const flag of ['--host', '--home', '--project', '--name']) expect(res.out).toContain(flag);
+    for (const flag of ['--host', '--home', '--project', '--name', '--from-home']) expect(res.out).toContain(flag);
     for (const old of ['--new', '--environment', '--harness', '--kind']) {
       expect(res.out, `help 不该再提 ${old}`).not.toContain(old);
     }

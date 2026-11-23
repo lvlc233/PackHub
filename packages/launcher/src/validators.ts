@@ -13,9 +13,13 @@ import { PalError } from './errors.ts';
 
 /* ---------- 校验 ---------- */
 
+function nameTaken(name: string): boolean {
+  return listInstances().some((i) => i.name === name);
+}
+
 /** 名字不能撞上已有实例。建实例、接管、复制、改名都要过这一关，所以从这里导出共用。 */
 export function assertNameFree(name: string): void {
-  if (listInstances().some((i) => i.name === name)) {
+  if (nameTaken(name)) {
     throw new PalError('name-taken', `实例名已存在：${name}`, { hint: '换一个名字，或先删掉旧实例' });
   }
 }
@@ -55,7 +59,7 @@ export function hostArg(raw: unknown, what: string): HarnessId {
  * 提示直接给下一步：换版本 / 直接跑 / 换个名字。
  */
 export function assertHomeNameFree(name: string): void {
-  if (listInstances().some((i) => i.name === name)) {
+  if (nameTaken(name)) {
     throw new PalError('invalid-input', `同名 home 已存在：${name}`, {
       hint: `pal update ${name} 换版本，pal run ${name} 直接跑，或用 --name 换个名字`,
       details: { name },
@@ -64,14 +68,39 @@ export function assertHomeNameFree(name: string): void {
 }
 
 /**
- * 危险动作（remove / clone / backup / restore / migrate）只对 managed home 开放：
- * attached home 是宿主的目录，PAL 不搬、不删、不整根备份；要卸包用 uninstall --home。
+ * attached home 的名字：默认名冲突时自动改用 `<base>-attached`，再冲突才退 2。
+ *
+ * 只对「没写 --name」的默认名生效：显式起的名字是用户的选择，冲突就该退 2 让他改，
+ * 不能背着他换成另一个名字。managed 默认名不走这里（冲突保持原样退 2）。
+ */
+export function resolveAttachedName(
+  base: string,
+  explicit: boolean,
+): { name: string; base: string; adjusted: boolean } {
+  if (explicit || !nameTaken(base)) {
+    assertHomeNameFree(base);
+    return { name: base, base, adjusted: false };
+  }
+  const alternative = `${base}-attached`;
+  if (nameTaken(alternative)) {
+    throw new PalError('invalid-input', `同名 home 已存在：${base}（${alternative} 也被占用）`, {
+      hint: '默认名与自动区分名都被占用；用 --name 换一个名字，pal list 看现有 home',
+      details: { name: base, tried: [base, alternative] },
+    });
+  }
+  return { name: alternative, base, adjusted: true };
+}
+
+/**
+ * 危险动作（clone / backup / restore / migrate）只对 managed home 开放：
+ * attached home 是宿主的目录，PAL 不搬、不整根备份。remove 不在其中——它只摘记录、不删目录；
+ * 要卸包用 uninstall --home。
  */
 export function assertNotAttached(home: { attached?: boolean; root: string }): void {
   if (home.attached !== true) return;
   throw new PalError(
     'invalid-input',
-    `attached home 不归 PAL：只允许 install/uninstall/update/verify/run；卸包用 pal uninstall --home ${home.root}`,
+    `attached home 不归 PAL：clone / backup / restore / migrate 只对 managed home 开放；remove 只摘记录、不删目录，卸包用 pal uninstall --home ${home.root}`,
     { details: { root: home.root } },
   );
 }
@@ -126,17 +155,18 @@ export function assertAbsolutePath(value: unknown, what: string, field: string):
 /**
  * `--home` 的路径输入：宿主全局目录的写法常见 `~/.config/opencode`，这里把开头的 `~`
  * 展开成本机 home，其余仍要求绝对路径（PAL 不猜 cwd）。`--project` 仍走 assertAbsolutePath。
+ * `what` 只用于错误文案（`--from-home` 也走这一条，同样接受 `~`）。
  */
-export function homePathInput(value: unknown): string {
+export function homePathInput(value: unknown, what = 'attached home'): string {
   const text = String(value ?? '').trim();
   if (!text) {
-    throw new PalError('invalid-input', 'attached home 不能为空', {
+    throw new PalError('invalid-input', `${what} 不能为空`, {
       hint: '给一个绝对路径或 ~/ 开头的宿主全局目录，例如 ~/.config/opencode',
       details: { home: text },
     });
   }
   const expanded = /^~([\\/]|$)/.test(text) ? resolve(homedir(), `.${text.slice(1)}`) : text;
-  return absolutePath(expanded, 'attached home', 'home');
+  return absolutePath(expanded, what, 'home');
 }
 
 /* ---------- 显式实例根 ---------- */

@@ -144,18 +144,18 @@ review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增
 
 ### 命名 home：managed 与 attached
 
-安装对象从「环境 / 项目」改成「home / 项目」。home 是宿主读的那份安装对象，分两类：**managed home** 由 PAL 在数据目录下按名字新建（默认名 `<host>-<packSlug>`，`lvlc233/doc-review` → `lvlc233-doc-review`），整根归 PAL 管；**attached home** 是宿主真实的全局目录（`--home <路径>`），PAL 只往里装、不拥有它。`install` 的 target 三选一：不写 = managed 命名 home，`--home <路径>` = attached，`--project <目录>` = 项目（不变）；`--host` 三种都必填，`--name` 只配前两种。`uninstall` / `update` / `rollback` / `verify` 收 `--home <路径|名字>` 或 `--project`。记录里 `attached?: boolean`（缺省 `false` = managed），`list` / `show` 标出来。旧的 `--new` / `--environment` / `--kind` / PAL 的 `--harness` 都删掉。
+安装对象从「环境 / 项目」改成「home / 项目」。home 是宿主读的那份安装对象，分两类：**managed home** 由 PAL 在数据目录下按名字新建（默认名 `<host>-<packSlug>`，`lvlc233/doc-review` → `lvlc233-doc-review`），整根归 PAL 管；**attached home** 是宿主真实的全局目录（`--home <路径>`），PAL 只往里装、不拥有它。`install` 的 target 三选一：不写 = managed 命名 home，`--home <路径>` = attached，`--project <目录>` = 项目（不变）；`--host` 三种都必填，`--name` 只配前两种，managed 还可以用 `--from-home <路径>` 沿用宿主全局凭据。`uninstall` / `update` / `rollback` / `verify` 收 `--home <路径|名字>` 或 `--project`。记录里 `attached?: boolean`（缺省 `false` = managed），`list` / `show` 标出来。旧的 `--new` / `--environment` / `--kind` / PAL 的 `--harness` 都删掉。
 
 没选另一条：继续用 `--environment <名字>`（先建/接管一个环境，再往里装），或只做 managed home。`--environment` 是「记录里的名字」，home 落在哪由记录决定；用户要先回答「建一个环境」再回答「装什么」，而 `--new --kind <宿主> --name` 又把同一件事拆成三个词。它装不进宿主真实的全局目录：模型凭据、用户已有配置、宿主的全局 MCP 都在 `~/.config/opencode` 这类位置，环境只能另起一份空 home，用户得手动拷。只做 managed 等于承认「装不进宿主自己的位置」，`adopt` 也只能登记一个空目录，无法承载「宿主本来就在用的 home」。
 
 代价：
 
 - attached 只对已验证全局布局的宿主开放：opencode（`~/.config/opencode`）、hermes（`~/.hermes`）、workbody（`~/.codebuddy`）；dsh / claude-code / codex 拒绝，因为全局布局未验证——以后验证一个才加一个 `attachedLayout`。拒绝发生在写盘之前。
-- 危险操作只对 managed：remove / clone / backup / restore / migrate 对 attached home 直接拒绝（`attached home 不归 PAL：只允许 install/uninstall/update/verify/run`）；要卸包只能 `pal uninstall --home <路径>`。代价是 attached 的记录也没有 `remove` 可摘：要注销只能手工删目录里的 `instance.json` / `runtime.json` / `baseline.json` 与 `.links` 指针。
-- 默认名是约定，不是用户起的：同名已存在是用法错，只能 `--name` 换名、`pal update <名字>` 换版本或 `pal run <名字>` 直接跑。`--name` 与 `--project` 互斥（项目没有 home 名）。
-- 全局写盘要有所有权：attached 安装会在宿主全局目录里写 skills、配置（如 `opencode.json` / `config.yaml`）、`instance.json` / `runtime.json` / `baseline.json` 与 `.packhub/`；宿主与别的工具会看到这些多出来的文件。PAL 因此把它们当「宿主的目录」：不删、不整根备份、不迁移。
+- 危险操作只对 managed，remove 例外地分成两种语义：managed 删整根；attached 只摘记录——按 state 卸包，删 `instance.json` / `runtime.json` / `baseline.json` 与 `.links` / active 指针，目录与用户文件保留（`detached <名字>（目录保留）`），并且要求先 `pal stop`，PAL 不替用户杀进程。clone / backup / restore / migrate 仍对 attached 直接拒绝（`attached home 不归 PAL`），因为 PAL 不拥有那个目录、也不整根搬它；只卸包不摘记录用 `pal uninstall --home <路径>`。代价是 attach 之后仍有两条退出路径（卸包 / 摘记录），用户得知道 remove 与 uninstall 不是一回事。
+- 默认名是约定，不是用户起的：managed 默认名冲突仍是用法错（`<host>-<packSlug>`），只能 `--name` 换名、`pal update <名字>` 换版本或 `pal run <名字>` 直接跑。attached 没有 PAL 自己的数据目录可退，默认名又最容易撞上同一宿主的前一份记录，所以冲突时自动尝试 `<base>-attached`，再冲突才退 2 提示 `--name`，并在输出里打印最终用的名字；显式 `--name` 冲突不退让（不替用户改名）。`--name` 与 `--project` 互斥（项目没有 home 名）。
+- 全局写盘要有所有权：attached 安装会在宿主全局目录里写 skills、配置（如 `opencode.json` / `config.yaml`）、`instance.json` / `runtime.json` / `baseline.json` 与 `.packhub/`；宿主与别的工具会看到这些多出来的文件。PAL 因此把它们当「宿主的目录」：不删根、不整根备份、不迁移；remove 只把 PAL 自己的记录摘掉。
 - attached 的 `run` 不注入 home 环境变量（宿主本来就用它的全局位置），只按 `launch.json` / `--dir` 决定 cwd；`--home` 指到非默认位置时，`run` 不会把宿主指过去，得宿主自己的环境变量或配置生效。
-- 随 `--new` 一起删掉的还有 managed home 的 `--root` / `--from-home` / `--isolation`：新 managed home 固定落在数据目录，也不再一步沿用全局凭据；要共用已有凭据，改用 `--home <宿主全局目录>` 装成 attached。
+- managed home 想沿用已有全局凭据，加 `--from-home <路径>`：只复制宿主 `credentialFiles` 里登记的文件（相对 home），源不存在就跳过并提示，宿主没登记就什么都不复制；`--from-home` 只配默认 target——attached 的 home 就是全局目录、不需要，`--project` 没有 home 段。PAL 不整目录搬全局配置（会话、缓存、用户自己的配置各归各的）；代价是新 managed home 的凭据是复制而不是共享，宿主那边换了登录状态后要重新带一次。
 
 ### 读命令不写盘，动作显式
 

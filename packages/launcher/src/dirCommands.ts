@@ -30,15 +30,15 @@ import {
 } from '@packhub/runtime';
 import { PalError } from './errors.ts';
 
-/** --harness 的可选名单：现查宿主注册表（加宿主不用改 launcher）。 */
+/** installDir 的 --host 可选名单：现查宿主注册表（加宿主不用改 launcher）。 */
 function harnessHint(): string {
   return `${harnessIds().join(' / ')}（安装参数；不用 dir）`;
 }
 const INSTANCE_HINT =
   '装进已有项目用 pal install --project <目录> --host <宿主>；新建命名 home 用 pal install <pack> --host <宿主>。';
 
-/** 解析 --harness：只认宿主名（dir 是 PAL 的实例形态，不是安装参数）。 */
-function parseInstallHarness(raw: unknown): HarnessId {
+/** 解析 --host：只认宿主名（dir 是 PAL 的实例形态，不是安装参数）。 */
+function parseInstallHost(raw: unknown): HarnessId {
   const value = String(raw ?? '');
   if (!isHarnessId(value)) {
     throw new PalError('invalid-input', `未知宿主：${value}`, {
@@ -95,7 +95,7 @@ export const installDir = defineCommand({
       description: 'Pack 目录、.phub、git+https，或配合 --index 用 registry 名（name 或 name@version）',
     },
     project: { type: 'string', default: '.', description: '装到哪个项目目录（默认当前目录；不存在会创建）' },
-    harness: { type: 'string', description: harnessHint() },
+    host: { type: 'string', description: harnessHint() },
     index: { type: 'string', description: `registry 索引（路径或 URL；也可用 ${PACKHUB_ENV.index}）` },
     'dry-run': { type: 'boolean', default: false, description: '只算计划，不落盘' },
     overwrite: { type: 'boolean', default: false, description: '允许覆盖别的包写过的普通文件' },
@@ -112,12 +112,12 @@ export const installDir = defineCommand({
       if (!args.json) console.log(line);
     };
     // 必填但手动校验：citty 的 required 缺失走 internal（退出 1），这里按用法错退出 2
-    if (args.harness === undefined) {
-      throw new PalError('invalid-input', '缺少 --harness', {
+    if (args.host === undefined) {
+      throw new PalError('invalid-input', '缺少 --host', {
         hint: `必须指定按哪个宿主的落点表物化：${harnessHint()}；用户面用 pal install --project <目录> --host <宿主>。`,
       });
     }
-    const harness = parseInstallHarness(args.harness);
+    const harness = parseInstallHost(args.host);
     const projectDir = resolve(String(args.project ?? '.'));
     let planned = false;
     try {

@@ -11,7 +11,8 @@ import {
 } from '../index.ts';
 import { DEFAULT_SCAN_DEPTH } from '../scan.ts';
 import { PalError } from '../errors.ts';
-import { assertHomeNameFree, assertNotAttached, hostArg } from '../validators.ts';
+import { isPidAlive } from '../process.ts';
+import { assertHomeNameFree, hostArg } from '../validators.ts';
 import { printScan } from './carry.ts';
 import { printAudit } from './other.ts';
 import { confirm, requireTarget } from './shared.ts';
@@ -135,22 +136,47 @@ export const remove = defineCommand({
   meta: {
     name: 'remove',
     description:
-      '删一份 managed home（先停进程；默认直接删根，--keep-data 先卸包再归档）；attached home 不归 PAL，用 pal uninstall --home <路径>',
+      'remove = managed 删根（先停进程；--keep-data 先卸包再归档）；attached 只摘记录：卸包、删 PAL 记录，目录与用户文件保留',
   },
   args: {
     target: { type: 'positional', required: true, description: 'home id 或名字' },
     'keep-data': {
       type: 'boolean',
       default: false,
-      description: '先按 state 卸包，再把 home（会话 / 凭据）挪进归档区',
+      description: 'managed 用：先按 state 卸包，再把 home（会话 / 凭据）挪进归档区',
     },
     yes: { type: 'boolean', default: false, description: '跳过确认' },
     json: { type: 'boolean', default: false },
   },
   async run({ args }) {
     const rec = requireInstance(requireTarget(args.target));
-    // 先挡 attached：别让人确认完才看到「不归 PAL」
-    assertNotAttached(rec);
+
+    // attached：不归 PAL 删；要求已停后只摘记录（卸包 + 删 instance/runtime/baseline 与指针）
+    if (rec.attached === true) {
+      if (rec.pid !== undefined && isPidAlive(rec.pid)) {
+        throw new PalError('invalid-input', `home 还在运行：pid ${rec.pid}`, {
+          hint: `先 pal stop ${rec.id}，再 pal remove ${rec.id}（attached 只摘记录，不删目录）`,
+        });
+      }
+      const ok = await confirm(
+        `摘掉 ${rec.name} 的 PAL 记录并卸包（目录 ${rec.root} 保留）？`,
+        Boolean(args.yes),
+      );
+      if (!ok) {
+        console.log('已取消');
+        return;
+      }
+      const result = await removeInstance(rec.id);
+      if (args.json) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+      const packs = result.uninstalled.join(', ') || '（没有 Pack 记录）';
+      console.log(`· 已卸包：${packs}`);
+      console.log(`detached ${rec.name}（目录保留）`);
+      return;
+    }
+
     const keep = Boolean(args['keep-data']);
     const what = keep
       ? '先按 state 卸掉 Pack 装进去的文件，再把 home（会话 / 凭据）挪进归档区'

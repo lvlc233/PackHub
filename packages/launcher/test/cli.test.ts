@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { harnessIds } from '@packhub/kernel';
 import { main } from '../src/cli.ts';
 import { CORE_ENTRY } from '../src/coreEntry.ts';
+import { installDir } from '../src/dirCommands.ts';
 
 const packageJson = JSON.parse(
   readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
@@ -95,6 +96,15 @@ describe('pal cli：harness 列表六项', () => {
         expect(description, `${name} 的 --host 应列出 ${id}`).toContain(id);
       }
     }
+  });
+});
+
+describe('installDir 的内部参数', () => {
+  it('宿主参数叫 host；旧的 harness 键不再声明（内部命令不进 help）', () => {
+    const args = (installDir as unknown as CommandShape).args ?? {};
+    expect(args.host?.type).toBe('string');
+    expect(args.harness).toBeUndefined();
+    expect(args.source?.type).toBe('positional');
   });
 });
 

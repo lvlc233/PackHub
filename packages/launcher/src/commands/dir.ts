@@ -28,7 +28,7 @@ import { PalError } from '../errors.ts';
 import { acceptBaseline } from './other.ts';
 import { discoverAll } from '../harness.ts';
 import { assertAttachedSupported } from '../layout.ts';
-import { assertHomeNameFree, homePathInput, hostArg } from '../validators.ts';
+import { assertHomeNameFree, homePathInput, hostArg, resolveAttachedName } from '../validators.ts';
 
 /** 直接复用 dirCommands 里的目录实现：参数补成它认识的形状，输出/退出码不变。 */
 async function invoke(cmd: CommandDef<never>, args: Record<string, unknown>): Promise<void> {
@@ -119,10 +119,11 @@ function nextLine(host: HarnessId, name: string): string {
   return mode === 'foreground' ? `pal run ${name}` : `pal start ${name}`;
 }
 
-function printInstalled(rec: InstanceRecord, pack: { name: string; version: string }): void {
+function printInstalled(rec: InstanceRecord, pack: { name: string; version: string }, note?: string): void {
   console.log(`✓ ${rec.name}`);
   console.log(`  ${rec.root}`);
   console.log(`  pack ${pack.name}@${pack.version}`);
+  if (note) console.log(`  · ${note}`);
   console.log(`next: ${nextLine(rec.harness, rec.name)}`);
 }
 
@@ -166,6 +167,11 @@ export const install = defineCommand({
       type: 'string',
       description: '项目级 target：宿主会打开的项目目录（不存在会创建）',
     },
+    'from-home': {
+      type: 'string',
+      description:
+        'managed 专用：把这个宿主已有全局目录里 credentialFiles 登记的凭据带到新 home（attached 直接用全局目录，不需要）',
+    },
     index: { type: 'string', description: 'registry 索引（路径或 URL；也可用 PACKHUB_ENV.index）' },
     version: { type: 'string', description: 'registry 包的版本；不写用 latest' },
     'dry-run': { type: 'boolean', default: false, description: '只算计划，不落盘' },
@@ -194,6 +200,17 @@ export const install = defineCommand({
         hint: '--project 装的是宿主会打开的项目目录，没有 home 名；要命名 home 就别给 --project',
       });
     }
+    // --from-home 是 managed 的「沿用全局凭据」：attached 的 home 就是全局目录，项目没有 home
+    if (args['from-home'] !== undefined && target !== 'managed') {
+      throw new PalError('invalid-input', '--from-home 只能配默认 target（managed 命名 home）', {
+        hint:
+          target === 'attached'
+            ? 'attached 直接装进宿主的全局目录，凭据本来就在那里，不需要 --from-home'
+            : '--project 只写项目文件，没有 home 段可以放凭据',
+      });
+    }
+    const fromHome =
+      args['from-home'] === undefined ? undefined : homePathInput(args['from-home'], '--from-home 的目录');
     const source = String(args.source);
 
     if (target === 'project') {
@@ -213,7 +230,7 @@ export const install = defineCommand({
       await invoke(installDirCmd as unknown as CommandDef<never>, {
         source,
         project: projectDir,
-        harness: hostId,
+        host: hostId,
         ...(args.index ? { index: String(args.index) } : {}),
         'dry-run': Boolean(args['dry-run']),
         overwrite: Boolean(args.overwrite),
@@ -287,17 +304,20 @@ export const install = defineCommand({
         return;
       }
 
-      const name = args.name === undefined ? defaultHomeName(hostId, packName) : String(args.name).trim();
+      // 默认名冲突自动区分：<base> → <base>-attached；显式 --name 冲突仍退 2
+      const base = args.name === undefined ? defaultHomeName(hostId, packName) : String(args.name).trim();
+      const nameInfo = resolveAttachedName(base, args.name !== undefined);
+      const name = nameInfo.name;
+      const nameNote = nameInfo.adjusted ? `默认名 ${nameInfo.base} 已存在，改用 ${name}` : undefined;
       if (dryRun) {
         const plan = previewHomePlan({ packDir, harness: hostId, attachedHome });
-        if (args.json) console.log(JSON.stringify({ plan, dryRun: true }, null, 2));
+        if (args.json) console.log(JSON.stringify({ plan, dryRun: true, name }, null, 2));
         else {
           printPlanSummary(plan, (line) => console.log(line));
-          console.log(`\n（dry-run：没有落盘；name ${name}）`);
+          console.log(`\n（dry-run：没有落盘；name ${name}${nameNote ? `；${nameNote}` : ''}）`);
         }
         return;
       }
-      assertHomeNameFree(name);
       const opts: CreateInstanceOptions = {
         name,
         harness: hostId,
@@ -311,7 +331,7 @@ export const install = defineCommand({
         console.log(JSON.stringify(rec, null, 2));
         return;
       }
-      printInstalled(rec, rec.pack);
+      printInstalled(rec, rec.pack, nameNote);
       return;
     }
 
@@ -334,6 +354,7 @@ export const install = defineCommand({
       packDir,
       packRef: source,
       ...(info?.version ? { harnessVersion: info.version } : {}),
+      ...(fromHome ? { fromHome } : {}),
       onWarn: log,
     });
     if (args.json) {

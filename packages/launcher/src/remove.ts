@@ -2,6 +2,7 @@ import { existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { STATE_DIR } from '@packhub/kernel';
 import { loadState, removePack } from '@packhub/runtime';
+import { BASELINE } from './baseline.ts';
 import { dropActive, requireInstance } from './catalog.ts';
 import { PalError } from './errors.ts';
 import { withInstanceLock } from './lock.ts';
@@ -10,12 +11,11 @@ import { archiveRoot } from './paths.ts';
 import { portOwner } from './port.ts';
 import { isPidAlive, killTree, waitForExit } from './process.ts';
 import { moveAside } from './quarantine.ts';
+import { RECORD, RUNTIME, type InstanceRecord } from './records.ts';
 import { removeLink } from './recordWrite.ts';
-import type { InstanceRecord } from './records.ts';
 import { killTargetFor } from './start.ts';
 import { clearStopping, markStopping } from './stopMark.ts';
 import { appendEvent } from './logs.ts';
-import { assertNotAttached } from './validators.ts';
 
 /**
  * 删实例：先停进程；默认直接删根（删不动就改名归档），keepData 才先按 state 卸包再归档；
@@ -46,12 +46,12 @@ async function removeTreeWithRetry(dir: string, tries = 6): Promise<{ removed: b
 
 export interface RemoveOptions {
   /**
-   * 保留数据：先按 state 卸掉 Pack 装进去的文件，删掉根里的 secrets.json 与宿主凭据文件
+   * 保留数据（只对 managed 有效）：先按 state 卸掉 Pack 装进去的文件，删掉根里的 secrets.json 与宿主凭据文件
    * （`适配器的 credentialFiles（由宿主注册表派生）`），再把实例根（剩下的 home / 会话）移进 .archive，记录从列表里去掉。
-   * 不传则直接删根。
+   * 不传则直接删根。attached home 不用这个开关：它本来就不删根，只摘记录并卸包。
    */
   keepData?: boolean;
-  /** 已经在跑就先停掉；默认 true */
+  /** 已经在跑就先停掉；默认 true。attached home 不适用：它要求先 pal stop，删时不杀进程 */
   force?: boolean;
   kill?: (pid: number) => void;
   isAlive?: (pid: number) => boolean;
@@ -68,40 +68,69 @@ export interface RemoveResult {
   /**
    * 删除前从实例 state 里读到的 Pack key。它只说明「删之前装过哪些 Pack」，
    * **不是**「这些 Pack 被逐个卸载成功」的凭据：
-   * - 默认删除：不逐个卸包，文件随实例根一起消失；根删不掉转归档时，文件仍在归档目录里。
-   * - keepData：这些 Pack 确实按 state 卸掉了，归档里只剩 home / 会话（secrets.json 与宿主凭据文件已先删）。
+   * - managed 默认删除：不逐个卸包，文件随实例根一起消失；根删不掉转归档时，文件仍在归档目录里。
+   * - managed keepData / attached：这些 Pack 确实按 state 卸掉了（attached 只摘记录，目录保留）。
    * 字段名沿用 uninstalled 是为了不动 server/UI 的 JSON；要改名应连同 API 一起升级。
    */
   uninstalled: string[];
-  /** keepData 时的去向；默认删除走了归档兜底时也有值 */
+  /** keepData 时的去向；managed 默认删除走了归档兜底时也有值 */
   archivedTo?: string;
-  /** 实例根是否真的被删掉：只有默认删除成功才是 true；keepData、转归档都是 false */
+  /** 实例根是否真的被删掉：只有 managed 默认删除成功才是 true；keepData、转归档、attached 都是 false */
   removed: boolean;
+  /** attached：只摘了记录（卸包 + 删 PAL 记录文件），目录与用户文件保留 */
+  detached?: boolean;
 }
 
 /**
- * 删一份实例：先停进程，再按需处理根。
- * - 默认：直接删根（删不动就改名归档），成功后才摘 link/active；失败则记录、state、Pack 文件都原样留着。
- * - keepData：先按 state 卸包，删掉根里的 secrets.json 与宿主凭据文件，再把剩下的根（home / 会话）归档。
- * 运行中的实例不再出现“删一半”（EBUSY、包卸了目录还在）的情况。
- *
- * 边界（N2）：默认删除不逐文件调 removePack，只删根。当前所有安装落点都在实例根内，
- * 所以根删掉就等于清干净；如果以后引入宿主级副作用（全局 MCP 注册、宿主配置键等），
- * 必须在这里补对应的反向清理，不能只靠删根。
+ * 删实例 / 摘 attached 记录：先停进程（attached 要求用户先停），再处理根。
+ * - managed 默认：直接删根（删不动就改名归档），成功后才摘 link/active。
+ * - managed keepData：先按 state 卸包，删掉根里的 secrets.json 与宿主凭据文件，再把剩下的根归档。
+ * - attached：只摘 PAL 记录——按 state 卸包，删 instance.json / runtime.json / baseline.json 与
+ *   link/active 指针，目录本身与用户文件一概不动（输出 `detached <name>（目录保留）`）。
  */
 export async function removeInstance(
   nameOrId: string,
   opts: RemoveOptions = {},
 ): Promise<RemoveResult> {
   const record = requireInstance(nameOrId);
-  // attached home 是宿主的目录：PAL 不删根、不归档；要在它里面卸包走 pal uninstall --home
-  assertNotAttached(record);
   const isAlive = opts.isAlive ?? isPidAlive;
   const kill = opts.kill ?? killTree;
   const ownerOf = opts.ownerOf ?? ((port: number) => portOwner(port)?.pid);
   const uninstalled: string[] = [];
   let stopped: number | undefined;
   let archivedTo: string | undefined;
+
+  // attached home 是宿主的目录：PAL 不删根、不归档，也不替用户杀进程；
+  // 要求已停之后再卸包，最后只摘自己写的那几个记录文件与指针。
+  if (record.attached === true) {
+    await withInstanceLock(record.root, 'remove', async () => {
+      if (record.pid !== undefined && isAlive(record.pid)) {
+        throw new PalError('invalid-input', `home 还在运行：pid ${record.pid}`, {
+          hint: `先 pal stop ${record.id}，再 pal remove ${record.id}（attached 只摘记录，不删目录）`,
+          details: { id: record.id, pid: record.pid },
+        });
+      }
+      try {
+        const state = loadState(record.root);
+        for (const key of Object.keys(state.packs)) {
+          removePack(record.root, key);
+          uninstalled.push(key);
+        }
+      } catch (err) {
+        throw new PalError('install-failed', `卸载 Pack 失败：${(err as Error).message}`, {
+          hint: `先修好 ${record.root} 里的 ${STATE_DIR}，再重试 pal remove；记录与目录都还没动`,
+          cause: err,
+        });
+      }
+      // 只摘 PAL 自己的记录与指针：目录、宿主配置、用户文件都保留
+      for (const file of [RECORD, RUNTIME, BASELINE]) {
+        rmSync(join(record.root, file), { force: true });
+      }
+      removeLink(record.id);
+      dropActive(record.id);
+    });
+    return { record, uninstalled, removed: false, detached: true };
+  }
 
   await withInstanceLock(record.root, 'remove', async () => {
     // B12：和 pal stop 用同一套判定——只杀 PAL 自己 spawn 的进程，记录里的 pid 不直接当目标。

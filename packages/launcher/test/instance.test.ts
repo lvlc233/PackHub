@@ -701,13 +701,14 @@ describe('实例配置', () => {
     expect(listDirNames(archiveRoot())).toEqual([]);
   });
 
-  it('接管来的 attached home：remove 拒绝，目录与记录原样', async () => {
+  it('接管来的 attached home：remove 只摘记录——卸包、删记录文件，目录与用户文件保留', async () => {
     const dir = join(tmp, 'existing-env');
     const written = join(dir, 'home', 'dsh', 'skills', 'doc-review', 'SKILL.md');
     mkdirSync(join(dir, 'home', 'dsh', 'skills', 'doc-review'), { recursive: true });
     writeFileSync(written, '# 用户的 skill\n', 'utf8');
     writeFileSync(join(dir, 'mine.txt'), 'keep', 'utf8');
-    // 接管目录里本来就有 Pack 的 state：remove 拒绝时也不能动它
+    writeFileSync(join(dir, 'baseline.json'), '{}\n', 'utf8');
+    // 接管目录里本来就有 Pack 的 state：remove 按它卸包，但不动别的文件
     mkdirSync(join(dir, '.packhub'), { recursive: true });
     writeFileSync(
       join(dir, '.packhub', 'state.json'),
@@ -735,35 +736,56 @@ describe('实例配置', () => {
     expect(record.attached).toBe(true);
     expect(record.home).toBe(dir);
 
-    let caught: unknown;
-    try {
-      await removeInstance('adopted');
-    } catch (err) {
-      caught = err;
-    }
-    expect(isPalError(caught)).toBe(true);
-    if (isPalError(caught)) {
-      expect(caught.code).toBe('invalid-input');
-      expect(caught.message).toContain('attached home 不归 PAL');
-    }
-    expect(readFileSync(written, 'utf8')).toBe('# 用户的 skill\n');
-    expect(existsSync(join(dir, '.packhub', 'state.json'))).toBe(true);
-    expect(existsSync(join(dir, 'mine.txt'))).toBe(true);
-    expect(existsSync(join(dir, 'instance.json'))).toBe(true);
-    expect(listInstances().map((row) => row.name)).toEqual(['adopted']);
+    const result = await removeInstance('adopted');
+    expect(result.detached).toBe(true);
+    expect(result.removed).toBe(false);
+    expect(result.uninstalled).toEqual(['lvlc233/doc-review@0.1.0']);
+    // 卸包：state 里登记的文件被删；用户的文件与目录都在
+    expect(existsSync(written)).toBe(false);
+    expect(readFileSync(join(dir, 'mine.txt'), 'utf8')).toBe('keep');
+    expect(existsSync(dir)).toBe(true);
+    // 只摘 PAL 记录：instance / runtime / baseline 都没了，列表里不再有它
+    expect(existsSync(join(dir, 'instance.json'))).toBe(false);
+    expect(existsSync(runtimeFile(dir))).toBe(false);
+    expect(existsSync(join(dir, 'baseline.json'))).toBe(false);
+    expect(existsSync(join(dir, '.packhub', 'state.json'))).toBe(false);
+    expect(listInstances()).toEqual([]);
   });
 
-  it('接管来的 attached home：keepData 也拒绝，归档区不新增', async () => {
+  it('接管来的 attached home：keepData 同样只摘记录，不归档、不删目录', async () => {
     const dir = join(tmp, 'existing-env-keep');
     mkdirSync(join(dir, 'home', 'dsh'), { recursive: true });
     writeFileSync(join(dir, 'mine.txt'), 'keep', 'utf8');
     adoptInstance({ dir, name: 'adopted-keep', harness: 'opencode' });
 
-    await expect(removeInstance('adopted-keep', { keepData: true })).rejects.toThrow('attached home 不归 PAL');
+    const result = await removeInstance('adopted-keep', { keepData: true });
+    expect(result.detached).toBe(true);
+    expect(result.archivedTo).toBeUndefined();
     expect(existsSync(dir)).toBe(true);
     expect(readFileSync(join(dir, 'mine.txt'), 'utf8')).toBe('keep');
-    expect(existsSync(join(dir, 'instance.json'))).toBe(true);
+    expect(existsSync(join(dir, 'instance.json'))).toBe(false);
     expect(listDirNames(archiveRoot())).toEqual([]);
+    expect(listInstances()).toEqual([]);
+  });
+
+  it('attached home 还在运行：remove 拒杀也拒摘，退 2 提示 pal stop，记录与文件原样', async () => {
+    const dir = join(tmp, 'existing-env-running');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'mine.txt'), 'keep', 'utf8');
+    const record = adoptInstance({ dir, name: 'adopted-running', harness: 'opencode' });
+    writeInstance({ ...readInstance(record.id)!, status: 'running', pid: 4242, spawnPid: 4242 });
+
+    let caught: unknown;
+    try {
+      await removeInstance('adopted-running', { isAlive: () => true, kill: () => { throw new Error('不该杀进程'); } });
+    } catch (err) {
+      caught = err;
+    }
+    expect(isPalError(caught) && caught.code).toBe('invalid-input');
+    if (isPalError(caught)) expect(caught.hint).toContain('pal stop');
+    expect(readFileSync(join(dir, 'mine.txt'), 'utf8')).toBe('keep');
+    expect(existsSync(join(dir, 'instance.json'))).toBe(true);
+    expect(listInstances().map((row) => row.name)).toEqual(['adopted-running']);
   });
 
   it('接管时按 Pack 个数定身份：多 Pack / 单 Pack / 空环境', () => {

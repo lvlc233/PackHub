@@ -14,7 +14,7 @@ import { PalError } from './errors.ts';
 /**
  * 实例形态：`dir` 是普通项目目录实例（不是宿主），其余是宿主名。
  *
- * 这些是 PAL 自己的概念：kernel 的 `--harness` / PAL 的 `--host` 只有宿主名，PAL 建实例时把 `dir`
+ * 这些是 PAL 自己的概念：kernel 侧 plan/verify 的宿主参数与 PAL 的 `--host` 都只有宿主名，PAL 建实例时把 `dir`
  * 映射成「不传 harness（平铺目录）」。宿主名单是运行期注册表（kernel 的 harnessIds()），
  * 加宿主只在 kernel 加模块，launcher 不改。
  */

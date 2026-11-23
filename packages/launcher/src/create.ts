@@ -1,8 +1,14 @@
 import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
-import { join, relative, resolve, sep } from 'node:path';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { MANIFEST_FILE, planFor, type PackContext, type Plan, type PlanOptions } from '@packhub/kernel';
 import { installPack, loadLock, loadPack, loadState, withLockPins, type ActionOutcome } from '@packhub/runtime';
-import { assertAttachedSupported, layoutVarsFor, requireAdapter, type InstanceKind } from './layout.ts';
+import {
+  adapterFor,
+  assertAttachedSupported,
+  layoutVarsFor,
+  requireAdapter,
+  type InstanceKind,
+} from './layout.ts';
 import { baselineFromState, writeBaseline } from './baseline.ts';
 import { withInstanceLock } from './lock.ts';
 import { API_VERSION, readRecord, recordFile, runtimeFile, type InstanceRecord } from './records.ts';
@@ -20,6 +26,7 @@ import {
   assertHarness,
   assertExternalRoot,
   assertNameFree,
+  homePathInput,
 } from './validators.ts';
 
 /**
@@ -73,6 +80,11 @@ export interface CreateInstanceOptions {
    * 新 home 是空的：不接这一步，实例起来也没有模型可用。
    */
   seedFrom?: string;
+  /**
+   * 只带凭据：把该宿主 `credentialFiles` 里登记的文件从 `fromHome` 复制到新 home 的对应位置。
+   * managed home 想沿用全局凭据时用（attached home 直接就是宿主的全局目录，不需要）。
+   */
+  fromHome?: string;
   /**
    * 显式指定这份实例的隔离策略（优先于配置文件）。
    * 不写就用 readPalConfig().isolation；写了必须是合法的五层策略。
@@ -148,6 +160,61 @@ export function seedHome(from: string, to: string, onProblem?: (line: string) =>
   }
   if (onProblem) for (const line of problems) onProblem(line);
   return copied;
+}
+
+/**
+ * `--from-home`：按宿主注册表里的 `credentialFiles`（相对 home）把凭据从已有 home 复制进新 home。
+ *
+ * 只复制清单里登记的文件，不搬整个目录：managed home 想要的只是「能登录」，不是把全局配置抄一份。
+ * 源文件不存在跳过并提示（新 home 照样建好）；目标已存在时保留现有文件（Pack 写的内容优先）。
+ * 返回复制 / 跳过 / 存在的相对路径；`empty` 表示宿主没登记凭据文件（复制 0 个）。
+ */
+export interface CredentialCopyResult {
+  copied: string[];
+  missing: string[];
+  kept: string[];
+  empty: boolean;
+}
+
+export function copyCredentialsFromHome(
+  fromHome: string,
+  home: string,
+  kind: InstanceKind,
+  onNote?: (line: string) => void,
+): CredentialCopyResult {
+  const source = resolve(fromHome);
+  const files = (adapterFor(kind)?.credentialFiles ?? []).map((file) =>
+    file.replace(/\\/g, '/').replace(/^\.?\//, ''),
+  );
+  const result: CredentialCopyResult = { copied: [], missing: [], kept: [], empty: files.length === 0 };
+  if (files.length === 0) {
+    onNote?.('宿主没有登记凭据文件（credentialFiles 为空），--from-home 没有复制任何东西');
+    return result;
+  }
+  for (const rel of files) {
+    const src = join(source, rel);
+    const dest = join(home, rel);
+    if (!existsSync(src)) {
+      result.missing.push(rel);
+      onNote?.(`--from-home 跳过 ${rel}（源不存在）`);
+      continue;
+    }
+    if (existsSync(dest)) {
+      result.kept.push(rel);
+      onNote?.(`--from-home 保留现有文件：${rel}`);
+      continue;
+    }
+    try {
+      mkdirSync(dirname(dest), { recursive: true });
+      cpSync(src, dest, { force: false, errorOnExist: false });
+      result.copied.push(rel);
+      onNote?.(`--from-home 复制凭据：${rel}`);
+    } catch (err) {
+      // 单个凭据复制失败不阻断建 home：实例照样可用，只是这个宿主得自己登录
+      onNote?.(`--from-home 没复制 ${rel}（${fsProblem(err)}）`);
+    }
+  }
+  return result;
 }
 
 /**
@@ -273,6 +340,22 @@ export async function createInstance(opts: CreateInstanceOptions): Promise<Insta
     }
     assertAttachedSupported(kind);
   }
+  // --from-home 只用于 managed：attached 的 home 就是宿主的全局目录，凭据本来就在那儿
+  let fromHome: string | undefined;
+  if (opts.fromHome !== undefined) {
+    if (attachedHome !== undefined) {
+      throw new PalError('invalid-input', '--from-home 只能配 managed home', {
+        hint: 'attached home 直接就是宿主的全局目录，凭据本来就在那里，不需要 --from-home',
+      });
+    }
+    fromHome = homePathInput(opts.fromHome, '--from-home 的目录');
+    if (!existsSync(fromHome)) {
+      throw new PalError('invalid-input', '--from-home 指向的目录不存在', {
+        hint: '检查路径；不需要沿用凭据就删掉 --from-home',
+        details: { fromHome },
+      });
+    }
+  }
   assertNameFree(name);
   // 先定策略：配置读不了就在这里失败，不往下建目录
   const isolation = isolationFor(opts.isolation);
@@ -360,6 +443,14 @@ export async function createInstance(opts: CreateInstanceOptions): Promise<Insta
         planHash: plan.planHash,
         files: baselineFromState(root),
       });
+      if (fromHome !== undefined) {
+        // 先装 Pack 再带凭据：凭据不覆盖 Pack 写好的文件
+        if (home === undefined) {
+          opts.onWarn?.('这个形态没有 home 段，--from-home 没有复制任何东西');
+        } else {
+          copyCredentialsFromHome(fromHome, home, kind, opts.onWarn);
+        }
+      }
       if (opts.seedFrom && home) {
         // 先装 Pack，再补凭据：Pack 写好的文件不被覆盖
         seedHome(opts.seedFrom, home, opts.onWarn);

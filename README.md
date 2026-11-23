@@ -4,7 +4,7 @@ packhub 做包与发版，pal 安装与运行。
 
 ## 两个命令族
 
-`packhub` 只碰 Pack 目录：`plan` / `verify` 预览，`lock` / `pack` / `publish` / `sign` 出包与发版。`pal` 负责装和跑：安装类命令 `install` / `uninstall` / `verify` / `rollback` / `update` 的 target 是 home（`--home <路径|名字>`，managed 用名字、attached 用路径或名字）或项目（`--project <目录>`）；`install` 不给 target 时在 PAL 数据目录建一个 managed 命名 home（名字 `<host>-<packSlug>`），`--home` 则装进宿主的真实全局目录（attached）。home 侧还有 `adopt` 与起停看护，本机状态看 `list` / `ps` / `health`，审计看 `list --history`。
+`packhub` 只碰 Pack 目录：`plan` / `verify` 预览，`lock` / `pack` / `publish` / `sign` 出包与发版。`pal` 负责装和跑：安装类命令 `install` / `uninstall` / `verify` / `rollback` / `update` 的 target 是 home（`--home <路径|名字>`，managed 用名字、attached 用路径或名字）或项目（`--project <目录>`）；`install` 不给 target 时在 PAL 数据目录建一个 managed 命名 home（名字 `<host>-<packSlug>`），`--home` 则装进宿主的真实全局目录（attached）。attached 的默认名撞车会自动改用 `<名字>-attached`；`remove` 对 managed 删整根、对 attached 只摘记录（卸包 + 删 PAL 记录，目录与用户文件保留）；clone / backup / restore / migrate 仍只对 managed。home 侧还有 `adopt` 与起停看护，本机状态看 `list` / `ps` / `health`，审计看 `list --history`。
 
 宿主（`dsh` / `claude-code` / `codex` / `opencode` / `workbody` / `hermes`）在 kernel 的注册表里：每个宿主一个模块，加宿主 = 新模块 + `harness/index.ts` 一行 import；attached home 只对已验证全局布局的宿主开放（opencode / hermes / workbody）；hermes 没有项目级落点（不能用 `--project`，用默认命名 home 或 `--home`）；第三方宿主暂不支持（见 [docs/concepts.md](docs/concepts.md) 的 Harness 词条）。
 
@@ -15,11 +15,17 @@ pnpm pal run opencode-lvlc233-team-conventions
 # server 型宿主（dsh）用 start
 pnpm pal install test/fixtures/packs/team-conventions --host dsh
 pnpm pal start dsh-lvlc233-team-conventions
+# managed home 想沿用全局凭据：按该宿主的 credentialFiles 从已有全局目录复制进新 home
+# （attached 不需要：它直接就是宿主的全局目录；--project 没有 home 段，不能用）
+pnpm pal install test/fixtures/packs/team-conventions --host claude-code --from-home ~/.claude
 
 # attached home：装进宿主真实的全局目录（例如 opencode 的 ~/.config/opencode）
 pnpm pal install test/fixtures/packs/team-conventions --host opencode --home ~/.config/opencode
 pnpm pal uninstall --home ~/.config/opencode
 pnpm pal verify --home opencode-lvlc233-team-conventions
+# 默认名已被别的 attached home 占用时自动改用 <名字>-attached（输出里打印最终名字）
+# remove 对 attached 只摘记录：卸包 + 删 PAL 记录，目录和用户文件保留
+pnpm pal remove opencode-lvlc233-team-conventions --yes
 
 # 项目 target：装进已有目录（dsh 在项目里只写指路块）
 pnpm pal install test/fixtures/packs/team-conventions --project tmp/demo-project --host dsh
