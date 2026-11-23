@@ -1,11 +1,11 @@
-import type { Plan, PlanAction } from './types.ts';
+import type { OwnedPath, PathBase, Plan, PlanAction, PlanActionFromBase } from './types.ts';
 import { STATE_DIR } from './files.ts';
 
 /** 计划动作名的唯一来源：`PlanOp` 联合里每加一个 op，这张表必须补齐（否则 typecheck 报错）。 */
 export type PlanOpName = PlanAction['op'];
 
 /** `from` 的基准；`none` 表示这个 op 不读来源文件。 */
-export type PlanOpFromBase = 'pack' | 'root' | 'none';
+export type PlanOpFromBase = 'pack' | PathBase | 'none';
 
 /** 撤销方式：删文件 / 还原共享配置 / 摘托管块 / 不撤销。 */
 export type PlanOpUndo = 'delete' | 'restore-shared' | 'strip-block' | 'none';
@@ -13,19 +13,21 @@ export type PlanOpUndo = 'delete' | 'restore-shared' | 'strip-block' | 'none';
 /**
  * 撤销共享改动要动的那一处（配置里的键 / 指令文件里的块）。
  * 载荷和执行器要做的动作同源：`undo` 与 `PlanOpUndo` 一致，执行器不用再按 op 拼路径。
- * - `restore-shared`：`path` 是共享配置文件，`key` 是配置条目名；`configPath`/`format`
- *   指定条目挂在哪个对象路径下、文件是什么格式（缺省 = `mcpServers` + JSON）；
- * - `strip-block`：`file` 是指令文件，`blockId` 是要摘掉的托管块。
+ * - `restore-shared`：`path` 是共享配置文件（相对 `base`，缺省 root），`key` 是配置条目名；
+ *   `configPath`/`format` 指定条目挂在哪个对象路径下、文件是什么格式（缺省 = `mcpServers` + JSON）；
+ * - `strip-block`：`file` 是指令文件（相对 `base`，缺省 root），`blockId` 是要摘掉的托管块。
  */
 export type PlanOpUndoPayload =
   | {
       undo: 'restore-shared';
       path: string;
       key: string;
+      /** 路径基准；缺省 root（旧计划没有这个字段） */
+      base?: PathBase;
       configPath?: string[];
       format?: 'json' | 'yaml';
     }
-  | { undo: 'strip-block'; file: string; blockId: string };
+  | { undo: 'strip-block'; file: string; blockId: string; base?: PathBase };
 
 /** codex 的技能选择器要求 `agents/openai.yaml`：install 期生成，计划里没有对行动作。 */
 export const CODEX_SKILL_YAML = 'agents/openai.yaml';
@@ -59,7 +61,7 @@ export interface PlanOpSpec {
 const from =
   (base: PlanOpFromBase) =>
   (action: PlanAction): PlanOpFromBase =>
-    (action as { fromBase?: 'pack' | 'root' }).fromBase ?? base;
+    (action as { fromBase?: PlanActionFromBase }).fromBase ?? base;
 const noFrom = (): PlanOpFromBase => 'none';
 
 const none = (): string[] => [];
@@ -70,6 +72,44 @@ const only =
     const hit = pick(action);
     return hit ? [hit] : [];
   };
+
+/** 撤销载荷里的 `base`：默认 root 不写字段（旧 JSON 逐字节不变）。 */
+function baseField(base: PathBase): { base?: PathBase } {
+  return base === 'root' ? {} : { base };
+}
+
+/**
+ * 动作落点的基准。只有适配器把 destination 的 base 带到动作上时才会出现非 root；
+ * 清单本身没有字段能改这个基准（安全边界见 docs/contract.md）。
+ */
+export function actionToBase(action: PlanAction): PathBase {
+  switch (action.op) {
+    case 'fetch':
+      return action.destBase ?? 'root';
+    case 'exec':
+      return 'root';
+    case 'state.dir':
+      return action.toBase ?? 'root';
+    default:
+      return (action as { toBase?: PathBase }).toBase ?? 'root';
+  }
+}
+
+/** 动作写到哪：带 `to` 的取 `to`，`register.mcp` 取 `path`，`instruction` 取 `file`。 */
+export function actionTargetPath(action: PlanAction): string | undefined {
+  switch (action.op) {
+    case 'fetch':
+      return action.dest;
+    case 'register.mcp':
+      return action.path ?? `${STATE_DIR}/config.json`;
+    case 'instruction':
+      return action.file;
+    case 'exec':
+      return undefined;
+    default:
+      return (action as { to?: string }).to;
+  }
+}
 
 /** `link.exec` 在 Windows 上多一个 `.cmd` 垫片；计划产物口径固定带上它。 */
 export function execWrapperPath(to: string): string {
@@ -159,6 +199,7 @@ export const PLAN_OPS: Record<PlanOpName, PlanOpSpec> = {
             undo: 'restore-shared',
             path: a.path ?? `${STATE_DIR}/config.json`,
             key: a.resource ?? 'mcp',
+            ...(baseField(actionToBase(a))),
             ...(a.configPath ? { configPath: a.configPath } : {}),
             ...(a.format ? { format: a.format } : {}),
           }
@@ -181,7 +222,9 @@ export const PLAN_OPS: Record<PlanOpName, PlanOpSpec> = {
     fromBase: noFrom,
     undo: 'strip-block',
     undoPayload: (a) =>
-      a.op === 'instruction' ? { undo: 'strip-block', file: a.file, blockId: a.blockId } : null,
+      a.op === 'instruction'
+        ? { undo: 'strip-block', file: a.file, blockId: a.blockId, ...(baseField(actionToBase(a))) }
+        : null,
     paths: (a) => (a.op === 'instruction' ? [a.file] : []),
     written: (a) => (a.op === 'instruction' ? [a.file] : []),
     shared: () => true,
@@ -216,14 +259,49 @@ export function planPathsOf(plan: PlanShape): string[] {
   return [...new Set(out)];
 }
 
+/**
+ * 一份计划的产物及其基准（去重）。带 `home` / `absolute` 基准的动作不能只当成安装根内的
+ * 相对路径：快照、版本镜像、所有权与 uninstall 都必须用这一份。
+ */
+export function planOutputsOf(plan: PlanShape): OwnedPath[] {
+  const out: OwnedPath[] = [];
+  const seen = new Set<string>();
+  for (const action of plan.actions) {
+    for (const item of actionOutputs(action, plan)) {
+      const key = ownedKey(item);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(item);
+    }
+  }
+  return out;
+}
+
 /** 单个动作写到安装根的路径（含派生输出）。 */
 export function actionPaths(action: PlanAction, plan: PlanShape): string[] {
   return PLAN_OPS[action.op].paths(action, plan);
 }
 
+/** 单个动作的产物（路径 + 基准）。 */
+export function actionOutputs(action: PlanAction, plan: PlanShape): OwnedPath[] {
+  const base = actionToBase(action);
+  return actionPaths(action, plan).map((path) => ({ path, base }));
+}
+
+/** 去重键：root 保持裸路径（与旧口径一致），其它基准加前缀。 */
+export function ownedKey(item: OwnedPath): string {
+  return item.base === 'root' ? item.path : `${item.base}:${item.path}`;
+}
+
 /** 单个动作成功时计入 state.written 的路径。 */
 export function actionWritten(action: PlanAction, plan: Plan, platform: string): string[] {
   return PLAN_OPS[action.op].written(action, plan, platform);
+}
+
+/** 单个动作成功时计入 state.written 的路径（带基准；新 state 用它）。 */
+export function actionWrittenOwned(action: PlanAction, plan: Plan, platform: string): OwnedPath[] {
+  const base = actionToBase(action);
+  return actionWritten(action, plan, platform).map((path) => ({ path, base }));
 }
 
 export function actionFromBase(action: PlanAction): PlanOpFromBase {

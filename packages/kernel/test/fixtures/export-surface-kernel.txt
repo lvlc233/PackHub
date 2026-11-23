@@ -32,6 +32,7 @@ MANIFEST_FILE
 Manifest
 McpDialect
 ModifySpec
+OwnedPath
 PACKHUB_ENV
 PACK_NAME_PATTERN
 PACK_VERSION_PATTERN
@@ -39,6 +40,7 @@ PLAN_OPS
 PackContext
 ParsedCapability
 ParsedSource
+PathBase
 Plan
 PlanAction
 PlanActionFromBase
@@ -76,11 +78,15 @@ VerifyCheck
 actionFromBase
 actionInputs
 actionIsShared
+actionOutputs
 actionPaths
 actionRetainWarning
+actionTargetPath
+actionToBase
 actionUndo
 actionUndoPayload
 actionWritten
+actionWrittenOwned
 buildLock
 buildMcpSpec
 buildPlan
@@ -106,11 +112,13 @@ isVolatilePin
 loadManifest
 loadPack
 mergeLocalOverrides
+ownedKey
 parseCapabilityToken
 parseCatalog
 parseManifest
 parseSource
 planFor
+planOutputsOf
 planPathsOf
 quoteArg
 readLocalOverrides

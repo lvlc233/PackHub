@@ -74,7 +74,10 @@ describe('update 的删除语义', () => {
     const state = JSON.parse(readFileSync(join(project, '.packhub/state.json'), 'utf8'));
     expect(state.packs['demo/prune@0.2.0']).toBeTruthy();
     expect(state.packs['demo/prune@0.1.0']).toBeUndefined();
-    expect(state.packs['demo/prune@0.2.0'].written).not.toContain('.packhub/knowledge/extra.md');
+    expect(state.packs['demo/prune@0.2.0'].written).not.toContainEqual({
+      path: '.packhub/knowledge/extra.md',
+      base: 'root',
+    });
 
     const { verifyInstalled } = await import('../src/index.ts');
     const reports = await verifyInstalled(project);

@@ -400,6 +400,108 @@ describe('--home：attached home', () => {
   });
 });
 
+describe('--home：claude-code / codex 的 attached 落点', () => {
+  it('claude-code：skills / CLAUDE.md 落 home，MCP 落 home 旁的 .claude.json；卸载只摘自己的键', () => {
+    const palHome = newPalHome('pal-attached-claude-');
+    const { base, pack } = packFixture(SKILL_FIXTURE);
+    const attachedHome = join(base, '.claude');
+    const claudeJson = join(base, '.claude.json');
+    // 用户已有的全局配置：装 / 卸都必须原样保留
+    writeFileSync(
+      claudeJson,
+      JSON.stringify({ theme: 'dark', mcpServers: { mine: { command: 'user-server' } } }, null, 2) + '\n',
+      'utf8',
+    );
+
+    const res = palIn(palHome, [
+      'install', pack, '--host', 'claude-code', '--home', attachedHome,
+    ]);
+    expect(res.status, res.out).toBe(0);
+    expect(existsSync(join(attachedHome, 'skills/doc-review/SKILL.md'))).toBe(true);
+    expect(existsSync(join(attachedHome, 'knowledge/review-rubric.md'))).toBe(true);
+    expect(existsSync(join(attachedHome, 'prompts/reader-brief.md'))).toBe(true);
+    expect(readFileSync(join(attachedHome, 'CLAUDE.md'), 'utf8')).toContain(
+      '<!-- packhub:begin lvlc233/doc-review -->',
+    );
+
+    const installed = JSON.parse(readFileSync(claudeJson, 'utf8')) as {
+      theme: string;
+      mcpServers: Record<string, unknown>;
+    };
+    expect(installed.theme).toBe('dark');
+    expect(Object.keys(installed.mcpServers).sort()).toEqual(['markdownlint', 'mine']);
+
+    const removed = palIn(palHome, ['uninstall', '--home', attachedHome]);
+    expect(removed.status, removed.out).toBe(0);
+    expect(removed.out).toContain('.claude.json');
+    const after = JSON.parse(readFileSync(claudeJson, 'utf8')) as {
+      theme: string;
+      mcpServers?: Record<string, unknown>;
+    };
+    expect(after.theme).toBe('dark');
+    expect(Object.keys(after.mcpServers ?? {})).toEqual(['mine']);
+    expect(existsSync(join(attachedHome, 'skills/doc-review'))).toBe(false);
+    // 指令文件里只剩我们那块、块外没有用户内容：按现有规则删掉空壳
+    expect(existsSync(join(attachedHome, 'CLAUDE.md'))).toBe(false);
+    rmSync(base, { recursive: true, force: true });
+  }, 60_000);
+
+  it('claude-code：rollback 恢复安装前的 .claude.json（绝对路径快照）', () => {
+    const palHome = newPalHome('pal-attached-claude-rb-');
+    const { base, pack } = packFixture(SKILL_FIXTURE);
+    const attachedHome = join(base, '.claude');
+    const claudeJson = join(base, '.claude.json');
+    const original = '{"theme":"dark"}';
+    writeFileSync(claudeJson, original, 'utf8');
+
+    expect(
+      palIn(palHome, ['install', pack, '--host', 'claude-code', '--home', attachedHome]).status,
+    ).toBe(0);
+    const rolled = palIn(palHome, ['rollback', '--home', attachedHome]);
+    expect(rolled.status, rolled.out).toBe(0);
+    // 逐字节回到装之前（不是重新序列化）
+    expect(readFileSync(claudeJson, 'utf8')).toBe(original);
+    expect(existsSync(join(attachedHome, 'skills/doc-review'))).toBe(false);
+    expect(existsSync(join(attachedHome, 'CLAUDE.md'))).toBe(false);
+    rmSync(base, { recursive: true, force: true });
+  }, 60_000);
+
+  it('codex：skills / AGENTS.md / config.toml 落 home；卸载按 key 摘块，用户配置保留', () => {
+    const palHome = newPalHome('pal-attached-codex-');
+    const { base, pack } = packFixture(SKILL_FIXTURE);
+    const attachedHome = join(base, '.codex');
+    mkdirSync(attachedHome, { recursive: true });
+    writeFileSync(join(attachedHome, 'config.toml'), 'model = "gpt-test"\n', 'utf8');
+
+    const res = palIn(palHome, ['install', pack, '--host', 'codex', '--home', attachedHome]);
+    expect(res.status, res.out).toBe(0);
+    expect(existsSync(join(attachedHome, 'skills/doc-review/SKILL.md'))).toBe(true);
+    expect(existsSync(join(attachedHome, 'skills/doc-review/agents/openai.yaml'))).toBe(true);
+    expect(existsSync(join(attachedHome, 'AGENTS.md'))).toBe(true);
+    const config = readFileSync(join(attachedHome, 'config.toml'), 'utf8');
+    expect(config).toContain('model = "gpt-test"');
+    expect(config).toContain('[mcp_servers.markdownlint]');
+
+    const removed = palIn(palHome, ['uninstall', '--home', attachedHome]);
+    expect(removed.status, removed.out).toBe(0);
+    expect(readFileSync(join(attachedHome, 'config.toml'), 'utf8')).toBe('model = "gpt-test"\n');
+    expect(existsSync(join(attachedHome, 'skills/doc-review'))).toBe(false);
+    expect(existsSync(join(attachedHome, 'AGENTS.md'))).toBe(false);
+    rmSync(base, { recursive: true, force: true });
+  }, 60_000);
+
+  it('dsh 仍然拒绝 attached：错误文案列出已支持的宿主', () => {
+    const palHome = newPalHome('pal-attached-dsh-list-');
+    const { base, pack } = packFixture();
+    const res = palIn(palHome, ['install', pack, '--host', 'dsh', '--home', join(base, 'h')]);
+    expect(res.status).toBe(2);
+    expect(res.out).toContain('宿主 dsh 暂不支持 attached home');
+    expect(res.out).toContain('claude-code');
+    expect(res.out).toContain('codex');
+    rmSync(base, { recursive: true, force: true });
+  });
+});
+
 describe('--from-home：managed home 沿用全局凭据', () => {
   it('与 --home / --project 冲突：退 2，不写任何东西', () => {
     const palHome = newPalHome('pal-from-home-conflict-');

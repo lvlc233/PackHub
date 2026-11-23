@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import type { InstanceKind } from './layout.ts';
-import { loadState } from '@packhub/runtime';
+import { loadState, ownedLabel, resolveOwnedPath } from '@packhub/runtime';
 import { writeAtomic } from './atomic.ts';
 import { nowIso } from './time.ts';
 
@@ -51,12 +51,17 @@ export function baselineFromState(root: string): BaselineFile[] {
   const out: BaselineFile[] = [];
   const seen = new Set<string>();
   for (const pack of Object.values(state.packs)) {
-    for (const rel of pack.written ?? []) {
-      const abs = resolve(root, rel);
+    for (const item of pack.written ?? []) {
+      let abs: string;
+      try {
+        abs = resolveOwnedPath(root, pack.home, item);
+      } catch {
+        continue; // 记录缺 home 的旧数据：没法定位就不进基线，体检会按缺文件报
+      }
       if (seen.has(abs)) continue;
       seen.add(abs);
       const hashed = hashFile(abs);
-      if (hashed) out.push({ ...hashed, path: rel });
+      if (hashed) out.push({ ...hashed, path: ownedLabel(root, abs) });
     }
   }
   return out;

@@ -4,7 +4,7 @@
 //   uninstall / verify / rollback / update 用 `--home <名字|路径>` 或 `--project <目录>`。
 // 目录路径的实现仍在 dirCommands.ts，命令层只做 target 解析与文案。
 import { defineCommand, type CommandDef } from 'citty';
-import { harness, harnessIds, type HarnessId } from '@packhub/kernel';
+import { harness, harnessIds, harnesses, type HarnessId } from '@packhub/kernel';
 import { materializePack, readPackIdentity } from '../materialize.ts';
 import {
   createInstance,
@@ -139,6 +139,14 @@ function requirePackName(packDir: string): string {
   return name;
 }
 
+/** attached 支持列表：从注册表现查，加宿主不用改这里的文案。 */
+function attachedHostsLabel(): string {
+  return harnesses()
+    .filter((spec) => spec.attached === true)
+    .map((spec) => spec.id)
+    .join(' / ');
+}
+
 export const install = defineCommand({
   meta: {
     name: 'install',
@@ -161,7 +169,7 @@ export const install = defineCommand({
     },
     home: {
       type: 'string',
-      description: 'attached home：宿主的真实全局目录（存在或新建；~ 会展开成你的 home）',
+      description: `attached home：宿主的真实全局目录（存在或新建；~ 会展开成你的 home）；支持 attached 的宿主：${attachedHostsLabel()}`,
     },
     project: {
       type: 'string',

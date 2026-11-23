@@ -14,22 +14,26 @@ import type {
   DestinationKind,
   McpDialect,
 } from './harness/contract.ts';
+import type { PathBase } from './types.ts';
 
 /** 包自己的状态根：所有范围（项目 / managed / attached）都一样，宿主不读这里。 */
 export const PACK_ROOT = STATE_DIR;
 
+/** 表里的一项落点：只给路径（基准 root）或连基准一起给（适配器声明 home / absolute）。 */
+export type DestinationItem = string | { path: string; base?: PathBase };
+
 /** 一份落点表：宿主只写它认的那几项，没写的落到 `.packhub` 段。 */
 export interface DestinationTable {
-  skill?: string;
-  knowledge?: string;
-  prompt?: string;
-  bin?: string;
-  config?: string;
-  cache?: string;
-  /** MCP 配置文件（相对安装根） */
-  mcp?: string;
+  skill?: DestinationItem;
+  knowledge?: DestinationItem;
+  prompt?: DestinationItem;
+  bin?: DestinationItem;
+  config?: DestinationItem;
+  cache?: DestinationItem;
+  /** MCP 配置文件（相对安装根，或由 base 声明的基准） */
+  mcp?: DestinationItem;
   /** 宿主的项目 / 全局指令文件；不写 = 这个范围没有指令面 */
-  instruction?: string;
+  instruction?: DestinationItem;
 }
 
 /**
@@ -47,14 +51,21 @@ const PACK_PATHS: Record<DestinationKind, string> = {
   instruction: '',
 };
 
+/** 表项 → `{ path, base? }`；没写 base 就是 root（默认，不产生额外字段）。 */
+function itemOf(value: DestinationItem | undefined, fallback: string): { path: string; base?: PathBase } {
+  if (value === undefined) return { path: fallback };
+  if (typeof value === 'string') return { path: value };
+  return value.base ? { path: value.path, base: value.base } : { path: value.path };
+}
+
 /** 把一张落点表变成宿主的 destination：`mcp` 的方言随 mcp 的落点一起给。 */
 export function destinationsOf(
   table: DestinationTable,
   mcp?: McpDialect,
 ): (kind: DestinationKind) => Destination {
   return (kind) => {
-    const path = table[kind] ?? PACK_PATHS[kind];
-    return kind === 'mcp' && mcp ? { path, mcp } : { path };
+    const item = itemOf(table[kind], PACK_PATHS[kind]);
+    return kind === 'mcp' && mcp ? { ...item, mcp } : item;
   };
 }
 
@@ -66,22 +77,33 @@ export function flatDestination(kind: DestinationKind): Destination {
   return destinationsOf({})(kind);
 }
 
-/** `${layout.*}` 插值的键：由 destination 派生，`root` 是包状态根（不是安装根）。 */
+/** `${layout.*}` 里的一项：按基准给路径本身（root / home 下都是相对路径，absolute 就是绝对路径）。 */
+function layoutValue(dest: Destination): string {
+  return dest.path;
+}
+
+/**
+ * `${layout.*}` 插值的键：由 destination 派生，`root` 是包状态根（不是安装根）。
+ *
+ * 带 `home` 基准的落点在宿主 home 段下（值本身就是相对 home 的路径）；带 `absolute` 基准的
+ * 落点给绝对路径。清单只能拿到这些字符串，不能反过来把动作的 base 改成 absolute——
+ * 动作的 base 只由适配器的 destination 决定（见 docs/contract.md 的安全边界）。
+ */
 export function layoutNamespace(
   dest: (kind: DestinationKind) => Destination,
 ): Record<string, string> {
   const namespace: Record<string, string> = {
     root: PACK_ROOT,
-    cacheDir: dest('cache').path,
-    skillsDir: dest('skill').path,
-    knowledgeDir: dest('knowledge').path,
-    promptsDir: dest('prompt').path,
-    binDir: dest('bin').path,
-    configDir: dest('config').path,
-    configFile: dest('mcp').path,
+    cacheDir: layoutValue(dest('cache')),
+    skillsDir: layoutValue(dest('skill')),
+    knowledgeDir: layoutValue(dest('knowledge')),
+    promptsDir: layoutValue(dest('prompt')),
+    binDir: layoutValue(dest('bin')),
+    configDir: layoutValue(dest('config')),
+    configFile: layoutValue(dest('mcp')),
   };
   // 没有指令面的范围（平铺目录）不给这个键：清单里写了就按未定义变量报错
-  const instructionFile = dest('instruction').path;
+  const instructionFile = layoutValue(dest('instruction'));
   if (instructionFile) namespace.instructionFile = instructionFile;
   return namespace;
 }

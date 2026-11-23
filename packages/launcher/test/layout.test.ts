@@ -139,10 +139,10 @@ describe('落点上下文（PAL 只回答范围，落点由宿主回答）', () 
   });
 
   it('attached 只对已验证全局落点的宿主开放', () => {
-    for (const id of ['opencode', 'hermes', 'workbody']) {
+    for (const id of ['opencode', 'hermes', 'workbody', 'claude-code', 'codex']) {
       expect(supportsAttached(id), `${id} 应支持 attached`).toBe(true);
     }
-    for (const id of ['dir', 'dsh', 'claude-code', 'codex']) {
+    for (const id of ['dir', 'dsh']) {
       expect(supportsAttached(id), `${id} 不该支持 attached`).toBe(false);
     }
   });

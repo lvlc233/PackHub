@@ -175,52 +175,87 @@ export interface Manifest {
 /* ---------- 计划（Plan） ---------- */
 
 /**
+ * 路径相对谁：
+ * - `root`（默认）：安装根（项目目录 / managed 实例根 / attached home）；
+ * - `home`：宿主 home 段（managed 是 `<root>/home/<宿主>`，attached 就是 root 本身）；
+ * - `absolute`：原样使用，必须是绝对路径。
+ *
+ * 只有适配器（宿主模块的 `destination`）能声明 `home` / `absolute`；清单插值永远拿不到
+ * 「把某条动作的基准改成 absolute」的能力，见 `docs/contract.md` 的安全边界。
+ */
+export type PathBase = 'root' | 'home' | 'absolute';
+
+/** 一个受管路径及其基准：计划产物、`state.written`、快照记录共用这一种形状。 */
+export interface OwnedPath {
+  path: string;
+  base: PathBase;
+}
+
+/**
  * 动作来源的基准：`from` 到底相对谁。
  * - `pack`：Pack 目录内的相对路径（作者带来的字节）
  * - `root`：安装根内的相对路径（fetch / unpack 的中间产物）
+ * - `home` / `absolute`：与 `to` 的 `PathBase` 同义（适配器把缓存/执行体放到全局位置时用）
  *
  * 只出现在带 `from` 的动作上；不写就按 plan-ops 表里的 op 默认值。
  */
-export type PlanActionFromBase = 'pack' | 'root';
+export type PlanActionFromBase = 'pack' | PathBase;
 
 export type PlanOp =
   | {
       op: 'fetch';
       uri: string;
       dest: string;
+      /** `dest` 相对谁；缺省 root（缓存通常归包自己，不跟宿主走） */
+      destBase?: PathBase;
       integrity?: string;
       auth?: { env: string; scheme?: 'bearer' | 'token' | 'basic' };
     }
-  | { op: 'unpack'; from: string; to: string; strip?: number; fromBase?: PlanActionFromBase }
+  | {
+      op: 'unpack';
+      from: string;
+      to: string;
+      toBase?: PathBase;
+      strip?: number;
+      fromBase?: PlanActionFromBase;
+    }
   | {
       op: 'write';
       to: string;
+      toBase?: PathBase;
       from?: string;
       content?: string;
       /** 资源在清单里声明了 integrity 时带上：verify 段据此派生哈希校验 */
       integrity?: string;
       fromBase?: PlanActionFromBase;
     }
-  | { op: 'copy'; from: string; to: string; fromBase?: PlanActionFromBase }
+  | { op: 'copy'; from: string; to: string; toBase?: PathBase; fromBase?: PlanActionFromBase }
   | {
       op: 'link.exec';
       to: string;
+      toBase?: PathBase;
       runtime: ToolRuntime;
       entry: string;
+      /** `entry` 相对谁；缺省 root */
+      entryBase?: PathBase;
       module?: string;
+      /** `module` 相对谁；缺省 root */
+      moduleBase?: PathBase;
       args?: string[];
       env?: Record<string, string>;
       /** 只在这些平台（`platform-arch`）建入口；不匹配由执行器记 skipped */
       platforms?: string[];
     }
-  | { op: 'delete'; to: string }
-  | { op: 'link.skill'; from: string; to: string; fromBase?: PlanActionFromBase }
+  | { op: 'delete'; to: string; toBase?: PathBase }
+  | { op: 'link.skill'; from: string; to: string; toBase?: PathBase; fromBase?: PlanActionFromBase }
   | {
       op: 'register.mcp';
       /** 已经按宿主方言转好的条目（默认方言下就是通用 spec） */
       spec: Record<string, unknown>;
-      /** 写哪个配置文件；不写就用 layout.configFile */
+      /** 写哪个配置文件；不写就用宿主 destination('mcp') 的落点 */
       path?: string;
+      /** `path` 相对谁；缺省 root */
+      toBase?: PathBase;
       /** 配置里放条目的对象路径；默认 ['mcpServers'] */
       configPath?: string[];
       /** 配置文件格式；默认 json */
@@ -235,9 +270,16 @@ export type PlanOp =
       timeout?: number;
       approval: 'required';
     }
-  | { op: 'instruction'; file: string; blockId: string; content: string }
+  | {
+      op: 'instruction';
+      file: string;
+      /** `file` 相对谁；缺省 root */
+      toBase?: PathBase;
+      blockId: string;
+      content: string;
+    }
   /** 持久状态目录：只建目录，不写文件；卸载时按 retain 决定去留 */
-  | { op: 'state.dir'; to: string; retain: 'keep' | 'remove' }
+  | { op: 'state.dir'; to: string; toBase?: PathBase; retain: 'keep' | 'remove' }
 
 /** 把元数据分配到 union 的每个成员上（交叉类型不会自动分配，会导致 Omit 丢掉变体字段）。 */
 type WithMeta<T> = T extends unknown ? T & { actionId: string; resource?: string } : never;

@@ -1,7 +1,8 @@
 import { existsSync, rmSync, statSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { MANIFEST_FILE, type PackContext } from '@packhub/kernel';
-import { installPack, loadLock, loadPack, loadState, planPaths, saveState, withLockPins } from '@packhub/runtime';
+import { join, resolve, sep } from 'node:path';
+import { MANIFEST_FILE, type OwnedPath, type PackContext } from '@packhub/kernel';
+import { installPack, loadLock, loadPack, loadState, ownedLabel, planOutputs, resolveOwnedPath, saveState, withLockPins } from '@packhub/runtime';
+import { requireAdapter } from './layout.ts';
 import { baselineFromState, hashFile, readBaseline, writeBaseline, type Baseline } from './baseline.ts';
 import { withInstanceLock } from './lock.ts';
 import { readRecord, type InstanceRecord } from './records.ts';
@@ -55,6 +56,19 @@ function localChangesOf(
     .map((file) => file.path);
 }
 
+/** 同一物理路径只留一条（base 不同但解析结果相同的旧记录合并）。 */
+function dedupeByAbs(root: string, home: string | undefined, items: readonly OwnedPath[]): OwnedPath[] {
+  const seen = new Set<string>();
+  const out: OwnedPath[] = [];
+  for (const item of items) {
+    const abs = resolveOwnedPath(root, home, item);
+    if (seen.has(abs)) continue;
+    seen.add(abs);
+    out.push(item);
+  }
+  return out;
+}
+
 /**
  * 把实例里的 Pack 换成另一个版本：先在同一个根上装新版，再清掉上一版独有的文件。
  * 要求实例已停：更新期间有进程在读这些文件，删了会留下半套。
@@ -103,8 +117,21 @@ export async function updateInstance(
 
   const before = loadState(record.root);
   const oldKeys = Object.keys(before.packs).filter((key) => key.startsWith(`${record.pack.name}@`));
+  // attached 的 home 就是记录根；managed 是根里的 home 段（base: home / absolute 的落点按它解析）
+  const adapter = requireAdapter(kind);
+  const home =
+    record.home ??
+    (record.attached === true
+      ? record.root
+      : adapter.homeDir
+        ? join(record.root, adapter.homeDir)
+        : undefined);
   // 上一版写过哪些文件：同名各代 key 取并集（install 升级时也把同名旧 key 并进新 key）
-  const oldWritten = [...new Set(oldKeys.flatMap((key) => before.packs[key]?.written ?? []))];
+  const oldWritten = dedupeByAbs(
+    record.root,
+    home,
+    oldKeys.flatMap((key) => before.packs[key]?.written ?? []),
+  );
   const baseline = readBaseline(record.root);
   // 更新会覆盖 Pack 装过的文件，所以先看哪些已经被本地改过：改过的要提前告诉人
   const localChanges = localChangesOf(record.root, baseline);
@@ -130,24 +157,34 @@ export async function updateInstance(
   await withInstanceLock(record.root, 'update', async () => {
     if (!changed) return;
     // 同一 Pack 的新版本要能覆盖旧版本写过的文件；overwrite 只放开"自己的包"
-    await installPack(ctx, plan, { root: record.root, packRoot: resolve(opts.packDir), overwrite: true });
+    await installPack(ctx, plan, {
+      root: record.root,
+      packRoot: resolve(opts.packDir),
+      overwrite: true,
+      ...(home ? { home } : {}),
+    });
 
     // install 已经把同名的旧 key 并进新 key、written 取并集；这里清掉新计划不再要的文件。
-    // 「新计划还产出哪些路径」只问 runtime 的 planPaths（含 fetch 落点、link.exec 的 .cmd）：
+    // 「新计划还产出哪些路径」只问 runtime 的 planOutputs（含 fetch 落点、link.exec 的 .cmd）：
     // 加一个 op 时不用在这里再数一遍。怎么删、删不掉怎么报仍留在本模块（逐文件 warnings）。
-    const produced = planPaths(plan);
-    const stillProduced = (rel: string): boolean =>
-      produced.some((p) => p === rel || rel.startsWith(`${p}/`) || p.startsWith(`${rel}/`));
-    removedFiles = oldWritten.filter((rel) => !stillProduced(rel));
-    addedFiles = produced.filter((rel) => !oldWritten.includes(rel));
-    for (const rel of removedFiles) {
-      const abs = resolve(record.root, rel);
-      if (!abs.startsWith(resolve(record.root))) continue;
+    const produced = planOutputs(plan).map((item) => resolveOwnedPath(record.root, home, item));
+    const stillProduced = (abs: string): boolean =>
+      produced.some((p) => p === abs || abs.startsWith(`${p}${sep}`) || p.startsWith(`${abs}${sep}`));
+    const oldAbs = oldWritten.map((item) => ({
+      abs: resolveOwnedPath(record.root, home, item),
+    }));
+    const removedAbs = new Set(oldAbs.map(({ abs }) => abs).filter((abs) => !stillProduced(abs)));
+    removedFiles = [...removedAbs].map((abs) => ownedLabel(record.root, abs));
+    const oldAbsSet = new Set(oldAbs.map(({ abs }) => abs));
+    addedFiles = produced
+      .filter((abs) => !oldAbsSet.has(abs))
+      .map((abs) => ownedLabel(record.root, abs));
+    for (const abs of removedAbs) {
       try {
         if (existsSync(abs) && statSync(abs).isFile()) rmSync(abs, { force: true });
       } catch (err) {
         // 删不掉就留着，下次更新再说；但不能静默：告诉人哪个文件还在
-        warnings.push(`旧文件没删掉：${rel}（${fsProblem(err)}）`);
+        warnings.push(`旧文件没删掉：${ownedLabel(record.root, abs)}（${fsProblem(err)}）`);
       }
     }
 
@@ -155,8 +192,9 @@ export async function updateInstance(
     const key = Object.keys(after.packs).find((item) => item.startsWith(`${ctx.manifest.metadata.name}@`));
     const recordState = key ? after.packs[key] : undefined;
     if (recordState) {
-      const stale = new Set(removedFiles);
-      recordState.written = recordState.written.filter((rel) => !stale.has(rel));
+      recordState.written = recordState.written.filter(
+        (item) => !removedAbs.has(resolveOwnedPath(record.root, home, item)),
+      );
     }
     saveState(record.root, after);
 

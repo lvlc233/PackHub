@@ -70,7 +70,7 @@ resources:
 清单里会变成路径或命令的字符串支持 `${...}` 插值：`state[].path`、`install.exec` 的各字段与 `verify` 项。可用命名空间只有三个：
 
 - `${vars.<键>}`：清单的 `vars`；
-- `${layout.<字段>}`：这次安装的落点回答——落点由宿主自己声明（`destination(kind, ctx)`），插值是从它派生出来的视图：`skillsDir` / `knowledgeDir` / `promptsDir` / `binDir` / `configDir` / `cacheDir` 分别等于对应 `destination(kind)`，`configFile` = `destination('mcp')`、`instructionFile` = `destination('instruction')`，`root` 是包自己的 `.packhub` 状态根（不是安装根）；平铺目录与没有指令面的宿主不派生 `instructionFile`，写了会报 `undefined-variable`；
+- `${layout.<字段>}`：这次安装的落点回答——落点由宿主自己声明（`destination(kind, ctx)`），插值是从它派生出来的视图：`skillsDir` / `knowledgeDir` / `promptsDir` / `binDir` / `configDir` / `cacheDir` 分别等于对应 `destination(kind)`，`configFile` = `destination('mcp')`、`instructionFile` = `destination('instruction')`，`root` 是包自己的 `.packhub` 状态根（不是安装根）；平铺目录与没有指令面的宿主不派生 `instructionFile`，写了会报 `undefined-variable`。带 `base: 'home'` 的落点给 home 段下的相对路径，带 `base: 'absolute'` 的落点给绝对路径；清单只能拿到这些字符串，不能反过来把动作的路径基准改成 absolute（见 §2 的安全边界）；
 - `${state.<id>}`：清单 `state` 块声明的持久目录。
 
 找不到的键报 `undefined-variable`。落点变量的命名空间是 `layout`，不留别名；旧命名空间下的写法会被当成找不到的键，计划期直接报错。
@@ -101,19 +101,27 @@ resources:
 
 每个 op 的路径、来源基准、撤销方式、撤销载荷、共享判定与派生输出都在 `packages/kernel/src/plan-ops.ts` 的 `PLAN_OPS` 表里（单点；执行器与清理侧都从它派生）：
 
-| op | `from` 基准 | 写到安装根 | 撤销 | 撤销载荷 | 共享 | 备注 |
+| op | `from` 基准 | 写到哪（`to` 的基准） | 撤销 | 撤销载荷 | 共享 | 备注 |
 |---|---|---|---|---|---|---|
-| `fetch` | 无（`uri`） | `dest` | 删文件 | — | 否 | 下载物进缓存，进快照/版本镜像 |
-| `unpack` | 安装根（`root`） | `to` | 删文件 | — | 否 | 读 fetch 实际写盘的位置 |
-| `copy` | Pack（`pack`） | `to` | 删文件 | — | 否 | 本地工具执行体整份复制 |
-| `write` | Pack（`pack`），内联内容可省 | `to` | 删文件 | — | 否 | 二进制也走它；清单声明 `integrity` 时带上（verify 据此派生哈希校验） |
-| `delete` | 无 | `to`（被删对象） | 不撤销 | — | 否 | 目标不存在算 `noop`，不进 `written` |
-| `link.skill` | 本地 `pack` / 远程 `root` | `to` | 删文件 | — | 否 | codex 额外派生 `<to>/agents/openai.yaml` |
-| `link.exec` | 无（`entry` / `module` 相对安装根） | `to`、`to.cmd` | 删文件 | — | 否 | `.cmd` 只在 win32 生成；`platforms` 不匹配由执行器 `skipped` |
-| `register.mcp` | 无（`spec`） | `path`（缺省用 `destination('mcp')` 的落点） | 还原共享配置 | `{path, key, configPath?, format?}` | 是 | `configPath` / `format` 由宿主 MCP 方言决定；`.toml` 用托管块 |
+| `fetch` | 无（`uri`） | `dest`（`destBase`，缺省 root） | 删文件 | — | 否 | 下载物进缓存，进快照/版本镜像 |
+| `unpack` | `fromBase`（缺省 root） | `to`（`toBase`，缺省 root） | 删文件 | — | 否 | 读 fetch 实际写盘的位置 |
+| `copy` | Pack（`pack`） | `to`（`toBase`，缺省 root） | 删文件 | — | 否 | 本地工具执行体整份复制 |
+| `write` | Pack（`pack`），内联内容可省 | `to`（`toBase`，缺省 root） | 删文件 | — | 否 | 二进制也走它；清单声明 `integrity` 时带上（verify 据此派生哈希校验） |
+| `delete` | 无 | `to`（`toBase`，缺省 root） | 不撤销 | — | 否 | 目标不存在算 `noop`，不进 `written` |
+| `link.skill` | 本地 `pack` / 远程缓存基准 | `to`（`toBase`，缺省 root） | 删文件 | — | 否 | codex 额外派生 `<to>/agents/openai.yaml` |
+| `link.exec` | 无（`entry` / `module` 各带基准，缺省 root） | `to`（`toBase`，缺省 root）、`to.cmd` | 删文件 | — | 否 | `.cmd` 只在 win32 生成；`platforms` 不匹配由执行器 `skipped` |
+| `register.mcp` | 无（`spec`） | `path`（`toBase`，缺省 root；缺省用 `destination('mcp')` 的落点） | 还原共享配置 | `{path, base?, key, configPath?, format?}` | 是 | `configPath` / `format` 由宿主 MCP 方言决定；`.toml` 用托管块 |
 | `exec` | 无 | 无 | 不撤销 | — | 否 | 计划里永远 `approval: required` |
-| `instruction` | 无（`content`） | `file` | 摘托管块 | `{file, blockId}` | 是 | 只动 `<!-- packhub:begin/end -->` 之间 |
+| `instruction` | 无（`content`） | `file`（`toBase`，缺省 root） | 摘托管块 | `{file, base?, blockId}` | 是 | 只动 `<!-- packhub:begin/end -->` 之间 |
 | `state.dir` | 无 | 无（只建目录） | 不撤销 | — | 否 | 数据目录，不随升级/卸载删除 |
+
+**路径基准**：`Destination.base` 只有三个值——`root`（缺省，相对安装根）、`home`（相对宿主 home 段：managed 是 `<root>/home/<宿主>`，attached 就是 root）、`absolute`（原样使用，必须是绝对路径）。动作上对应可选的 `toBase`（`register.mcp` / `instruction` 也用同一个字段），默认 `root`，**默认值不写进 JSON**：同一份清单在现有宿主 / 现有 scope 下，动作与改造前逐字节一致。撤销载荷里的 `base` 同理，只在非 root 时出现。
+
+**安全边界**：
+
+1. 非 root 基准只允许来自适配器的 `destination`；清单没有字段能声明路径基准，`${layout.*}` 插值也只会得到字符串，不能把某条动作的 `toBase` 改成 `absolute`。
+2. 计划期检查：`base: 'absolute'` 的路径不是绝对路径 → `bad-destination-base`（error）；`base: 'home'` 但安装范围没有 home 段同样报 error。绝对路径落在安装根内也按绝对路径处理，不折回相对路径。
+3. 不限制绝对路径的目录（例如 claude-code 的 `~/.claude.json` 在 home 的上一级）；代价是卸载与漂移检查必须精确回退：`state.written` 记下 `{path, base}`，安装前按同一基准快照，rollback 原样恢复。
 
 「共享」只由动作决定：`register.mcp` 按 key 合并、`instruction` 按托管块追加；落点路径（`.json` / `.yaml` / `.toml` / 根目录 `.md`）不改变共享性，私有 `.json` 照常进版本镜像、参与所有权冲突、升级时按普通文件删。
 
@@ -180,7 +188,10 @@ resources:
       "pack": "lvlc233/team-conventions@0.0.1",
       "planHash": "sha256-…",
       "existed": [".packhub/knowledge/style-guide.md"],
-      "created": [".packhub/prompts/commit-rules.md"]
+      "created": [".packhub/prompts/commit-rules.md"],
+      // 安装根之外的绝对路径另存一份：旧 generation 没有这两个字段
+      "existedExternal": ["C:/Users/me/.claude.json"],
+      "createdExternal": []
     }
   ],
   "packs": {
@@ -188,7 +199,12 @@ resources:
       "planHash": "sha256-…",
       "installedAt": "2026-11-03T…",
       "actions": [{ "actionId": "write#1", "op": "write", "status": "done", "target": ".packhub/knowledge/style-guide.md" }],
-      "written": [".packhub/knowledge/style-guide.md"],
+      "written": [
+        { "path": ".packhub/knowledge/style-guide.md", "base": "root" },
+        { "path": "skills/doc-review", "base": "home" },
+        { "path": "C:/Users/me/.claude.json", "base": "absolute" }
+      ],
+      "home": "C:/Users/me/.claude",
       "stateDirs": [{ "id": "memory", "path": ".packhub/state/memory", "retain": "keep" }],
       "plan": { "harness": "dsh", "planHash": "sha256-…", "actions": [], "verify": [], "excluded": [] }
     }
@@ -199,10 +215,12 @@ resources:
 不变量：
 
 1. 每个包一条记录，键是 `name@version`；升级时旧版本记录并入新 key，不留旧 key。
-2. `written` 是这个包**拥有**的文件集合（跨多次安装取并集），卸载据此删除。
-3. `plan` 是该次安装的计划快照，形如 `PlanSnapshot`：可选 `harness`（平铺目录时不出现）/ `planHash` / `actions` / `verify` / `excluded`，**没有** `apiVersion` 与 `pack`（那两个字段只属于完整 plan）；`diff`、`update`、`planPaths` 只需要这一份。不参与任何哈希。
-4. `stateDirs` 记录清单 `state` 块声明的目录；这些目录不进 `written`、不进版本镜像、不被快照回滚删除。
-5. `generations` 每次安装追加一条，更早的会被裁掉（保留策略在 `install.ts`）；`existed` / `created` 是回退的依据。
+2. `written` 是这个包**拥有**的文件集合（跨多次安装取并集），每条是 `{ path, base }`：`root` 相对安装根、`home` 相对 `record.home`、`absolute` 原样（必须是绝对路径）。卸载据此删除；共享文件（MCP 配置 / 指令块）按计划快照里的 key / 块 id 摘除，不整文件删。
+3. `home` 是这次安装的宿主 home 段（绝对路径）。没有 home 的项目 / 平铺安装不写这个字段；解析 `base: 'home'` 的路径时缺它直接报错，不猜一个目录。
+4. `plan` 是该次安装的计划快照，形如 `PlanSnapshot`：可选 `harness`（平铺目录时不出现）/ `planHash` / `actions` / `verify` / `excluded`，**没有** `apiVersion` 与 `pack`（那两个字段只属于完整 plan）；`diff`、`update`、`planOutputs` 只需要这一份。不参与任何哈希。
+5. `stateDirs` 记录清单 `state` 块声明的目录；这些目录不进 `written`、不进版本镜像、不被快照回滚删除。
+6. `generations` 每次安装追加一条，更早的会被裁掉（保留策略在 `install.ts`）；`existed` / `created` 是回退的依据。安装根之外的绝对路径记在 `existedExternal` / `createdExternal`（安装前复制进快照目录的 `external/`），rollback 与失败回滚同样恢复 / 删除它们。
+7. **旧 state 兼容读**：更早的 `written` 是 `string[]`，读端按 `base: 'root'` 归一，不因为读而重写文件；只有下一次真正写 state 时才变成新形状。
 
 装好与否的判定、并发、回退、所有权与卸载顺序是行为，写在 `packages/runtime/src/install.ts`（`applyPlan` / `acquireLock` / `removePack` / `rollbackPack`）。
 
@@ -310,5 +328,5 @@ registry 的索引，`search` / `install` / `update` 只读它。
 ## 8 版本策略
 
 - `plan` / `lock` / `state` / `index` 各自独立升版本；读方遇到不认识的 `apiVersion` 主版本必须拒绝，不得猜测。`index` 的版本号由 kernel 的 `INDEX_API_VERSION` 单点给出：`readIndex` 比它，遇到不认识的值拒绝。
-- **格式 v0 期间没有任何兼容承诺**：字段可以增、可以改语义、可以删。读方按当前形状严格校验——缺字段、多出字段、缺 `apiVersion`、主版本不认识的文件一律判无效（锁判 `mismatch`、报告判 error、registry 门禁报 error），不做旧形状特判、不写迁移。
+- **格式 v0 期间没有任何兼容承诺**：字段可以增、可以改语义、可以删。读方按当前形状严格校验——缺字段、多出字段、缺 `apiVersion`、主版本不认识的文件一律判无效（锁判 `mismatch`、报告判 error、registry 门禁报 error），不做旧形状特判、不写迁移。唯一例外是 `state.written` 的旧 `string[]`：它按 `base: 'root'` 兼容读（见 §4 第 7 条），因为 state 是本机缓存、卸载要能继续工作。
 - 产品 0.0.2 起，registry 里的包**必须**有 lock；要 `verified` 还必须有对得上的 verify 报告。

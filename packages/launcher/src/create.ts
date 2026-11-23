@@ -435,7 +435,11 @@ export async function createInstance(opts: CreateInstanceOptions): Promise<Insta
 
   try {
     await withInstanceLock(root, 'create', async () => {
-      const result = await installPack(ctx, plan, { root, packRoot: packDir });
+      const result = await installPack(ctx, plan, {
+        root,
+        packRoot: packDir,
+        ...(home ? { home } : {}),
+      });
       const failed = result.outcomes.filter((o) => o.status === 'failed');
       if (failed.length > 0) {
         throw new PalError(
@@ -564,11 +568,21 @@ export async function installIntoInstance(
   }
 
   const dryRun = opts.dryRun === true;
+  const adapter = requireAdapter(kind);
+  // attached 的 home 就是记录根；managed 是根里的 home 段。base: home / absolute 的落点按它解析。
+  const home =
+    record.home ??
+    (record.attached === true
+      ? record.root
+      : adapter.homeDir
+        ? join(record.root, adapter.homeDir)
+        : undefined);
   let outcomes: ActionOutcome[] = [];
   await withInstanceLock(record.root, 'install', async () => {
     const result = await installPack(ctx, plan, {
       root: record.root,
       packRoot: packDir,
+      ...(home ? { home } : {}),
       dryRun,
       ...(opts.overwrite ? { overwrite: true } : {}),
       ...(opts.allowExec ? { allowExec: true } : {}),
@@ -602,19 +616,12 @@ export async function installIntoInstance(
     planHash: plan.planHash,
     files: baselineFromState(record.root),
   });
-  const adapter = requireAdapter(kind);
   const next: InstanceRecord = {
     ...record,
     pack,
     // 接管来的空目录可能没记 home；装完补上，start 才知道该指哪个 home。
     // attached 的 home 就是记录根；managed 是根里的 home 段。
-    ...(record.home === undefined
-      ? record.attached === true
-        ? { home: record.root }
-        : adapter.homeDir
-          ? { home: join(record.root, adapter.homeDir) }
-          : {}
-      : {}),
+    ...(record.home === undefined && home ? { home } : {}),
     status: 'installed',
     updatedAt: nowIso(),
     origin: {

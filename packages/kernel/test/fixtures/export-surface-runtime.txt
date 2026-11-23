@@ -115,9 +115,12 @@ lockPack
 mask
 mcpProbeChecks
 npmLicense
+ownedLabel
+ownedPathLabel
 packArchive
 pickSdist
 pinManifest
+planOutputs
 planPaths
 probeHarness
 probeSkill
@@ -136,6 +139,7 @@ removeToken
 removeTrustedKey
 resolveAddSource
 resolveDownloadUrl
+resolveOwnedPath
 resolvePypiSdist
 resolveReferences
 resolveRegistry

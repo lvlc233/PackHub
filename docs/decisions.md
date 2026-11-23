@@ -3,7 +3,7 @@ kind: decision
 summary: 有意为之的取舍
 verified: 2026-11-23
 decay: 365
-review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增删、锁形状或签名载荷变化、接线规则再变、检查派生规则再变、安装参数或落点归属改名、安装对象或命令族边界再变、命令层再出现例外、加 mac 门禁、命令面收缩）
+review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增删、锁形状或签名载荷变化、接线规则再变、检查派生规则再变、安装参数或落点归属改名、路径基准或 state.written 形状再变、安装对象或命令族边界再变、命令层再出现例外、加 mac 门禁、命令面收缩）
 ---
 
 # PackHub 的取舍
@@ -182,6 +182,22 @@ README 只承诺分工：「packhub 做包与发版，pal 安装与运行」；C
 没选另一条：保留这 7 条独立命令，只把帮助里归到「其它」分组。命令数不减少，`pal --help` 仍要把每个运维动作都讲成一个动词；这些动作用的对象又都是现有命令已经管的同一个对象（health 管本机状态、list 管记录、adopt 管接管、verify 管环境体检、config 管环境记录），再各占一个动词等于把「同一个对象」的操作分裂成两处入口。
 
 代价：flag 变多——`health` / `list` / `adopt` / `verify` / `config` 的参数表更长，得读 `--help` 才看得全；发现性降低——原来一眼能看到的 `leftovers` / `audit` 现在要记得挂在哪个命令后面；`core` 不再可手管——`status` / `stop` / `install` / `uninstall` 从命令面消失，进程入口只剩 bin 的内部参数（登录计划任务仍按它拉起），出问题时不能再用 `pal core …` 手动查或停；`cache` 的清理动作没有 CLI 入口，只剩内部 API。
+
+### 路径基准显式化：root / home / absolute
+
+现状：`Destination` 多了可选的 `base`（`root` 缺省 / `home` / `absolute`），计划动作带对应的 `toBase`，`${layout.*}` 按基准给值；`state.written` 从 `string[]` 变成 `[{ path, base }]`。`root` 相对安装根，`home` 相对宿主 home 段（managed 是 `<root>/home/<宿主>`，attached 就是 root），`absolute` 原样使用。默认 root 不写字段，所以同一份清单在现有宿主 / scope 下的动作与改造前逐字节一致。
+
+它解决的问题：claude-code 的全局 MCP 配置是 `~/.claude.json`，在 home（`~/.claude`）的上一级；codex 的全局配置是 `~/.codex/config.toml`。只允许相对安装根的路径时，这两个宿主没法在不伪造目录结构的前提下把 MCP 写到宿主真正读取的位置，`--home` 只能一直拒绝。
+
+没选另一条：只允许 root（维持「计划路径都相对安装根」的单一假设），或让 `claude-code` / `codex` 把配置文件写进 home 再让用户自己做外链。只允许 root 等于把「宿主全局配置可能不在 home 里」这个事实挡在适配器之外，两个宿主永远不可用；写进 home 则是把资源放到宿主不读的位置，装完不生效比拒绝更贵。也没给清单开「任意路径」口子：清单仍然只能相对安装根，`${layout.*}` 插值也只会拿到字符串，不能把动作的基准改成 absolute。
+
+代价：
+
+- **状态形状变化**：`state.written` 从字符串数组变成 `{ path, base }`；旧 state 在读取时按 `root` 归一（不为了读而重写文件），所有用 `written` 的地方（install / uninstall / rollback / doctor / pruneRemoved / baseline）都要按基准解析。`state` 记录新增可选 `home`；`base: 'home'` 缺它直接报错，不猜目录。
+- **绝对路径要快照与回滚**：安装根之外的文件不能只靠相对路径重建。generation 增加 `existedExternal` / `createdExternal`，安装前复制到快照的 `external/`，rollback 与失败回滚按绝对路径恢复 / 删除；版本镜像仍只覆盖安装根内（绝对路径不镜像）。卸载按 `written` 删除，共享文件（MCP 配置 / 指令块）按计划里的 key / 块 id 摘除，用户已有内容保留。
+- **只允许适配器声明**：非 root 基准只来自 `destination`；计划期校验 `absolute` 必须是绝对路径、`home` 必须有 home 段（`bad-destination-base`）。不限制具体目录，但所有权只认 `state.written` 与计划快照——写错位置时医生与卸载会按记录精确回退，不会「猜一个常见位置」。
+- 每个宿主可以按范围给出不同基准（claude-code 的 attached MCP 是绝对路径、codex 的 attached MCP 是 home 下的 `config.toml`），同一份计划快照不再能用「路径字符串本身」判断落点，读端必须先看 `base`。
+
 
 ### 落点归适配器，内核不持有布局
 

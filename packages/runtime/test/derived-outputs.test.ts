@@ -43,7 +43,10 @@ describe('派生输出：install 期生成的文件也要进 planPaths', () => {
     expect(installed1.outcomes.filter((o) => o.status === 'failed')).toEqual([]);
     expect(existsSync(join(project, yamlRel))).toBe(true);
     const state1 = loadState(project);
-    expect(state1.packs['demo/codex@0.1.0']?.written).toContain(yamlRel);
+    expect(state1.packs['demo/codex@0.1.0']?.written).toContainEqual({
+      path: yamlRel,
+      base: 'root',
+    });
 
     // 更新到 0.2.0：先装新版，再按 planPaths 清理旧版本独有的文件
     const ctx2 = loadPack(v2);

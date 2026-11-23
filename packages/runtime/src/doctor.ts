@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { extname, join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
-import { PLAN_OPS, STATE_DIR } from '@packhub/kernel';
-import { loadState } from './install.ts';
+import { PLAN_OPS, STATE_DIR, actionToBase } from '@packhub/kernel';
+import { loadState, ownedLabel, resolveOwnedPath } from './install.ts';
 import { claudeHasMcp } from './host-mcp.ts';
 
 export interface DriftFinding {
@@ -68,7 +68,15 @@ export function doctorPack(root: string): DoctorReport {
     }
 
     for (const file of record.written) {
-      if (!existsSync(join(root, file))) finding.filesMissing.push(file);
+      let abs: string;
+      try {
+        abs = resolveOwnedPath(root, record.home, file);
+      } catch (err) {
+        // home 基准但 state 没记 home：记录不完整，按缺文件报出来，别把整次体检打崩
+        finding.filesMissing.push(`${file.path}（${(err as Error).message}）`);
+        continue;
+      }
+      if (!existsSync(abs)) finding.filesMissing.push(ownedLabel(root, abs));
     }
     for (const spec of record.stateDirs ?? []) {
       if (!existsSync(join(root, spec.path))) finding.stateMissing.push(spec.path);
@@ -80,11 +88,18 @@ export function doctorPack(root: string): DoctorReport {
     for (const action of record.actions ?? []) {
       // 撤销方式决定「怎么检查」：共享配置查登记的条目，托管块查标记
       const undo = PLAN_OPS[action.op]?.undo;
+      const planAction = record.plan?.actions.find((a) => a.actionId === action.actionId);
+      const targetBase = planAction ? actionToBase(planAction) : 'root';
       if (undo === 'restore-shared' && action.target && action.resource) {
-        const file = join(root, action.target);
+        let file: string;
+        try {
+          file = resolveOwnedPath(root, record.home, { path: action.target, base: targetBase });
+        } catch {
+          finding.configDrift.push(`${action.target}:${action.resource}`);
+          continue;
+        }
         if (existsSync(file)) {
           // 条目挂在哪个对象路径下、文件什么格式由计划里的 MCP 方言决定（旧计划缺省 mcpServers + JSON）
-          const planAction = record.plan?.actions.find((a) => a.actionId === action.actionId);
           const configPath =
             planAction?.op === 'register.mcp' ? planAction.configPath ?? ['mcpServers'] : ['mcpServers'];
           const present = file.endsWith('.toml')
@@ -96,7 +111,13 @@ export function doctorPack(root: string): DoctorReport {
         }
       }
       if (undo !== 'strip-block' || !action.target || !action.blockId) continue;
-      const abs = join(root, action.target);
+      let abs: string;
+      try {
+        abs = resolveOwnedPath(root, record.home, { path: action.target, base: targetBase });
+      } catch {
+        finding.blocksMissing.push(action.target);
+        continue;
+      }
       if (!existsSync(abs)) {
         if (!finding.blocksMissing.includes(action.target)) finding.blocksMissing.push(action.target);
         continue;

@@ -102,10 +102,21 @@ export interface DestinationContext {
 /** 宿主对一类资源落点的回答。 */
 export interface Destination {
   /**
-   * 落点，相对安装根：目录（skill / knowledge / prompt / bin / config / cache）
-   * 或文件（mcp / instruction）。空字符串 = 这个宿主没有该落点（平铺目录没有指令面）。
+   * 落点。默认相对安装根（`base: 'root'`）：
+   * 目录（skill / knowledge / prompt / bin / config / cache）或文件（mcp / instruction）。
+   * 空字符串 = 这个宿主没有该落点（平铺目录没有指令面）。
    */
   path: string;
+  /**
+   * 路径基准：
+   * - `root`（缺省）：相对安装根；
+   * - `home`：相对宿主 home 段（managed 是 `<root>/home/<宿主>`，attached 就是 root）；
+   * - `absolute`：原样使用，必须是绝对路径（例如 claude-code 的 `~/.claude.json`）。
+   *
+   * 只有这里（适配器）能声明非 root 基准；清单里的路径仍必须相对安装根，
+   * 插值也不能把动作的 base 改成 absolute（见 docs/contract.md 的安全边界）。
+   */
+  base?: 'root' | 'home' | 'absolute';
   /** 仅 mcp：这个宿主的 MCP 方言（条目挂哪个键、什么格式、条目形状） */
   mcp?: McpDialect;
 }

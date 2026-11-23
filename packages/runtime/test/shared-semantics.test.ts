@@ -66,9 +66,10 @@ describe('.json 产物的私有语义', () => {
     // 私有产物必须进版本记录：record.files 与 state.written 都要有它
     const record = readVersionRecord(project, 'demo/table', '0.1.0');
     expect(record.files).toContain('.packhub/knowledge/table.json');
-    expect(loadState(project).packs['demo/table@0.3.0']?.written).toContain(
-      '.packhub/knowledge/table.json',
-    );
+    expect(loadState(project).packs['demo/table@0.3.0']?.written).toContainEqual({
+      path: '.packhub/knowledge/table.json',
+      base: 'root',
+    });
 
     rmSync(base, { recursive: true, force: true });
   });
@@ -105,9 +106,10 @@ describe('.json 产物的私有语义', () => {
     expect(pruned.removed).toContain('.packhub/knowledge/table.json');
     expect(pruned.kept).not.toContain('.packhub/knowledge/table.json');
     expect(existsSync(join(project, '.packhub/knowledge/table.json'))).toBe(false);
-    expect(loadState(project).packs['demo/prune-json@0.2.0']?.written).not.toContain(
-      '.packhub/knowledge/table.json',
-    );
+    expect(loadState(project).packs['demo/prune-json@0.2.0']?.written).not.toContainEqual({
+      path: '.packhub/knowledge/table.json',
+      base: 'root',
+    });
 
     rmSync(base, { recursive: true, force: true });
   });

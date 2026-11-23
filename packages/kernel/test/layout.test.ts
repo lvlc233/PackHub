@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import packhubSchema from '../../../schema/packhub.v0.schema.json' with { type: 'json' };
 import {
   HARNESS_ID_PATTERN,
@@ -165,17 +165,51 @@ describe('落点归宿主：每个宿主回答每类资源落在哪', () => {
   });
 
   it('attached 范围只对已验证全局落点的宿主开放，值相对那个 home', () => {
+    // 绝对 home 才能推出 claude 的 `~/.claude.json`：attached 的 root/home 由 PAL 传绝对路径
+    const attachedCtx = (root: string): DestinationContext => ({
+      root,
+      home: root,
+      scope: 'attached',
+    });
+    const home = join(tmpdir(), 'packhub-attached-home');
     expect(requireHarness('opencode').destination('skill', ctx('attached')).path).toBe('skills');
     expect(requireHarness('opencode').destination('mcp', ctx('attached')).path).toBe('opencode.json');
     expect(requireHarness('hermes').destination('skill', ctx('attached')).path).toBe('skills');
     expect(requireHarness('hermes').destination('mcp', ctx('attached')).path).toBe('config.yaml');
     expect(requireHarness('workbody').destination('skill', ctx('attached')).path).toBe('skills');
     expect(requireHarness('workbody').destination('mcp', ctx('attached')).path).toBe('mcp.json');
+
+    // claude-code：技能 / 知识 / 提示词 / 指令相对 home；MCP 是 home 旁边的 ~/.claude.json（绝对）
+    const claude = requireHarness('claude-code');
+    expect(claude.destination('skill', attachedCtx(home))).toMatchObject({ path: 'skills', base: 'home' });
+    expect(claude.destination('knowledge', attachedCtx(home))).toMatchObject({
+      path: 'knowledge',
+      base: 'home',
+    });
+    expect(claude.destination('prompt', attachedCtx(home))).toMatchObject({ path: 'prompts', base: 'home' });
+    expect(claude.destination('instruction', attachedCtx(home))).toMatchObject({
+      path: 'CLAUDE.md',
+      base: 'home',
+    });
+    const claudeMcp = claude.destination('mcp', attachedCtx(home));
+    expect(claudeMcp.base).toBe('absolute');
+    expect(claudeMcp.path).toBe(join(dirname(home), '.claude.json').replaceAll('\\', '/'));
+
+    // codex：技能 / 知识 / 提示词 / 指令 / config.toml 都在 home 里
+    const codex = requireHarness('codex');
+    expect(codex.destination('skill', attachedCtx(home))).toMatchObject({ path: 'skills', base: 'home' });
+    expect(codex.destination('instruction', attachedCtx(home))).toMatchObject({
+      path: 'AGENTS.md',
+      base: 'home',
+    });
+    expect(codex.destination('mcp', attachedCtx(home))).toMatchObject({
+      path: 'config.toml',
+      base: 'home',
+    });
+
     // 全局落点未验证的宿主不标 attached：PAL 会拒绝 --home，而不是猜一个目录
-    for (const id of ['dsh', 'claude-code', 'codex']) {
-      expect(requireHarness(id).attached, `${id} 不该是 attached 宿主`).toBeUndefined();
-    }
-    for (const id of ['opencode', 'hermes', 'workbody']) {
+    expect(requireHarness('dsh').attached, 'dsh 不该是 attached 宿主').toBeUndefined();
+    for (const id of ['opencode', 'hermes', 'workbody', 'claude-code', 'codex']) {
       expect(requireHarness(id).attached, `${id} 应标 attached`).toBe(true);
     }
   });

@@ -671,7 +671,9 @@ describe('实例配置', () => {
     const record = await createInstance({ name: 'root-busy', harness: 'dsh', packDir: PACK });
     const stateFile = join(record.root, '.packhub', 'state.json');
     const before = readFileSync(stateFile, 'utf8');
-    const packs = (JSON.parse(before) as { packs: Record<string, { written: string[] }> }).packs;
+    const packs = (JSON.parse(before) as {
+      packs: Record<string, { written: { path: string; base: string }[] }>;
+    }).packs;
     const keys = Object.keys(packs);
     expect(keys).toEqual(['lvlc233/doc-review@0.1.0']);
     const written = packs[keys[0]!]!.written;
@@ -696,7 +698,7 @@ describe('实例配置', () => {
     // 旧的顺序会留下「包已卸、目录和记录还在」；现在根删不掉就整根不动
     expect(readInstance(record.id)?.status).toBe('installed');
     expect(readFileSync(stateFile, 'utf8')).toBe(before);
-    for (const rel of written) expect(existsSync(join(record.root, rel))).toBe(true);
+    for (const item of written) expect(existsSync(join(record.root, item.path))).toBe(true);
     expect(listInstances().map((row) => row.id)).toContain(record.id);
     expect(listDirNames(archiveRoot())).toEqual([]);
   });

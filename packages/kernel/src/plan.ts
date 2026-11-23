@@ -1,9 +1,10 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { resolve, sep } from 'node:path';
+import { isAbsolute, resolve, sep } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import type {
   Issue,
   Manifest,
+  PathBase,
   Plan,
   PlanAction,
   PlanActionInput,
@@ -11,11 +12,11 @@ import type {
   ResourceType,
   VerifyCheck,
 } from './types.ts';
-import type { DestinationContext, HarnessId } from './harness/contract.ts';
+import type { DestinationContext, DestinationKind, HarnessId } from './harness/contract.ts';
 import { requireHarness } from './harness/contract.ts';
 import { interpolate, isPlainObject, canonicalize, sha256 } from './util.ts';
 import { STATE_DIR } from './files.ts';
-import { actionPaths, actionUndo } from './plan-ops.ts';
+import { actionOutputs, actionTargetPath, actionToBase, actionUndo, ownedKey } from './plan-ops.ts';
 import { destinationFor, layoutNamespace, PACK_ROOT } from './destinations.ts';
 import type { Graph } from './graph.ts';
 import { RESOURCE_KINDS, fileNameOf, type InstalledResource, type KindContext } from './kinds.ts';
@@ -238,7 +239,13 @@ export function buildPlan(
       for (const rel of files) {
         const to = `${info.to}/${rel}`;
         if (!claim(to, label)) continue;
-        push({ op: 'write', from: `${relDir}/${rel}`, to, resource: resourceId });
+        push({
+          op: 'write',
+          from: `${relDir}/${rel}`,
+          to,
+          ...baseField(info.base),
+          resource: resourceId,
+        });
       }
       continue;
     }
@@ -304,7 +311,13 @@ export function buildPlan(
         continue;
       }
       if (!claim(targetPath, label)) continue;
-      push({ op: 'write', to: targetPath, content: applied.text, resource: resourceId });
+      push({
+        op: 'write',
+        to: targetPath,
+        ...baseField(info.base),
+        content: applied.text,
+        resource: resourceId,
+      });
       continue;
     }
 
@@ -314,11 +327,23 @@ export function buildPlan(
     }
     if (!claim(targetPath, label)) continue;
     if (value === null) {
-      push({ op: 'delete', to: targetPath, resource: resourceId });
+      push({ op: 'delete', to: targetPath, ...baseField(info.base), resource: resourceId });
     } else if (isPath) {
-      push({ op: 'write', from: value.replace(/^\.\//, ''), to: targetPath, resource: resourceId });
+      push({
+        op: 'write',
+        from: value.replace(/^\.\//, ''),
+        to: targetPath,
+        ...baseField(info.base),
+        resource: resourceId,
+      });
     } else {
-      push({ op: 'write', to: targetPath, content: value, resource: resourceId });
+      push({
+        op: 'write',
+        to: targetPath,
+        ...baseField(info.base),
+        content: value,
+        resource: resourceId,
+      });
     }
   }
 
@@ -346,11 +371,12 @@ export function buildPlan(
     }
     return readFileSync(abs, 'utf8').trim();
   })();
-  const instructionFile = dest('instruction').path;
-  if (instructionFile) {
+  const instructionDest = dest('instruction');
+  if (instructionDest.path) {
     push({
       op: 'instruction',
-      file: instructionFile,
+      file: instructionDest.path,
+      ...baseField(instructionDest.base),
       blockId: manifest.metadata.name,
       content: instructionBlock(manifest, graph, layout, statePaths, contextText),
     });
@@ -388,6 +414,10 @@ export function buildPlan(
     });
   }
 
+  // 基准校验：只有适配器能给 home / absolute；absolute 必须是绝对路径（写错比拒绝更贵）
+  issues.push(...destinationBaseIssues(dest, destCtx));
+  issues.push(...actionBaseIssues(actions));
+
   issues.push(...detectConflicts(actions, opts.harness));
 
   if (issues.some((i) => i.severity === 'error')) return { issues };
@@ -405,6 +435,72 @@ export function buildPlan(
 }
 
 /* ---------- 覆盖与冲突 ---------- */
+
+/** 动作上的 `toBase`：默认 root 不写字段（旧计划 JSON 逐字节不变）。 */
+function baseField(base: PathBase | undefined): { toBase?: PathBase } {
+  return base && base !== 'root' ? { toBase: base } : {};
+}
+
+const DESTINATION_KINDS: DestinationKind[] = [
+  'skill',
+  'knowledge',
+  'prompt',
+  'mcp',
+  'instruction',
+  'bin',
+  'config',
+  'cache',
+];
+
+/**
+ * 适配器声明的落点先自检：absolute 必须是绝对路径；home 必须有 home 段。
+ * 这是「绝对路径只来自适配器」的第一道门：清单没有字段能改 base，插值也只会拿到字符串。
+ */
+function destinationBaseIssues(
+  dest: (kind: DestinationKind) => { path: string; base?: PathBase },
+  ctx: DestinationContext,
+): Issue[] {
+  const issues: Issue[] = [];
+  for (const kind of DESTINATION_KINDS) {
+    const { path, base } = dest(kind);
+    if (!path) continue;
+    if (base === 'absolute' && !isAbsolute(path)) {
+      issues.push({
+        code: ISSUE_CODES.badDestinationBase,
+        severity: 'error',
+        message: `destination('${kind}') 声明 base: absolute，但路径不是绝对路径：${path}`,
+        path: `destination.${kind}`,
+      });
+    }
+    if (base === 'home' && !ctx.home) {
+      issues.push({
+        code: ISSUE_CODES.badDestinationBase,
+        severity: 'error',
+        message: `destination('${kind}') 声明 base: home，但这个安装范围没有 home 段：${path}`,
+        path: `destination.${kind}`,
+      });
+    }
+  }
+  return issues;
+}
+
+/** 动作落点兜底：即使适配器把 base 带到了动作上，absolute 仍必须是绝对路径。 */
+function actionBaseIssues(actions: readonly PlanAction[]): Issue[] {
+  const issues: Issue[] = [];
+  for (const action of actions) {
+    const base = actionToBase(action);
+    const target = actionTargetPath(action);
+    if (!target) continue;
+    if (base === 'absolute' && !isAbsolute(target)) {
+      issues.push({
+        code: ISSUE_CODES.badDestinationBase,
+        severity: 'error',
+        message: `动作 ${action.actionId} 的落点是 absolute，但路径不是绝对路径：${target}`,
+      });
+    }
+  }
+  return issues;
+}
 
 /** 递归列出目录下所有文件（posix 相对路径）。 */
 function walkFiles(root: string): string[] {
@@ -479,13 +575,14 @@ function detectConflicts(actions: PlanAction[], harness: HarnessId | undefined):
     const undo = actionUndo(a);
     if (undo === 'restore-shared' || undo === 'strip-block') continue;
     const isModify = (a.resource ?? '').startsWith('modify#');
-    for (const rel of actionPaths(a, shape)) {
-      const list = fsPaths.get(rel) ?? [];
+    for (const output of actionOutputs(a, shape)) {
+      const key = ownedKey(output);
+      const list = fsPaths.get(key) ?? [];
       list.push({ id: a.actionId, modify: isModify });
-      fsPaths.set(rel, list);
+      fsPaths.set(key, list);
     }
     if (a.op === 'register.mcp') {
-      const path = a.path ?? `${STATE_DIR}/config.json`;
+      const path = ownedKey({ path: a.path ?? `${STATE_DIR}/config.json`, base: actionToBase(a) });
       // 条目挂在哪个对象路径下由宿主的 MCP 方言决定（缺省 mcpServers）
       const configPath = (a.configPath ?? ['mcpServers']).join('.');
       const composite = `${path}::${configPath}.${a.resource ?? 'mcp'}`;

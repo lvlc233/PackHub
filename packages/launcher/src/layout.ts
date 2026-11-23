@@ -126,9 +126,14 @@ export function supportsAttached(kind: InstanceKind): boolean {
  */
 export function assertAttachedSupported(kind: InstanceKind): void {
   if (supportsAttached(kind)) return;
+  // 支持名单从注册表现查：加宿主只改 kernel 模块，这里的文案不用再抄一份
+  const supported = harnesses()
+    .filter((spec) => spec.attached === true)
+    .map((spec) => spec.id)
+    .join(' / ');
   throw new PalError(
     'invalid-input',
-    `宿主 ${kind} 暂不支持 attached home（全局落点未验证）；用默认命名 home 或 --project`,
+    `宿主 ${kind} 暂不支持 attached home（全局落点未验证）；已支持 ${supported}；用默认命名 home 或 --project`,
   );
 }
 

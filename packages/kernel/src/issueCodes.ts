@@ -7,6 +7,7 @@
  * 新增码：在这里加一条，用 `ISSUE_CODES.<key>` 引用；键名是码值的驼峰写法。
  */
 export const ISSUE_CODES = {
+  badDestinationBase: 'bad-destination-base',
   badStatePath: 'bad-state-path',
   catalogDuplicate: 'catalog-duplicate',
   catalogEntry: 'catalog-entry',
