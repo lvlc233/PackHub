@@ -55,6 +55,27 @@ function packCopy(): { base: string; pack: string } {
 const WEB_USER = '# 用户自己的 patch 层\n- id: ui-settings-general\n  name: "@deepseek-ai/dsh-client-ui-settings-general"\n';
 const DESKTOP_USER = '- id: desktop-only\n  name: "@deepseek-ai/dsh-client-desktop-only"\n';
 
+/** 一个只带知识 + 可选 stdio MCP 的 Pack（内容随版本变，保证计划真的变过）。 */
+function mcpPack(dir: string, version: string, withMcp: boolean): string {
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'rubric.md'), `# rubric ${version}\n`, 'utf8');
+  const mcp = withMcp
+    ? ['  - id: markdownlint', '    type: mcp', '    source: npm:@dougis/markdown-lint-mcp@1.0.5', '    transport: stdio']
+    : [];
+  writeFileSync(
+    join(dir, 'packhub.yaml'),
+    `apiVersion: packhub.dev/v0
+kind: Pack
+metadata: { name: demo/dsh-mcp, version: ${version} }
+requires: { packhub: ">=0.0.1 <0.1" }
+resources:
+${[...mcp, '  - id: review-rubric', '    type: knowledge', '    source: ./rubric.md'].join('\n')}
+`,
+    'utf8',
+  );
+  return dir;
+}
+
 /** 一份 dsh home：给这些 profile 建 patch 文件（可带用户自己的内容）。 */
 function dshHome(base: string, profiles: Record<string, string>): { home: string; patch: (name: string) => string } {
   const home = join(base, '.dsh');
@@ -97,6 +118,8 @@ describe('dsh attached 的 profile 选择', () => {
     expect(res.status, res.out).toBe(0);
     expect(readFileSync(patch('web'), 'utf8')).toContain('- id: pal-mcp-markdownlint');
     expect(readFileSync(patch('web'), 'utf8')).toContain('ui-settings-general');
+    // 文本级编辑：用户原文逐字节在前，我们的块追加在末尾
+    expect(readFileSync(patch('web'), 'utf8').startsWith(WEB_USER)).toBe(true);
     // desktop 没被碰过：逐字节还是装之前那份
     expect(readFileSync(patch('desktop'), 'utf8')).toBe(DESKTOP_USER);
     // 内容落点与 all 一样（skills / 知识都在 home 层）
@@ -185,7 +208,7 @@ describe('dsh attached 的 profile 选择', () => {
     expect(readFileSync(patch('desktop'), 'utf8')).toBe(desktopBefore);
     expect(showJson(palHome, NAME).profile).toBe('web');
 
-    // 换 profile 不允许：update 会整份删掉别的 profile 的 patch（已知问题），先卸再装
+    // 换 profile 不允许：update 只按记录里的 profile 重装，换范围先卸再装
     const switched = palIn(palHome, ['update', '--home', home, '--profile', 'desktop']);
     expect(switched.status, switched.out).toBe(2);
     expect(switched.out).toContain('不能改成');
@@ -195,6 +218,26 @@ describe('dsh attached 的 profile 选择', () => {
     const byProject = palIn(palHome, ['update', '--project', join(base, 'proj'), '--profile', 'web']);
     expect(byProject.status, byProject.out).toBe(2);
     expect(byProject.out).toContain('--profile 只对');
+  }, 120_000);
+
+  it('update 去掉一个 MCP 资源：两个 profile 的条目摘掉，用户内容逐字节不变', () => {
+    const palHome = newPalHome('pal-dsh-profile-update-mcp-');
+    const base = tmp('pal-dsh-update-mcp-');
+    const pack = mcpPack(join(base, 'pack'), '0.1.0', true);
+    const { home, patch } = dshHome(base, { web: WEB_USER, desktop: DESKTOP_USER });
+    expect(palIn(palHome, ['install', pack, '--host', 'dsh', '--home', home]).status).toBe(0);
+    for (const name of ['web', 'desktop']) {
+      expect(readFileSync(patch(name), 'utf8')).toContain('- id: pal-mcp-markdownlint');
+    }
+
+    mcpPack(pack, '0.2.0', false);
+    const updated = palIn(palHome, ['update', '--home', home]);
+    expect(updated.status, updated.out).toBe(0);
+    expect(updated.out).toContain('旧文件已清掉');
+    expect(updated.out).toContain('profiles/web/cordis.patch.yml');
+    // 共享文件没被整份删：用户写的那段回来了，只在末尾加过/摘过我们自己的块
+    expect(readFileSync(patch('web'), 'utf8')).toBe(WEB_USER);
+    expect(readFileSync(patch('desktop'), 'utf8')).toBe(DESKTOP_USER);
   }, 120_000);
 
   it('verify 按 state 报 profile patch 里条目缺失；--profile 与记录不一致退 2', () => {

@@ -833,6 +833,8 @@ export interface RemoveResult {
   packs: string[];
   removed: string[];
   kept: string[];
+  /** 非致命提示（例如配置文件不是预期的顶层块数组，退回整份重写） */
+  warnings: string[];
 }
 
 /**
@@ -846,6 +848,7 @@ export function removePack(root: string, packKey?: string): RemoveResult {
     const keys = packKey ? [packKey] : Object.keys(state.packs);
     const removed: string[] = [];
     const kept: string[] = [];
+    const warnings: string[] = [];
 
     for (const key of keys) {
       const record = state.packs[key];
@@ -938,10 +941,14 @@ export function removePack(root: string, packKey?: string): RemoveResult {
         }
         if (regs.length > 0) {
           // 非 TOML：按方言的形状摘条目（缺省 JSON mcpServers；数组文件按条目 id）
-          let text = readFileSync(abs, 'utf8');
-          for (const a of regs) text = withoutMcpEntry(text, a.layout, a.resource);
+          const before = readFileSync(abs, 'utf8');
+          const notes: string[] = [];
+          let text = before;
+          for (const a of regs) text = withoutMcpEntry(text, a.layout, a.resource, (note) => notes.push(note));
           if (text.trim() === '') rmSync(abs, { force: true });
-          else writeFileSync(abs, text, 'utf8');
+          else if (text !== before) writeFileSync(abs, text, 'utf8');
+          // 只有真的改写了这份文件才报「退回整份重写」这类提示
+          if (text !== before) for (const note of notes) warnings.push(`${label}：${note}`);
           removed.push(label);
           continue;
         }
@@ -988,7 +995,7 @@ export function removePack(root: string, packKey?: string): RemoveResult {
     } else {
       writeFileSync(statePath, JSON.stringify(state, null, 2) + '\n', 'utf8');
     }
-    return { packs: keys, removed, kept };
+    return { packs: keys, removed, kept, warnings };
   } finally {
     release();
   }
@@ -1254,15 +1261,19 @@ async function applyAction(
       const key = action.entryId ?? action.resource ?? 'mcp';
       const targets = mcpActionPaths(action);
       let changed = false;
+      const notes: string[] = [];
       for (const target of targets) {
         const to = resolveOwnedPath(opts.root, opts.home, target);
         const label = ownedLabel(opts.root, to);
         const before = existsSync(to) ? readFileSync(to, 'utf8') : '';
+        // 回退提示只在这份文件真的被改写时才算数（内容没变就不报「改用整份重写」）
+        const fileNotes: string[] = [];
         // codex 的全局 MCP 配置是 TOML：用带标记的托管块，卸载时按 id 摘掉
         const next = /\.toml$/i.test(target.path)
           ? upsertMcpToml(before, key, action.spec)
-          : withMcpEntry(before, layout, key, action.spec);
+          : withMcpEntry(before, layout, key, action.spec, (note) => fileNotes.push(`${label}：${note}`));
         if (before === next) continue;
+        notes.push(...fileNotes);
         if (!opts.dryRun) {
           mkdirSync(dirname(to), { recursive: true });
           if (before) backup(opts.root, label, before);
@@ -1274,6 +1285,7 @@ async function applyAction(
         actionId: action.actionId,
         op: action.op,
         status: changed ? 'done' : 'noop',
+        ...(notes.length > 0 ? { message: [...new Set(notes)].join('；') } : {}),
         target: action.path ?? targets[0]?.path ?? `${STATE_DIR}/config.json`,
         resource: key,
       };
@@ -1597,8 +1609,26 @@ export interface PruneResult {
 }
 
 /**
+ * 单个 fs 操作失败的原因文字：优先 code / syscall（不带路径）。
+ * 警告行只回显包内相对路径，不把宿主目录结构写进输出。
+ */
+function fsProblemText(err: unknown): string {
+  const e = err as NodeJS.ErrnoException | undefined;
+  const head = [
+    typeof e?.code === 'string' ? e.code : '',
+    typeof e?.syscall === 'string' ? e.syscall : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+  if (head) return head;
+  const message = typeof e?.message === 'string' && e.message ? e.message : String(err);
+  return message.replace(/(?:[A-Za-z]:[\\/]|\/)[^\s'"]+/g, '…') || '未知原因';
+}
+
+/**
  * 升级时清掉「旧计划有、新计划没有」的产物。
  * 只删这个包自己的输出；共享配置文件按上次安装记的 undo 还原，指令文件只摘自己的块。
+ * 删不掉的私有文件、以及共享文件退回整份重写的提示都进 `warnings`（不静默），文件留在原处。
  */
 export function pruneRemoved(
   root: string,
@@ -1651,7 +1681,13 @@ export function pruneRemoved(
             continue;
           }
           if (!existsSync(abs)) continue;
-          rmSync(abs, { recursive: true, force: true });
+          // 删不掉就留着，下次更新再说；但不能静默：告诉人哪个文件还在（只回显包内路径）
+          try {
+            rmSync(abs, { recursive: true, force: true });
+          } catch (err) {
+            warnings.push(`旧文件没删掉：${label}（${fsProblemText(err)}）`);
+            continue;
+          }
           removed.push(label);
           removedAbs.add(abs);
         }
@@ -1679,9 +1715,15 @@ export function pruneRemoved(
             if (text.trim() === '') rmSync(abs, { force: true });
             else writeFileSync(abs, text, 'utf8');
           } else {
-            const text = withoutMcpEntry(readFileSync(abs, 'utf8'), layout, server);
+            const before = readFileSync(abs, 'utf8');
+            const notes: string[] = [];
+            const text = withoutMcpEntry(before, layout, server, (note) => notes.push(note));
             if (text.trim() === '') rmSync(abs, { force: true });
-            else writeFileSync(abs, text, 'utf8');
+            else if (text !== before) writeFileSync(abs, text, 'utf8');
+            // 只有真的改写了这份文件才报「退回整份重写」这类提示
+            if (text !== before) {
+              for (const note of notes) warnings.push(`${label}：${note}`);
+            }
           }
           removed.push(label);
           removedAbs.add(abs);

@@ -600,7 +600,7 @@ export const update = defineCommand({
       console.log(`  ! ${result.localChanges.length} 个文件在改之前被本地改过，现在是新版本的内容；要保留请先备份`);
     }
     if (result.warnings.length > 0) {
-      console.log(`  ! ${result.warnings.length} 个旧文件没删掉（更新已完成，这些文件还留在环境里）`);
+      console.log(`  ! ${result.warnings.length} 条提示（更新已完成）`);
       for (const line of result.warnings.slice(0, 10)) console.log(`    ${line}`);
       if (result.warnings.length > 10) console.log(`    … 还有 ${result.warnings.length - 10} 条`);
     }

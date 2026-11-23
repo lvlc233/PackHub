@@ -223,12 +223,12 @@ resources:
 1. 每个包一条记录，键是 `name@version`；升级时旧版本记录并入新 key，不留旧 key。
 2. `written` 是这个包**拥有**的文件集合（跨多次安装取并集），每条是 `{ path, base }`：`root` 相对安装根、`home` 相对 `record.home`、`absolute` 原样（必须是绝对路径）。一个 `register.mcp` 落到多个文件时，每个文件各记一条（同一个 `key`，按 `paths` 展开）。卸载据此删除；共享文件（MCP 配置 / 指令块）按计划快照里的 key / 块 id 摘除，不整文件删。
 3. `home` 是这次安装的宿主 home 段（绝对路径）。没有 home 的项目 / 平铺安装不写这个字段；解析 `base: 'home'` 的路径时缺它直接报错，不猜一个目录。
-4. `plan` 是该次安装的计划快照，形如 `PlanSnapshot`：可选 `harness`（平铺目录时不出现）/ `planHash` / `actions` / `verify` / `excluded`，**没有** `apiVersion` 与 `pack`（那两个字段只属于完整 plan）；`diff`、`update`、`planOutputs` 只需要这一份。不参与任何哈希。
+4. `plan` 是该次安装的计划快照，形如 `PlanSnapshot`：可选 `harness`（平铺目录时不出现）/ `planHash` / `actions` / `verify` / `excluded`，**没有** `apiVersion` 与 `pack`（那两个字段只属于完整 plan）；`diff`、`update`、`planOutputs` 只需要这一份。不参与任何哈希。升级时的旧产物清理（`pruneRemoved`）只按上一版这份快照算：私有的整份删、共享配置按 key / 块摘。旧 state 没有 `plan` 时**不做清理**（不退化成按 `written` 整文件删），由调用方报一条 warning；那份 `written` 里的旧路径会留到下一次重装。
 5. `stateDirs` 记录清单 `state` 块声明的目录；这些目录不进 `written`、不进版本镜像、不被快照回滚删除。
 6. `generations` 每次安装追加一条，更早的会被裁掉（保留策略在 `install.ts`）；`existed` / `created` 是回退的依据。安装根之外的绝对路径记在 `existedExternal` / `createdExternal`（安装前复制进快照目录的 `external/`），rollback 与失败回滚同样恢复 / 删除它们。
 7. **旧 state 兼容读**：更早的 `written` 是 `string[]`，读端按 `base: 'root'` 归一，不因为读而重写文件；只有下一次真正写 state 时才变成新形状。
 
-dsh attached 的 profile 不进 state：它是安装参数，记在 PAL 的 `instance.json`（可选 `profile`，缺省不写 = all）。state 只按实际写过的路径记 `written`——`--profile web` 时只有 `profiles/web/cordis.patch.yml` 一条；卸载按 `written` 摘，不需要 profile。`update` / `verify` / `health` 不带 `--profile` 时用记录里的选择，`install` 不沿用（缺省语义仍是 all）。`update` 不接受换 profile：已知的「旧计划不再产出的文件整份删」会连别的 profile patch 里的用户条目一起删；要换先 uninstall 再 install。
+dsh attached 的 profile 不进 state：它是安装参数，记在 PAL 的 `instance.json`（可选 `profile`，缺省不写 = all）。state 只按实际写过的路径记 `written`——`--profile web` 时只有 `profiles/web/cordis.patch.yml` 一条；卸载按 `written` 摘，不需要 profile。`update` / `verify` / `health` 不带 `--profile` 时用记录里的选择，`install` 不沿用（缺省语义仍是 all）。`update` 不接受换 profile：它只按记录里的 profile 重装，换安装范围是 uninstall + install。`health` 对 `all` 记录枚举**当前磁盘上的所有** profile（`dshProfilePatches`），新出现、还没有条目的 profile 进 `mcpMissing`（警告，不阻断 `ok`）；`update` 重算计划时会重新枚举 profile，把这些条目补进去。
 
 装好与否的判定、并发、回退、所有权与卸载顺序是行为，写在 `packages/runtime/src/install.ts`（`applyPlan` / `acquireLock` / `removePack` / `rollbackPack`）。
 

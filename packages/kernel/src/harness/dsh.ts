@@ -12,7 +12,8 @@
 // - 不带 `--profile`：写进所有已有 profile 的 `cordis.patch.yml`；一个 profile 都没有就报
 //   `no-profiles`（不替宿主造 `profiles/web`——dsh 自己启动时才会生成 profile）；
 // - 带 `--profile`：只写那一个，文件不存在报 `profile-missing`，不创建。
-// 安装后新建的 profile 不会被补上。
+// 安装后新建的 profile 不会被自动补上；`pal health` 用 `dshProfilePatches` 枚举当前全部 profile
+// 报出缺条目，`pal update`（all 记录的）重装即可补。
 
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
@@ -68,7 +69,7 @@ const MCP: McpDialect = {
 };
 
 /** `<home>/profiles/<profile>/cordis.patch.yml` 里存在的文件（相对 home 的 posix 路径，字典序）。 */
-function profilePatches(home: string): string[] {
+export function dshProfilePatches(home: string): string[] {
   const dir = join(home, PROFILES_DIR);
   if (!existsSync(dir)) return [];
   const out: string[] = [];
@@ -143,7 +144,7 @@ function attachedMcp(ctx: DestinationContext): Destination {
   if (!ctx.home) {
     return { path: `${PROFILES_DIR}/${DSH_WEB_PROFILE}/${PROFILE_PATCH}`, base: 'home', mcp: MCP };
   }
-  const files = profilePatches(ctx.home);
+  const files = dshProfilePatches(ctx.home);
   if (files.length === 0) {
     return {
       path: '',

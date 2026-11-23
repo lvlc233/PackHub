@@ -38,6 +38,7 @@ diffActions
 DSH_MCP_CLIENT
 DSH_MCP_ENTRY_PREFIX
 dshMcpLoaderEntry
+dshProfilePatches
 ExecSpec
 execWrapperPath
 Graph

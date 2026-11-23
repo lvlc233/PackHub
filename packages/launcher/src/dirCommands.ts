@@ -195,6 +195,7 @@ export const uninstallDir = defineCommand({
     }
     for (const path of result.removed) console.log(`  - ${path}`);
     for (const path of result.kept) console.log(`  = 保留 ${path}（还有别的包在用）`);
+    for (const line of result.warnings) console.log(`  ! ${line}`);
     console.log(`\n移除 ${result.removed.length} 个路径，涉及 ${result.packs.length} 个包（此前 ${Object.keys(state.packs).length} 个）`);
   },
 });

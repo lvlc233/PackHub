@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createInstance, readBaseline, writeBaseline } from '../src/index.ts';
+import { createInstance, readBaseline, updateInstance, writeBaseline } from '../src/index.ts';
 import { baselineDrift, checkInstance, runtimeCheck } from '../src/health.ts';
 
 let tmp: string;
@@ -98,7 +98,7 @@ describe('attached dsh 的 MCP 检查', () => {
     expect(mcpCheck?.detail).toContain('pal-mcp-markdownlint');
   });
 
-  it('没记 profile（all）：查 state 写过的每个 patch；装完后新建的 profile 不要求', async () => {
+  it('没记 profile（all）：枚举当前所有 profile；装完后新建的 profile 缺条目进 mcpMissing，update 后消失', async () => {
     const { home, patch } = dshAttachedHome('.dsh-all', ['web', 'desktop']);
     await createInstance({
       name: 'dsh-all',
@@ -107,14 +107,29 @@ describe('attached dsh 的 MCP 检查', () => {
       attachedHome: home,
     });
 
-    // 安装之后新建的 profile 不在 state 里：health 不该拿它当缺条目
-    mkdirSync(join(home, 'profiles', 'later'), { recursive: true });
-    writeFileSync(join(home, 'profiles', 'later', 'cordis.patch.yml'), '[]\n', 'utf8');
-
     const healthy = await checkInstance('dsh-all');
     expect(healthy.ok).toBe(true);
     expect(healthy.mcpMissing).toBeUndefined();
     expect(healthy.mcp?.files).toHaveLength(2);
+
+    // 安装之后新建的 profile 不在 state 里：health 枚举当前 profile，报它缺条目
+    mkdirSync(join(home, 'profiles', 'later'), { recursive: true });
+    writeFileSync(join(home, 'profiles', 'later', 'cordis.patch.yml'), '[]\n', 'utf8');
+
+    const fresh = await checkInstance('dsh-all');
+    expect(fresh.ok).toBe(true); // mcpMissing 是警告，不阻断
+    expect(fresh.mcp?.wired).toBe(false);
+    expect(fresh.mcp?.files).toHaveLength(3);
+    expect(fresh.mcpMissing).toEqual(['profiles/later/cordis.patch.yml:pal-mcp-markdownlint']);
+    expect(fresh.checks.find((check) => check.name === 'mcp')?.status).toBe('warn');
+
+    // 跑一次 update：计划重新枚举 profile（多了一个文件），条目补进新 profile
+    await updateInstance('dsh-all', { packDir: 'test/fixtures/packs/doc-review' });
+    expect(readFileSync(patch('later'), 'utf8')).toContain('- id: pal-mcp-markdownlint');
+
+    const repaired = await checkInstance('dsh-all');
+    expect(repaired.mcpMissing).toBeUndefined();
+    expect(repaired.mcp?.wired).toBe(true);
 
     writeFileSync(patch('desktop'), '[]\n', 'utf8');
     const broken = await checkInstance('dsh-all');

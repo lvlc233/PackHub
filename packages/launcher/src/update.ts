@@ -1,7 +1,16 @@
-import { existsSync, rmSync, statSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
-import { MANIFEST_FILE, type OwnedPath, type PackContext } from '@packhub/kernel';
-import { installPack, loadLock, loadPack, loadState, ownedLabel, planOutputs, resolveOwnedPath, saveState, withLockPins } from '@packhub/runtime';
+import { MANIFEST_FILE, actionOutputs, actionUndo, type OwnedPath, type PackContext, type PlanSnapshot } from '@packhub/kernel';
+import {
+  installPack,
+  loadLock,
+  loadPack,
+  loadState,
+  ownedLabel,
+  planOutputs,
+  pruneRemoved,
+  resolveOwnedPath,
+  withLockPins,
+} from '@packhub/runtime';
 import { requireAdapter } from './layout.ts';
 import { baselineFromState, hashFile, readBaseline, writeBaseline, type Baseline } from './baseline.ts';
 import { withInstanceLock } from './lock.ts';
@@ -10,7 +19,7 @@ import { requireInstance } from './catalog.ts';
 import { writeInstance } from './recordWrite.ts';
 import { PalError } from './errors.ts';
 import { isPidAlive } from './process.ts';
-import { fsProblem, packIdentityFromState, planForHome } from './create.ts';
+import { packIdentityFromState, planForHome } from './create.ts';
 import { assertProfileName, assertProfileTarget } from './validators.ts';
 
 /**
@@ -30,7 +39,8 @@ export interface UpdateInstanceResult {
   /** 上一版文件里被本地改过、更新会覆盖的（保护提示） */
   localChanges: string[];
   /**
-   * 更新成功、但有非致命问题：目前只有「旧文件没删掉」。
+   * 更新成功、但有非致命问题：旧文件没删掉、共享配置退回整份重写、
+   * 或旧 state 没有计划快照因而跳过清理。
    * 每条只带实例内相对路径与原因，不带绝对路径；文件会留在实例里。
    */
   warnings: string[];
@@ -71,6 +81,42 @@ function dedupeByAbs(root: string, home: string | undefined, items: readonly Own
 }
 
 /**
+ * 上一版安装留下的计划快照（`state.packs[key].plan`）。
+ *
+ * update 的旧产物清理走 runtime 的 `pruneRemoved(root, previous, next)`：共享配置按 key / 块摘、
+ * 私有文件整份删。没有快照就什么都删不了——这时不退回「按 written 整文件 rm」（那会连
+ * `.claude.json` / `cordis.patch.yml` 里用户自己的条目一起带走），只报一条 warning 跳过清理。
+ * 同名各代 key 理论上只会有一个；多个旧 key 都有快照时把 actions 并起来用。
+ */
+function previousSnapshotOf(
+  state: ReturnType<typeof loadState>,
+  packName: string,
+): PlanSnapshot | undefined {
+  const plans = Object.keys(state.packs)
+    .filter((key) => key.startsWith(`${packName}@`))
+    .map((key) => state.packs[key]?.plan)
+    .filter((plan): plan is PlanSnapshot => plan !== undefined);
+  if (plans.length === 0) return undefined;
+  if (plans.length === 1) return plans[0]!;
+  return {
+    ...(plans[0]!.harness ? { harness: plans[0]!.harness } : {}),
+    planHash: plans.map((plan) => plan.planHash).join('+'),
+    actions: plans.flatMap((plan) => plan.actions),
+    verify: plans.flatMap((plan) => plan.verify),
+    excluded: plans.flatMap((plan) => plan.excluded),
+  };
+}
+
+/** 一组产物解析成绝对路径（去重）；路径基准按计划 / state 各自带的来。 */
+function outputAbsOf(
+  root: string,
+  home: string | undefined,
+  items: readonly OwnedPath[],
+): string[] {
+  return [...new Set(items.map((item) => resolveOwnedPath(root, home, item)))];
+}
+
+/**
  * 把实例里的 Pack 换成另一个版本：先在同一个根上装新版，再清掉上一版独有的文件。
  * 要求实例已停：更新期间有进程在读这些文件，删了会留下半套。
  * 更新前先按基线算本地改动；计划确实会变（changed）且改动非空、又没给 force 就拒绝并抛
@@ -88,8 +134,7 @@ export async function updateInstance(
   }
   const kind = record.harness;
   // 显式给的 profile 先校验；没给就沿用记录里的（缺省不写 = all）。
-  // 不允许「换 profile」：update 会把旧计划不再产出的文件整份删掉（已知问题，见 update.ts 的
-  // removedAbs），而别的 profile 的 patch 正是这种文件——整份删会把用户条目一起带走。
+  // update 只按记录里的 profile 重装；换 profile 是改变安装范围，走 uninstall + install。
   const explicitProfile = opts.profile === undefined ? undefined : assertProfileName(opts.profile);
   if (explicitProfile !== undefined) {
     assertProfileTarget(kind, record.attached === true);
@@ -101,7 +146,7 @@ export async function updateInstance(
         {
           hint:
             `换 profile 先 pal uninstall --home ${record.name} 再 pal install ... --profile ${explicitProfile}；` +
-            'update 只按记录里的 profile 重装（避免把别的 profile 的 patch 整份删掉）',
+            'update 只按记录里的 profile 重装',
         },
       );
     }
@@ -156,6 +201,9 @@ export async function updateInstance(
     home,
     oldKeys.flatMap((key) => before.packs[key]?.written ?? []),
   );
+  // 旧产物清理的唯一依据：state 里这一版的计划快照。没有快照的旧 state 只报 warning，
+  // 不回退成「按 written 整文件删」——共享配置里的用户条目就是这么被误删的。
+  const previous = previousSnapshotOf(before, record.pack.name);
   const baseline = readBaseline(record.root);
   // 更新会覆盖 Pack 装过的文件，所以先看哪些已经被本地改过：改过的要提前告诉人
   const localChanges = localChangesOf(record.root, baseline);
@@ -188,39 +236,35 @@ export async function updateInstance(
       ...(home ? { home } : {}),
     });
 
-    // install 已经把同名的旧 key 并进新 key、written 取并集；这里清掉新计划不再要的文件。
-    // 「新计划还产出哪些路径」只问 runtime 的 planOutputs（含 fetch 落点、link.exec 的 .cmd）：
-    // 加一个 op 时不用在这里再数一遍。怎么删、删不掉怎么报仍留在本模块（逐文件 warnings）。
-    const produced = planOutputs(plan).map((item) => resolveOwnedPath(record.root, home, item));
+    // 旧产物清理交给 runtime：私有的整份删、共享配置按 key / 块摘，用户自己的条目留下。
+    // 报告由计划输出推导：removedFiles = 上一版产物里这一版不再产出的（删除失败的也报，
+    // 与之前的行为一致）；addedFiles = 这一版新增的产物。
+    const produced = outputAbsOf(record.root, home, planOutputs(plan));
+    const oldProduced = previous ? outputAbsOf(record.root, home, planOutputs(previous)) : [];
+    // 可移除的旧产物：撤销方式是 `none` 的动作（exec / state.dir / delete）本来就不清
+    const oldRemovable = previous
+      ? outputAbsOf(
+          record.root,
+          home,
+          previous.actions
+            .filter((action) => actionUndo(action) !== 'none')
+            .flatMap((action) => actionOutputs(action, previous)),
+        )
+      : [];
     const stillProduced = (abs: string): boolean =>
       produced.some((p) => p === abs || abs.startsWith(`${p}${sep}`) || p.startsWith(`${abs}${sep}`));
-    const oldAbs = oldWritten.map((item) => ({
-      abs: resolveOwnedPath(record.root, home, item),
-    }));
-    const removedAbs = new Set(oldAbs.map(({ abs }) => abs).filter((abs) => !stillProduced(abs)));
-    removedFiles = [...removedAbs].map((abs) => ownedLabel(record.root, abs));
-    const oldAbsSet = new Set(oldAbs.map(({ abs }) => abs));
-    addedFiles = produced
-      .filter((abs) => !oldAbsSet.has(abs))
-      .map((abs) => ownedLabel(record.root, abs));
-    for (const abs of removedAbs) {
-      try {
-        if (existsSync(abs) && statSync(abs).isFile()) rmSync(abs, { force: true });
-      } catch (err) {
-        // 删不掉就留着，下次更新再说；但不能静默：告诉人哪个文件还在
-        warnings.push(`旧文件没删掉：${ownedLabel(record.root, abs)}（${fsProblem(err)}）`);
-      }
+    if (previous) {
+      const pruned = pruneRemoved(record.root, previous, plan);
+      removedFiles = oldRemovable
+        .filter((abs) => !stillProduced(abs))
+        .map((abs) => ownedLabel(record.root, abs));
+      warnings.push(...pruned.warnings);
+    } else {
+      warnings.push('旧 state 没有计划快照，跳过旧文件清理；重装一次可恢复完整清理');
     }
-
-    const after = loadState(record.root);
-    const key = Object.keys(after.packs).find((item) => item.startsWith(`${ctx.manifest.metadata.name}@`));
-    const recordState = key ? after.packs[key] : undefined;
-    if (recordState) {
-      recordState.written = recordState.written.filter(
-        (item) => !removedAbs.has(resolveOwnedPath(record.root, home, item)),
-      );
-    }
-    saveState(record.root, after);
+    // 「新增」按计划产物比对：旧 plan 的产物 + 旧 written（旧 state 没有快照时只能看 written）
+    const oldKnown = new Set([...oldProduced, ...outputAbsOf(record.root, home, oldWritten)]);
+    addedFiles = produced.filter((abs) => !oldKnown.has(abs)).map((abs) => ownedLabel(record.root, abs));
 
     // 身份跟 create 一样只认 state：装完恰好一个 Pack 时以它为准，记录里的漂移在这里被纠正；
     // state 读不出来（0/多个/损坏）才退回清单里的名字版本。

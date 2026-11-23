@@ -10,7 +10,7 @@ import {
   type InstanceRecord,
 } from './index.ts';
 import { loadState, mcpFileHasEntry } from '@packhub/runtime';
-import { DSH_MCP_ENTRY_PREFIX } from '@packhub/kernel';
+import { DSH_MCP_ENTRY_PREFIX, dshProfilePatches } from '@packhub/kernel';
 import { isPidAlive } from './process.ts';
 import { isPortListening, portOwner } from './port.ts';
 import { readMcpServers, DSH_PATCH_FILE } from './mcp.ts';
@@ -113,9 +113,11 @@ interface DshMcpReport {
  * `--patch` 层。读回这些文件，按 state 计划里的期望条目查在不在：
  *
  * - 记录里有 `profile`：只查 `<home>/profiles/<profile>/cordis.patch.yml`（安装也只写了它）；
- * - 没写（= all）：查 state 计划里落过的每个 patch 文件。
+ * - 没写（= all）：查**当前磁盘上的所有** profile patch（`dshProfilePatches`），而不只是 state
+ *   里那次安装写过的——安装后新建的 profile 没有条目，这里要能报出来。
  *
- * 期望条目按「文件 → 条目 id」分配（计划里的 `paths`），多 Pack 时不会拿 A 的条目去要求 B 没写过的文件。
+ * 期望条目按「文件 → 条目 id」分配（计划里的 `paths`）；新 profile 没有安装记录，按 state 计划里
+ * 全部 `pal-mcp-*` 条目要求它（多 Pack 时每一条都该在有这个 profile 的地方出现）。
  */
 function dshAttachedMcp(record: InstanceRecord): DshMcpReport {
   const state = loadState(record.root);
@@ -141,17 +143,19 @@ function dshAttachedMcp(record: InstanceRecord): DshMcpReport {
   }
   const home = record.home ?? record.root;
   const allKeys = new Set([...expected.values()].flatMap((set) => [...set]));
+  // 当前有哪些 profile 问宿主的枚举（与 plan 期写哪些文件同一份判据），不是只看 state
+  const current = record.profile ? [] : dshProfilePatches(home);
   const rels = record.profile
     ? [`profiles/${record.profile}/${PROFILE_PATCH_SUFFIX}`]
-    : [...expected.keys()].sort();
+    : [...new Set([...expected.keys(), ...current])].sort();
   const missing: string[] = [];
   const files: string[] = [];
   for (const rel of rels) {
     const abs = join(home, rel);
     files.push(abs);
-    // 只按计划里落到这个文件的条目查（多 Pack 时不会拿 A 的条目去要求 B 没写过的文件）
-    const keys = expected.get(rel);
-    if (!keys || keys.size === 0) continue;
+    // 有安装记录的文件只按计划落到它的条目查；新 profile 按 state 里的全部条目查
+    const keys = expected.get(rel) ?? allKeys;
+    if (keys.size === 0) continue;
     const text = existsSync(abs) ? readFileSync(abs, 'utf8') : undefined;
     for (const key of keys) {
       if (text !== undefined && mcpFileHasEntry(text, layout, key)) continue;

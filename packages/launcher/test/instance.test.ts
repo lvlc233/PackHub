@@ -432,6 +432,49 @@ describe('实例配置', () => {
     expect(listDirNames(quarantineRoot())).toEqual([]);
   });
 
+  it('pal list 显示 profile：dsh attached 显示记录里的 profile 或 all，其它宿主显示 -', async () => {
+    const homeWeb = join(tmp, 'dsh-web');
+    mkdirSync(join(homeWeb, 'profiles', 'web'), { recursive: true });
+    writeFileSync(join(homeWeb, 'profiles', 'web', 'cordis.patch.yml'), '[]\n', 'utf8');
+    await createInstance({
+      name: 'dsh-web-one',
+      harness: 'dsh',
+      packDir: PACK,
+      attachedHome: homeWeb,
+      profile: 'web',
+    });
+
+    const homeAll = join(tmp, 'dsh-all');
+    for (const name of ['web', 'desktop']) {
+      mkdirSync(join(homeAll, 'profiles', name), { recursive: true });
+      writeFileSync(join(homeAll, 'profiles', name, 'cordis.patch.yml'), '[]\n', 'utf8');
+    }
+    await createInstance({ name: 'dsh-all-one', harness: 'dsh', packDir: PACK, attachedHome: homeAll });
+
+    await createInstance({ name: 'dir-one', harness: 'dir', packDir: PACK });
+
+    const text = (await runList()).join('\n');
+    // 每行是 tab 分隔的列：最后一列是 profile
+    const lastCell = (name: string): string | undefined =>
+      text
+        .split('\n')
+        .find((line) => line.includes(`\t${name}\t`))
+        ?.split('\t')
+        .at(-1);
+    expect(lastCell('dsh-web-one')).toBe('web');
+    // 没写 profile = all（装时枚举所有已有 profile）
+    expect(lastCell('dsh-all-one')).toBe('all');
+    // 其它宿主（含 dir）没有这个维度
+    expect(lastCell('dir-one')).toBe('-');
+
+    // --json 结构不变：profile 由记录字段带出
+    const json = JSON.parse((await runList({ json: true })).join('\n')) as {
+      instances: { name: string; profile?: string }[];
+    };
+    expect(json.instances.find((row) => row.name === 'dsh-web-one')?.profile).toBe('web');
+    expect(json.instances.find((row) => row.name === 'dsh-all-one')?.profile).toBeUndefined();
+  });
+
   it('runtime.json 损坏也算坏记录：readRecordResult / scan / pal list 口径一致且不改盘', async () => {
     const record = await createInstance({ name: 'bad-runtime', harness: 'dir', packDir: PACK });
     writeFileSync(runtimeFile(record.root), '{ not json', 'utf8');

@@ -12,3 +12,9 @@ import './workbody.ts';
 import './hermes.ts';
 
 export * from './contract.ts';
+
+/**
+ * dsh 的 profile 枚举也走注册表这一层导出：attached 的 MCP 落点（plan 期）与
+ * `pal health` 的「当前有哪些 profile」必须是同一份判据。
+ */
+export { dshProfilePatches } from './dsh.ts';

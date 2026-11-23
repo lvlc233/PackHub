@@ -3,7 +3,7 @@ kind: decision
 summary: 有意为之的取舍
 verified: 2026-11-24
 decay: 365
-review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增删、锁形状或签名载荷变化、接线规则再变、检查派生规则再变、安装参数或落点归属改名、dsh attached 的 profile 语义变化、路径基准或 state.written 形状再变、安装对象或命令族边界再变、命令层再出现例外、加 mac 门禁、命令面收缩）
+review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增删、锁形状或签名载荷变化、接线规则再变、检查派生规则再变、安装参数或落点归属改名、dsh attached 的 profile 语义变化、升级清理的依据与撤销方式再变、patch 文件的编辑策略再变、路径基准或 state.written 形状再变、安装对象或命令族边界再变、命令层再出现例外、加 mac 门禁、命令面收缩）
 ---
 
 # PackHub 的取舍
@@ -215,17 +215,33 @@ README 只承诺分工：「packhub 做包与发版，pal 安装与运行」；C
 
 代价：
 
-- **profile 事后新增不补**：写的是安装那一刻已存在的 profile。之后 `dsh --profile new` 新建的 profile 没有条目，得重装或手工补；一条「哪些 profile 有 PAL 条目」不会自动收敛。文档与 `pal verify` 只能报漂移，不能替用户补。
+- **profile 事后新增不补**：写的是安装那一刻已存在的 profile。之后 `dsh --profile new` 新建的 profile 没有条目，得重装或手工补。`pal health` 会枚举当前所有 profile 并把缺条目的报进 `mcpMissing`（警告），`pal update` 重算计划时重新枚举 profile，`all` 记录跑一次就能补上；`verify` 只报漂移，不替用户补。
 - **多文件所有权**：一个 `register.mcp` 动作对应多个文件，`state.written` 每个文件记一条，撤销载荷带 `paths`（每个文件同一个 `key`）；卸载、升级清理、`pal verify` 的漂移段都要按文件逐个摘 / 逐个查，任一处漏掉就会有一份 profile 静默保留条目。只有一个 profile 时整条链路仍按单文件走（不写 `paths`），旧形状的字节不变。
-- **用户文件被重排**：patch 文件是用户可能手写过的 YAML。合并按文档树读入再写出，注释与用户条目都保留，但缩进 / 引号风格会被重新序列化一次；这是「写进别人的文件」的固有成本，managed 那份整份生成的 patch 不受影响。
+- **用户文件只动自己的块**：patch 文件是用户可能手写过的 YAML。写 / 摘 `pal-mcp-*` 走文本级编辑：只在文件末尾追加自己的 `- insert:` 项、只摘以 `- id: pal-mcp-…` 起始的那一行块，用户的行、注释、空行与缩进逐字节不动；结构不是预期的顶层块数组（解析失败、锚点 / 流式写法）时退回整份重写并报一条提示（见「dsh patch 按文本编辑，不整份重排」）。managed 那份整份生成的 patch 不受影响。
 - **同一份条目要两边一致**：launcher 生成 managed 实例的 `pal-mcp.patch.yml` 与 kernel 生成 attached 的 loader 条目必须同形（serverName 合法化 / 截断、transport 归一、env/headers 字符串化）。纯函数抽到 kernel 的 `mcp.ts`，两边共用；以后改 dsh 的条目形状只改一处。
 
 ### dsh attached 的 profile：默认 all，显式选择才收窄
 
-现状：`pal install` / `pal update --home <dsh home>` 支持 `--profile <名字>`。不写 = 枚举 `<home>/profiles/*/cordis.patch.yml`，所有已存在 profile 都装；一个都没有 → plan 期 error `no-profiles`，不再替安装造 `profiles/web`。写 = 只装那一个（`<home>/profiles/<名字>/cordis.patch.yml`），profile 不存在报 `profile-missing`、不创建；名字不是单段目录名报 `bad-profile`；配 `--project`、managed home 或其它宿主是用法错（退 2）。记录（`instance.json`）记 `profile`（缺省不写 = all），`update` / `verify` / `health` 不带 flag 时沿用；`install` 不沿用（缺省语义仍是 all）。`health` 按记录里的 profile（或 state 写过的每个 patch）读回 `pal-mcp-*` 条目，缺的进 `mcpMissing`。
+现状：`pal install` / `pal update --home <dsh home>` 支持 `--profile <名字>`。不写 = 枚举 `<home>/profiles/*/cordis.patch.yml`，所有已存在 profile 都装；一个都没有 → plan 期 error `no-profiles`，不再替安装造 `profiles/web`。写 = 只装那一个（`<home>/profiles/<名字>/cordis.patch.yml`），profile 不存在报 `profile-missing`、不创建；名字不是单段目录名报 `bad-profile`；配 `--project`、managed home 或其它宿主是用法错（退 2）。记录（`instance.json`）记 `profile`（缺省不写 = all），`update` / `verify` / `health` 不带 flag 时沿用；`install` 不沿用（缺省语义仍是 all）。`health` 按记录里的 profile（没记就枚举**当前磁盘上的所有** profile patch）读回 `pal-mcp-*` 条目，缺的进 `mcpMissing`（警告，不阻断 `ok`）——安装后新建的 profile 因此会显示「缺条目」，`all` 记录跑一次 `pal update` 就补上。`verify` 仍只按 state 里的安装记录查漂移，不枚举新 profile。
 
 没选另一条：一个 profile 都没有时继续自动造 `profiles/web`（原行为），或让 `--profile` 顺手创建缺失的 profile。
 
 自动造 web 等于 PAL 替 dsh 编一份默认 profile：dsh 的 profile（web / desktop / headless）由它自己启动时生成，内容与 PAL 造出来的空壳不是一回事，装完 `dsh web` 会拿到这份空壳而不是宿主原本的配置；失败还会被藏起来——用户以为装好了，实际只多了一个 PAL 编的 profile。顺手创建同样越界：profile 是宿主的状态，创建它要写宿主管理的目录与默认内容。
 
-代价：新机器第一次装 dsh attached home 前必须先跑一次 `dsh`（或 `dsh --profile <名字>`）生成 profile，否则 install 退 2；`--profile` 不能用来「先建后装」。装完再新建的 profile 仍不会被补（现在可以带 `--profile` 单独重装那一个）。`profile` 是记录字段、不是 state 字段：`update` 不接受换 profile——它会把旧计划不再产出的文件整份删掉（已知问题，见 `packages/launcher/src/update.ts` 的 removed 循环），而别的 profile 的 patch 正是这类文件，换 profile 会连用户自己的条目一起删；要换先 `pal uninstall --home <home>` 再 `pal install … --profile <新 profile>`。`verify --profile` 只核对记录（漂移仍按 state 里的安装记录走），不能拿它去验一个没装过的 profile。
+代价：新机器第一次装 dsh attached home 前必须先跑一次 `dsh`（或 `dsh --profile <名字>`）生成 profile，否则 install 退 2；`--profile` 不能用来「先建后装」。装完再新建的 profile 不会在安装时被补，但 `pal health` 枚举当前 profile 时会把缺条目的报出来（warn），`all` 记录跑一次 `pal update` 就补（要装进某一个新 profile 也可以带 `--profile` 单独重装那一个）。`profile` 是记录字段、不是 state 字段：`update` 不接受换 profile——它只按记录里的 profile 重装，换安装范围是先 `pal uninstall --home <home>` 再 `pal install … --profile <新 profile>`。`verify --profile` 只核对记录（漂移仍按 state 里的安装记录走），不能拿它去验一个没装过的 profile。
+
+### update 的旧产物清理只走计划快照
+
+现状：`pal update` 先按新清单装新版（`installPack`，同名旧 `state.written` 并入新 key），再清「上一版有、这一版没有」的产物。清理交给 runtime 的 `pruneRemoved(root, previous, next)`：`previous` 取 state 里这个包上一版的计划快照（`state.packs[name@version].plan`），删什么由计划动作决定——私有文件整份删、共享配置（MCP 配置 / 指令块）按 key / 块摘，用户自己的条目留下。`--force` 与本地改动检测不变。报告由计划输出推导：`removedFiles` 是上一版产物里这一版不再产出的路径（删除失败的也报），`addedFiles` 是这一版新增的产物。
+
+没选另一条：沿用改造前的做法——把「旧 `written` 里、新计划不再产出」的路径直接 `rmSync`。共享配置文件（`.claude.json` / `cordis.patch.yml` / `opencode.json` / `.mcp.json` 等）本来是多包、多工具与用户共写的：整文件删掉会连用户自己的条目一起没，而且清理逻辑与卸载走两套（按 key 摘 vs 整份删），一处改了另一处不跟。收成 `pruneRemoved` 后升级清理与卸载共用同一份撤销表（`PLAN_OPS` 的 `undo` 与撤销载荷）。
+
+代价：清理的依据从「`written` 并集」变成「上一版计划快照」。旧 state 没有 `plan` 时更新不做任何旧文件清理，只报一条 warning（「旧 state 没有计划快照，跳过旧文件清理；重装一次可恢复完整清理」）——本包旧条目会留在共享文件里、旧私有文件也会留到下一次重装才清；这是刻意的：没有快照时唯一能算出的集合是 `written`，按它整文件删正是要修掉的行为。快照来自安装时写下的计划，Pack 的旧版本必须是由这一版代码（或至少写了 `state.packs[*].plan` 的版本）装的，否则第一次 update 拿不到快照。删除失败的文件不再从 `state.written` 里摘掉（记录「真的删掉了什么」），会留到下一次 update 再试。
+
+### dsh patch 按文本编辑，不整份重排
+
+现状：写 / 摘 dsh `cordis.patch.yml` 里的 `pal-mcp-*` 条目时尽量做文本级编辑——插入时在文件末尾追加一个 `- insert:` 列表项块（顶层缩进按文件现有写法，换行符跟文件走），删除时把 `- id: pal-mcp-…` 起始的那一行块摘掉、包着它的 `- insert:` 项只剩空壳时一并摘掉，用户的行、注释、空行与缩进逐字节不动。前提是文件顶层是块式数组、没有锚点 / 别名 / 显式标签：结构不是预期形状（解析失败、流式数组、复杂锚点）时退回按文档树整份重写，并通过 `onNote` 报一条提示（安装写进动作的 `message`、升级清理与卸载进 `warnings`），不静默。对象配置文件（JSON / YAML 对象）仍按解析-合并-序列化走。
+
+没选另一条：继续用 `parseDocument` 读入再整份写出。它对用户的缩进 / 引号 / 注释位置一律重排，而 patch 文件是用户自己也会写的配置；`[]` 这种流式空数组还会被写成跨行流式结构，越改越难看。
+
+代价：文本级编辑只能认少数形状——顶层不是块式数组、或者用户把我们的条目写成了流式 / 锚点形式，就走回退路径（排版会被重写，提示里说清楚）。追加时新建一条自己的 `- insert:` 项，而不是并进用户已有的 `insert` 列表（`insert` 里可能还有用户的 loader 条目）；同一文件里多个 Pack 各写一条，dsh 会把每条 patch 项都应用，条目按 `id` 认领，行为不变但文件里会出现多条 `- insert:`。替换已有条目时只重建那个 loader 行块（内部缩进用 `yaml` 的默认两空格步长），行首缩进沿用原行。

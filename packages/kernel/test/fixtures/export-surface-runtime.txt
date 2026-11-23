@@ -44,6 +44,7 @@ PackInspection
 PackhubConfig
 ProbeOptions
 ProbeResult
+PruneResult
 PypiSdist
 RegistryEntry
 RegistryError
@@ -126,6 +127,7 @@ pickSdist
 pinManifest
 planOutputs
 planPaths
+pruneRemoved
 probeHarness
 probeSkill
 readArchiveFilesSync

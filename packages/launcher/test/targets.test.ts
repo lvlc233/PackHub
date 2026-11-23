@@ -412,9 +412,12 @@ describe('--home：attached home', () => {
       expect(text).toContain('command: npx');
     }
     const webAfter = readFileSync(webPatch, 'utf8');
+    // 文本级编辑：用户写的那段（注释 / 条目 / 缩进）逐字节不变，我们的块追加在文件末尾
+    expect(webAfter.startsWith(webUser)).toBe(true);
     expect(webAfter).toContain('# 用户自己的 patch 层（这段注释不该丢）');
     expect(webAfter).toContain('ui-settings-general');
     expect(webAfter).toContain('welcomeNoticeVersion: 2026-09-28.1');
+    expect(readFileSync(desktopPatch, 'utf8').startsWith(desktopUser)).toBe(true);
     expect(readFileSync(desktopPatch, 'utf8')).toContain('desktop-only');
 
     const verified = palIn(palHome, ['verify', '--home', attachedHome]);
@@ -427,15 +430,15 @@ describe('--home：attached home', () => {
     expect(drifted.out).toContain('配置被改');
     expect(drifted.out).toContain('profiles/desktop/cordis.patch.yml');
 
-    // 卸载：两处条目都消失，用户条目保留
+    // 卸载：两处条目都消失，用户条目保留（原文件的每个字节都回来了）
     const removed = palIn(palHome, ['uninstall', '--home', attachedHome]);
     expect(removed.status, removed.out).toBe(0);
     for (const file of [webPatch, desktopPatch]) {
       const text = readFileSync(file, 'utf8');
       expect(text).not.toContain('pal-mcp-markdownlint');
     }
-    expect(readFileSync(webPatch, 'utf8')).toContain('ui-settings-general');
-    expect(readFileSync(desktopPatch, 'utf8')).toContain('desktop-only');
+    expect(readFileSync(webPatch, 'utf8')).toBe(webUser);
+    expect(readFileSync(desktopPatch, 'utf8')).toBe(desktopUser);
     rmSync(base, { recursive: true, force: true });
   }, 120_000);
 
