@@ -43,6 +43,12 @@ export interface InstanceConfig {
   root: string;
   /** 实例自己的 home 段（dsh: DSH_HOME）；dir 没有 */
   home?: string;
+  /**
+   * dsh attached home 这次安装选的 profile（`pal install --profile <名字>`）；不写 = all
+   * （安装那一刻已存在的每个 profile 都写）。update / verify / health 读它来沿用这次选择。
+   * 只对 harness=dsh 且 attached=true 有意义；状态坏了也不影响记录可读，归一成 undefined。
+   */
+  profile?: string;
   /** 隔离策略：每层是每实例一份还是全局共享；配置里缺这个字段时读出来是默认策略 */
   isolation?: Isolation;
   pack: { name: string; version: string; ref?: string };
@@ -217,6 +223,8 @@ function normalizeRecord(root: string, data: Record<string, unknown>): InstanceR
     managed: typeof data.managed === 'boolean' ? data.managed : true,
     // 缺省 false = managed；读盘时归一成布尔，JSON 输出里这个字段一直在
     attached: data.attached === true,
+    // profile 只是 dsh attached 的安装参数；空串 / 非字符串当没写（= all）
+    ...(typeof data.profile === 'string' && data.profile.trim() ? { profile: data.profile.trim() } : {}),
     pack: (data.pack as InstanceConfig['pack'] | undefined) ?? { name: 'unknown', version: '0.0.0' },
     // 隔离策略坏了不至于让整份记录变坏记录：解析不了就按默认策略读
     isolation: parseIsolation(data.isolation) ?? DEFAULT_ISOLATION,

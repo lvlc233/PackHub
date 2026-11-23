@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -52,16 +52,32 @@ function dshHome(profiles: string[]): string {
   return home;
 }
 
-function planAt(scope: 'project' | 'home' | 'attached', root: string, home?: string) {
+function buildAt(
+  scope: 'project' | 'home' | 'attached',
+  root: string,
+  home?: string,
+  opts: { profile?: string } = {},
+) {
   const dir = packDir();
   const built = planFor(loadPack(dir), {
     harness: 'dsh',
     scope,
     root,
     ...(home ? { home } : {}),
+    ...(opts.profile ? { profile: opts.profile } : {}),
     platform: 'linux-x64',
   });
   rmSync(dir, { recursive: true, force: true });
+  return built;
+}
+
+function planAt(
+  scope: 'project' | 'home' | 'attached',
+  root: string,
+  home?: string,
+  opts: { profile?: string } = {},
+) {
+  const built = buildAt(scope, root, home, opts);
   expect(built.issues.filter((i) => i.severity === 'error')).toEqual([]);
   return built.plan!;
 }
@@ -141,13 +157,61 @@ describe('dsh attached 的 MCP：写所有已有 profile 的 patch 文件', () =
     rmSync(home, { recursive: true, force: true });
   });
 
-  it('一个 profile 都没有：退回 profiles/web（让安装把它建出来）', () => {
+  it('一个 profile 都没有：报 no-profiles，不出计划，也不替安装造出 profiles/web', () => {
     const home = dshHome([]);
-    const plan = planAt('attached', home, home);
+    const built = buildAt('attached', home, home);
+    expect(built.plan).toBeUndefined();
+    const issue = built.issues.find((item) => item.code === 'no-profiles');
+    expect(issue?.severity).toBe('error');
+    expect(issue?.message).toContain('先启动一次 dsh');
+    expect(issue?.message).toContain('--profile');
+    expect(existsSync(join(home, 'profiles', 'web'))).toBe(false);
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it('--profile：只给那一个 patch 文件，别的 profile 不进计划（不写 paths）', () => {
+    const home = dshHome(['web', 'desktop']);
+    const plan = planAt('attached', home, home, { profile: 'web' });
     const [only] = patches(plan);
     if (only?.op !== 'register.mcp') throw new Error('计划里应有 register.mcp');
-    expect('paths' in only).toBe(false);
     expect(only.path).toBe('profiles/web/cordis.patch.yml');
+    expect('paths' in only).toBe(false);
+    expect(mcpActionPaths(only)).toEqual([{ path: 'profiles/web/cordis.patch.yml', base: 'home' }]);
+    expect(actionWrittenOwned(only, plan, 'linux-x64').map((item) => `${item.base}:${item.path}`)).toEqual([
+      'home:profiles/web/cordis.patch.yml',
+    ]);
+    const outputs = planOutputsOf(plan).map((item) => `${item.base}:${item.path}`);
+    expect(outputs).toContain('home:profiles/web/cordis.patch.yml');
+    expect(outputs).not.toContain('home:profiles/desktop/cordis.patch.yml');
+    // desktop 的 patch 文件原样留着（安装不碰它）
+    expect(existsSync(join(home, 'profiles', 'desktop', 'cordis.patch.yml'))).toBe(true);
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it('--profile 指向不存在的 profile：报 profile-missing（带路径与「先启动一次 dsh」），不创建目录', () => {
+    const home = dshHome(['web']);
+    const built = buildAt('attached', home, home, { profile: 'desktop' });
+    expect(built.plan).toBeUndefined();
+    const issue = built.issues.find((item) => item.code === 'profile-missing');
+    expect(issue?.severity).toBe('error');
+    expect(issue?.message).toContain(join(home, 'profiles', 'desktop', 'cordis.patch.yml'));
+    expect(issue?.message).toContain('先启动一次 dsh');
+    expect(existsSync(join(home, 'profiles', 'desktop'))).toBe(false);
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it('profile 名会拼进路径：带分隔符 / .. 一律 bad-profile，不出计划', () => {
+    const home = dshHome(['web']);
+    for (const profile of ['../evil', 'a/b', '..', '']) {
+      const built = buildAt('attached', home, home, { profile });
+      // 空串按「没给」处理（= all），其余都不是单段目录名
+      if (!profile) {
+        expect(built.plan).toBeDefined();
+        continue;
+      }
+      expect(built.plan, profile).toBeUndefined();
+      expect(built.issues.map((item) => item.code), profile).toContain('bad-profile');
+    }
     rmSync(home, { recursive: true, force: true });
   });
 

@@ -237,6 +237,7 @@ export function planFor(
     ...(opts.scope ? { scope: opts.scope } : {}),
     ...(opts.root ? { root: opts.root } : {}),
     ...(opts.home ? { home: opts.home } : {}),
+    ...(opts.profile ? { profile: opts.profile } : {}),
     packDir: ctx.dir,
     // 平台在这里默认成宿主机；buildPlan 自己不读 process（测试可注入别的平台）
     platform: opts.platform ?? `${process.platform}-${process.arch}`,

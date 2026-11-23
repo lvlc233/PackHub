@@ -105,6 +105,49 @@ export function assertNotAttached(home: { attached?: boolean; root: string }): v
   );
 }
 
+/* ---------- dsh attached 的 profile ---------- */
+
+/**
+ * profile 名会拼进 `<home>/profiles/<名字>/cordis.patch.yml`，所以只收一段目录名：
+ * 字母 / 数字 / `.` `_` `-`，首字符必须是字母或数字（`..` 这类名字随之被拒）。
+ */
+export const PROFILE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/** 校验 `--profile` 的名字；空值与带路径分隔符的名字都是用法错（退出 2）。 */
+export function assertProfileName(value: unknown): string {
+  const text = String(value ?? '').trim();
+  if (!text) {
+    throw new PalError('invalid-input', '--profile 不能为空', {
+      hint: '写 dsh 的 profile 名，例如 --profile web；不写 = 所有已有 profile',
+    });
+  }
+  if (!PROFILE_NAME_PATTERN.test(text)) {
+    throw new PalError('invalid-input', `--profile 的名字不合法：${text}`, {
+      hint: '只能是一段目录名：字母、数字、. _ -，不能带路径分隔符或 ..',
+      details: { profile: text },
+    });
+  }
+  return text;
+}
+
+/**
+ * `--profile` 只对 dsh 的 attached home 有意义：MCP 是 per-profile 的，只有它按 profile 分叉。
+ * 项目落点、managed home、其它宿主都没有这层语义；传了就是用法错（退出 2），不静默忽略。
+ */
+export function assertProfileTarget(kind: string, attached: boolean): void {
+  if (kind === 'dsh' && attached) return;
+  throw new PalError(
+    'invalid-input',
+    '--profile 只对 --host dsh 的 attached home（--home <路径>）有意义',
+    {
+      hint:
+        'profile 是 dsh 的全局子空间：项目落点、managed home 与其它宿主没有 per-profile 的 MCP 配置；' +
+        '不带 --profile 就是 dsh attached 的缺省（所有已有 profile）',
+      details: { harness: kind, attached },
+    },
+  );
+}
+
 /* ---------- 路径输入 ---------- */
 
 /**

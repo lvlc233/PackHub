@@ -87,6 +87,8 @@ function materializeMcp(ctx: KindContext, res: ResourceSpec): void {
   // 登记到哪、条目什么形状由宿主 destination('mcp') 回答（方言随落点一起给）；
   // 缺省 = `.packhub/config.json` + JSON mcpServers + 原 spec。
   const target = ctx.dest('mcp');
+  // 适配器给空落点 = 这个范围没有可写的位置，原因由它的 `issues` 报（见 plan.ts）；这里不生成动作
+  if (!target.path) return;
   const dialect = target.mcp;
   const base = buildMcpSpec(res, ctx.interp(res.config ?? {}) as Record<string, unknown>);
   // 按条目 id 认领的方言（dsh 的 profile patch）：serverName 先在同一份计划里去重，

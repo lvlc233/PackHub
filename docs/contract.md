@@ -119,6 +119,10 @@ resources:
 
 **多落点（只有 mcp）**：`Destination` 还可以给 `paths`——同一类落点对应的完整文件列表（含主文件 `path`，每项带自己的 `base`），用来表达 dsh 那种「MCP 是 per-profile、要写进所有已有 profile」的宿主。目录 enumeration 在适配器的 `destination` 里做（plan 期读 fs），计划里只留具体文件；`register.mcp` 动作对应地带 `paths`（完整列表）。**只有一个文件时不写 `paths`**：动作、撤销载荷与 `state.written` 都保持单文件形状，与改造前逐字节一致。其余落点忽略 `paths`。
 
+**dsh attached 的 profile（显式选择）**：`DestinationContext` 与 `PlanOptions` 都有可选的 `profile`，只有 dsh 的 attached MCP 读它——显式给了就只给 `<home>/profiles/<名字>/cordis.patch.yml` 一个落点（不写 `paths`）；不写就枚举所有已有 profile（多落点）。计划期在这三种情况下报 error、不出计划：显式 profile 不存在 → `profile-missing`（文案带绝对路径与「先启动一次 dsh 生成 profile」；不创建目录）；一个 profile 都没有且没指定 → `no-profiles`（不再回退 `profiles/web`）；profile 名不是单段目录名（含路径分隔符或 `..`）→ `bad-profile`。适配器自己的 plan 期问题放在 `Destination.issues`（可选），`buildPlan` 原样收进 `issues` 并按 code + message 去重。
+
+安全边界：profile 名会拼进落点路径，所以只收 `[A-Za-z0-9][A-Za-z0-9._-]*` 一段；它不是清单字段，只能由安装参数（PAL 的 `--profile`）传进计划，清单没有能力指定它。
+
 **安全边界**：
 
 1. 非 root 基准只允许来自适配器的 `destination`；清单没有字段能声明路径基准，`${layout.*}` 插值也只会得到字符串，不能把某条动作的 `toBase` 改成 `absolute`。
@@ -223,6 +227,8 @@ resources:
 5. `stateDirs` 记录清单 `state` 块声明的目录；这些目录不进 `written`、不进版本镜像、不被快照回滚删除。
 6. `generations` 每次安装追加一条，更早的会被裁掉（保留策略在 `install.ts`）；`existed` / `created` 是回退的依据。安装根之外的绝对路径记在 `existedExternal` / `createdExternal`（安装前复制进快照目录的 `external/`），rollback 与失败回滚同样恢复 / 删除它们。
 7. **旧 state 兼容读**：更早的 `written` 是 `string[]`，读端按 `base: 'root'` 归一，不因为读而重写文件；只有下一次真正写 state 时才变成新形状。
+
+dsh attached 的 profile 不进 state：它是安装参数，记在 PAL 的 `instance.json`（可选 `profile`，缺省不写 = all）。state 只按实际写过的路径记 `written`——`--profile web` 时只有 `profiles/web/cordis.patch.yml` 一条；卸载按 `written` 摘，不需要 profile。`update` / `verify` / `health` 不带 `--profile` 时用记录里的选择，`install` 不沿用（缺省语义仍是 all）。`update` 不接受换 profile：已知的「旧计划不再产出的文件整份删」会连别的 profile patch 里的用户条目一起删；要换先 uninstall 再 install。
 
 装好与否的判定、并发、回退、所有权与卸载顺序是行为，写在 `packages/runtime/src/install.ts`（`applyPlan` / `acquireLock` / `removePack` / `rollbackPack`）。
 

@@ -94,17 +94,23 @@ export function requireAdapter(kind: InstanceKind): HarnessAdapter {
  * - 项目：root = 项目目录，没有 home 段；
  * - managed：root = 实例根，home = `<root>/<home.dir>`（资源落进实例自己的 home 段，
  *   宿主读的是这个实例的那一份，不是全局的）；
- * - attached：root 就是宿主的全局目录，home 与 root 同值，落点相对它。
+ * - attached：root 就是宿主的全局目录，home 与 root 同值，落点相对它；`profile` 只在这里传下去
+ *   （dsh 的 per-profile MCP 落点；managed / 项目没有 profile 语义）。
  */
 export function destinationContext(
   kind: InstanceKind,
-  opts: { root?: string; attachedHome?: string } = {},
+  opts: { root?: string; attachedHome?: string; profile?: string } = {},
 ): DestinationContext | undefined {
   if (kind === 'dir') return undefined;
   const spec = harness(kind);
   if (!spec) return undefined;
   if (opts.attachedHome !== undefined) {
-    return { root: opts.attachedHome, home: opts.attachedHome, scope: 'attached' };
+    return {
+      root: opts.attachedHome,
+      home: opts.attachedHome,
+      scope: 'attached',
+      ...(opts.profile ? { profile: opts.profile } : {}),
+    };
   }
   const root = opts.root ?? '.';
   return {

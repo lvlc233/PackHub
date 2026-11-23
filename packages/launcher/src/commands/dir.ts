@@ -28,7 +28,14 @@ import { PalError } from '../errors.ts';
 import { acceptBaseline } from './other.ts';
 import { discoverAll } from '../harness.ts';
 import { assertAttachedSupported } from '../layout.ts';
-import { assertHomeNameFree, homePathInput, hostArg, resolveAttachedName } from '../validators.ts';
+import {
+  assertHomeNameFree,
+  assertProfileName,
+  assertProfileTarget,
+  homePathInput,
+  hostArg,
+  resolveAttachedName,
+} from '../validators.ts';
 
 /** 直接复用 dirCommands 里的目录实现：参数补成它认识的形状，输出/退出码不变。 */
 async function invoke(cmd: CommandDef<never>, args: Record<string, unknown>): Promise<void> {
@@ -113,6 +120,21 @@ function requireStopped(rec: InstanceRecord): void {
   }
 }
 
+/**
+ * uninstall / verify 的 `--profile`：只对 dsh attached 有意义，只用来核对记录里的选择。
+ * 这两个命令按 state.written 干活，profile 不能收窄它们；记录里写的是别的 profile 就退 2，
+ * 免得让人以为换个 profile 就能只处理那一份。
+ */
+function requireRecordedProfile(rec: InstanceRecord, profile: string | undefined): void {
+  if (profile === undefined) return;
+  assertProfileTarget(rec.harness, rec.attached === true);
+  if (rec.profile !== undefined && rec.profile !== profile) {
+    throw new PalError('invalid-input', `这个 home 是按 profile「${rec.profile}」装的，不是「${profile}」`, {
+      hint: `漂移 / 卸载按 state 里的安装记录走；要换成 ${profile} 先 pal uninstall --home ${rec.name} 再 pal install … --profile ${profile}`,
+    });
+  }
+}
+
 /** install 成功后给下一步：server 宿主用 start，前台宿主用 run。 */
 function nextLine(host: HarnessId, name: string): string {
   const mode = harness(host)?.start?.mode;
@@ -175,6 +197,11 @@ export const install = defineCommand({
       type: 'string',
       description: '项目级 target：宿主会打开的项目目录（不存在会创建）',
     },
+    profile: {
+      type: 'string',
+      description:
+        '只对 --host dsh 的 --home（attached dsh home）有意义：只装这一个 profile（<home>/profiles/<名字>/cordis.patch.yml）；不写 = 所有已有 profile，一个都没有会报错（先启动一次 dsh 生成 profile）',
+    },
     'from-home': {
       type: 'string',
       description:
@@ -203,6 +230,9 @@ export const install = defineCommand({
   async run({ args }) {
     const target = parseInstallTarget(args);
     const hostId = hostArg(args.host, 'install');
+    // --profile 只对 dsh 的 attached home 有意义：先校验，别等取完包才发现是用法错
+    const profile = args.profile === undefined ? undefined : assertProfileName(args.profile);
+    if (profile !== undefined) assertProfileTarget(hostId, target === 'attached');
     if (target === 'project' && args.name !== undefined) {
       throw new PalError('invalid-input', '--name 只用于 managed / attached home', {
         hint: '--project 装的是宿主会打开的项目目录，没有 home 名；要命名 home 就别给 --project',
@@ -287,6 +317,7 @@ export const install = defineCommand({
         const result = await installIntoInstance(existing.id, {
           packDir,
           packRef: source,
+          ...(profile ? { profile } : {}),
           ...(args.overwrite ? { overwrite: true } : {}),
           ...(args['allow-exec'] ? { allowExec: true } : {}),
           ...(dryRun ? { dryRun: true } : {}),
@@ -318,7 +349,12 @@ export const install = defineCommand({
       const name = nameInfo.name;
       const nameNote = nameInfo.adjusted ? `默认名 ${nameInfo.base} 已存在，改用 ${name}` : undefined;
       if (dryRun) {
-        const plan = previewHomePlan({ packDir, harness: hostId, attachedHome });
+        const plan = previewHomePlan({
+          packDir,
+          harness: hostId,
+          attachedHome,
+          ...(profile ? { profile } : {}),
+        });
         if (args.json) console.log(JSON.stringify({ plan, dryRun: true, name }, null, 2));
         else {
           printPlanSummary(plan, (line) => console.log(line));
@@ -332,6 +368,7 @@ export const install = defineCommand({
         packDir,
         packRef: source,
         attachedHome,
+        ...(profile ? { profile } : {}),
         onWarn: log,
       };
       const rec = await createInstance(opts);
@@ -382,15 +419,23 @@ export const uninstall = defineCommand({
   args: {
     project: { type: 'string', description: '项目级 target：已装过包的项目目录' },
     home: { type: 'string', description: 'home target：managed 用名字，attached 用路径或名字（必须已停）' },
+    profile: {
+      type: 'string',
+      description:
+        '只对 --home 的 dsh attached home 有意义：核对记录里的 profile；卸载按 state.written 摘，不需要它',
+    },
     json: { type: 'boolean', default: false },
   },
   async run({ args }) {
     const target = parseTarget(args);
+    const profile = args.profile === undefined ? undefined : assertProfileName(args.profile);
+    if (profile !== undefined && target !== 'home') assertProfileTarget('', false);
     let dir: string;
     if (target === 'project') {
       dir = String(args.project);
     } else {
       const rec = requireHome(args.home);
+      if (profile !== undefined) requireRecordedProfile(rec, profile);
       requireStopped(rec);
       dir = rec.root;
     }
@@ -416,10 +461,17 @@ export const verify = defineCommand({
       description:
         'home target：把当前磁盘状态认作基线（接受本地改动），之后体检不再报漂移；项目没有基线，不能用',
     },
+    profile: {
+      type: 'string',
+      description:
+        '只对 --home 的 dsh attached home 有意义：核对这次体检的 profile（不写用记录里的）；漂移仍按 state 里的安装记录走',
+    },
     json: { type: 'boolean', default: false },
   },
   async run({ args }) {
     const target = parseTarget(args);
+    const profile = args.profile === undefined ? undefined : assertProfileName(args.profile);
+    if (profile !== undefined && target !== 'home') assertProfileTarget('', false);
     if (target === 'project') {
       if (args.accept) {
         throw new PalError('invalid-input', '项目没有基线，--accept 只用于 home', {
@@ -433,6 +485,7 @@ export const verify = defineCommand({
       return;
     }
     const rec = requireHome(args.home);
+    if (profile !== undefined) requireRecordedProfile(rec, profile);
     if (!args.accept) {
       await invoke(verifyDirCmd as unknown as CommandDef<never>, {
         dir: rec.root,
@@ -499,10 +552,17 @@ export const update = defineCommand({
       default: false,
       description: 'home 级：覆盖本地改过的文件；不带时若 Pack 写过的文件被本地改过就拒绝更新',
     },
+    profile: {
+      type: 'string',
+      description:
+        '只对 --home 的 dsh attached home 有意义：核对这次更新沿用的 profile（不写用记录里的）；换 profile 要先 uninstall 再重装',
+    },
     json: { type: 'boolean', default: false },
   },
   async run({ args }) {
     const target = parseTarget(args);
+    const profile = args.profile === undefined ? undefined : assertProfileName(args.profile);
+    if (profile !== undefined && target !== 'home') assertProfileTarget('', false);
     if (target === 'project') {
       await updateStateDir(String(args.project), {
         ...(args.index ? { index: String(args.index) } : {}),
@@ -514,6 +574,7 @@ export const update = defineCommand({
 
     const rec = requireHome(args.home);
     requireStopped(rec);
+    if (profile !== undefined) assertProfileTarget(rec.harness, rec.attached === true);
     const ref = rec.pack.ref ?? rec.pack.name;
     const log = (line: string): void => {
       if (!args.json) console.error(line);
@@ -524,6 +585,7 @@ export const update = defineCommand({
       ...(args.index ? { index: String(args.index) } : {}),
       ...(args.version ? { version: String(args.version) } : {}),
       ...(args.force ? { force: true } : {}),
+      ...(profile ? { profile } : {}),
       log,
     });
     if (args.json) {

@@ -12,7 +12,7 @@ import type {
   ResourceType,
   VerifyCheck,
 } from './types.ts';
-import type { DestinationContext, DestinationKind, HarnessId } from './harness/contract.ts';
+import type { Destination, DestinationContext, DestinationKind, HarnessId } from './harness/contract.ts';
 import { requireHarness } from './harness/contract.ts';
 import { interpolate, isPlainObject, canonicalize, sha256 } from './util.ts';
 import { STATE_DIR } from './files.ts';
@@ -29,8 +29,13 @@ export interface PlanOptions {
   scope?: DestinationContext['scope'];
   /** 安装根（目标目录的绝对路径）：宿主拼绝对落点时才用得上 */
   root?: string;
-  /** 宿主 home 段（managed / attached 有） */
+  /** 宿主的 home 段（managed / attached 有） */
   home?: string;
+  /**
+   * 显式选中的宿主子空间（目前只有 dsh 的 profile）：给了就只装这一个。
+   * 只对声明了 attached 落点的宿主有意义；不写 = 宿主自己的默认（dsh 是枚举所有已有 profile）。
+   */
+  profile?: string;
   packDir?: string;
   /** 这些类型的资源交给宿主/外部适配器处理，不进计划（例如全局同步时的 MCP） */
   skipResourceTypes?: ResourceType[];
@@ -53,6 +58,7 @@ export function buildPlan(
     root: opts.root ?? '.',
     ...(opts.home ? { home: opts.home } : {}),
     scope: opts.scope ?? 'project',
+    ...(opts.profile ? { profile: opts.profile } : {}),
   };
   const dest = destinationFor(harnessSpec, destCtx);
   // 清单插值命名空间：`${layout.skillsDir}` 之类；全部从宿主的 destination 派生
@@ -417,6 +423,8 @@ export function buildPlan(
 
   // 基准校验：只有适配器能给 home / absolute；absolute 必须是绝对路径（写错比拒绝更贵）
   issues.push(...destinationBaseIssues(dest, destCtx));
+  // 适配器在 plan 期自己发现的问题（例如 dsh 的 profile 不存在 / 一个都没有）
+  issues.push(...destinationIssues(dest));
   issues.push(...actionBaseIssues(actions));
 
   issues.push(...detectConflicts(actions, opts.harness));
@@ -487,6 +495,24 @@ function destinationBaseIssues(
     }
   }
   return issues;
+}
+
+/**
+ * 适配器自己报的 plan 期问题（`Destination.issues`）：八类落点各收一次，按 code + message 去重。
+ * 适配器可能被多次调用（base 校验、插值），同一条问题不该在输出里重复。
+ */
+function destinationIssues(dest: (kind: DestinationKind) => Destination): Issue[] {
+  const out: Issue[] = [];
+  const seen = new Set<string>();
+  for (const kind of DESTINATION_KINDS) {
+    for (const issue of dest(kind).issues ?? []) {
+      const key = `${issue.code}\u0000${issue.message}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(issue);
+    }
+  }
+  return out;
 }
 
 /** 动作落点兜底：即使适配器把 base 带到了动作上，absolute 仍必须是绝对路径。 */

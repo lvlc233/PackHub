@@ -72,6 +72,8 @@ export interface UpdateFromRefOptions {
   index?: string;
   /** 覆盖本地改过的文件；不写时由 updateInstance 拒绝 */
   force?: boolean;
+  /** dsh attached home 的新 profile；不写沿用记录里的（缺省不写 = all） */
+  profile?: string;
   log?: (line: string) => void;
 }
 
@@ -86,6 +88,7 @@ export async function updateFromRef(opts: UpdateFromRefOptions): Promise<UpdateI
     packDir,
     packRef: opts.packRef,
     ...(opts.force ? { force: true } : {}),
+    ...(opts.profile ? { profile: opts.profile } : {}),
   });
 }
 

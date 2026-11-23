@@ -26,6 +26,8 @@ import {
   assertHarness,
   assertExternalRoot,
   assertNameFree,
+  assertProfileName,
+  assertProfileTarget,
   homePathInput,
 } from './validators.ts';
 
@@ -69,6 +71,11 @@ export interface CreateInstanceOptions {
    * 给了就用该宿主的 attached 落点、记录 attached=true；root 必须不写。
    */
   attachedHome?: string;
+  /**
+   * dsh attached home 的 profile（只装这一个）；不写 = all（枚举所有已有 profile）。
+   * 只对 dsh 的 attached home 有意义，其它宿主 / 项目 / managed home 传了是用法错。
+   */
+  profile?: string;
   /** 记录来源（materialize 前的原始引用），供导出模板与排障 */
   packRef?: string;
   /** 建完是否设为该宿主的当前实例；默认 true */
@@ -271,7 +278,7 @@ export function packIdentityFromState(
 export function planForHome(
   ctx: PackContext,
   kind: InstanceKind,
-  opts: { root?: string; attachedHome?: string } = {},
+  opts: { root?: string; attachedHome?: string; profile?: string } = {},
 ) {
   // dir 是项目目录实例，不是 kernel 的宿主：映射成「不传 harness」（平铺到实例根）。
   // 类型写 Partial<PlanOptions>：键写错（例如旧的 targetVars）会在这里编译报错，而不是被静默忽略。
@@ -285,6 +292,7 @@ export function planForHome(
           ...(scope.home ? { home: scope.home } : {}),
         }
       : {}),
+    ...(opts.profile ? { profile: opts.profile } : {}),
   };
   return planFor(ctx, planOptions);
 }
@@ -318,6 +326,7 @@ export function previewHomePlan(opts: {
   packDir: string;
   harness: InstanceKind;
   attachedHome?: string;
+  profile?: string;
 }): Plan {
   const kind = assertHarness(opts.harness);
   if (opts.attachedHome !== undefined) {
@@ -326,11 +335,15 @@ export function previewHomePlan(opts: {
     }
     assertAttachedSupported(kind);
   }
+  const profile = opts.profile === undefined ? undefined : assertProfileName(opts.profile);
+  if (profile !== undefined) assertProfileTarget(kind, opts.attachedHome !== undefined);
   const { ctx } = contextOf(opts.packDir);
   const { plan, issues } = planForHome(
     ctx,
     kind,
-    opts.attachedHome === undefined ? {} : { attachedHome: opts.attachedHome },
+    opts.attachedHome === undefined
+      ? {}
+      : { attachedHome: opts.attachedHome, ...(profile ? { profile } : {}) },
   );
   if (!plan) {
     throw new PalError('invalid-input', `生成不了计划：${issues.map((i) => i.message).join('; ')}`);
@@ -355,6 +368,9 @@ export async function createInstance(opts: CreateInstanceOptions): Promise<Insta
     }
     assertAttachedSupported(kind);
   }
+  // --profile 只对 dsh 的 attached home 有意义；名字先过安全边界（它会拼进落点路径）
+  const profile = opts.profile === undefined ? undefined : assertProfileName(opts.profile);
+  if (profile !== undefined) assertProfileTarget(kind, attachedHome !== undefined);
   // --from-home 只用于 managed：attached 的 home 就是宿主的全局目录，凭据本来就在那儿
   let fromHome: string | undefined;
   if (opts.fromHome !== undefined) {
@@ -392,7 +408,9 @@ export async function createInstance(opts: CreateInstanceOptions): Promise<Insta
   const { plan, issues } = planForHome(
     ctx,
     kind,
-    attachedHome === undefined ? { root } : { attachedHome },
+    attachedHome === undefined
+      ? { root }
+      : { attachedHome, ...(profile ? { profile } : {}) },
   );
   if (!plan) {
     throw new PalError('invalid-input', `生成不了计划：${issues.map((i) => i.message).join('; ')}`);
@@ -414,6 +432,8 @@ export async function createInstance(opts: CreateInstanceOptions): Promise<Insta
     root,
     ...(home ? { home } : {}),
     ...(attached ? { attached: true } : {}),
+    // 只有显式选了 profile 才写；缺省不写 = all（每次安装枚举当时已有的所有 profile）
+    ...(profile ? { profile } : {}),
     isolation,
     pack: {
       name: ctx.manifest.metadata.name,
@@ -521,6 +541,8 @@ export interface InstallIntoInstanceOptions {
   packDir: string;
   /** 原始 Pack 引用（写进记录，供 update 复用） */
   packRef?: string;
+  /** dsh attached home 的 profile；不写 = all（与 install 的缺省一致，不沿用旧记录） */
+  profile?: string;
   overwrite?: boolean;
   allowExec?: boolean;
   dryRun?: boolean;
@@ -557,11 +579,15 @@ export async function installIntoInstance(
 
   const { ctx, packDir } = contextOf(opts.packDir);
   const kind = record.harness;
+  const profile = opts.profile === undefined ? undefined : assertProfileName(opts.profile);
+  if (profile !== undefined) assertProfileTarget(kind, record.attached === true);
   // attached 记录装回它自己的全局目录；managed 用实例根里的 home 段
   const { plan, issues } = planForHome(
     ctx,
     kind,
-    record.attached === true ? { attachedHome: record.root } : { root: record.root },
+    record.attached === true
+      ? { attachedHome: record.root, ...(profile ? { profile } : {}) }
+      : { root: record.root },
   );
   if (!plan) {
     throw new PalError('invalid-input', `生成不了计划：${issues.map((i) => i.message).join('; ')}`);
@@ -632,6 +658,9 @@ export async function installIntoInstance(
     },
   };
   delete next.lastError;
+  // 显式给了 --profile 就记下来；没给 = all，旧记录的 profile 不沿用（install 的缺省语义是 all）
+  if (profile) next.profile = profile;
+  else delete next.profile;
   writeInstance(next);
   return { record: next, plan, outcomes, dryRun: false };
 }

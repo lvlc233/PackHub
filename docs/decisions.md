@@ -3,7 +3,7 @@ kind: decision
 summary: 有意为之的取舍
 verified: 2026-11-24
 decay: 365
-review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增删、锁形状或签名载荷变化、接线规则再变、检查派生规则再变、安装参数或落点归属改名、路径基准或 state.written 形状再变、安装对象或命令族边界再变、命令层再出现例外、加 mac 门禁、命令面收缩）
+review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增删、锁形状或签名载荷变化、接线规则再变、检查派生规则再变、安装参数或落点归属改名、dsh attached 的 profile 语义变化、路径基准或 state.written 形状再变、安装对象或命令族边界再变、命令层再出现例外、加 mac 门禁、命令面收缩）
 ---
 
 # PackHub 的取舍
@@ -209,7 +209,7 @@ README 只承诺分工：「packhub 做包与发版，pal 安装与运行」；C
 
 ### dsh attached 的 MCP 走多 profile patch
 
-现状：dsh 的 MCP 不是一份 `mcp.json`，而是每个 profile 的 `cordis.patch.yml` 里一条 loader 条目（`id: pal-mcp-<server>`、`name: '@deepseek-ai/dsh-mcp-client'`、`config` 里写 serverName / transport / 启动参数）。attached 安装时 `destination('mcp')` 在 plan 期枚举 `<home>/profiles/*/cordis.patch.yml` 里**已存在**的文件（字典序，第一个当主文件），`Destination.paths` / `register.mcp.paths` 带上完整列表；每个文件顶层是 YAML 数组，条目塞进 `insert` 列表，按 `id` 的 `pal-mcp-` 前缀认领所有权，用户自己的 loader 条目原样保留。一个 profile 都没有时退回 `profiles/web/cordis.patch.yml`，让安装把它建出来（`dsh web` 本来就找它）。
+现状：dsh 的 MCP 不是一份 `mcp.json`，而是每个 profile 的 `cordis.patch.yml` 里一条 loader 条目（`id: pal-mcp-<server>`、`name: '@deepseek-ai/dsh-mcp-client'`、`config` 里写 serverName / transport / 启动参数）。attached 安装时 `destination('mcp')` 在 plan 期枚举 `<home>/profiles/*/cordis.patch.yml` 里**已存在**的文件（字典序，第一个当主文件；带 `--profile` 时只给那一个），`Destination.paths` / `register.mcp.paths` 带上完整列表；每个文件顶层是 YAML 数组，条目塞进 `insert` 列表，按 `id` 的 `pal-mcp-` 前缀认领所有权，用户自己的 loader 条目原样保留。一个 profile 都没有时不再回退 `profiles/web`：plan 期报 `no-profiles`，让用户先启动一次 dsh 生成 profile（见「dsh attached 的 profile：默认 all，显式选择才收窄」）。
 
 没选另一条：只写 web（最常用的 profile）一份，或按 managed 的做法另生成一份 `pal-mcp.patch.yml` 让每个 profile 引用，或干脆不支持 dsh attached。只写 web 等于「装完在 desktop / headless 里看不到 MCP」，同一个 home 里能力不一致且没有提示；另生成一份共享 patch 需要每个 profile 启动时带 `--patch`，而 attached home 的启动方式不归 PAL（用户直接跑 `dsh`），接线会悄悄失效；不支持 dsh attached 则 `~/.dsh` 里那些本来为它准备的内容（skills / AGENTS.md）装不进去。
 
@@ -219,3 +219,13 @@ README 只承诺分工：「packhub 做包与发版，pal 安装与运行」；C
 - **多文件所有权**：一个 `register.mcp` 动作对应多个文件，`state.written` 每个文件记一条，撤销载荷带 `paths`（每个文件同一个 `key`）；卸载、升级清理、`pal verify` 的漂移段都要按文件逐个摘 / 逐个查，任一处漏掉就会有一份 profile 静默保留条目。只有一个 profile 时整条链路仍按单文件走（不写 `paths`），旧形状的字节不变。
 - **用户文件被重排**：patch 文件是用户可能手写过的 YAML。合并按文档树读入再写出，注释与用户条目都保留，但缩进 / 引号风格会被重新序列化一次；这是「写进别人的文件」的固有成本，managed 那份整份生成的 patch 不受影响。
 - **同一份条目要两边一致**：launcher 生成 managed 实例的 `pal-mcp.patch.yml` 与 kernel 生成 attached 的 loader 条目必须同形（serverName 合法化 / 截断、transport 归一、env/headers 字符串化）。纯函数抽到 kernel 的 `mcp.ts`，两边共用；以后改 dsh 的条目形状只改一处。
+
+### dsh attached 的 profile：默认 all，显式选择才收窄
+
+现状：`pal install` / `pal update --home <dsh home>` 支持 `--profile <名字>`。不写 = 枚举 `<home>/profiles/*/cordis.patch.yml`，所有已存在 profile 都装；一个都没有 → plan 期 error `no-profiles`，不再替安装造 `profiles/web`。写 = 只装那一个（`<home>/profiles/<名字>/cordis.patch.yml`），profile 不存在报 `profile-missing`、不创建；名字不是单段目录名报 `bad-profile`；配 `--project`、managed home 或其它宿主是用法错（退 2）。记录（`instance.json`）记 `profile`（缺省不写 = all），`update` / `verify` / `health` 不带 flag 时沿用；`install` 不沿用（缺省语义仍是 all）。`health` 按记录里的 profile（或 state 写过的每个 patch）读回 `pal-mcp-*` 条目，缺的进 `mcpMissing`。
+
+没选另一条：一个 profile 都没有时继续自动造 `profiles/web`（原行为），或让 `--profile` 顺手创建缺失的 profile。
+
+自动造 web 等于 PAL 替 dsh 编一份默认 profile：dsh 的 profile（web / desktop / headless）由它自己启动时生成，内容与 PAL 造出来的空壳不是一回事，装完 `dsh web` 会拿到这份空壳而不是宿主原本的配置；失败还会被藏起来——用户以为装好了，实际只多了一个 PAL 编的 profile。顺手创建同样越界：profile 是宿主的状态，创建它要写宿主管理的目录与默认内容。
+
+代价：新机器第一次装 dsh attached home 前必须先跑一次 `dsh`（或 `dsh --profile <名字>`）生成 profile，否则 install 退 2；`--profile` 不能用来「先建后装」。装完再新建的 profile 仍不会被补（现在可以带 `--profile` 单独重装那一个）。`profile` 是记录字段、不是 state 字段：`update` 不接受换 profile——它会把旧计划不再产出的文件整份删掉（已知问题，见 `packages/launcher/src/update.ts` 的 removed 循环），而别的 profile 的 patch 正是这类文件，换 profile 会连用户自己的条目一起删；要换先 `pal uninstall --home <home>` 再 `pal install … --profile <新 profile>`。`verify --profile` 只核对记录（漂移仍按 state 里的安装记录走），不能拿它去验一个没装过的 profile。

@@ -11,6 +11,7 @@ import { writeInstance } from './recordWrite.ts';
 import { PalError } from './errors.ts';
 import { isPidAlive } from './process.ts';
 import { fsProblem, packIdentityFromState, planForHome } from './create.ts';
+import { assertProfileName, assertProfileTarget } from './validators.ts';
 
 /**
  * 更新与重新基准化：从 index.ts 搬出（C1）。
@@ -77,7 +78,7 @@ function dedupeByAbs(root: string, home: string | undefined, items: readonly Own
  */
 export async function updateInstance(
   nameOrId: string,
-  opts: { packDir: string; packRef?: string; force?: boolean },
+  opts: { packDir: string; packRef?: string; force?: boolean; profile?: string },
 ): Promise<UpdateInstanceResult> {
   const record = requireInstance(nameOrId);
   if (record.pid && isPidAlive(record.pid)) {
@@ -86,6 +87,26 @@ export async function updateInstance(
     });
   }
   const kind = record.harness;
+  // 显式给的 profile 先校验；没给就沿用记录里的（缺省不写 = all）。
+  // 不允许「换 profile」：update 会把旧计划不再产出的文件整份删掉（已知问题，见 update.ts 的
+  // removedAbs），而别的 profile 的 patch 正是这种文件——整份删会把用户条目一起带走。
+  const explicitProfile = opts.profile === undefined ? undefined : assertProfileName(opts.profile);
+  if (explicitProfile !== undefined) {
+    assertProfileTarget(kind, record.attached === true);
+    if (record.profile !== explicitProfile) {
+      const installed = record.profile ? `profile「${record.profile}」` : 'all（所有已有 profile）';
+      throw new PalError(
+        'invalid-input',
+        `这个 home 是按 ${installed} 装的，update 不能改成「${explicitProfile}」`,
+        {
+          hint:
+            `换 profile 先 pal uninstall --home ${record.name} 再 pal install ... --profile ${explicitProfile}；` +
+            'update 只按记录里的 profile 重装（避免把别的 profile 的 patch 整份删掉）',
+        },
+      );
+    }
+  }
+  const profile = explicitProfile ?? record.profile;
   const loaded = loadPack(resolve(opts.packDir));
   if (!loaded.manifest) {
     const detail = loaded.issues.filter((i) => i.severity === 'error').map((i) => i.message).join('; ');
@@ -108,10 +129,13 @@ export async function updateInstance(
   }
 
   // attached home 用宿主已验证的全局落点；managed 用实例根里的 home 段。
+  // profile 沿用记录里的选择（或这次的 --profile）：重算计划时只装那一个。
   const { plan, issues } = planForHome(
     ctx,
     kind,
-    record.attached === true ? { attachedHome: record.root } : { root: record.root },
+    record.attached === true
+      ? { attachedHome: record.root, ...(profile ? { profile } : {}) }
+      : { root: record.root },
   );
   if (!plan) throw new PalError('invalid-input', `生成不了计划：${issues.map((i) => i.message).join('; ')}`);
 
@@ -220,6 +244,7 @@ export async function updateInstance(
         ...(opts.packRef ? { ref: opts.packRef } : record.pack.ref ? { ref: record.pack.ref } : {}),
       },
       status: 'installed',
+      ...(profile ? { profile } : {}),
     };
     delete next.lastError;
     writeInstance(next);

@@ -35,6 +35,9 @@ LicenseVerdict
 LocalSourceNotVendoredError
 LockPackOptions
 LockPackResult
+McpFormat
+McpLayout
+McpListMerge
 PackArchiveOptions
 PackArchiveResult
 PackInspection
@@ -113,6 +116,7 @@ loadState
 localSources
 lockPack
 mask
+mcpFileHasEntry
 mcpProbeChecks
 npmLicense
 ownedLabel

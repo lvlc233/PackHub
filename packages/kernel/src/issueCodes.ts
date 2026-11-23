@@ -8,6 +8,7 @@
  */
 export const ISSUE_CODES = {
   badDestinationBase: 'bad-destination-base',
+  badProfile: 'bad-profile',
   badStatePath: 'bad-state-path',
   catalogDuplicate: 'catalog-duplicate',
   catalogEntry: 'catalog-entry',
@@ -41,8 +42,10 @@ export const ISSUE_CODES = {
   modifyShadows: 'modify-shadows',
   modifySourceMissing: 'modify-source-missing',
   modifyUnknownResource: 'modify-unknown-resource',
+  noProfiles: 'no-profiles',
   outputConflict: 'output-conflict',
   pinConflict: 'pin-conflict',
+  profileMissing: 'profile-missing',
   schema: 'schema',
   removedField: 'removed-field',
   sourceNotArchive: 'source-not-archive',

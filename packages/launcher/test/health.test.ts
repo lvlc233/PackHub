@@ -56,6 +56,72 @@ describe('实例体检', () => {
   });
 });
 
+describe('attached dsh 的 MCP 检查', () => {
+  /** 一份 dsh attached home：给哪些 profile 建 patch 文件（空数组）。 */
+  function dshAttachedHome(name: string, profiles: string[]): { home: string; patch: (profile: string) => string } {
+    const home = join(tmp, name);
+    for (const profile of profiles) {
+      mkdirSync(join(home, 'profiles', profile), { recursive: true });
+      writeFileSync(join(home, 'profiles', profile, 'cordis.patch.yml'), '[]\n', 'utf8');
+    }
+    return { home, patch: (profile: string) => join(home, 'profiles', profile, 'cordis.patch.yml') };
+  }
+
+  it('记录里有 profile：只查那一个 patch；条目被删进 mcpMissing（warn，不阻断）', async () => {
+    const { home, patch } = dshAttachedHome('.dsh-profile', ['web', 'desktop']);
+    await createInstance({
+      name: 'dsh-profile',
+      harness: 'dsh',
+      packDir: 'test/fixtures/packs/doc-review',
+      attachedHome: home,
+      profile: 'web',
+    });
+
+    const healthy = await checkInstance('dsh-profile');
+    expect(healthy.ok).toBe(true);
+    expect(healthy.mcpMissing).toBeUndefined();
+    expect(healthy.mcp).toMatchObject({ servers: 1, wired: true, file: patch('web') });
+    expect(healthy.checks.find((check) => check.name === 'mcp')?.status).toBe('ok');
+
+    // desktop 没装过条目也不算缺：记录只认 web
+    expect(readFileSync(patch('desktop'), 'utf8')).toBe('[]\n');
+    expect(healthy.checks.find((check) => check.name === 'mcp')?.detail).toContain('profile web');
+
+    // 外部把 web 的条目删掉：health 报出来，但不把实例判成故障
+    writeFileSync(patch('web'), '[]\n', 'utf8');
+    const broken = await checkInstance('dsh-profile');
+    expect(broken.ok).toBe(true);
+    expect(broken.mcp?.wired).toBe(false);
+    expect(broken.mcpMissing).toEqual(['profiles/web/cordis.patch.yml:pal-mcp-markdownlint']);
+    const mcpCheck = broken.checks.find((check) => check.name === 'mcp');
+    expect(mcpCheck?.status).toBe('warn');
+    expect(mcpCheck?.detail).toContain('pal-mcp-markdownlint');
+  });
+
+  it('没记 profile（all）：查 state 写过的每个 patch；装完后新建的 profile 不要求', async () => {
+    const { home, patch } = dshAttachedHome('.dsh-all', ['web', 'desktop']);
+    await createInstance({
+      name: 'dsh-all',
+      harness: 'dsh',
+      packDir: 'test/fixtures/packs/doc-review',
+      attachedHome: home,
+    });
+
+    // 安装之后新建的 profile 不在 state 里：health 不该拿它当缺条目
+    mkdirSync(join(home, 'profiles', 'later'), { recursive: true });
+    writeFileSync(join(home, 'profiles', 'later', 'cordis.patch.yml'), '[]\n', 'utf8');
+
+    const healthy = await checkInstance('dsh-all');
+    expect(healthy.ok).toBe(true);
+    expect(healthy.mcpMissing).toBeUndefined();
+    expect(healthy.mcp?.files).toHaveLength(2);
+
+    writeFileSync(patch('desktop'), '[]\n', 'utf8');
+    const broken = await checkInstance('dsh-all');
+    expect(broken.mcpMissing).toEqual(['profiles/desktop/cordis.patch.yml:pal-mcp-markdownlint']);
+  });
+});
+
 describe('运行时版本可见（A11）', () => {
   it('新基线记下写盘时的 node 版本', async () => {
     const rec = await createInstance({ name: 'r1', harness: 'dir', packDir: 'test/fixtures/packs/doc-review' });

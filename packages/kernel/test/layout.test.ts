@@ -217,9 +217,10 @@ describe('落点归宿主：每个宿主回答每类资源落在哪', () => {
       base: 'home',
     });
     const dshMcp = dsh.destination('mcp', attachedCtx(home));
-    // 一个 profile 都没有时退回 web：让安装把它建出来；只有一个文件时不写 paths
-    expect(dshMcp).toMatchObject({ path: 'profiles/web/cordis.patch.yml', base: 'home' });
+    // 一个 profile 都没有：报 no-profiles、给空落点——不再替宿主造 profiles/web
+    expect(dshMcp).toMatchObject({ path: '', base: 'home' });
     expect(dshMcp.paths).toBeUndefined();
+    expect(dshMcp.issues?.map((issue) => issue.code)).toEqual(['no-profiles']);
     expect(dshMcp.mcp).toMatchObject({
       format: 'yaml',
       list: { field: 'insert', ownerPrefix: 'pal-mcp-' },
@@ -237,6 +238,19 @@ describe('落点归宿主：每个宿主回答每类资源落在哪', () => {
       { path: 'profiles/desktop/cordis.patch.yml', base: 'home' },
       { path: 'profiles/web/cordis.patch.yml', base: 'home' },
     ]);
+
+    // 显式 profile：只给那一个文件（即使还有别的 profile）；不存在时报 profile-missing
+    const selected = dsh.destination('mcp', { ...attachedCtx(multi), profile: 'web' });
+    expect(selected.path).toBe('profiles/web/cordis.patch.yml');
+    expect(selected.paths).toBeUndefined();
+    expect(selected.issues).toBeUndefined();
+    const absent = dsh.destination('mcp', { ...attachedCtx(multi), profile: 'nope' });
+    expect(absent.path).toBe('profiles/nope/cordis.patch.yml');
+    expect(absent.issues?.map((issue) => issue.code)).toEqual(['profile-missing']);
+    // profile 名要拼进路径：带分隔符 / .. 的名字是 bad-profile
+    const bad = dsh.destination('mcp', { ...attachedCtx(multi), profile: '../evil' });
+    expect(bad.path).toBe('');
+    expect(bad.issues?.map((issue) => issue.code)).toEqual(['bad-profile']);
     rmSync(multi, { recursive: true, force: true });
 
     // 六个宿主都验证过全局落点（dsh 的 MCP 按 profile 走多文件，见上）

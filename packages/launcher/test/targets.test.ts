@@ -551,20 +551,16 @@ describe('--home：claude-code / codex 的 attached 落点', () => {
     rmSync(base, { recursive: true, force: true });
   }, 60_000);
 
-  it('dsh attached：一个 profile 都没有时退回 profiles/web，卸载后文件也不留', () => {
+  it('dsh attached：一个 profile 都没有时退 2，不替安装造 profiles/web', () => {
     const palHome = newPalHome('pal-attached-dsh-list-');
     const { base, pack } = packFixture(SKILL_FIXTURE);
     const attachedHome = join(base, '.dsh');
 
     const res = palIn(palHome, ['install', pack, '--host', 'dsh', '--home', attachedHome]);
-    expect(res.status, res.out).toBe(0);
-    const patch = join(attachedHome, 'profiles', 'web', 'cordis.patch.yml');
-    expect(readFileSync(patch, 'utf8')).toContain('- id: pal-mcp-markdownlint');
-
-    const removed = palIn(palHome, ['uninstall', '--home', attachedHome]);
-    expect(removed.status, removed.out).toBe(0);
-    // 这个 patch 文件是安装为「没有 profile」建出来的：摘完条目就不留空壳
-    expect(existsSync(patch)).toBe(false);
+    expect(res.status, res.out).toBe(2);
+    expect(res.out).toContain('没有任何 profile');
+    expect(res.out).toContain('先启动一次 dsh');
+    expect(existsSync(join(attachedHome, 'profiles'))).toBe(false);
     rmSync(base, { recursive: true, force: true });
   }, 120_000);
 });
@@ -698,7 +694,7 @@ describe('帮助与命令面', () => {
     const palHome = newPalHome('pal-help-install-');
     const res = palIn(palHome, ['install', '--help']);
     expect(res.status).toBe(0);
-    for (const flag of ['--host', '--home', '--project', '--name', '--from-home']) expect(res.out).toContain(flag);
+    for (const flag of ['--host', '--home', '--project', '--name', '--from-home', '--profile']) expect(res.out).toContain(flag);
     for (const old of ['--new', '--environment', '--harness', '--kind']) {
       expect(res.out, `help 不该再提 ${old}`).not.toContain(old);
     }

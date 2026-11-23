@@ -74,6 +74,7 @@ export {
   type LicenseVerdict,
 } from './license.ts';
 export { doctorPack, type DoctorReport, type DriftFinding } from './doctor.ts';
+export { mcpFileHasEntry, type McpFormat, type McpLayout, type McpListMerge } from './mcp-file.ts';
 export {
   probeHarness,
   probeSkill,

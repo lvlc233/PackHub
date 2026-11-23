@@ -8,17 +8,21 @@
 // `--patch` 层，见 launcher/src/mcp.ts）。
 //
 // attached（宿主真实的 `~/.dsh`）：技能 / 知识 / 提示词 / 指令都相对 home；MCP 是 per-profile 的，
-// 所以要写进 `<home>/profiles/*/cordis.patch.yml` 里已有的每一个（枚举在 destination 里做，
-// 计划里只留具体文件；安装后新建的 profile 不会被补上）。
+// 落点在这里枚举（计划里只留具体文件）：
+// - 不带 `--profile`：写进所有已有 profile 的 `cordis.patch.yml`；一个 profile 都没有就报
+//   `no-profiles`（不替宿主造 `profiles/web`——dsh 自己启动时才会生成 profile）；
+// - 带 `--profile`：只写那一个，文件不存在报 `profile-missing`，不创建。
+// 安装后新建的 profile 不会被补上。
 
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { destinationsOf } from '../destinations.ts';
+import { ISSUE_CODES } from '../issueCodes.ts';
 import { dshMcpLoaderEntry, DSH_MCP_ENTRY_PREFIX, toServerName } from '../mcp.ts';
 import type { Destination, DestinationContext, McpDialect } from './contract.ts';
 import { registerHarness } from './contract.ts';
 
-/** web 子命令的 profile：启动模板与 startProfile 字段共用一份。 */
+/** web 子命令的 profile：启动模板与 startProfile 字段共用一份；没有 home 段时的兜底路径也用它。 */
 const DSH_WEB_PROFILE = 'web';
 
 /** headless 探针用的 profile（一次性问答，不进 web 壳）。 */
@@ -77,20 +81,90 @@ function profilePatches(home: string): string[] {
 }
 
 /**
- * attached 的 MCP 落点：所有已有 profile 的 patch 文件（排序后第一个当主文件）。
+ * profile 名只能是一段目录名：拼进落点路径的是用户输入，路径分隔符和 `..` 一律拒绝。
+ * dsh 的 profile 名是它自己定的（web / desktop / headless 这类），这里只做安全边界。
+ */
+const PROFILE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/** `<profiles>/<profile>/cordis.patch.yml`（相对 home）；名字不合法时 undefined。 */
+function profilePatch(profile: string): string | undefined {
+  return PROFILE_NAME.test(profile) ? `${PROFILES_DIR}/${profile}/${PROFILE_PATCH}` : undefined;
+}
+
+/**
+ * attached 的 MCP 落点。
  *
- * 一个 profile 都没有时退回 `profiles/web/cordis.patch.yml`，让安装把它建出来——
- * `dsh web` 本来就找这个 profile，装完能直接用。没有 home 段（调用方用错了范围）时
- * 给相对 home 的路径，让计划期的 base 校验报 `bad-destination-base`。
+ * - 显式 `profile`：只给那一个 patch 文件；不存在就报 `profile-missing`（不创建——profile 由
+ *   dsh 自己启动时生成），名字不合法报 `bad-profile`。
+ * - 不写：枚举所有已有 profile 的 patch 文件（字典序第一个当主文件）；一个都没有就报
+ *   `no-profiles`，不回退 `profiles/web`。
+ *
+ * 没有 home 段（调用方用错了范围）时给相对 home 的路径，让计划期的 base 校验报
+ * `bad-destination-base`。
  */
 function attachedMcp(ctx: DestinationContext): Destination {
-  const files = ctx.home ? profilePatches(ctx.home) : [];
-  const paths = files.length > 0 ? files : [`${PROFILES_DIR}/${DSH_WEB_PROFILE}/${PROFILE_PATCH}`];
+  if (ctx.profile !== undefined) {
+    const rel = profilePatch(ctx.profile);
+    if (!rel) {
+      return {
+        path: '',
+        base: 'home',
+        mcp: MCP,
+        issues: [
+          {
+            code: ISSUE_CODES.badProfile,
+            severity: 'error',
+            message: `profile 名不合法：${ctx.profile}（只能是一段目录名：字母、数字、. _ -，不能带路径分隔符或 ..）`,
+          },
+        ],
+      };
+    }
+    if (!ctx.home) return { path: rel, base: 'home', mcp: MCP };
+    if (!existsSync(join(ctx.home, rel))) {
+      return {
+        path: rel,
+        base: 'home',
+        mcp: MCP,
+        issues: [
+          {
+            code: ISSUE_CODES.profileMissing,
+            severity: 'error',
+            message:
+              `profile「${ctx.profile}」不存在：${join(ctx.home, rel)}；` +
+              `先启动一次 dsh 生成 profile（dsh --profile ${ctx.profile}），或换一个已存在的 --profile`,
+          },
+        ],
+      };
+    }
+    // 只有一个文件：动作与 state 保持单文件形状（不写 paths）
+    return { path: rel, base: 'home', mcp: MCP };
+  }
+
+  if (!ctx.home) {
+    return { path: `${PROFILES_DIR}/${DSH_WEB_PROFILE}/${PROFILE_PATCH}`, base: 'home', mcp: MCP };
+  }
+  const files = profilePatches(ctx.home);
+  if (files.length === 0) {
+    return {
+      path: '',
+      base: 'home',
+      mcp: MCP,
+      issues: [
+        {
+          code: ISSUE_CODES.noProfiles,
+          severity: 'error',
+          message:
+            `${join(ctx.home, PROFILES_DIR)} 下没有任何 profile（profiles/*/cordis.patch.yml）；` +
+            '先启动一次 dsh 生成 profile，或显式 --profile <名字>',
+        },
+      ],
+    };
+  }
   return {
-    path: paths[0]!,
+    path: files[0]!,
     base: 'home',
     // 只有一个文件时不写 paths：动作与 state 保持单文件形状（旧计划逐字节不变）
-    ...(paths.length > 1 ? { paths: paths.map((path) => ({ path, base: 'home' as const })) } : {}),
+    ...(files.length > 1 ? { paths: files.map((path) => ({ path, base: 'home' as const })) } : {}),
     mcp: MCP,
   };
 }

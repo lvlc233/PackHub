@@ -9,6 +9,8 @@
 // 落点也归宿主自己回答（`destination`）：内核不认识「布局表」，只按资源类别问宿主
 // 「这类资源落在哪」。`${layout.*}` 插值是从这些回答派生出来的视图（见 destinations.ts）。
 
+import type { Issue } from '../types.ts';
+
 /** 启动时能拿到的上下文，交给启动模板拼参数。PAL 起实例时构造它。 */
 export interface StartContext {
   /** 本次分配的端口；宿主必须监听它 */
@@ -126,6 +128,11 @@ export interface DestinationContext {
   home?: string;
   /** 这次装到哪种范围 */
   scope: 'project' | 'home' | 'attached';
+  /**
+   * 显式选中的宿主子空间（目前只有 dsh 的 profile）：给了就只装这一个。
+   * 只对 `scope: 'attached'` 有意义；不写 = 宿主自己决定默认（dsh 是枚举所有已有 profile）。
+   */
+  profile?: string;
 }
 
 /** 同一类落点对应的一个文件：路径 + 它自己的基准（缺省 root）。 */
@@ -162,6 +169,11 @@ export interface Destination {
   paths?: DestinationPath[];
   /** 仅 mcp：这个宿主的 MCP 方言（条目挂哪个键、什么格式、条目形状） */
   mcp?: McpDialect;
+  /**
+   * 适配器在 plan 期发现的问题（例如显式选的 profile 不存在、profile 名不合法）。
+   * 计划把它们原样收进 `issues`；有 error 就不出计划。没有问题的适配器不写这个字段。
+   */
+  issues?: Issue[];
 }
 
 /** 一个宿主的全部描述：静态知识 + 落点回答 + 探针配方。注册后不可变。 */
