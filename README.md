@@ -2,6 +2,15 @@
 
 packhub 做包与发版，pal 安装与运行。
 
+## 装到本机
+
+仓库里用 `pnpm pal` / `pnpm packhub`。要一个全局命令：
+
+```bash
+pnpm build:local          # → dist/local（packhub.mjs + pal.mjs）
+npm i -g dist/local       # 得到 packhub / pal 两个命令
+```
+
 ## 两个命令族
 
 `packhub` 只碰 Pack 目录：`plan` / `verify` 预览，`lock` / `pack` / `publish` / `sign` 出包与发版。`pal` 负责装和跑：安装类命令 `install` / `uninstall` / `verify` / `rollback` / `update` 的 target 是 home（`--home <路径|名字>`，managed 用名字、attached 用路径或名字）或项目（`--project <目录>`）；`install` 不给 target 时在 PAL 数据目录建一个 managed 命名 home（名字 `<host>-<packSlug>`），`--home` 则装进宿主的真实全局目录（attached）。attached 的默认名撞车会自动改用 `<名字>-attached`；`remove` 对 managed 删整根、对 attached 只摘记录（卸包 + 删 PAL 记录，目录与用户文件保留）；clone / backup / restore / migrate 仍只对 managed。home 侧还有 `adopt` 与起停看护，本机状态看 `list` / `ps` / `health`，审计看 `list --history`。
