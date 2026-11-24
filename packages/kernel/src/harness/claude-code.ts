@@ -71,12 +71,16 @@ registerHarness({
   executable: 'claude',
   versionArgs: ['--version'],
   credentialFiles: ['auth.json', '.credentials.json'],
-  start: {
-    mode: 'foreground',
-    command: 'claude',
-    args: () => [],
-    url: /^$/,
-  },
+  modes: [
+    {
+      id: 'tui',
+      label: '终端 TUI',
+      kind: 'foreground',
+      command: 'claude',
+      args: () => [],
+    },
+  ],
+  defaultMode: 'tui',
   probe: {
     executable: 'claude',
     args: (ctx) => ['-p', ctx.prompt, '--max-budget-usd', '0.05', '--no-session-persistence'],

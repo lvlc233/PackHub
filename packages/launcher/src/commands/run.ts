@@ -1,44 +1,23 @@
-// pal run：前台启动一个 home。宿主是 TUI 时，由 PAL 负责 home 环境变量与 cwd，
-// 用户不再需要自己设 XDG_CONFIG_HOME / CLAUDE_CONFIG_DIR 之类；退出码透传。
+// pal run：前台启动一个 home —— `pal start <home> --mode <默认前台模式>` 的糖。
 //
-// 每个 home 可以放一份 launch.json（与 home 根并列）：
-//   { "args": [...], "env": { "K": "V" }, "dir": "相对环境根或绝对路径" }
-// 合并顺序：宿主默认（命令 + home env）< launch.json < 命令行（--dir）。
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { spawn } from 'node:child_process';
+// 与 start 走同一份前台执行（foreground.ts）：设 home 环境变量、读 launch.json、`--dir` 覆盖 cwd、
+// stdio 继承、退出码透传；不写 pid、不进 core。宿主没有前台模式（例如 dsh 只有 web / app）时报错，
+// 让用户改用 `pal start --mode`。
+import { existsSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { defineCommand } from 'citty';
-import { requireHarness } from '@packhub/kernel';
 import { requireInstance } from '../index.ts';
 import { PalError } from '../errors.ts';
+import { foregroundPlan, LAUNCH_FILE, spawnForeground } from '../foreground.ts';
+import { requireAdapter } from '../layout.ts';
+import { defaultForegroundMode } from '../launchModes.ts';
 import { requireTarget } from './shared.ts';
-
-interface LaunchConfig {
-  args?: string[];
-  env?: Record<string, string>;
-  dir?: string;
-}
-
-const LAUNCH_FILE = 'launch.json';
-
-function readLaunch(root: string): LaunchConfig {
-  const file = join(root, LAUNCH_FILE);
-  if (!existsSync(file)) return {};
-  try {
-    const raw = JSON.parse(readFileSync(file, 'utf8').replace(/^\uFEFF/, '')) as LaunchConfig;
-    return raw && typeof raw === 'object' ? raw : {};
-  } catch (err) {
-    throw new PalError('invalid-input', `${file} 不是合法 JSON：${(err as Error).message}`, {
-      hint: '删掉它，或跑 pal run <home> --init 生成一份空模板',
-    });
-  }
-}
 
 export const run = defineCommand({
   meta: {
     name: 'run',
     description:
-      '前台启动一个 home：进入宿主的 TUI，PAL 负责 home 环境变量与工作目录；读 home 里的 launch.json（args/env/dir），退出即结束（不写 pid、不进 core）；attached home 不注入 home 环境变量',
+      '前台启动一个 home（= pal start <home> --mode <默认前台模式>）：进入宿主的 TUI，PAL 负责 home 环境变量与工作目录；读 home 里的 launch.json（args/env/dir），退出即结束（不写 pid、不进 core）；宿主没有前台模式时报错',
   },
   args: {
     target: { type: 'positional', required: true, description: 'home id 或名字' },
@@ -61,49 +40,24 @@ export const run = defineCommand({
     if (rec.status === 'running') {
       throw new PalError('invalid-input', `home ${rec.name} 正在运行：先 pal stop ${rec.id}`);
     }
-    const spec = requireHarness(rec.harness);
-    const tpl = spec.start;
-    if (!tpl || tpl.mode !== 'foreground') {
+    const adapter = requireAdapter(rec.harness);
+    const mode = defaultForegroundMode(rec.harness);
+    if (!mode) {
       throw new PalError(
         'invalid-input',
-        `宿主 ${rec.harness} 不是前台宿主：用 pal start ${rec.id}（server 型由 core 托管）`,
+        `宿主 ${rec.harness} 没有前台模式：不能用 pal run`,
+        {
+          hint: `用 pal start ${rec.id} --mode <模式>（pal start ${rec.id} --list-modes 看有哪些：${
+            adapter.modes.map((item) => item.id).join(' / ') || '无'
+          }）`,
+        },
       );
     }
-    const launch = readLaunch(rec.root);
-    // attached home 是宿主的全局配置目录，不适合当工作目录：只按 launch.json / --dir 决定；
-    // 两者都没有就用当前目录。managed home 仍默认落在 home 根。
-    const cwd = args.dir
-      ? resolve(String(args.dir))
-      : launch.dir
-        ? resolve(rec.root, launch.dir)
-        : rec.attached === true
-          ? process.cwd()
-          : rec.root;
-    const argv = [...tpl.args({ port: 0, root: rec.root, ...(rec.home ? { home: rec.home } : {}) }), ...(launch.args ?? [])];
-    const envName = spec.home?.env;
-    // attached home 就是宿主自己的全局位置：宿主会按它默认的路径找配置，不再指一个环境变量过去
-    const extraEnv = {
-      ...(envName && rec.home && rec.attached !== true ? { [envName]: rec.home } : {}),
-      ...(launch.env ?? {}),
-    };
+    const plan = foregroundPlan(rec, adapter, mode, args.dir ? { dir: String(args.dir) } : {});
     if (args['dry-run'] || args.json) {
-      console.log(JSON.stringify({ command: tpl.command, args: argv, cwd, env: extraEnv }, null, 2));
+      console.log(JSON.stringify(plan, null, 2));
       return;
     }
-    const child = spawn(tpl.command, argv, {
-      cwd,
-      stdio: 'inherit',
-      env: { ...process.env, ...extraEnv },
-      // Windows 上宿主常是 .cmd/.ps1 垫片
-      shell: process.platform === 'win32',
-    });
-    const code = await new Promise<number | null>((done) => {
-      child.on('error', (err) => {
-        console.error(`启动失败：${err.message}`);
-        done(1);
-      });
-      child.on('exit', (exitCode) => done(exitCode));
-    });
-    process.exitCode = code ?? 1;
+    process.exitCode = (await spawnForeground(plan)) ?? 1;
   },
 });

@@ -7,7 +7,7 @@ import {
   type DestinationContext,
   type HarnessId,
   type HarnessSpec,
-  type StartTemplate,
+  type LaunchMode,
 } from '@packhub/kernel';
 import { PalError } from './errors.ts';
 
@@ -29,16 +29,14 @@ export function isInstanceKind(value: string): value is InstanceKind {
   return value === 'dir' || isHarnessId(value);
 }
 
-/** 每个宿主在实例根里怎么放 home 段、用哪个环境变量指过去、能不能直接起。 */
+/** 每个宿主在实例根里怎么放 home 段、用哪个环境变量指过去、能怎么起。 */
 export interface HarnessAdapter {
   label: string;
   /** 实例内的 home 目录（相对实例根）；dir 没有 */
   homeDir?: string;
   /** 把宿主指到这个 home 的环境变量 */
   homeEnv?: string;
-  /** 启动这个宿主时带的 profile 名（宿主能力的一部分）；没有就不带 --profile */
-  startProfile?: string;
-  /** 宿主可执行文件名 */
+  /** 宿主可执行文件名（模式的 `command` 缺省用它） */
   executable?: string;
   /** 探测版本用的参数 */
   versionArgs?: string[];
@@ -47,29 +45,31 @@ export interface HarnessAdapter {
    * 只用于备份/归档时剥离，**不是安装落点**：PAL 不往这些位置写东西，也不在这列表里找什么。
    */
   credentialFiles?: string[];
-  /** 启动模板；没有就说明这个宿主没有可托管的常驻服务 */
-  start?: StartTemplate;
+  /** 启动方式表；空表 = 这个宿主不能由 PAL 起 */
+  modes: LaunchMode[];
+  /** 默认启动模式 id（缺省 `modes[0]`） */
+  defaultMode?: string;
   /** 不能启动时给用户看的原因（不是错误码，是能力说明） */
   noStartReason?: string;
 }
 
-/** dir 实例不是宿主：没有 home、没有启动模板，只有一句能力说明。 */
+/** dir 实例不是宿主：没有 home、没有启动模式，只有一句能力说明。 */
 const DIR_ADAPTER: HarnessAdapter = {
   label: '普通项目',
+  modes: [],
   noStartReason: 'dir 实例是一个项目目录，没有可启动的宿主进程；用 packhub 直接在这个目录里工作。',
 };
 
-/** 由注册表里的宿主描述派生适配器：PAL 只把它拍平成 homeDir / homeEnv 这类字段。 */
+/** 由注册表里的宿主描述派生适配器：PAL 只把它拍平成 homeDir / modes 这类字段。 */
 function adapterFromSpec(spec: HarnessSpec): HarnessAdapter {
   return {
     label: spec.label,
     ...(spec.home ? { homeDir: spec.home.dir, homeEnv: spec.home.env } : {}),
-    ...(spec.startProfile ? { startProfile: spec.startProfile } : {}),
     ...(spec.executable ? { executable: spec.executable } : {}),
     ...(spec.versionArgs ? { versionArgs: [...spec.versionArgs] } : {}),
     ...(spec.credentialFiles ? { credentialFiles: [...spec.credentialFiles] } : {}),
-    ...(spec.start ? { start: spec.start } : {}),
-    ...(spec.noStartReason ? { noStartReason: spec.noStartReason } : {}),
+    modes: [...spec.modes],
+    ...(spec.defaultMode ? { defaultMode: spec.defaultMode } : {}),
   };
 }
 
@@ -167,9 +167,19 @@ export function credentialRels(kind: InstanceKind, root: string, home?: string):
   return files.map((file) => `${dir}/${file.replace(/\\/g, '/').replace(/^\.?\//, '')}`);
 }
 
-/** 从启动输出里取 URL 与端口；取不到就返回 undefined。 */
-export function parseStartUrl(text: string, kind: InstanceKind): { url: string; port?: number } | undefined {
-  const pattern = adapterFor(kind)?.start?.url;
+/**
+ * 从启动输出里取 URL 与端口；取不到就返回 undefined。
+ *
+ * `modeId` 指定用哪条模式的地址正则；不写 = 该宿主第一条 `server` 模式（前台 / app 模式没有 url）。
+ */
+export function parseStartUrl(
+  text: string,
+  kind: InstanceKind,
+  modeId?: string,
+): { url: string; port?: number } | undefined {
+  const modes = adapterFor(kind)?.modes ?? [];
+  const mode = modeId === undefined ? modes.find((item) => item.kind === 'server') : modes.find((item) => item.id === modeId);
+  const pattern = mode?.url;
   if (!pattern) return undefined;
   const hit = text.match(pattern);
   if (!hit?.[1]) return undefined;

@@ -23,8 +23,13 @@ import { dshMcpLoaderEntry, DSH_MCP_ENTRY_PREFIX, toServerName } from '../mcp.ts
 import type { Destination, DestinationContext, McpDialect, StartContext } from './contract.ts';
 import { registerHarness } from './contract.ts';
 
-/** web 子命令的 profile：启动模板与 startProfile 字段共用一份；没有 home 段时的兜底路径也用它。 */
+/** web 模式的默认 profile；没有 home 段时的落点兜底路径也用它。 */
 const DSH_WEB_PROFILE = 'web';
+
+/** app 可执行文件名；候选路径按它拼。 */
+const DSH_APP_NAME = 'DeepSeek Harness.exe';
+/** 指定 app 可执行文件的环境变量；设了就不用猜安装位置。 */
+const DSH_APP_ENV = 'PAL_DSH_APP_BIN';
 
 /**
  * 记录 / 安装参数里表示「全部已有 profile」的保留值（`pal install` 不带 `--profile` 就是它）。
@@ -200,6 +205,39 @@ function startProfileOf(ctx: StartContext): string {
   return profile && profile !== PROFILE_ALL ? profile : DSH_WEB_PROFILE;
 }
 
+/** 名字按大小写不敏感读：Windows 的 process.env 就是，测试里给的对象也照同一套规则。 */
+function envValue(env: Record<string, string | undefined>, name: string): string | undefined {
+  const direct = env[name];
+  if (direct !== undefined) return direct;
+  const upper = name.toUpperCase();
+  for (const [key, value] of Object.entries(env)) {
+    if (key.toUpperCase() === upper) return value;
+  }
+  return undefined;
+}
+
+/**
+ * Windows 常见安装位置，按查找顺序：
+ * `%LOCALAPPDATA%\Programs\...` → `%ProgramFiles%\...` → `%ProgramFiles(x86)%\...` → `%LOCALAPPDATA%\...`。
+ * 目录变量没设就跳过；重复的路径只留第一次。
+ */
+function dshAppCandidates(env: Record<string, string | undefined> = process.env): string[] {
+  const localAppData = envValue(env, 'LOCALAPPDATA');
+  const roots = [
+    localAppData ? join(localAppData, 'Programs') : undefined,
+    envValue(env, 'ProgramFiles'),
+    envValue(env, 'ProgramFiles(x86)'),
+    localAppData,
+  ];
+  const out: string[] = [];
+  for (const root of roots) {
+    if (!root) continue;
+    const candidate = join(root, 'DeepSeek Harness', DSH_APP_NAME);
+    if (!out.includes(candidate)) out.push(candidate);
+  }
+  return out;
+}
+
 registerHarness({
   id: 'dsh',
   label: 'DeepSeek Harness',
@@ -215,21 +253,42 @@ registerHarness({
   executable: 'dsh',
   versionArgs: ['--version'],
   credentialFiles: ['.credentials.yaml', 'auth.json'],
-  startProfile: DSH_WEB_PROFILE,
-  start: {
-    command: 'dsh',
-    // --profile 与 --patch 必须在子命令之前：之后会被当成 web app 自己的参数
-    args: (ctx) => [
-      DSH_PROFILE_FLAG,
-      startProfileOf(ctx),
-      ...(ctx.patchFile ? [DSH_PATCH_FLAG, ctx.patchFile] : []),
-      '--no-open',
-      '--port',
-      String(ctx.port),
-    ],
-    url: /(https?:\/\/\S+)/,
-    readyTimeoutMs: 30_000,
-  },
+  modes: [
+    {
+      id: 'web',
+      label: '网页（web profile）',
+      kind: 'server',
+      command: 'dsh',
+      usesProfile: true,
+      // --profile 与 --patch 必须在子命令之前：之后会被当成 web app 自己的参数
+      args: (ctx) => [
+        DSH_PROFILE_FLAG,
+        startProfileOf(ctx),
+        ...(ctx.patchFile ? [DSH_PATCH_FLAG, ctx.patchFile] : []),
+        '--no-open',
+        '--port',
+        String(ctx.port),
+      ],
+      url: /(https?:\/\/\S+)/,
+      readyTimeoutMs: 30_000,
+    },
+    {
+      id: 'app',
+      label: '桌面窗口（Electron app）',
+      kind: 'app',
+      // app 自己管 desktop profile，也认不了 --patch：只 spawn 窗口，不接 MCP 层
+      available: (ctx) =>
+        ctx.attached
+          ? true
+          : '只支持 attached dsh；managed 的 app 启动要先确认它能用 DSH_HOME 指到实例（目前用 --home 的 attached dsh，或先 pal start 起 web）',
+      app: {
+        env: DSH_APP_ENV,
+        // home 未用：dsh 的 app 不在实例 home 里，按 Windows 常见安装位置找
+        candidates: () => dshAppCandidates(),
+      },
+    },
+  ],
+  defaultMode: 'web',
   probe: {
     executable: 'dsh',
     args: (ctx) => [

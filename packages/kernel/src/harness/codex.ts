@@ -50,12 +50,23 @@ registerHarness({
   executable: 'codex',
   versionArgs: ['--version'],
   credentialFiles: ['auth.json'],
-  start: {
-    mode: 'foreground',
-    command: 'codex',
-    args: () => [],
-    url: /^$/,
-  },
+  modes: [
+    {
+      id: 'tui',
+      label: '终端 TUI',
+      kind: 'foreground',
+      command: 'codex',
+      args: () => [],
+    },
+    {
+      id: 'app',
+      label: '桌面 app',
+      kind: 'app',
+      // 没有可靠的默认安装位置：只能由 PAL_CODEX_APP_BIN 指过去
+      app: { env: 'PAL_CODEX_APP_BIN', candidates: () => [] },
+    },
+  ],
+  defaultMode: 'tui',
   probe: {
     executable: 'codex',
     args: (ctx) => ['exec', '--skip-git-repo-check', '--sandbox', 'read-only', '-m', ctx.model, ctx.prompt],

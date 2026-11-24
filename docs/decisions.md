@@ -3,7 +3,7 @@ kind: decision
 summary: 有意为之的取舍
 verified: 2026-11-24
 decay: 365
-review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增删、锁形状或签名载荷变化、接线规则再变、检查派生规则再变、安装参数或落点归属改名、dsh attached 的 profile 语义变化、升级清理的依据与撤销方式再变、patch 文件的编辑策略再变、路径基准或 state.written 形状再变、安装对象或命令族边界再变、命令层再出现例外、加 mac 门禁、命令面收缩、dsh app 启动的适用范围变化）
+review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增删、锁形状或签名载荷变化、接线规则再变、检查派生规则再变、安装参数或落点归属改名、dsh attached 的 profile 语义变化、升级清理的依据与撤销方式再变、patch 文件的编辑策略再变、路径基准或 state.written 形状再变、安装对象或命令族边界再变、命令层再出现例外、加 mac 门禁、命令面收缩、启动模式语义变化、dsh app 启动的适用范围变化）
 ---
 
 # PackHub 的取舍
@@ -54,13 +54,21 @@ review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增
 
 ### 宿主注册表：核 + 每宿主模块
 
-一个宿主要回答的问题分散在几处：落点表（文件写到哪）、环境 home 与环境变量、可执行名与版本参数、凭据文件、指令文件名、启动模板、探针配方。上一版把静态知识收进 kernel 的一张 `HARNESSES` 大表（`HARNESS_IDS` / `LAYOUT_VARS` 从表派生，加宿主 = 表里加一行、`Record` / `keyof` 编译期卡完备）。表变大之后，所有宿主的启动模板与探针逻辑挤在同一个文件里，改一个宿主也要在同一处翻，而探针配方还留在 runtime——「加宿主」的边界仍然不是一个模块。
+一个宿主要回答的问题分散在几处：落点表（文件写到哪）、环境 home 与环境变量、可执行名与版本参数、凭据文件、指令文件名、启动模式表、探针配方。上一版把静态知识收进 kernel 的一张 `HARNESSES` 大表（`HARNESS_IDS` / `LAYOUT_VARS` 从表派生，加宿主 = 表里加一行、`Record` / `keyof` 编译期卡完备）。表变大之后，所有宿主的启动模板与探针逻辑挤在同一个文件里，改一个宿主也要在同一处翻，而探针配方还留在 runtime——「加宿主」的边界仍然不是一个模块。
 
 现在改成运行期注册表：`kernel/src/harness/contract.ts` 定义 `HarnessSpec` / `ProbeRecipe` 与 `registerHarness` / `harnessIds` / `requireHarness` / `layoutFor` 等查表 API；每个宿主一个模块（`dsh.ts` / `claude-code.ts` / `codex.ts` / `opencode.ts` / `workbody.ts` / `hermes.ts`），在自己的文件里 `registerHarness({...})`，探针配方随模块走；`harness/index.ts` import 各模块完成注册。加宿主 = 新建 `harness/<id>.ts` + index 一行 import，launcher / runtime / 探针都从注册表查，不用改。注册是 import 副作用：重复 id 或非法 id 在注册时抛错。
 
-没选另一条：保留一张大表，或把宿主描述做成 registry 下发数据 / runtime 插件。大表把一个宿主的全部知识挤在同一个文件里，加宿主改一处但同时改到所有人；数据描述把「怎么装」变成可远程改的输入，要配信任与钉版本，而启动模板、探针配方里还有只能写成代码的行为；runtime 插件要在 kernel 里再开一个执行面（加载时机、失败隔离、版本兼容与信任）。宿主是产品支持集，不是用户扩展点。
+没选另一条：保留一张大表，或把宿主描述做成 registry 下发数据 / runtime 插件。大表把一个宿主的全部知识挤在同一个文件里，加宿主改一处但同时改到所有人；数据描述把「怎么装」变成可远程改的输入，要配信任与钉版本，而启动模式、探针配方里还有只能写成代码的行为；runtime 插件要在 kernel 里再开一个执行面（加载时机、失败隔离、版本兼容与信任）。宿主是产品支持集，不是用户扩展点。
 
 代价：`HarnessId` 从编译期联合类型变成运行期 `string`——穷尽性没了，靠 `isHarnessId()` 与 schema 的 `^[a-z][a-z0-9-]*$` pattern 兜底；schema 不能静态枚举宿主名，`scenario.harness` 也只能是 pattern。注册靠 import 副作用：`harness/index.ts` 漏 import 一个模块，那个宿主就不存在，错误只在运行期暴露。第三方宿主仍不能自己加——必须改代码并随 packhub / pal 发版；加宿主仍要动 barrel 的那一行 import。
+
+### 启动模式归适配器
+
+现状：一个宿主的启动方式由它的适配器声明成一张模式表（`HarnessSpec.modes` + `defaultMode`）。每条模式带 `kind`（`server` / `foreground` / `app`）、命令与参数拼法、认地址的正则与超时、要不要 profile、在当前 home 上能不能用（`available`），app 模式另带可执行文件解析（环境变量 + 候选路径）。CLI 只有 `pal start <home> --mode <id>`（不写用默认）与 `--list-modes`；执行路径按 kind 分派：server 进 core 等 URL，foreground 前台 exec，app detached spawn 只记 pid。`pal run` 退化成糖：等价于 `pal start --mode <默认前台模式>`。
+
+没选另一条：继续在命令层硬编码（`--app` 一个布尔参数 + 每个 kind 一条命令：`run` 只跑 TUI、`start` 只跑 server、`--app` 只跑 dsh 桌面端）。硬编码的 `--app` 只对 dsh 有意义，第二个宿主有桌面端（codex）就得再加一个参数或让 `--app` 去猜宿主；「哪种启动方式存在、在什么 home 上成立」是宿主的能力，放在命令层就得每加一个宿主改一次 CLI 与错误文案，同一份知识也会散在 `start` / `run` / `install` 的提示里。也没选「每个 kind 一条命令」（`pal serve` / `pal tui` / `pal app`）：命令面多三倍，`--port` / `--restart` / `--dir` / `--profile` 的适用范围还得在每条命令里各讲一遍，而「这个 home 能不能用这种启动方式」本来就该由适配器回答。
+
+代价：`pal start` 一个命令有三种执行语义（core 看护 / 前台 exec / detached pid），读命令名看不出它会不会阻塞终端，得看 `--mode` 或 `--list-modes`；`--restart` 与 `--port` 只适用于 server、`--dir` 只适用于前台、`--profile` 只适用于声明了 `usesProfile` 的模式，配错都退 2——用法错比命令多；`run` 只是糖，宿主没有前台模式时（dsh 只有 web / app）要指向 `start --mode`；实际启动的模式写进记录（`launchMode`），重启与看护重起靠它回到同一条模式，记录里没这个字段、或者记的是 app / 前台模式时退回「第一条 server 模式」（重启回到 server，不会把窗口重起成网页）。
 
 ### MCP 配置按宿主方言
 
@@ -268,10 +276,10 @@ README 只承诺分工：「packhub 做包与发版，pal 安装与运行」；C
 
 ### app 启动只对 attached dsh
 
-现状：`pal start <dsh home> --app` 直接 spawn dsh 的 Electron app（`PAL_DSH_APP_BIN` 优先，其次 Windows 常见安装位置），只对 attached dsh 开放；managed 记录传 `--app` 退 2，与 `--profile` 互斥，也不接受 `--port` / `--restart`。app 不进 core、不分配端口、不等 URL、不打开浏览器，运行态只记 `pid = spawnPid` 与 `startedAt`，`pal stop` 按 spawnPid 杀，`pal health` 只看进程在不在。
+现状：`pal start <dsh home> --mode app` 直接 spawn dsh 的 Electron app（模式声明的 `PAL_DSH_APP_BIN` 优先，其次 Windows 常见安装位置），只对 attached dsh 开放——`available` 在 managed 记录上返回原因，选 app 模式退 2；app 模式不声明 `usesProfile`，也不接受 `--port` / `--restart` / `--dir`（都退 2）。app 不进 core、不分配端口、不等 URL、不打开浏览器，运行态只记 `pid = spawnPid`、`startedAt` 与 `launchMode`，`pal stop` 按 spawnPid 杀，`pal health` 只看进程在不在。
 
-没选另一条：让 managed 也能 `--app`（把实例 home 用 `DSH_HOME` 指过去），或让 app 走 core 的启动 / 看护。
+没选另一条：让 managed 也能选 app 模式（把实例 home 用 `DSH_HOME` 指过去），或让 app 走 core 的启动 / 看护。
 
-managed 的 home 是 PAL 数据目录下自己那一段，dsh app 认不认 `DSH_HOME`、认了之后会不会把 desktop profile 写到别处，都还没在真机上确认；未确认就开放，等于把「装进 PAL 数据目录」和「app 读写宿主全局状态」混在一起，出问题时分不清是谁改的。app 也不该由 core 看护：core 的重起走的是 web 启动路径（`--profile` + `--port`），拿它重起 app 会起出一份 web 页面，而不是窗口；所以 `--restart` 与 `--app` 互斥，`--port` 也没有落点。
+managed 的 home 是 PAL 数据目录下自己那一段，dsh app 认不认 `DSH_HOME`、认了之后会不会把 desktop profile 写到别处，都还没在真机上确认；未确认就开放，等于把「装进 PAL 数据目录」和「app 读写宿主全局状态」混在一起，出问题时分不清是谁改的。app 也不该由 core 看护：core 的重起走的是记录里那条 server 模式（`--profile` + `--port`），拿它重起 app 会起出一份 web 页面，而不是窗口；所以 app 模式不接 `--restart`，`--port` 也没有落点。
 
-代价：managed 记录暂时没有 `--app` 入口，只能用 `--home` 的 attached dsh，或先 `pal start` 起 web；app 没有 URL / 端口，`pal ps` 的 port / url 为空、`pal logs` 没有启动输出（app 的输出不经过 PAL）、`pal health` 只能看进程在不在，连没连上 provider 看不到；`--app` 与 `--profile` / `--port` / `--restart` 都互斥，多几条要记的用法错；app 的退出事件没有人收，记录要等 `pal ps --refresh` 或下一轮 core 看护才会从 running 变成 broken；`pal restart` 仍按 web 路径重起，不会回到窗口。
+代价：managed 记录暂时没有 app 入口，只能用 `--home` 的 attached dsh，或先 `pal start` 起 web；app 没有 URL / 端口，`pal ps` 的 port / url 为空、`pal logs` 没有启动输出（app 的输出不经过 PAL）、`pal health` 只能看进程在不在，连没连上 provider 看不到；app 的退出事件没有人收，记录要等 `pal ps --refresh` 或下一轮 core 看护才会从 running 变成 broken；`pal restart` 仍按 server 模式重起，不会回到窗口。

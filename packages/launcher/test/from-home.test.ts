@@ -27,6 +27,7 @@ registerHarness({
   destination: testDestination('.testcred'),
   home: { dir: 'home/testcred', env: 'TESTCRED_HOME' },
   credentialFiles: ['auth.json', 'nested/token.txt'],
+  modes: [],
   probe: {
     executable: 'testcred',
     args: () => [],
@@ -41,6 +42,7 @@ registerHarness({
   label: 'testcred-empty',
   destination: testDestination('.testcred-empty'),
   home: { dir: 'home/testcred-empty', env: 'TESTCRED_EMPTY_HOME' },
+  modes: [],
   probe: {
     executable: 'testcred-empty',
     args: () => [],

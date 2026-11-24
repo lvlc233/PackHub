@@ -239,7 +239,7 @@ describe('实例启动', () => {
     process.env.HTTPS_PROXY = 'http://pal-proxy:7890';
     const inst = await createInstance({ name: 'dsh-run', harness: 'dsh', packDir: 'test/fixtures/packs/doc-review' });
     const seen: Seen = {};
-    const spawn = fakeSpawn(seen, 'dsh web: http://127.0.0.1:51234/?token=abc\n');
+    const spawn = fakeSpawn(seen, 'dsh web: http://127.0.0.1:51234/?token=zq7x-token\n');
 
     const result = await startInstanceDetailed('dsh-run', {
       spawn,
@@ -275,10 +275,10 @@ describe('实例启动', () => {
     expect(record.listenPid).toBe(4321);
     expect(record.port).toBe(51234);
     expect(record.ports).toEqual([51234]);
-    // 记录与 API 里都不出现 token
+    // 记录与 API 里都不出现 token（用 id 的十六进制里不可能出现的串，避免撞上随机 id）
     expect(record.url).toBe('http://127.0.0.1:51234/');
-    expect(readFileSync(join(record.root, 'instance.json'), 'utf8')).not.toContain('abc');
-    expect(readSecrets(record.root)).toEqual({ token: 'abc' });
+    expect(readFileSync(join(record.root, 'instance.json'), 'utf8')).not.toContain('zq7x');
+    expect(readSecrets(record.root)).toEqual({ token: 'zq7x-token' });
 
     const stopped = await stopInstance('dsh-run', { kill: () => {}, isAlive: () => false });
     expect(stopped.status).toBe('stopped');

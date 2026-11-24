@@ -11,7 +11,7 @@
 
 import type { Issue } from '../types.ts';
 
-/** 启动时能拿到的上下文，交给启动模板拼参数。PAL 起实例时构造它。 */
+/** 启动时能拿到的上下文，交给启动模式的 `args(ctx)` 拼参数。PAL 起实例时构造它。 */
 export interface StartContext {
   /** 本次分配的端口；宿主必须监听它 */
   port: number;
@@ -22,29 +22,57 @@ export interface StartContext {
   /** 额外补丁文件（dsh 这类宿主的 MCP 接线） */
   patchFile?: string;
   /**
-   * 启动用的 profile（只有 dsh 这类有 profile 子空间的宿主读它）。不写 = 宿主自己的默认；
-   * `'all'` 这类「全部」取值不是可启动的 profile，宿主落回自己的默认（dsh 是 web）。
-   * 没有 profile 概念的宿主忽略。
+   * 启动用的 profile（只有声明了 `usesProfile` 的模式读它，现在只有 dsh 的 web）。不写 = 宿主自己的
+   * 默认；`'all'` 这类「全部」取值不是可启动的 profile，宿主落回自己的默认（dsh 是 web）。
+   * 没有 profile 概念的模式忽略。
    */
   profile?: string;
 }
 
-/** 启动模板：命令 + 参数拼法 + 从输出里认地址的正则。 */
-export interface StartTemplate {
-  /**
-   * 启动形态：
-   * - `server`（默认）：常驻、监听端口，由 core 托管、等 URL；
-   * - `foreground`：前台 TUI，由 `pal run` 直接 exec，退出即结束。
-   */
-  mode?: 'server' | 'foreground';
-  /** 可执行文件名（走 PATH 发现，或 PAL_<HARNESS>_BIN 覆盖） */
-  command: string;
-  /** 由上下文拼参数；不经过 shell */
-  args(ctx: StartContext): string[];
-  /** 从启动输出里认地址；foreground 宿主用不到，给一个永不匹配的正则 */
-  url: RegExp;
-  /** 等地址的默认超时 */
+/**
+ * 启动方式的种类：决定 PAL 用哪条执行路径。
+ *
+ * - `server`：常驻、监听端口，由 core 托管、等 URL（`pal start`）；
+ * - `foreground`：前台 TUI，PAL 设好环境后直接 exec，退出即结束、不进 core（`pal run` / `start --mode`）；
+ * - `app`：桌面 app，detached spawn、只记 pid，没有端口与 URL（`start --mode app`）。
+ */
+export type LaunchKind = 'server' | 'foreground' | 'app';
+
+/** 判断一个模式在当前 home 上能不能用：记录里已经知道的事实。 */
+export interface LaunchAvailability {
+  /** 这份 home 是不是宿主真实的全局目录（attached） */
+  attached: boolean;
+  /** 实例自己的 home 段 */
+  home?: string;
+  /** 记录里的 profile（没有 = 没记） */
+  profile?: string;
+}
+
+/**
+ * 适配器声明的一种启动方式。同一个宿主可以有多个模式（dsh 的 web / app，codex 的 tui / app），
+ * CLI 用 `pal start --mode <id>` 选，不写就用 `HarnessSpec.defaultMode`（缺省第一个）。
+ */
+export interface LaunchMode {
+  /** 模式 id；在同一个宿主里唯一（`web` / `app` / `tui` …） */
+  id: string;
+  /** 人读的名字（`--list-modes` 与错误信息里用） */
+  label: string;
+  /** 这条模式怎么跑 */
+  kind: LaunchKind;
+  /** 可执行文件名；不写就用 `HarnessSpec.executable`（走 PATH 发现，或 PAL_<HARNESS>_BIN 覆盖） */
+  command?: string;
+  /** 由上下文拼参数；不写 = 不带参数。不经过 shell */
+  args?: (ctx: StartContext) => string[];
+  /** `server`：从启动输出里认地址；其它 kind 不写 */
+  url?: RegExp;
+  /** `server`：等地址的默认超时 */
   readyTimeoutMs?: number;
+  /** 这条模式读 `StartContext.profile`（支持 `--profile`）；不写 = 给它 `--profile` 是用法错 */
+  usesProfile?: boolean;
+  /** 当前 home 上能不能用：`true` = 能用，`string` = 不可用的原因 */
+  available?: (ctx: LaunchAvailability) => true | string;
+  /** `app`：可执行文件怎么找（先看环境变量，再按候选路径找） */
+  app?: { env: string; candidates: (home: string) => string[] };
 }
 
 /** 探针一次调用的输入：提示词、模型（只有需要的宿主用）、可选的 patch 层。 */
@@ -208,14 +236,12 @@ export interface HarnessSpec {
    */
   credentialFiles?: string[];
   /**
-   * 没有更具体的 profile 时启动用的默认 profile 名（宿主能力的一部分）；没有就不带 --profile。
-   * 调用方（PAL 的 `pal start --profile` / 记录的 profile）可以覆盖它，见 `StartContext.profile`。
+   * 启动方式表，按声明顺序展示（`--list-modes` 与错误信息里的可选值）。
+   * 可以没有：这个宿主只装配 home，PAL 不托管它的进程。
    */
-  startProfile?: string;
-  /** 启动模板；没有就说明这个宿主没有可托管的常驻服务 */
-  start?: StartTemplate;
-  /** 不能启动时给用户看的原因（能力说明，不是错误码） */
-  noStartReason?: string;
+  modes: LaunchMode[];
+  /** 默认模式 id；必须是 `modes` 里的一个。不写 = `modes[0]` */
+  defaultMode?: string;
   /**
    * 项目级落点能装到什么程度（默认 'full'）：
    * - 'full'：项目里注册技能、指令与 MCP；
@@ -241,14 +267,39 @@ const registry = new Map<string, HarnessSpec>();
 /**
  * 注册一个宿主。id 必须符合 `HARNESS_ID_PATTERN`，同一个 id 重复注册直接抛错——
  * 这类错误只会在开发期出现（模块被 import 两次或 id 抄错），不留给运行期猜。
+ *
+ * 模式表也在这里查一遍：同宿主里 id 唯一、`defaultMode` 指向真实存在的一条。
  */
 export function registerHarness(spec: HarnessSpec): HarnessSpec {
   if (!HARNESS_ID_PATTERN.test(spec.id)) {
     throw new Error(`宿主 id 不合法：${spec.id}（要匹配 ${HARNESS_ID_PATTERN}）`);
   }
   if (registry.has(spec.id)) throw new Error(`宿主重复注册：${spec.id}`);
+  const seen = new Set<string>();
+  for (const mode of spec.modes) {
+    if (!HARNESS_ID_PATTERN.test(mode.id)) {
+      throw new Error(`宿主 ${spec.id} 的启动模式 id 不合法：${mode.id}（要匹配 ${HARNESS_ID_PATTERN}）`);
+    }
+    if (seen.has(mode.id)) throw new Error(`宿主 ${spec.id} 的启动模式重复：${mode.id}`);
+    seen.add(mode.id);
+  }
+  if (spec.defaultMode !== undefined && !seen.has(spec.defaultMode)) {
+    throw new Error(`宿主 ${spec.id} 的默认模式不存在：${spec.defaultMode}（可选 ${[...seen].join(' / ') || '无'}）`);
+  }
   registry.set(spec.id, spec);
   return spec;
+}
+
+/** 默认启动模式：`defaultMode` 指的那条，不写就是第一条；没有模式表返回 undefined。 */
+export function defaultLaunchMode(spec: HarnessSpec): LaunchMode | undefined {
+  if (spec.defaultMode === undefined) return spec.modes[0];
+  return spec.modes.find((mode) => mode.id === spec.defaultMode);
+}
+
+/** 按 id 查一条启动模式；不写 id 或没有这条返回 undefined。 */
+export function findLaunchMode(spec: HarnessSpec, id: string | undefined): LaunchMode | undefined {
+  if (id === undefined) return undefined;
+  return spec.modes.find((mode) => mode.id === id);
 }
 
 /** 已注册的全部宿主（按注册顺序；index.ts 的 import 顺序就是声明顺序）。 */

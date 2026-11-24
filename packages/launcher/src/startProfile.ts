@@ -1,22 +1,25 @@
-// `pal start` 的 profile 解析：`--profile` > 记录里的 profile（且不是 all）> 宿主默认（dsh 是 web）。
+// `pal start` 的 profile 解析：`--profile` > 记录里的 profile（且不是 all）> 宿主默认（web）。
 //
-// profile 只对有 profile 子空间的宿主有意义（现在只有 dsh）。attached home 下它是 dsh 自己建的
-// `<home>/profiles/<名字>`，启动前核对一次，免得拿拼错的名字起一个空壳 profile；managed home 不核对
-// （实例 home 第一次启动时由 dsh 生成）。
+// profile 只对支持它的模式有意义（`LaunchMode.usesProfile`，现在只有 dsh 的 web 模式）。
+// attached home 下它是 dsh 自己建的 `<home>/profiles/<名字>`，启动前核对一次，免得拿拼错的名字起
+// 一个空壳 profile；managed home 不核对（实例 home 第一次启动时由 dsh 生成）。
 //
 // `all` 是安装范围（install / update 的「所有已有 profile」），不是可启动的 profile：一次启动只跑一个。
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import type { LaunchMode } from '@packhub/kernel';
 import { PalError } from './errors.ts';
-import { requireAdapter } from './layout.ts';
 import type { InstanceRecord } from './records.ts';
 import { PROFILE_ALL, PROFILE_NAME_PATTERN } from './validators.ts';
+
+/** 支持 profile 的模式没写 `--profile`、记录也没记时用的名字（dsh web 模式的同一个默认值）。 */
+const DEFAULT_PROFILE = 'web';
 
 /** 最终 profile 的来源：命令行 / 记录 / 宿主默认。 */
 export type StartProfileSource = 'flag' | 'record' | 'default';
 
 export interface StartProfileChoice {
-  /** 写进 `StartContext.profile` 的名字；undefined = 这个宿主没有 profile 概念（不带 --profile） */
+  /** 写进 `StartContext.profile` 的名字；undefined = 这条模式没有 profile 概念（不带 --profile） */
   name?: string;
   source: StartProfileSource;
 }
@@ -46,7 +49,7 @@ function profileName(value: string, label: string): string {
 
 /** attached dsh 的 profile 必须已经在 home 里（dsh 启动时才会建它）；managed 不核对。 */
 function assertProfileDir(rec: InstanceRecord, name: string): void {
-  // 只有 dsh 的 profile 落点是 `<home>/profiles/<名字>`；别的宿主即使声明了默认 profile 也不套这个目录
+  // 只有 dsh 的 profile 落点是 `<home>/profiles/<名字>`；别的宿主即使支持 profile 也不套这个目录
   if (rec.harness !== 'dsh' || rec.attached !== true) return;
   const home = rec.home ?? rec.root;
   const dir = join(home, PROFILES_DIR, name);
@@ -60,23 +63,30 @@ function assertProfileDir(rec: InstanceRecord, name: string): void {
 /**
  * 解析并核对这次启动用的 profile。纯读，不建目录、不写记录。
  *
- * - 没有 `startProfile` 的宿主（非 dsh / dir）：传了 `--profile` 是用法错（退出 2），不静默忽略；
+ * - 模式不支持 profile（`usesProfile` 没开）：传了 `--profile` 是用法错（退出 2），不静默忽略；
  * - 显式 `--profile` 只能用具体名字，`all` 退 2；
- * - 否则用记录里的 profile，记录是 all / 没记就用宿主默认；
+ * - 否则用记录里的 profile，记录是 all / 没记就用默认 `web`；
  * - 最终名字是具体 profile 时，attached dsh 核对 `<home>/profiles/<名字>` 存在。
  */
-export function resolveStartProfile(rec: InstanceRecord, requested?: string): StartProfileChoice {
-  const adapter = requireAdapter(rec.harness);
-  const explicit = requested === undefined ? undefined : profileName(requested, '--profile');
-  if (adapter.startProfile === undefined) {
-    if (explicit !== undefined) {
-      throw new PalError('invalid-input', `--profile 只对 dsh 有意义：${adapter.label} 没有 profile`, {
-        hint: 'profile 是 dsh 的全局子空间（web / desktop 这类）；其他宿主直接 pal start <home>',
-        details: { harness: rec.harness },
-      });
+export function resolveStartProfile(
+  rec: InstanceRecord,
+  mode: LaunchMode,
+  requested?: string,
+): StartProfileChoice {
+  if (mode.usesProfile !== true) {
+    if (requested !== undefined) {
+      throw new PalError(
+        'invalid-input',
+        `--profile 只对支持 profile 的模式有意义：宿主 ${rec.harness} 的 ${mode.id} 模式没有 profile`,
+        {
+          hint: 'profile 是 dsh web 模式的子空间（web / desktop 这类）；app / 前台模式自己管状态，不接受 --profile',
+          details: { harness: rec.harness, mode: mode.id },
+        },
+      );
     }
     return { source: 'default' };
   }
+  const explicit = requested === undefined ? undefined : profileName(requested, '--profile');
   if (explicit === PROFILE_ALL) {
     throw new PalError('invalid-input', '--profile all 不能用于启动：一次只起一个 profile', {
       hint: '要指定就写具体名字（例如 --profile web）；不写 = 用记录里的 profile，记录是 all 时用 web',
@@ -87,7 +97,7 @@ export function resolveStartProfile(rec: InstanceRecord, requested?: string): St
     rec.profile === undefined || rec.profile === PROFILE_ALL
       ? undefined
       : profileName(rec.profile, '记录里的 profile');
-  const name = explicit ?? recorded ?? adapter.startProfile;
+  const name = explicit ?? recorded ?? DEFAULT_PROFILE;
   assertProfileDir(rec, name);
   return {
     name,

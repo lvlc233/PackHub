@@ -71,12 +71,25 @@ registerHarness({
   attached: true,
   executable: 'opencode',
   versionArgs: ['--version'],
-  start: {
-    mode: 'foreground',
-    command: 'opencode',
-    args: () => [],
-    url: /^$/,
-  },
+  modes: [
+    {
+      id: 'tui',
+      label: '终端 TUI',
+      kind: 'foreground',
+      command: 'opencode',
+      args: () => [],
+    },
+    {
+      id: 'web',
+      label: '网页（本地 serve）',
+      kind: 'server',
+      command: 'opencode',
+      args: (ctx) => ['serve', '--port', String(ctx.port), '--hostname', '127.0.0.1'],
+      url: /(https?:\/\/\S+)/,
+      readyTimeoutMs: 30_000,
+    },
+  ],
+  defaultMode: 'tui',
   probe: {
     executable: 'opencode',
     defaultModel: 'opencode-go/deepseek-v4.1-flash',

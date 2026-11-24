@@ -52,12 +52,16 @@ registerHarness({
   attached: true,
   executable: 'codebuddy',
   versionArgs: ['--version'],
-  start: {
-    mode: 'foreground',
-    command: 'codebuddy',
-    args: () => [],
-    url: /^$/,
-  },
+  modes: [
+    {
+      id: 'tui',
+      label: '终端 TUI',
+      kind: 'foreground',
+      command: 'codebuddy',
+      args: () => [],
+    },
+  ],
+  defaultMode: 'tui',
   // MCP 用默认方言：JSON + mcpServers.<name>
   probe: {
     executable: 'codebuddy',

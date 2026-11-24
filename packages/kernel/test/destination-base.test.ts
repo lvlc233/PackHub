@@ -39,6 +39,7 @@ function host(id: string, destination: HarnessSpec['destination']): void {
     id,
     label: id,
     destination,
+    modes: [],
     attached: true,
     probe: {
       executable: 'echo',

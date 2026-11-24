@@ -142,13 +142,13 @@ export function discoverHarness(id: InstanceKind, opts: DiscoverOptions = {}): H
   const base: HarnessInfo = {
     id,
     label: adapter.label,
-    kind: adapter.start ? 'host' : 'project',
+    kind: adapter.modes.length ? 'host' : 'project',
     ...(adapter.homeDir ? { homeDir: adapter.homeDir } : {}),
     ...(adapter.homeEnv ? { homeEnv: adapter.homeEnv } : {}),
     ...(binary ? { executable: binary } : {}),
     available: false,
-    startable: Boolean(adapter.start),
-    ...(!adapter.start && adapter.noStartReason ? { reason: adapter.noStartReason } : {}),
+    startable: adapter.modes.length > 0,
+    ...(!adapter.modes.length && adapter.noStartReason ? { reason: adapter.noStartReason } : {}),
   };
 
   if (!binary) {
@@ -192,7 +192,7 @@ export function requireHarness(value: string): InstanceKind {
 export function requireHarnessBinary(id: InstanceKind): HarnessInfo {
   const info = discoverHarness(id);
   if (!info.startable) {
-    throw new PalError('not-startable', `${requireAdapter(id).label} 没有可启动的常驻服务`, {
+    throw new PalError('not-startable', `${requireAdapter(id).label} 没有可启动的模式`, {
       hint: info.reason,
     });
   }

@@ -46,23 +46,55 @@ review: 格式升版、字段增删、apiVersion 变化时
 | 持久信任公钥 | `packhub.dev/trust/v0` | `packages/runtime/src/trust.ts` |
 
 
-## 0.5 宿主启动上下文（`StartContext`）
+## 0.5 宿主启动模式（`LaunchMode`）
 
-`HarnessSpec.start.args(ctx)` 的入参，由 PAL 在 spawn 前构造（`packages/kernel/src/harness/contract.ts`）：
+`HarnessSpec.modes` 是适配器声明的启动方式表（`packages/kernel/src/harness/contract.ts`）。CLI 用 `pal start <home> --mode <id>` 选，不写用 `HarnessSpec.defaultMode`（缺省 `modes[0]`）；`--list-modes` 只打印表、不启动。模式 id 在同一个宿主里唯一，注册时校验（重复 id、`defaultMode` 指向不存在的模式都直接抛错）。
 
 | 字段 | 形 | 含义 |
 |---|---|---|
-| `port` | number | 本次分配的端口，宿主必须监听它 |
+| `id` | string | 模式 id（`web` / `app` / `tui` …），`--mode` 收的值 |
+| `label` | string | 人读名字（`--list-modes`、错误信息） |
+| `kind` | `server` \| `foreground` \| `app` | 执行路径：core 托管 / 前台 exec / detached app |
+| `command` | string? | 可执行文件名；不写用 `HarnessSpec.executable` |
+| `args` | `(ctx: StartContext) => string[]`? | 参数拼法；不写 = 不带参数 |
+| `url` / `readyTimeoutMs` | RegExp? / number? | 只有 `server` 用：从启动输出里认地址、等地址超时 |
+| `usesProfile` | boolean? | 这条模式读 `StartContext.profile`；不写 = 给它 `--profile` 是用法错 |
+| `available` | `(ctx: LaunchAvailability) => true \| string`? | 当前 home 上能不能用；string 是不可用原因 |
+| `app` | `{ env: string; candidates(home): string[] }`? | 只有 `app` 用：可执行文件先看环境变量，再按候选路径找 |
+
+`StartContext` 是 `args(ctx)` 的入参，PAL 在 spawn 前构造：
+
+| 字段 | 形 | 含义 |
+|---|---|---|
+| `port` | number | 本次分配的端口（server 模式必须监听它）；非 server 模式传 0 |
 | `root` | string | 实例根 |
 | `home` | string? | 实例自己的 home 段；没有 home 的宿主不写 |
 | `patchFile` | string? | 额外补丁层（dsh 的 MCP 接线走 `--patch`） |
-| `profile` | string? | 启动用的 profile；没有 profile 概念的宿主忽略 |
+| `profile` | string? | 启动用的 profile；只有 `usesProfile` 的模式读它 |
 
-`profile` 现在只有 dsh 读（`startProfile: 'web'` 是它的默认值）。解析在 launcher，按 `pal start --profile <名字>` > 记录里的 `profile`（`packhub.dev/instance/v0` 的可选字段；`all` = 没记）> 宿主默认。`all` 不是可启动的 profile：记录是 `all` 时落回默认 `web`，显式 `pal start --profile all` 退 2（一次只起一个）；kernel 的 dsh 模板对 `all` 同样落回 `web`。attached dsh 在 spawn 前核对 `<home>/profiles/<名字>` 存在，不存在报 `invalid-input`（退出 2）、不创建、不 spawn；managed 的实例 home 不核对（profile 由实例自己第一次启动生成）。非 dsh 宿主收到 `--profile` 是用法错（退出 2），不静默忽略。
+`LaunchAvailability` 是 `available` 的入参：`attached`（这份 home 是不是宿主真实全局目录）、`home`、`profile`（记录里的值）。解析在 launcher 的 `launchModes.ts`：`--mode` > 记录里的 `launchMode`（`packhub.dev/instance/v0` 的可选字段）> 适配器默认。不可用与未知的模式退 2，并列出可选值或原因。
 
-dsh 的 argv 形状固定为 `--profile <名字> [--patch <文件>] --no-open --port <端口>`：`--profile` / `--patch` 必须在子命令参数之前，否则会被当成 web app 自己的参数。
+**`--mode` 的用法边界**（CLI 在拉起 core / spawn 之前核对，配错一律退 2）：
 
-`pal start <dsh home> --app` 不走 `StartContext`：不分配端口、不等 URL，直接 spawn dsh 的 Electron app。运行态写 `pid` / `spawnPid`（同值）、`status`、`startedAt`，**不写** `port` / `url` / `listenPid`；`stop` 用 spawnPid 杀，`ps` 的 port / url 为空，`health` 没有 `port` 项。只对 attached dsh 开放，与 `--profile` 互斥（见 decisions 的「app 启动只对 attached dsh」）。
+| 参数 | 只对哪种 kind 有效 | 配错时 |
+|---|---|---|
+| `--port` / `--restart` | `server` | 前台 / app 没有端口、不进 core 看护 |
+| `--dir` | `foreground` | server / app 的 cwd 由 PAL 定在 home 根 |
+| `--profile` | `usesProfile` 为 true 的模式（dsh 的 web） | app / 前台模式自己管状态 |
+
+`profile` 现在只有 dsh 的 web 模式读。解析在 launcher，按 `pal start --mode web --profile <名字>` > 记录里的 `profile`（`all` = 没记）> 默认 `web`。`all` 不是可启动的 profile：记录是 `all` 时落回 `web`，显式 `--profile all` 退 2（一次只起一个）；kernel 的 dsh 参数对 `all` 同样落回 `web`。attached dsh 在 spawn 前核对 `<home>/profiles/<名字>` 存在，不存在报 `invalid-input`（退出 2）、不创建、不 spawn；managed 的实例 home 不核对（profile 由实例自己第一次启动生成）。
+
+dsh 的 web 模式 argv 形状固定为 `--profile <名字> [--patch <文件>] --no-open --port <端口>`：`--profile` / `--patch` 必须在子命令参数之前，否则会被当成 web app 自己的参数。
+
+三种 kind 的运行态：
+
+| kind | 谁托管 | 落进记录的东西 | 起完默认动作 |
+|---|---|---|---|
+| `server` | core（等 URL、按 `--restart` 看护） | `pid` / `spawnPid` / `listenPid` / `port` / `url` / `launchMode` | 用系统浏览器打开 `url`（`--no-open` 关） |
+| `foreground` | 当前终端（stdio 继承、退出码透传） | 不写运行记录（进程退出即结束） | 无 |
+| `app` | PAL 只 spawn + 记 pid | `pid` / `spawnPid` / `launchMode`（**没有** `port` / `url` / `listenPid`） | 无（窗口由 app 自己开） |
+
+`app` 模式没有 URL：`pal ps` 的 port / url 为空、`pal logs` 没有启动输出、`pal health` 只看进程在不在。`pal restart` 只走 `server` 模式（记录里的 `launchMode` 是 server 时回到那一条，是 app / 前台模式时退回默认 server 模式），不会把 app 重起成网页。
 
 
 ## 1 Manifest（`packhub.dev/v0`）

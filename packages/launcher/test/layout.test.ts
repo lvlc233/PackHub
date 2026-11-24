@@ -26,6 +26,7 @@ function spec(id: string, over: Partial<HarnessSpec> = {}): HarnessSpec {
     label: id,
     destination: (kind: DestinationKind) => ({ path: kind === 'instruction' ? 'TEMP.md' : `.${id}/${kind}` }),
     home: { dir: `home/${id}`, env: `${id.toUpperCase()}_HOME` },
+    modes: [],
     probe: {
       executable: 'echo',
       args: (ctx) => [ctx.prompt],
@@ -42,12 +43,18 @@ describe('宿主适配（从注册表派生）', () => {
       url: 'http://127.0.0.1:55860/?token=x',
       port: 55860,
     });
+    expect(parseStartUrl('dsh web: http://127.0.0.1:55860/?token=x', 'dsh', 'web')).toEqual({
+      url: 'http://127.0.0.1:55860/?token=x',
+      port: 55860,
+    });
     expect(parseStartUrl('nothing here', 'dsh')).toBeUndefined();
+    // 没有 server 模式的宿主（claude-code 只有 tui）永远认不出地址
+    expect(parseStartUrl('http://127.0.0.1:1/', 'claude-code')).toBeUndefined();
   });
 
   it('dsh 的启动参数来自注册表：--profile web → --patch → --no-open → --port', () => {
-    const start = requireHarness('dsh').start!;
-    expect(start.args({ ...CTX, patchFile: 'patch.yml' })).toEqual([
+    const web = requireHarness('dsh').modes.find((mode) => mode.id === 'web')!;
+    expect(web.args!({ ...CTX, patchFile: 'patch.yml' })).toEqual([
       '--profile',
       'web',
       '--patch',
@@ -57,9 +64,10 @@ describe('宿主适配（从注册表派生）', () => {
       '51234',
     ]);
     // 没有 patch 时不带空参数
-    expect(start.args(CTX)).toEqual(['--profile', 'web', '--no-open', '--port', '51234']);
-    // 适配器拿到的就是同一份模板
-    expect(adapterFor('dsh')?.start).toBe(start);
+    expect(web.args!(CTX)).toEqual(['--profile', 'web', '--no-open', '--port', '51234']);
+    // 适配器拿到的就是同一份模式（不是另抄一遍）
+    expect(adapterFor('dsh')?.modes.find((mode) => mode.id === 'web')).toBe(web);
+    expect(adapterFor('dsh')?.defaultMode).toBe('web');
   });
 
   it('实例形态 = dir + 六个宿主；未知形态没有适配器', () => {
@@ -83,14 +91,18 @@ describe('宿主适配（从注册表派生）', () => {
     expect(() => requireAdapter('nope' as never)).toThrow(/未知实例形态：nope/);
   });
 
-  it('六个宿主都有启动模板：dsh 是 server，其余是 foreground；dir 给能力说明', () => {
-    expect(requireHarness('dsh').start?.mode ?? 'server').toBe('server');
+  it('六个宿主都有启动模式：dsh 默认 web（server），其余默认 tui（foreground）；dir 给能力说明', () => {
+    const dsh = requireHarness('dsh');
+    expect(dsh.defaultMode).toBe('web');
+    expect(dsh.modes.find((mode) => mode.id === 'web')?.kind).toBe('server');
     for (const id of ['claude-code', 'codex', 'opencode', 'workbody', 'hermes']) {
-      expect(requireHarness(id).start?.mode, `${id} 应是前台启动`).toBe('foreground');
-      expect(adapterFor(id)?.start, `${id} 应有启动模板`).toBeTruthy();
+      const spec = requireHarness(id);
+      expect(spec.defaultMode, `${id} 默认 tui`).toBe('tui');
+      expect(spec.modes.find((mode) => mode.id === 'tui')?.kind, `${id} 的 tui 应是前台`).toBe('foreground');
+      expect(adapterFor(id)?.modes.length, `${id} 应有启动模式`).toBeGreaterThan(0);
       expect(adapterFor(id)?.noStartReason).toBeUndefined();
     }
-    expect(adapterFor('dir')?.start).toBeUndefined();
+    expect(adapterFor('dir')?.modes).toEqual([]);
     expect(adapterFor('dir')?.noStartReason).toContain('dir 实例');
   });
 

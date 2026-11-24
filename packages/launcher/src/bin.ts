@@ -16,15 +16,18 @@ const rawArgs = process.argv.slice(2);
 
 /**
  * 旧 flag 不保留别名（v0 无兼容承诺）：`--into` / `--instance` 改名，`--environment` / `--harness` /
- * `--kind` / `--new` 整个删掉。放在 runCommand 之前拦：citty 会静默忽略它不认识的参数，
+ * `--kind` / `--new` / `--app` 整个删掉。放在 runCommand 之前拦：citty 会静默忽略它不认识的参数，
  * 否则旧脚本会「看起来成功」。
  */
 const RENAMED: Record<string, string> = { '--into': '--project', '--instance': '--home' };
-const REMOVED: Record<string, string | null> = {
-  '--environment': '--home',
-  '--harness': '--host',
-  '--kind': '--host',
-  '--new': null,
+const REMOVED: Record<string, string> = {
+  '--environment': '已改名：用 --home（旧名不保留）；见 pal install --help。',
+  '--harness': '已改名：用 --host（旧名不保留）；见 pal install --help。',
+  '--kind': '已改名：用 --host（旧名不保留）；见 pal install --help。',
+  '--new': '--new 已删除：不写 target 就是新建 managed 命名 home；装进已有目录用 --home。',
+  '--app':
+    '--app 已删除：启动方式改用模式。桌面 app 用 pal start <home> --mode app；' +
+    'pal start <home> --list-modes 看这个宿主有哪些模式。',
 };
 
 function rejectRenamedFlags(): void {
@@ -37,13 +40,9 @@ function rejectRenamedFlags(): void {
         hint: `已改名：用 ${now}（旧名不保留）；三选一规则见 pal install --help。`,
       });
     }
-    if (!(name in REMOVED)) continue;
-    const replacement = REMOVED[name];
-    throw new PalError('invalid-input', `未知参数 ${name}`, {
-      hint: replacement
-        ? `已改名：用 ${replacement}（旧名不保留）；见 pal install --help。`
-        : '--new 已删除：不写 target 就是新建 managed 命名 home；装进已有目录用 --home。',
-    });
+    const removed = REMOVED[name];
+    if (removed === undefined) continue;
+    throw new PalError('invalid-input', `未知参数 ${name}`, { hint: removed });
   }
 }
 

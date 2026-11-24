@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 
 /**
- * `pal start --profile` 的 CLI 行为：解析顺序与提示由命令层定，argv 由 kernel 的启动模板定。
+ * `pal start --profile` 的 CLI 行为：解析顺序与提示由命令层定，argv 由 kernel 的启动模式定。
  *
  * 这里走真链路（CLI → core → spawn），用一个假 dsh 把拿到的 argv 落盘：
  * 只看「传没传到宿主」，不启动真的 dsh。假宿主 `--version` 答一行版本，真启动时打印一行地址后装死，
@@ -214,13 +214,14 @@ describe('pal start 的 profile（CLI）', () => {
     expect(existsSync(join(rootOf(palHome, NAME), 'logs'))).toBe(false);
   }, 120_000);
 
-  it('--profile 配非 dsh：退 2，不静默忽略', () => {
+  it('--profile 配不支持 profile 的模式：退 2，不静默忽略', () => {
     const palHome = tmp('pal-start-profile-nondsh-');
     const base = tmp('pal-start-profile-nondsh-base-');
     expect(palIn(palHome, ['install', packCopy(base), '--host', 'opencode']).status).toBe(0);
 
+    // opencode 默认模式是 tui（前台），只有 dsh 的 web 模式开 usesProfile
     const res = palIn(palHome, ['start', OPENCODE_NAME, '--profile', 'web']);
     expect(res.status, res.out).toBe(2);
-    expect(res.out).toContain('--profile 只对 dsh');
+    expect(res.out).toContain('--profile 只对支持 profile 的模式有意义');
   }, 120_000);
 });

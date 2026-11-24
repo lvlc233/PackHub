@@ -58,12 +58,16 @@ registerHarness({
   attached: true,
   executable: 'hermes',
   versionArgs: ['--version'],
-  start: {
-    mode: 'foreground',
-    command: 'hermes',
-    args: () => [],
-    url: /^$/,
-  },
+  modes: [
+    {
+      id: 'tui',
+      label: '终端 TUI',
+      kind: 'foreground',
+      command: 'hermes',
+      args: () => [],
+    },
+  ],
+  defaultMode: 'tui',
   // 没有项目级落点：pal install --project 会拒绝，改用默认命名 home 或 --home
   project: false,
   probe: {

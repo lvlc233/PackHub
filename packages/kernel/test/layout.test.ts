@@ -29,6 +29,7 @@ function spec(id: string, over: Partial<HarnessSpec> = {}): HarnessSpec {
     id,
     label: id,
     destination: (kind) => ({ path: kind === 'instruction' ? 'TEMP.md' : `.${id}/${kind}` }),
+    modes: [],
     probe: {
       executable: 'echo',
       args: (ctx) => [ctx.prompt],

@@ -1,4 +1,4 @@
-﻿ActionDiff
+ActionDiff
 actionFromBase
 actionInputs
 actionIsShared
@@ -28,6 +28,7 @@ Composition
 CompositionContext
 contentHashOf
 deepMerge
+defaultLaunchMode
 describeAction
 describeComposition
 Destination
@@ -41,6 +42,7 @@ dshMcpLoaderEntry
 dshProfilePatches
 ExecSpec
 execWrapperPath
+findLaunchMode
 Graph
 GraphEdge
 harness
@@ -62,6 +64,9 @@ ISSUE_CODES
 IssueCode
 isVolatilePin
 KindContext
+LaunchAvailability
+LaunchKind
+LaunchMode
 loadManifest
 loadPack
 LoadResult
@@ -130,7 +135,6 @@ Severity
 sha256
 SourceKind
 StartContext
-StartTemplate
 STATE_DIR
 STATE_FILE
 StateDirSpec

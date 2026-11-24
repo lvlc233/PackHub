@@ -51,6 +51,12 @@ export interface InstanceConfig {
   profile?: string;
   /** 隔离策略：每层是每实例一份还是全局共享；配置里缺这个字段时读出来是默认策略 */
   isolation?: Isolation;
+  /**
+   * 上次由 PAL 起的启动模式（`pal start --mode <id>` 或适配器默认）；不写 = 没记。
+   * 重启与看护重起按它回到同一条模式（`opencode` 的默认模式是 tui，`--mode web` 起的实例
+   * 不能按默认重起成前台命令）；前台模式不写记录（进程退出即结束）。
+   */
+  launchMode?: string;
   pack: { name: string; version: string; ref?: string };
   createdAt: string;
   updatedAt: string;
@@ -225,6 +231,10 @@ function normalizeRecord(root: string, data: Record<string, unknown>): InstanceR
     attached: data.attached === true,
     // profile 只是 dsh attached 的安装参数；空串 / 非字符串当没写（= all）
     ...(typeof data.profile === 'string' && data.profile.trim() ? { profile: data.profile.trim() } : {}),
+    // 启动模式同理：空串 / 非字符串当没记（= 用适配器默认）
+    ...(typeof data.launchMode === 'string' && data.launchMode.trim()
+      ? { launchMode: data.launchMode.trim() }
+      : {}),
     pack: (data.pack as InstanceConfig['pack'] | undefined) ?? { name: 'unknown', version: '0.0.0' },
     // 隔离策略坏了不至于让整份记录变坏记录：解析不了就按默认策略读
     isolation: parseIsolation(data.isolation) ?? DEFAULT_ISOLATION,

@@ -9,6 +9,7 @@ import {
 } from 'node:fs';
 import { extname, join } from 'node:path';
 import { parseStartUrl, requireAdapter, type HarnessAdapter } from './layout.ts';
+import { resolveServerMode } from './launchModes.ts';
 import { readInstance, requireInstance, scanInstances, writeInstance, nowIso, type InstanceRecord } from './index.ts';
 import { mergeRecord, partitionRecord } from './records.ts';
 import { PalError } from './errors.ts';
@@ -233,7 +234,12 @@ export interface StartOptions {
    */
   env?: Record<string, string>;
   /**
-   * 这次启动用的 profile（只有声明了 `startProfile` 的宿主读它，现在只有 dsh）。
+   * 这次启动用的启动模式 id（只有 `server` 模式进 core）。不写 = 记录里上次用的，再没有就用
+   * 宿主第一条 server 模式；重启 / 看护重起按记录回到同一条模式。
+   */
+  mode?: string;
+  /**
+   * 这次启动用的 profile（只有声明了 `usesProfile` 的模式读它，现在只有 dsh 的 web）。
    * 不写 = 用记录里的 profile，再没有就用宿主默认；显式给了就覆盖记录。
    */
   profile?: string;
@@ -253,7 +259,7 @@ function aliveOf(opts: StartOptions): (pid: number) => boolean {
 }
 
 /**
- * 起一个实例：按宿主的入口拉起进程，cwd=实例根，home 用实例自己的那一段。
+ * 起一个实例：按宿主声明的 `server` 模式拉起进程，cwd=实例根，home 用实例自己的那一段。
  * 启动输出直接写实例的 logs/start.log（轮转 + 打码），从日志里等地址；
  * 等不到就收掉进程，并把日志尾部贴进错误里。
  */
@@ -271,18 +277,8 @@ export async function startInstanceDetailed(
 ): Promise<StartResult> {
   const rec = requireInstance(idOrName);
   const adapter = requireAdapter(rec.harness);
-  if (adapter.start?.mode === 'foreground') {
-    throw new PalError('not-startable', `${adapter.label} 是前台 TUI，不是常驻服务`, {
-      hint: '用 pal run <home> [--dir <目录>] 在终端里前台启动',
-      details: { harness: rec.harness },
-    });
-  }
-  if (!adapter.start) {
-    throw new PalError('not-startable', `${adapter.label} 没有可启动的常驻服务`, {
-      hint: adapter.noStartReason ?? '这个宿主只支持装配 home，PAL 不托管它的进程',
-      details: { harness: rec.harness },
-    });
-  }
+  // core 只托管 server 模式；前台 / app 模式在命令层直接起，不会走到这里
+  const mode = resolveServerMode(rec, opts.mode);
   const alive = aliveOf(opts);
   if (rec.pid && alive(rec.pid)) {
     throw new PalError('already-running', `实例已在运行：pid ${rec.pid}`, {
@@ -291,9 +287,9 @@ export async function startInstanceDetailed(
     });
   }
 
-  // profile 是用法层的输入：先解析并核对（attached dsh 的 profile 必须已存在），
+  // profile 是用法层的输入：先解析并核对（attached dsh 的 profile 必须已存在，且只有支持它的模式收它），
   // 免得等到 spawn 之后才让宿主拿一个空壳目录起不来
-  const startProfile = resolveStartProfile(rec, opts.profile);
+  const startProfile = resolveStartProfile(rec, mode, opts.profile);
 
   // 启动前自愈：上一轮留下的 pid 已经不在了，先把它标成异常，别拿旧端口当活的
   if (rec.pid && !alive(rec.pid)) {
@@ -308,9 +304,10 @@ export async function startInstanceDetailed(
   }
 
   const info = requireHarnessBinary(rec.harness);
-  const commandPath = info.commandPath ?? whichSync(adapter.executable ?? rec.harness);
+  const command = mode.command ?? adapter.executable ?? rec.harness;
+  const commandPath = info.commandPath ?? whichSync(command);
   if (!commandPath) {
-    throw new PalError('harness-missing', `找不到 ${adapter.executable ?? rec.harness} 命令`, {
+    throw new PalError('harness-missing', `找不到 ${command} 命令`, {
       hint: `装它，或用 PAL_${rec.harness.toUpperCase().replace(/-/g, '_')}_BIN 指定路径`,
     });
   }
@@ -347,13 +344,14 @@ export async function startInstanceDetailed(
     }
   }
 
-  const args = adapter.start.args({
-    port,
-    root: rec.root,
-    ...(rec.home ? { home: rec.home } : {}),
-    ...(patchFile ? { patchFile } : {}),
-    ...(startProfile.name ? { profile: startProfile.name } : {}),
-  });
+  const args =
+    mode.args?.({
+      port,
+      root: rec.root,
+      ...(rec.home ? { home: rec.home } : {}),
+      ...(patchFile ? { patchFile } : {}),
+      ...(startProfile.name ? { profile: startProfile.name } : {}),
+    }) ?? [];
   // 只给宿主它跑起来需要的：整份 process.env 会把 PAL 的 key/代理/PACKHUB_* 带进去，
   // 实例的隔离就靠实例自己的 home（homeEnv）与凭据播种，环境穿透等于绕开它
   const env = hostEnv(process.env, adapter, rec.home, opts.env);
@@ -389,8 +387,8 @@ export async function startInstanceDetailed(
   // 起完就该放手：CLI 不因为宿主还活着而挂着；看护交给常驻 core
   child.unref?.();
 
-  const timeoutMs = opts.timeoutMs ?? adapter.start.readyTimeoutMs ?? 20_000;
-  const ready = await waitForReady(log.file, rec, timeoutMs, exited, opts.pollMs ?? 100);
+  const timeoutMs = opts.timeoutMs ?? mode.readyTimeoutMs ?? 20_000;
+  const ready = await waitForReady(log.file, rec, mode.id, timeoutMs, exited, opts.pollMs ?? 100);
   closeLog(log.fd);
 
   if (!ready.ok) {
@@ -431,6 +429,8 @@ export async function startInstanceDetailed(
     url: split.url,
     startedAt: nowIso(),
     harnessVersion: info.version ?? current.harnessVersion,
+    // 重启 / 看护重起按这条模式回来（opencode 的默认是 tui，--mode web 起的实例不能按默认重起）
+    launchMode: mode.id,
   };
   delete next.lastError;
   writeInstance(next);
@@ -531,6 +531,7 @@ function readTail(file: string, maxBytes: number): string {
 async function waitForReady(
   logFile: string,
   rec: InstanceRecord,
+  modeId: string,
   timeoutMs: number,
   exited: ExitTracker,
   pollMs: number,
@@ -540,7 +541,7 @@ async function waitForReady(
     const dead = exited.peek();
     if (dead) return { ok: false, exited: dead };
     try {
-      const hit = parseStartUrl(readTail(logFile, READY_TAIL_BYTES), rec.harness);
+      const hit = parseStartUrl(readTail(logFile, READY_TAIL_BYTES), rec.harness, modeId);
       if (hit) return { ok: true, url: hit.url, ...(hit.port ? { port: hit.port } : {}) };
     } catch {
       /* 日志还没出现 */

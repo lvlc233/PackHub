@@ -4,7 +4,7 @@
 //   uninstall / verify / rollback / update 用 `--home <名字|路径>` 或 `--project <目录>`。
 // 目录路径的实现仍在 dirCommands.ts，命令层只做 target 解析与文案。
 import { defineCommand, type CommandDef } from 'citty';
-import { harness, harnessIds, harnesses, type HarnessId } from '@packhub/kernel';
+import { defaultLaunchMode, harness, harnessIds, harnesses, type HarnessId } from '@packhub/kernel';
 import { materializePack, readPackIdentity } from '../materialize.ts';
 import {
   createInstance,
@@ -137,10 +137,11 @@ function requireRecordedProfile(rec: InstanceRecord, profile: string | undefined
   }
 }
 
-/** install 成功后给下一步：server 宿主用 start，前台宿主用 run。 */
+/** install 成功后给下一步：默认模式是前台就用 run（= start --mode <默认前台模式>），否则用 start。 */
 function nextLine(host: HarnessId, name: string): string {
-  const mode = harness(host)?.start?.mode;
-  return mode === 'foreground' ? `pal run ${name}` : `pal start ${name}`;
+  const spec = harness(host);
+  const mode = spec ? defaultLaunchMode(spec) : undefined;
+  return mode?.kind === 'foreground' ? `pal run ${name}` : `pal start ${name}`;
 }
 
 function printInstalled(rec: InstanceRecord, pack: { name: string; version: string }, note?: string): void {

@@ -2,13 +2,16 @@
 import { defineCommand } from 'citty';
 import { spawn } from 'node:child_process';
 import pkg from '../../package.json' with { type: 'json' };
-import { requireHarness } from '@packhub/kernel';
+import type { LaunchMode } from '@packhub/kernel';
 import { requireInstance, writeInstance, type InstanceRecord } from '../index.ts';
 import { activeEntries } from '../active.ts';
 import { coreCall } from '../coreClient.ts';
 import { refreshStatuses, logFileOf } from '../start.ts';
-import { assertAppStartable, startAppInstance } from '../startApp.ts';
+import { startAppInstance } from '../startApp.ts';
 import { resolveStartProfile } from '../startProfile.ts';
+import { foregroundPlan, spawnForeground } from '../foreground.ts';
+import { requireAdapter, type HarnessAdapter } from '../layout.ts';
+import { assertModeAvailable, availabilityOf, resolveLaunchMode, unavailableReason } from '../launchModes.ts';
 import { psReport } from '../ps.ts';
 import { discoverAll } from '../harness.ts';
 import { checkAll, checkInstance } from '../health.ts';
@@ -41,7 +44,7 @@ export const start = defineCommand({
   meta: {
     name: 'start',
     description:
-      '起一个 home（交给 core：崩了由它按 --restart 看护；--app 起 dsh 桌面 app，不进 core）。不写目标时用「当前 home」：install/adopt 默认会把它设为当前；多个宿主各有当前 home 时要求显式指定',
+      '起一个 home：按适配器声明的启动模式（--mode，不写用默认）。server 交给 core（崩了按 --restart 看护、起来默认开浏览器）；前台模式直接 exec（退出即结束、不写记录）；app 模式 detached spawn、只记 pid。--list-modes 只看模式表。不写目标时用「当前 home」：install/adopt 默认会把它设为当前；多个宿主各有当前 home 时要求显式指定',
   },
   args: {
     target: {
@@ -49,20 +52,28 @@ export const start = defineCommand({
       required: false,
       description: 'home id 或名字；不写就用当前 home（install / adopt 默认已把它设为当前）',
     },
-    port: { type: 'string', description: '指定端口；被占时报告占用者' },
+    mode: {
+      type: 'string',
+      description:
+        '启动模式 id（web / app / tui …）：不写用适配器默认；未知或当前 home 上不可用退 2；--list-modes 看这个宿主有哪些',
+    },
+    'list-modes': {
+      type: 'boolean',
+      default: false,
+      description: '只打印该 home 宿主的启动模式（id / kind / 可用性或不可用原因），不启动；支持 --json',
+    },
+    port: { type: 'string', description: '指定端口（只对 server 模式有意义）；被占时报告占用者' },
     profile: {
       type: 'string',
       description:
-        'dsh 的 profile（只对 dsh 有意义）：不写用记录里的（记录是 all 时用 web）；指定了覆盖记录；attached home 下必须已存在；与 --app 互斥',
+        '支持 profile 的模式（dsh 的 web）：不写用记录里的（记录是 all 时用 web）；指定了覆盖记录；attached home 下必须已存在；app / 前台模式传它退 2',
     },
-    app: {
-      type: 'boolean',
-      default: false,
-      description:
-        'dsh 桌面 app（Electron 窗口）而不是 web 页面：只对 attached dsh 有意义；不分配端口、不等 URL、不打开浏览器；可执行文件按 PAL_DSH_APP_BIN / Windows 常见安装位置查找',
+    restart: {
+      type: 'string',
+      description: 'on-failure：崩了由 core 重起；never：不重起（只对 server 模式有意义）',
     },
-    restart: { type: 'string', description: 'on-failure：崩了由 core 重起；never：不重起' },
-    'no-open': { type: 'boolean', default: false, description: '起来后不用浏览器打开' },
+    'no-open': { type: 'boolean', default: false, description: 'server 起来后不用浏览器打开' },
+    dir: { type: 'string', description: '前台模式的工作目录（覆盖 launch.json）；只对前台模式有意义' },
     json: { type: 'boolean', default: false },
   },
   async run({ args }) {
@@ -82,48 +93,60 @@ export const start = defineCommand({
       id = actives[0]!.record!.id;
     }
     const rec = requireInstance(id);
-    if (args.app) {
-      // app 不归 core：它自己管 desktop profile、不监听端口，PAL 只 spawn + 记 pid
-      assertAppStartable(rec, args.profile === undefined ? {} : { profile: String(args.profile) });
-      if (args.restart !== undefined) {
-        throw new PalError('invalid-input', '--restart 只对 core 托管的常驻服务有意义：--app 不归 core 看护', {
-          hint: 'app 自己活着；要重起先 pal stop <名字> 再 pal start <名字> --app。',
-        });
+    const adapter = requireAdapter(rec.harness);
+
+    // --list-modes：只看表，不启动、不拉起 core
+    if (args['list-modes']) {
+      printModes(rec, adapter, Boolean(args.json));
+      return;
+    }
+
+    const { mode } = resolveLaunchMode(rec, args.mode === undefined ? undefined : String(args.mode));
+    // 先在当前 home 上核对可用性（例如 dsh 的 app 只对 attached 开放），再看参数与模式配不配
+    assertModeAvailable(rec, mode);
+    const profile = resolveStartProfile(rec, mode, args.profile === undefined ? undefined : String(args.profile));
+    assertModeArgs(mode, {
+      restart: args.restart === undefined ? undefined : String(args.restart),
+      port: args.port === undefined ? undefined : String(args.port),
+      dir: args.dir === undefined ? undefined : String(args.dir),
+      id: rec.id,
+    });
+
+    if (mode.kind === 'foreground') {
+      // 前台模式：原 pal run 的行为，退出码透传，不写运行记录
+      const plan = foregroundPlan(rec, adapter, mode, args.dir === undefined ? {} : { dir: String(args.dir) });
+      if (args.json) {
+        console.log(JSON.stringify({ mode: mode.id, ...plan }, null, 2));
+        return;
       }
-      if (args.port !== undefined) {
-        throw new PalError('invalid-input', '--port 只对 web 页面有意义：--app 不监听端口', {
-          hint: 'app 用 desktop profile，不起本地端口；要指定端口就去掉 --app 起 web。',
-        });
-      }
-      const record = startAppInstance(rec.id);
+      process.exitCode = (await spawnForeground(plan)) ?? 1;
+      return;
+    }
+
+    if (mode.kind === 'app') {
+      // app 不归 core：自己管状态、不监听端口，PAL 只 spawn + 记 pid
+      const record = startAppInstance(rec.id, { mode });
       if (args.json) {
         console.log(JSON.stringify(record, null, 2));
         return;
       }
-      console.log(`✓ ${record.name}  app running  pid ${record.pid ?? '-'}`);
-      console.log(`  窗口已启动（DeepSeek Harness）；停止用 pal stop ${record.name}`);
+      console.log(`✓ ${record.name}  ${mode.id} running  pid ${record.pid ?? '-'}`);
+      console.log(`  窗口已启动（${mode.label}）；停止用 pal stop ${record.name}`);
       return;
     }
-    const spec = requireHarness(rec.harness);
-    // profile 先解析核对：非 dsh 传 --profile 是用法错，别被后面的能力判断盖掉；
-    // attached dsh 指定不存在的 profile 也在这里退 2，不会拉起 core、更不会 spawn
-    const profile = resolveStartProfile(rec, args.profile === undefined ? undefined : String(args.profile));
-    if (spec.start?.mode === 'foreground') {
-      throw new PalError(
-        'invalid-input',
-        `宿主 ${rec.harness} 是前台 TUI：用 pal run ${rec.id} [--dir <目录>]；server 型才用 pal start`,
-      );
-    }
+
+    // server 模式：现有 core 路径
     if (args.restart) {
-      const mode = String(args.restart);
-      if (mode !== 'on-failure' && mode !== 'never') {
+      const restart = String(args.restart);
+      if (restart !== 'on-failure' && restart !== 'never') {
         throw new PalError('invalid-input', '--restart 只支持 on-failure / never');
       }
-      rec.restart = mode;
+      rec.restart = restart;
       writeInstance(rec);
     }
     const record = await coreCall<InstanceRecord>('start', {
       id: rec.id,
+      mode: mode.id,
       ...(args.port ? { port: Number(args.port) } : {}),
       ...(profile.name ? { profile: profile.name } : {}),
     });
@@ -146,6 +169,74 @@ export const start = defineCommand({
     }
   },
 });
+
+/** `--list-modes`：人读一行一条，`--json` 给同一份事实的结构。 */
+function printModes(rec: InstanceRecord, adapter: HarnessAdapter, json: boolean): void {
+  const defaultId = adapter.defaultMode ?? adapter.modes[0]?.id;
+  const ctx = availabilityOf(rec);
+  if (json) {
+    console.log(
+      JSON.stringify(
+        {
+          harness: rec.harness,
+          label: adapter.label,
+          defaultMode: defaultId ?? null,
+          modes: adapter.modes.map((mode) => {
+            const reason = unavailableReason(mode, ctx);
+            return {
+              id: mode.id,
+              label: mode.label,
+              kind: mode.kind,
+              default: mode.id === defaultId,
+              available: reason === undefined,
+              ...(reason === undefined ? {} : { reason }),
+            };
+          }),
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+  if (adapter.modes.length === 0) {
+    console.log(`${rec.harness} 没有启动模式${adapter.noStartReason ? `：${adapter.noStartReason}` : ''}`);
+    return;
+  }
+  console.log(`${rec.harness} 的启动模式${defaultId ? `（默认 ${defaultId}）` : ''}：`);
+  for (const mode of adapter.modes) {
+    const reason = unavailableReason(mode, ctx);
+    const state = reason === undefined ? '可用' : `不可用：${reason}`;
+    const mark = mode.id === defaultId ? `默认  ${state}` : state;
+    console.log(`  ${mode.id.padEnd(6)} ${mode.kind.padEnd(10)} ${mark}  ${mode.label}`);
+  }
+}
+
+/**
+ * 参数与模式 kind 的匹配表：一条模式只接受它那条执行路径的参数，别的都退 2。
+ * 不静默忽略——`--port` 传给 TUI 会让人以为端口生效了。
+ */
+function assertModeArgs(
+  mode: LaunchMode,
+  args: { restart?: string; port?: string; dir?: string; id: string },
+): void {
+  const use = `${mode.id} 模式是 ${mode.kind}`;
+  if (args.restart !== undefined && mode.kind !== 'server') {
+    throw new PalError('invalid-input', `--restart 只对 server 模式有意义：${use}，不进 core 看护`, {
+      hint: `server 模式由 core 托管、崩了才需要重起；${mode.kind} 模式自己活着（app 用 pal stop 收回）`,
+    });
+  }
+  if (args.port !== undefined && mode.kind !== 'server') {
+    throw new PalError('invalid-input', `--port 只对 server 模式有意义：${use}，不监听端口`, {
+      hint: `要指定端口就用 server 模式（例如 pal start ${args.id} --mode web --port <端口>）`,
+    });
+  }
+  if (args.dir !== undefined && mode.kind !== 'foreground') {
+    throw new PalError('invalid-input', `--dir 只对前台模式有意义：${use}，不在终端里跑`, {
+      hint: `换工作目录是前台 exec 的事；app / server 的 cwd 由 PAL 定在 home 根`,
+    });
+  }
+}
 
 export const stop = defineCommand({
   meta: { name: 'stop', description: '停掉一个在跑的实例（只杀本实例 spawn 的进程；可疑 pid 默认拒杀）' },
