@@ -20,11 +20,17 @@ import { join } from 'node:path';
 import { destinationsOf } from '../destinations.ts';
 import { ISSUE_CODES } from '../issueCodes.ts';
 import { dshMcpLoaderEntry, DSH_MCP_ENTRY_PREFIX, toServerName } from '../mcp.ts';
-import type { Destination, DestinationContext, McpDialect } from './contract.ts';
+import type { Destination, DestinationContext, McpDialect, StartContext } from './contract.ts';
 import { registerHarness } from './contract.ts';
 
 /** web 子命令的 profile：启动模板与 startProfile 字段共用一份；没有 home 段时的兜底路径也用它。 */
 const DSH_WEB_PROFILE = 'web';
+
+/**
+ * 记录 / 安装参数里表示「全部已有 profile」的保留值（`pal install` 不带 `--profile` 就是它）。
+ * 它不是 dsh 认识的可启动 profile：一次启动只跑一个，落到默认 web。
+ */
+const PROFILE_ALL = 'all';
 
 /** headless 探针用的 profile（一次性问答，不进 web 壳）。 */
 const DSH_PROBE_PROFILE = 'headless';
@@ -184,6 +190,16 @@ function parseDshFinal(stdout: string): string {
   return stdout.trim();
 }
 
+/**
+ * 启动参数里的 profile：显式给的（`StartContext.profile`，来自 `pal start --profile` 或记录）
+ * 优先；没给、或给的是 `all` 这种「全部」取值时落回默认 web——dsh 一次只跑一个 profile，
+ * `all` 是安装范围，不是可启动的东西。
+ */
+function startProfileOf(ctx: StartContext): string {
+  const profile = ctx.profile?.trim();
+  return profile && profile !== PROFILE_ALL ? profile : DSH_WEB_PROFILE;
+}
+
 registerHarness({
   id: 'dsh',
   label: 'DeepSeek Harness',
@@ -204,9 +220,9 @@ registerHarness({
     command: 'dsh',
     // --profile 与 --patch 必须在子命令之前：之后会被当成 web app 自己的参数
     args: (ctx) => [
-      '--profile',
-      DSH_WEB_PROFILE,
-      ...(ctx.patchFile ? ['--patch', ctx.patchFile] : []),
+      DSH_PROFILE_FLAG,
+      startProfileOf(ctx),
+      ...(ctx.patchFile ? [DSH_PATCH_FLAG, ctx.patchFile] : []),
       '--no-open',
       '--port',
       String(ctx.port),

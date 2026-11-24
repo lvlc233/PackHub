@@ -21,6 +21,12 @@ export interface StartContext {
   home?: string;
   /** 额外补丁文件（dsh 这类宿主的 MCP 接线） */
   patchFile?: string;
+  /**
+   * 启动用的 profile（只有 dsh 这类有 profile 子空间的宿主读它）。不写 = 宿主自己的默认；
+   * `'all'` 这类「全部」取值不是可启动的 profile，宿主落回自己的默认（dsh 是 web）。
+   * 没有 profile 概念的宿主忽略。
+   */
+  profile?: string;
 }
 
 /** 启动模板：命令 + 参数拼法 + 从输出里认地址的正则。 */
@@ -201,7 +207,10 @@ export interface HarnessSpec {
    * 只用于备份/归档时剥离，不是安装落点：PAL 不往这些位置写东西。
    */
   credentialFiles?: string[];
-  /** 启动时带的 profile 名（宿主能力的一部分）；没有就不带 --profile */
+  /**
+   * 没有更具体的 profile 时启动用的默认 profile 名（宿主能力的一部分）；没有就不带 --profile。
+   * 调用方（PAL 的 `pal start --profile` / 记录的 profile）可以覆盖它，见 `StartContext.profile`。
+   */
   startProfile?: string;
   /** 启动模板；没有就说明这个宿主没有可托管的常驻服务 */
   start?: StartTemplate;

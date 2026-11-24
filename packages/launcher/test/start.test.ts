@@ -53,6 +53,20 @@ resources:
   return dir;
 };
 
+/**
+ * 一份 attached dsh home：给这些 profile 建好 `cordis.patch.yml`（attached 的 MCP 落点要求
+ * 文件已经存在——dsh 启动时才会生成 profile，PAL 不替它造）。
+ */
+function attachedDshHome(base: string, names: string[]): string {
+  const home = join(base, '.dsh');
+  for (const name of names) {
+    const dir = join(home, 'profiles', name);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'cordis.patch.yml'), '', 'utf8');
+  }
+  return home;
+}
+
 interface Seen {
   file?: string;
   args?: string[];
@@ -452,6 +466,98 @@ resources:
       expect(shim.args).toEqual(['--profile', 'web', '--port', '5123']);
       expect(shim.verbatim).toBe(false);
     }
+  });
+});
+
+describe('dsh 启动用的 profile', () => {
+  const PACK = (): string => MCP_PACK(join(tmp, 'mcp-pack-profile'));
+
+  /** 建一份 attached dsh home（profile patch 文件按需先放好），返回记录。 */
+  async function attached(
+    name: string,
+    profiles: string[],
+    recorded?: string,
+  ): Promise<{ id: string; home: string }> {
+    const home = attachedDshHome(join(tmp, name), profiles);
+    const rec = await createInstance({
+      name,
+      harness: 'dsh',
+      packDir: PACK(),
+      attachedHome: home,
+      ...(recorded ? { profile: recorded } : {}),
+    });
+    return { id: rec.id, home };
+  }
+
+  /** 起一次、拿真 argv；假宿主只写一行地址，不进真实 dsh。 */
+  async function argsOf(id: string, profile?: string): Promise<{ args: string[]; env: NodeJS.ProcessEnv }> {
+    const seen: Seen = {};
+    await startInstanceDetailed(id, {
+      spawn: fakeSpawn(seen, 'dsh web: http://127.0.0.1:51300/\n'),
+      timeoutMs: 3000,
+      isAlive: () => false,
+      ownerOf: () => 4100,
+      ...(profile ? { profile } : {}),
+    });
+    return { args: seen.args!, env: seen.options?.env as NodeJS.ProcessEnv };
+  }
+
+  function profileIn(args: string[]): string | undefined {
+    const at = args.indexOf('--profile');
+    return at < 0 ? undefined : args[at + 1];
+  }
+
+  it('attached 记录 profile=desktop：argv 用 desktop，DSH_HOME 仍是记录 home', async () => {
+    const { id, home } = await attached('attached-desktop', ['web', 'desktop'], 'desktop');
+    const { args, env } = await argsOf(id);
+
+    expect(profileIn(args)).toBe('desktop');
+    expect(args.indexOf('--profile')).toBeLessThan(args.indexOf('--no-open'));
+    // attached 启动仍把 DSH_HOME 指到记录里的 home（宿主真实的全局目录）
+    expect(env.DSH_HOME).toBe(home);
+  });
+
+  it('--profile 覆盖记录：记录是 desktop，这次用 web', async () => {
+    const { id } = await attached('attached-override', ['web', 'desktop'], 'desktop');
+    const { args } = await argsOf(id, 'web');
+    expect(profileIn(args)).toBe('web');
+  });
+
+  it('记录是 all（没写 profile）：用默认 web', async () => {
+    const { id } = await attached('attached-all', ['web', 'desktop']);
+    const { args } = await argsOf(id);
+    expect(profileIn(args)).toBe('web');
+  });
+
+  it('attached 指定不存在的 profile：退 invalid-input，不 spawn', async () => {
+    const { id } = await attached('attached-missing', ['web', 'desktop'], 'desktop');
+    let spawned = false;
+    let caught: unknown;
+    try {
+      await startInstance(id, {
+        profile: 'nope',
+        spawn: (file, args, options) => {
+          spawned = true;
+          return fakeSpawn({}, '')(file, args, options);
+        },
+        timeoutMs: 3000,
+        isAlive: () => false,
+      });
+    } catch (err) {
+      caught = err;
+    }
+    expect(isPalError(caught) && caught.code).toBe('invalid-input');
+    expect((caught as Error).message).toContain('nope');
+    expect((caught as { hint?: string }).hint).toContain('先启动一次 dsh');
+    expect(spawned).toBe(false);
+    // 记录仍是安装时的状态，没有被写成 running / broken
+    expect(requireInstance(id).status).not.toBe('running');
+  });
+
+  it('managed home 不核对 profile 目录：默认 web 照旧（现有行为不回归）', async () => {
+    const rec = await createInstance({ name: 'managed-default', harness: 'dsh', packDir: 'test/fixtures/packs/doc-review' });
+    const { args } = await argsOf(rec.id);
+    expect(profileIn(args)).toBe('web');
   });
 });
 

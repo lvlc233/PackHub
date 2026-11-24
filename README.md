@@ -33,10 +33,14 @@ pnpm pal uninstall --home ~/.codex
 # （一个 profile 都没有会退 2：先跑一次 dsh 生成 profile；装完新建的 profile 由 pal health 报缺、pal update 补）
 pnpm pal install test/fixtures/packs/team-conventions --host dsh --home ~/.dsh
 # 只装一个 profile：其余 profile 的 patch 不动；profile 不存在则退 2，不会创建
-pnpm pal install test/fixtures/packs/team-conventions --host dsh --home ~/.dsh --profile web
-# 换安装范围不用先 uninstall：web → desktop（摘掉 web 的 pal-mcp-*、写进 desktop、记录同步），
+# 记录里的 profile 就是 pal start 用的 profile，--profile 覆盖它；记录是 all 时用 web（输出里会说明）；
+# attached 下指定的 profile 必须已存在，否则退 2、不启动
+pnpm pal install test/fixtures/packs/team-conventions --host dsh --home ~/.dsh --profile desktop
+pnpm pal start dsh-lvlc233-team-conventions              # 用 desktop
+pnpm pal start dsh-lvlc233-team-conventions --profile web
+# 换安装范围不用先 uninstall：desktop → web（摘掉 desktop 的 pal-mcp-*、写进 web、记录同步），
 # --profile all 回到全部已有 profile
-pnpm pal update --home ~/.dsh --profile desktop
+pnpm pal update --home ~/.dsh --profile web
 pnpm pal update --home ~/.dsh --profile all
 pnpm pal verify --home ~/.dsh
 pnpm pal uninstall --home ~/.dsh

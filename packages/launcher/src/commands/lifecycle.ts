@@ -6,6 +6,7 @@ import { requireInstance, writeInstance, type InstanceRecord } from '../index.ts
 import { activeEntries } from '../active.ts';
 import { coreCall } from '../coreClient.ts';
 import { refreshStatuses, logFileOf } from '../start.ts';
+import { resolveStartProfile } from '../startProfile.ts';
 import { psReport } from '../ps.ts';
 import { discoverAll } from '../harness.ts';
 import { checkAll, checkInstance } from '../health.ts';
@@ -28,6 +29,11 @@ export const start = defineCommand({
       description: 'home id 或名字；不写就用当前 home（install / adopt 默认已把它设为当前）',
     },
     port: { type: 'string', description: '指定端口；被占时报告占用者' },
+    profile: {
+      type: 'string',
+      description:
+        'dsh 的 profile（只对 dsh 有意义）：不写用记录里的（记录是 all 时用 web）；指定了覆盖记录；attached home 下必须已存在',
+    },
     restart: { type: 'string', description: 'on-failure：崩了由 core 重起；never：不重起' },
     'no-open': { type: 'boolean', default: false, description: '起来后不用浏览器打开' },
     json: { type: 'boolean', default: false },
@@ -50,6 +56,9 @@ export const start = defineCommand({
     }
     const rec = requireInstance(id);
     const spec = requireHarness(rec.harness);
+    // profile 先解析核对：非 dsh 传 --profile 是用法错，别被后面的能力判断盖掉；
+    // attached dsh 指定不存在的 profile 也在这里退 2，不会拉起 core、更不会 spawn
+    const profile = resolveStartProfile(rec, args.profile === undefined ? undefined : String(args.profile));
     if (spec.start?.mode === 'foreground') {
       throw new PalError(
         'invalid-input',
@@ -67,6 +76,7 @@ export const start = defineCommand({
     const record = await coreCall<InstanceRecord>('start', {
       id: rec.id,
       ...(args.port ? { port: Number(args.port) } : {}),
+      ...(profile.name ? { profile: profile.name } : {}),
     });
     if (args.json) {
       console.log(JSON.stringify(record, null, 2));
@@ -75,6 +85,11 @@ export const start = defineCommand({
     console.log(`✓ ${record.id}  running  pid ${record.pid ?? '-'}`);
     console.log(`  ${record.url ?? ''}`);
     console.log(`  日志：${logFileOf(record)}`);
+    // 记录是 all（dsh attached 的缺省）时启动没有可选的具体 profile：用宿主的默认 web，
+    // 说清这一行，免得以为记录里的 all 被当成了某个 profile
+    if (profile.source === 'default' && profile.name !== undefined && rec.attached === true) {
+      console.log(`记录是 all，本次用 profile=${profile.name}；要指定用 pal start --profile <名字>`);
+    }
   },
 });
 

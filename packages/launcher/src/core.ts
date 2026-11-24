@@ -156,7 +156,7 @@ export function releaseCoreLock(home: string, fd: number): void {
 }
 
 export interface CoreOps {
-  start?: (id: string, params: { port?: number }) => Promise<InstanceRecord>;
+  start?: (id: string, params: { port?: number; profile?: string }) => Promise<InstanceRecord>;
   stop?: (id: string, force: boolean) => Promise<InstanceRecord>;
   restart?: (id: string) => Promise<InstanceRecord>;
   watch?: () => Promise<WatchStats>;
@@ -246,7 +246,12 @@ export async function startCore(options: StartCoreOptions = {}): Promise<PalCore
 
   const startOp: NonNullable<CoreOps['start']> =
     options.ops?.start ??
-    ((id, params) => startInstance(id, { ...(params.port ? { port: params.port } : {}), supervise: true }));
+    ((id, params) =>
+      startInstance(id, {
+        ...(params.port ? { port: params.port } : {}),
+        ...(params.profile ? { profile: params.profile } : {}),
+        supervise: true,
+      }));
   const stopOp: NonNullable<CoreOps['stop']> =
     options.ops?.stop ?? ((id, force) => stopInstance(id, force ? { force: true } : {}));
   const restartOp: NonNullable<CoreOps['restart']> =
@@ -309,7 +314,12 @@ export async function startCore(options: StartCoreOptions = {}): Promise<PalCore
   const rpc: Record<string, (params: Record<string, unknown>) => Promise<unknown>> = {
     start: (params) => {
       const port = typeof params.port === 'number' ? params.port : undefined;
-      return startOp(String(params.id ?? ''), { ...(port ? { port } : {}) });
+      // profile 只透传：解析与核对在 startInstance 里做（一次逻辑，restart / 看护也走同一份）
+      const profile = typeof params.profile === 'string' && params.profile.trim() ? params.profile.trim() : undefined;
+      return startOp(String(params.id ?? ''), {
+        ...(port ? { port } : {}),
+        ...(profile ? { profile } : {}),
+      });
     },
     stop: (params) => stopOp(String(params.id ?? ''), params.force === true),
     restart: (params) => restartOp(String(params.id ?? '')),

@@ -46,6 +46,23 @@ review: 格式升版、字段增删、apiVersion 变化时
 | 持久信任公钥 | `packhub.dev/trust/v0` | `packages/runtime/src/trust.ts` |
 
 
+## 0.5 宿主启动上下文（`StartContext`）
+
+`HarnessSpec.start.args(ctx)` 的入参，由 PAL 在 spawn 前构造（`packages/kernel/src/harness/contract.ts`）：
+
+| 字段 | 形 | 含义 |
+|---|---|---|
+| `port` | number | 本次分配的端口，宿主必须监听它 |
+| `root` | string | 实例根 |
+| `home` | string? | 实例自己的 home 段；没有 home 的宿主不写 |
+| `patchFile` | string? | 额外补丁层（dsh 的 MCP 接线走 `--patch`） |
+| `profile` | string? | 启动用的 profile；没有 profile 概念的宿主忽略 |
+
+`profile` 现在只有 dsh 读（`startProfile: 'web'` 是它的默认值）。解析在 launcher，按 `pal start --profile <名字>` > 记录里的 `profile`（`packhub.dev/instance/v0` 的可选字段；`all` = 没记）> 宿主默认。`all` 不是可启动的 profile：记录是 `all` 时落回默认 `web`，显式 `pal start --profile all` 退 2（一次只起一个）；kernel 的 dsh 模板对 `all` 同样落回 `web`。attached dsh 在 spawn 前核对 `<home>/profiles/<名字>` 存在，不存在报 `invalid-input`（退出 2）、不创建、不 spawn；managed 的实例 home 不核对（profile 由实例自己第一次启动生成）。非 dsh 宿主收到 `--profile` 是用法错（退出 2），不静默忽略。
+
+dsh 的 argv 形状固定为 `--profile <名字> [--patch <文件>] --no-open --port <端口>`：`--profile` / `--patch` 必须在子命令参数之前，否则会被当成 web app 自己的参数。
+
+
 ## 1 Manifest（`packhub.dev/v0`）
 
 清单 `packhub.yaml` 的形状由 schema 给出（`schema/packhub.v0.schema.json`）。顶层字段是 `apiVersion` / `kind` / `metadata` / `requires` / `vars` / `context` / `resources` / `state` / `modify` / `signatures` / `install` / `verify`；接线不占顶层字段，写在资源自己的 `provides` / `needs` 上：

@@ -76,7 +76,9 @@ describe('core：单例、发现、转发', () => {
   });
 
   it('start/stop/restart 转给注入的实现，参数原样过去', async () => {
-    const start = vi.fn(async (id: string, params: { port?: number }) => record(`${id}:${params.port ?? '-'}`));
+    const start = vi.fn(async (id: string, params: { port?: number; profile?: string }) =>
+      record(`${id}:${params.port ?? '-'}:${params.profile ?? '-'}`),
+    );
     const stop = vi.fn(async (id: string, force: boolean) => record(`${id}:${force ? 'force' : 'soft'}`, 'stopped'));
     const restart = vi.fn(async (id: string) => record(`${id}:restart`));
     const core = await startCore({ home: tmp, supervise: false, log: () => {}, ops: { start, stop, restart } });
@@ -84,8 +86,14 @@ describe('core：单例、发现、转发', () => {
 
     const started = await call(core, 'start', { id: 'a', port: 5123 });
     expect(started.status).toBe(200);
-    expect(started.body.result.id).toBe('a:5123');
+    expect(started.body.result.id).toBe('a:5123:-');
+    // 没给 profile：params 里不多出字段（startInstance 按记录/默认解析）
     expect(start).toHaveBeenCalledWith('a', { port: 5123 });
+
+    // CLI 的 --profile 由 core 原样转给 startInstance
+    const withProfile = await call(core, 'start', { id: 'a2', port: 5124, profile: 'desktop' });
+    expect(withProfile.body.result.id).toBe('a2:5124:desktop');
+    expect(start).toHaveBeenCalledWith('a2', { port: 5124, profile: 'desktop' });
 
     const stopped = await call(core, 'stop', { id: 'b', force: true });
     expect(stopped.body.result.id).toBe('b:force');

@@ -24,6 +24,7 @@ import {
 import { clearSecrets, splitUrl, writeSecrets } from './secrets.ts';
 import { isPidAlive, killTree, waitForExit } from './process.ts';
 import { writeDshMcpPatch } from './mcp.ts';
+import { resolveStartProfile } from './startProfile.ts';
 import { clearStopping, isStopping, markStopping } from './stopMark.ts';
 
 export type SpawnFn = (
@@ -231,6 +232,11 @@ export interface StartOptions {
    * 传了按名覆盖前面的结果（也就能把被剔除的项显式给回去）。
    */
   env?: Record<string, string>;
+  /**
+   * 这次启动用的 profile（只有声明了 `startProfile` 的宿主读它，现在只有 dsh）。
+   * 不写 = 用记录里的 profile，再没有就用宿主默认；显式给了就覆盖记录。
+   */
+  profile?: string;
 }
 
 export interface StartResult {
@@ -284,6 +290,10 @@ export async function startInstanceDetailed(
       details: { pid: rec.pid, port: rec.port },
     });
   }
+
+  // profile 是用法层的输入：先解析并核对（attached dsh 的 profile 必须已存在），
+  // 免得等到 spawn 之后才让宿主拿一个空壳目录起不来
+  const startProfile = resolveStartProfile(rec, opts.profile);
 
   // 启动前自愈：上一轮留下的 pid 已经不在了，先把它标成异常，别拿旧端口当活的
   if (rec.pid && !alive(rec.pid)) {
@@ -342,6 +352,7 @@ export async function startInstanceDetailed(
     root: rec.root,
     ...(rec.home ? { home: rec.home } : {}),
     ...(patchFile ? { patchFile } : {}),
+    ...(startProfile.name ? { profile: startProfile.name } : {}),
   });
   // 只给宿主它跑起来需要的：整份 process.env 会把 PAL 的 key/代理/PACKHUB_* 带进去，
   // 实例的隔离就靠实例自己的 home（homeEnv）与凭据播种，环境穿透等于绕开它
