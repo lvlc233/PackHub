@@ -367,8 +367,9 @@ export async function startInstanceDetailed(
       cwd: rec.root,
       env,
       stdio: ['ignore', log.fd, log.fd],
-      // 实例要在 core 退出后继续跑：只有脱离当前进程组才不会被一起收掉。
-      detached: true,
+      // Windows 上 detached 会让子进程拿不到有效的 stdout/文件句柄（宿主输出直接丢，日志空→等 URL 超时），
+      // 而子进程本来就能比 core 活得久（没进 Job Object），所以只在 POSIX 上脱离进程组。
+      detached: process.platform !== 'win32',
       windowsHide: true,
       ...(plan.verbatim ? { windowsVerbatimArguments: true } : {}),
     });
