@@ -1,9 +1,12 @@
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+// 真链路（CLI → core → spawn）在跑全量时会被拖慢：单文件基准 13s，满载可到 40s+
+vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
 
 /**
  * `pal start --profile` 的 CLI 行为：解析顺序与提示由命令层定，argv 由 kernel 的启动模板定。
