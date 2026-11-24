@@ -86,8 +86,8 @@ describe('默认 target：三个新宿主的 managed home 布局', () => {
     );
     expect(config.mcp.servers['pack-search']).toMatchObject({ type: 'local' });
     expect(config.mcp.servers['pack-search']).toHaveProperty('command');
-    // 指令文件在实例根
-    expect(existsSync(join(root, 'AGENTS.md'))).toBe(true);
+    // 指令文件在全局配置 home（XDG 那层）里，和 opencode 自己读的位置一致
+    expect(existsSync(join(root, 'home/opencode/opencode/AGENTS.md'))).toBe(true);
     rmSync(base, { recursive: true, force: true });
   });
 
@@ -103,7 +103,7 @@ describe('默认 target：三个新宿主的 managed home 布局', () => {
       join(root, 'home/codebuddy/mcp.json'),
     );
     expect(Object.keys(config.mcpServers)).toContain('pack-search');
-    expect(existsSync(join(root, 'CODEBUDDY.md'))).toBe(true);
+    expect(existsSync(join(root, 'home/codebuddy/CODEBUDDY.md'))).toBe(true);
     rmSync(base, { recursive: true, force: true });
   });
 

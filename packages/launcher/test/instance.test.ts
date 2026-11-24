@@ -1413,7 +1413,7 @@ resources:
     });
     const home = record.home!;
     expect(readFileSync(join(home, '.credentials.yaml'), 'utf8')).toContain('sk-test');
-    expect(readFileSync(join(home, 'AGENTS.md'), 'utf8')).toContain('全局指令');
+    expect(readFileSync(join(home, 'AGENTS.md'), 'utf8')).toContain('packhub:begin');
     expect(existsSync(join(home, 'sessions'))).toBe(false);
     expect(readFileSync(join(home, 'skills', 'doc-review', 'SKILL.md'), 'utf8')).not.toContain('全局版');
     expect(record.origin?.seededFrom).toBe(source);
