@@ -1,5 +1,6 @@
 // pal start / stop / restart / ps / health / logs：实例的运行态。
 import { defineCommand } from 'citty';
+import { spawn } from 'node:child_process';
 import pkg from '../../package.json' with { type: 'json' };
 import { requireHarness } from '@packhub/kernel';
 import { requireInstance, writeInstance, type InstanceRecord } from '../index.ts';
@@ -15,6 +16,25 @@ import { palHomeInfo } from '../paths.ts';
 import { PalError } from '../errors.ts';
 import { collectLeftovers, printLeftovers } from './carry.ts';
 import { requireTarget } from './shared.ts';
+
+/** 用系统默认浏览器打开地址；后台进程、不等它、失败也不影响启动结果。 */
+function openInBrowser(url: string): void {
+  const [command, args] =
+    process.platform === 'win32'
+      ? ['cmd', ['/c', 'start', '', url]]
+      : process.platform === 'darwin'
+        ? ['open', [url]]
+        : ['xdg-open', [url]];
+  try {
+    const child = spawn(command, args, { detached: true, stdio: 'ignore' });
+    child.on('error', () => {
+      /* 打不开就算了：URL 已经打印出来 */
+    });
+    child.unref();
+  } catch {
+    /* 同上 */
+  }
+}
 
 export const start = defineCommand({
   meta: {
@@ -85,6 +105,11 @@ export const start = defineCommand({
     console.log(`✓ ${record.id}  running  pid ${record.pid ?? '-'}`);
     console.log(`  ${record.url ?? ''}`);
     console.log(`  日志：${logFileOf(record)}`);
+    // server 型宿主起来后默认用系统浏览器打开页面；--no-open / --json / 非 TTY 不打开
+    if (!args['no-open'] && record.url && process.stdout.isTTY) {
+      openInBrowser(record.url);
+      console.log('  已用默认浏览器打开（--no-open 可关）');
+    }
     // 记录是 all（dsh attached 的缺省）时启动没有可选的具体 profile：用宿主的默认 web，
     // 说清这一行，免得以为记录里的 all 被当成了某个 profile
     if (profile.source === 'default' && profile.name !== undefined && rec.attached === true) {
