@@ -74,6 +74,11 @@ export const start = defineCommand({
     },
     'no-open': { type: 'boolean', default: false, description: 'server 起来后不用浏览器打开' },
     dir: { type: 'string', description: '前台模式的工作目录（覆盖 launch.json）；只对前台模式有意义' },
+    'home-root': {
+      type: 'boolean',
+      default: false,
+      description: '前台模式在 home 根启动（默认在当前目录）；与 --dir 互斥',
+    },
     json: { type: 'boolean', default: false },
   },
   async run({ args }) {
@@ -111,10 +116,23 @@ export const start = defineCommand({
       dir: args.dir === undefined ? undefined : String(args.dir),
       id: rec.id,
     });
+    if (args['home-root'] && mode.kind !== 'foreground') {
+      throw new PalError('invalid-input', '--home-root 只对前台模式有意义', {
+        hint: `当前模式 ${mode.id} 是 ${mode.kind}；工作目录选项只影响前台模式`,
+      });
+    }
+    if (args['home-root'] && args.dir !== undefined) {
+      throw new PalError('invalid-input', '--home-root 与 --dir 只能给一个', {
+        hint: '--home-root 在 home 根启动；--dir 指定别的工作目录',
+      });
+    }
 
     if (mode.kind === 'foreground') {
       // 前台模式：原 pal run 的行为，退出码透传，不写运行记录
-      const plan = foregroundPlan(rec, adapter, mode, args.dir === undefined ? {} : { dir: String(args.dir) });
+      const plan = foregroundPlan(rec, adapter, mode, {
+        ...(args.dir === undefined ? {} : { dir: String(args.dir) }),
+        ...(args['home-root'] ? { homeRoot: true } : {}),
+      });
       if (args.json) {
         console.log(JSON.stringify({ mode: mode.id, ...plan }, null, 2));
         return;

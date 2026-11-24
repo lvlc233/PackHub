@@ -48,23 +48,23 @@ export interface ForegroundPlan {
  * 拼前台启动计划。
  *
  * - 命令：模式的 `command`，缺省用宿主可执行名；
- * - 工作目录：`--dir` > launch.json 的 `dir` > attached home 用当前目录 / managed 用 home 根；
+ * - 工作目录：`--dir` > `--home-root`（home 根）> launch.json 的 `dir` > 当前目录；
  * - 环境：attached home 不注入 home 环境变量（宿主本来就用它的全局位置），managed 注入。
  */
 export function foregroundPlan(
   record: InstanceRecord,
   adapter: HarnessAdapter,
   mode: LaunchMode,
-  opts: { dir?: string } = {},
+  opts: { dir?: string; homeRoot?: boolean } = {},
 ): ForegroundPlan {
   const launch = readLaunch(record.root);
   const cwd = opts.dir
     ? resolve(opts.dir)
-    : launch.dir
-      ? resolve(record.root, launch.dir)
-      : record.attached === true
-        ? process.cwd()
-        : record.root;
+    : opts.homeRoot
+      ? record.root
+      : launch.dir
+        ? resolve(record.root, launch.dir)
+        : process.cwd();
   const argv = [
     ...(mode.args?.({
       port: 0,

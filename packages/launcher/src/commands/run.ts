@@ -21,7 +21,8 @@ export const run = defineCommand({
   },
   args: {
     target: { type: 'positional', required: true, description: 'home id 或名字' },
-    dir: { type: 'string', description: '覆盖 launch.json 的工作目录（默认 home 根）' },
+    dir: { type: 'string', description: '工作目录（覆盖 launch.json；默认当前目录）' },
+    'home-root': { type: 'boolean', default: false, description: '在 home 根启动（默认在当前目录）；与 --dir 互斥' },
     init: { type: 'boolean', default: false, description: `生成空的 ${LAUNCH_FILE} 模板（已存在则不覆盖）` },
     'dry-run': { type: 'boolean', default: false, description: '只打印合并后的命令/环境变量/cwd，不启动' },
     json: { type: 'boolean', default: false },
@@ -53,7 +54,15 @@ export const run = defineCommand({
         },
       );
     }
-    const plan = foregroundPlan(rec, adapter, mode, args.dir ? { dir: String(args.dir) } : {});
+    if (args['home-root'] && args.dir !== undefined) {
+      throw new PalError('invalid-input', '--home-root 与 --dir 只能给一个', {
+        hint: '--home-root 在 home 根启动；--dir 指定别的工作目录',
+      });
+    }
+    const plan = foregroundPlan(rec, adapter, mode, {
+      ...(args.dir ? { dir: String(args.dir) } : {}),
+      ...(args['home-root'] ? { homeRoot: true } : {}),
+    });
     if (args['dry-run'] || args.json) {
       console.log(JSON.stringify(plan, null, 2));
       return;
