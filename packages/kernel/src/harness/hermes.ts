@@ -37,7 +37,7 @@ const HOME = destinationsOf(
     knowledge: `${HOME_DIR}/knowledge`,
     prompt: `${HOME_DIR}/prompts`,
     mcp: `${HOME_DIR}/config.yaml`,
-    instruction: 'AGENTS.md',
+    instruction: `${HOME_DIR}/AGENTS.md`,
   },
   MCP,
 );

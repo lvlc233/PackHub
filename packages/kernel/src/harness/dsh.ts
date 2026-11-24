@@ -58,7 +58,7 @@ const HOME = destinationsOf({
   skill: `${HOME_DIR}/skills`,
   knowledge: `${HOME_DIR}/knowledge`,
   prompt: `${HOME_DIR}/prompts`,
-  instruction: 'AGENTS.md',
+  instruction: `${HOME_DIR}/AGENTS.md`,
 });
 
 /** attached：root 与 home 同值，技能 / 知识 / 提示词 / 指令都相对 home；MCP 另算（按 profile）。 */

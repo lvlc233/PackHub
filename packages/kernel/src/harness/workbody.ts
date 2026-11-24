@@ -30,7 +30,7 @@ const HOME = destinationsOf({
   knowledge: `${HOME_DIR}/knowledge`,
   prompt: `${HOME_DIR}/prompts`,
   mcp: `${HOME_DIR}/mcp.json`,
-  instruction: 'CODEBUDDY.md',
+  instruction: `${HOME_DIR}/CODEBUDDY.md`,
 });
 
 /** attached home = 真实的 `~/.codebuddy`：根就是 home，落点相对它。 */

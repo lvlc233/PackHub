@@ -20,7 +20,7 @@ const HOME = destinationsOf({
   skill: `${HOME_DIR}/skills`,
   knowledge: `${HOME_DIR}/knowledge`,
   prompt: `${HOME_DIR}/prompts`,
-  instruction: 'AGENTS.md',
+  instruction: `${HOME_DIR}/AGENTS.md`,
 });
 
 /** attached：root 与 home 同值，MCP 是 home 里的 config.toml（TOML 方言由执行器按后缀识别）。 */

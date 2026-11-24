@@ -24,7 +24,7 @@ const HOME = destinationsOf({
   knowledge: `${HOME_DIR}/knowledge`,
   prompt: `${HOME_DIR}/prompts`,
   mcp: '.mcp.json',
-  instruction: 'CLAUDE.md',
+  instruction: `${HOME_DIR}/CLAUDE.md`,
 });
 
 /** attached：root 与 home 同值；只有 MCP 配置在 home 旁边（`~/.claude.json`）。 */
