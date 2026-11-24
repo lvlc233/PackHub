@@ -200,6 +200,11 @@ export const install = defineCommand({
       type: 'string',
       description: '项目级 target：宿主会打开的项目目录（不存在会创建）',
     },
+    root: {
+      type: 'string',
+      description:
+        'managed home 的根目录（默认 PAL 数据目录；必须绝对路径，不能与 --home / --project 同用）',
+    },
     profile: {
       type: 'string',
       description:
@@ -253,6 +258,13 @@ export const install = defineCommand({
     const fromHome =
       args['from-home'] === undefined ? undefined : homePathInput(args['from-home'], '--from-home 的目录');
     const source = String(args.source);
+    if (args.root !== undefined && target !== 'managed') {
+      throw new PalError('invalid-input', '--root 只能配默认 target（managed 命名 home）', {
+        hint: 'attached 用 --home 指定目录；项目用 --project 指定项目目录',
+      });
+    }
+    const homeRoot =
+      args.root === undefined ? undefined : homePathInput(String(args.root), '--root 的目录');
 
     if (target === 'project') {
       const projectDir = String(args.project);
@@ -401,6 +413,7 @@ export const install = defineCommand({
       harness: hostId,
       packDir,
       packRef: source,
+      ...(homeRoot ? { root: homeRoot } : {}),
       ...(info?.version ? { harnessVersion: info.version } : {}),
       ...(fromHome ? { fromHome } : {}),
       onWarn: log,
