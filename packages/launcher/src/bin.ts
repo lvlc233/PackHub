@@ -137,6 +137,18 @@ async function run(): Promise<void> {
     await printHelp();
     return;
   }
+  // 不带命令：直接把帮助打出来（比 citty 的 "No command specified" 有用）
+  if (rawArgs.length === 0) {
+    await printHelp();
+    return;
+  }
+  // 顶层出现未知选项：给可行动的话，别落到 citty 的 "No command specified"
+  const first = rawArgs[0];
+  if (first && first.startsWith('-')) {
+    throw new PalError('invalid-input', `未知参数 ${first}`, {
+      hint: '看命令：pal --help；列 home：pal list；某个命令的参数：pal <命令> --help',
+    });
+  }
   rejectRenamedFlags();
   await runCommand(main, { rawArgs });
 }
