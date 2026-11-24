@@ -49,7 +49,9 @@ const HOME = destinationsOf(
     knowledge: `${HOME_DIR}/opencode/knowledge`,
     prompt: `${HOME_DIR}/opencode/prompts`,
     mcp: `${HOME_DIR}/opencode/opencode.json`,
-    instruction: 'AGENTS.md',
+    // 全局指令：opencode 读 `$XDG_CONFIG_HOME/opencode/AGENTS.md`（见 Instructions 文档），
+    // managed 的 XDG_CONFIG_HOME 是 `<home>`，所以要多一层 opencode/
+    instruction: `${HOME_DIR}/opencode/AGENTS.md`,
   },
   MCP,
 );

@@ -141,6 +141,7 @@ describe('落点归宿主：每个宿主回答每类资源落在哪', () => {
         knowledge: 'home/opencode/opencode/knowledge',
         prompt: 'home/opencode/opencode/prompts',
         mcp: 'home/opencode/opencode/opencode.json',
+        instruction: 'home/opencode/opencode/AGENTS.md',
       },
       workbody: {
         skill: 'home/codebuddy/skills',
@@ -429,7 +430,9 @@ verify:
       'home/opencode/opencode/opencode.json',
       '.packhub',
     ]);
-    expect(managed.verify).toEqual([{ type: 'file-exists', path: 'AGENTS.md' }]);
+    expect(managed.verify).toEqual([
+      { type: 'file-exists', path: 'home/opencode/opencode/AGENTS.md' },
+    ]);
     rmSync(dir, { recursive: true, force: true });
   });
 
