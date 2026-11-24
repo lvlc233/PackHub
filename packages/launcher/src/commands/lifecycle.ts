@@ -7,6 +7,7 @@ import { requireInstance, writeInstance, type InstanceRecord } from '../index.ts
 import { activeEntries } from '../active.ts';
 import { coreCall } from '../coreClient.ts';
 import { refreshStatuses, logFileOf } from '../start.ts';
+import { assertAppStartable, startAppInstance } from '../startApp.ts';
 import { resolveStartProfile } from '../startProfile.ts';
 import { psReport } from '../ps.ts';
 import { discoverAll } from '../harness.ts';
@@ -40,7 +41,7 @@ export const start = defineCommand({
   meta: {
     name: 'start',
     description:
-      '起一个 home（交给 core：崩了由它按 --restart 看护）。不写目标时用「当前 home」：install/adopt 默认会把它设为当前；多个宿主各有当前 home 时要求显式指定',
+      '起一个 home（交给 core：崩了由它按 --restart 看护；--app 起 dsh 桌面 app，不进 core）。不写目标时用「当前 home」：install/adopt 默认会把它设为当前；多个宿主各有当前 home 时要求显式指定',
   },
   args: {
     target: {
@@ -52,7 +53,13 @@ export const start = defineCommand({
     profile: {
       type: 'string',
       description:
-        'dsh 的 profile（只对 dsh 有意义）：不写用记录里的（记录是 all 时用 web）；指定了覆盖记录；attached home 下必须已存在',
+        'dsh 的 profile（只对 dsh 有意义）：不写用记录里的（记录是 all 时用 web）；指定了覆盖记录；attached home 下必须已存在；与 --app 互斥',
+    },
+    app: {
+      type: 'boolean',
+      default: false,
+      description:
+        'dsh 桌面 app（Electron 窗口）而不是 web 页面：只对 attached dsh 有意义；不分配端口、不等 URL、不打开浏览器；可执行文件按 PAL_DSH_APP_BIN / Windows 常见安装位置查找',
     },
     restart: { type: 'string', description: 'on-failure：崩了由 core 重起；never：不重起' },
     'no-open': { type: 'boolean', default: false, description: '起来后不用浏览器打开' },
@@ -75,6 +82,28 @@ export const start = defineCommand({
       id = actives[0]!.record!.id;
     }
     const rec = requireInstance(id);
+    if (args.app) {
+      // app 不归 core：它自己管 desktop profile、不监听端口，PAL 只 spawn + 记 pid
+      assertAppStartable(rec, args.profile === undefined ? {} : { profile: String(args.profile) });
+      if (args.restart !== undefined) {
+        throw new PalError('invalid-input', '--restart 只对 core 托管的常驻服务有意义：--app 不归 core 看护', {
+          hint: 'app 自己活着；要重起先 pal stop <名字> 再 pal start <名字> --app。',
+        });
+      }
+      if (args.port !== undefined) {
+        throw new PalError('invalid-input', '--port 只对 web 页面有意义：--app 不监听端口', {
+          hint: 'app 用 desktop profile，不起本地端口；要指定端口就去掉 --app 起 web。',
+        });
+      }
+      const record = startAppInstance(rec.id);
+      if (args.json) {
+        console.log(JSON.stringify(record, null, 2));
+        return;
+      }
+      console.log(`✓ ${record.name}  app running  pid ${record.pid ?? '-'}`);
+      console.log(`  窗口已启动（DeepSeek Harness）；停止用 pal stop ${record.name}`);
+      return;
+    }
     const spec = requireHarness(rec.harness);
     // profile 先解析核对：非 dsh 传 --profile 是用法错，别被后面的能力判断盖掉；
     // attached dsh 指定不存在的 profile 也在这里退 2，不会拉起 core、更不会 spawn

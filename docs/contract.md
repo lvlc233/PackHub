@@ -62,6 +62,8 @@ review: 格式升版、字段增删、apiVersion 变化时
 
 dsh 的 argv 形状固定为 `--profile <名字> [--patch <文件>] --no-open --port <端口>`：`--profile` / `--patch` 必须在子命令参数之前，否则会被当成 web app 自己的参数。
 
+`pal start <dsh home> --app` 不走 `StartContext`：不分配端口、不等 URL，直接 spawn dsh 的 Electron app。运行态写 `pid` / `spawnPid`（同值）、`status`、`startedAt`，**不写** `port` / `url` / `listenPid`；`stop` 用 spawnPid 杀，`ps` 的 port / url 为空，`health` 没有 `port` 项。只对 attached dsh 开放，与 `--profile` 互斥（见 decisions 的「app 启动只对 attached dsh」）。
+
 
 ## 1 Manifest（`packhub.dev/v0`）
 

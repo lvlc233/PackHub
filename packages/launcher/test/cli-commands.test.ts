@@ -1,10 +1,13 @@
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+// 有几条用例串行跑近十个真 CLI（每个都起 node 并加载全部模块），全量并发时 20s 默认值不够
+vi.setConfig({ testTimeout: 60_000 });
 
 const ROOT = fileURLToPath(new URL('../../..', import.meta.url));
 const BIN = join(ROOT, 'packages/launcher/src/bin.ts');

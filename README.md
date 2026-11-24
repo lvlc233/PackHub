@@ -38,6 +38,12 @@ pnpm pal install test/fixtures/packs/team-conventions --host dsh --home ~/.dsh
 pnpm pal install test/fixtures/packs/team-conventions --host dsh --home ~/.dsh --profile desktop
 pnpm pal start dsh-lvlc233-team-conventions              # 用 desktop
 pnpm pal start dsh-lvlc233-team-conventions --profile web
+# dsh 桌面 app（Electron 窗口）而不是 web 页面：只对 attached dsh；app 自己管 desktop profile，
+# 不能配 --profile / --port / --restart；不分配端口、不等 URL、不打开浏览器
+pnpm pal start dsh-lvlc233-team-conventions --app
+# app 可执行文件不在常见安装位置时，用 PAL_DSH_APP_BIN 指过去（下面按 PowerShell 写）
+$env:PAL_DSH_APP_BIN = 'C:\path\to\DeepSeek Harness.exe'
+pnpm pal start dsh-lvlc233-team-conventions --app
 # 换安装范围不用先 uninstall：desktop → web（摘掉 desktop 的 pal-mcp-*、写进 web、记录同步），
 # --profile all 回到全部已有 profile
 pnpm pal update --home ~/.dsh --profile web

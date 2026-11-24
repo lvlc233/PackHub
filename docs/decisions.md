@@ -3,7 +3,7 @@ kind: decision
 summary: 有意为之的取舍
 verified: 2026-11-24
 decay: 365
-review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增删、锁形状或签名载荷变化、接线规则再变、检查派生规则再变、安装参数或落点归属改名、dsh attached 的 profile 语义变化、升级清理的依据与撤销方式再变、patch 文件的编辑策略再变、路径基准或 state.written 形状再变、安装对象或命令族边界再变、命令层再出现例外、加 mac 门禁、命令面收缩）
+review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增删、锁形状或签名载荷变化、接线规则再变、检查派生规则再变、安装参数或落点归属改名、dsh attached 的 profile 语义变化、升级清理的依据与撤销方式再变、patch 文件的编辑策略再变、路径基准或 state.written 形状再变、安装对象或命令族边界再变、命令层再出现例外、加 mac 门禁、命令面收缩、dsh app 启动的适用范围变化）
 ---
 
 # PackHub 的取舍
@@ -265,3 +265,13 @@ README 只承诺分工：「packhub 做包与发版，pal 安装与运行」；C
 没选另一条：继续用 `parseDocument` 读入再整份写出。它对用户的缩进 / 引号 / 注释位置一律重排，而 patch 文件是用户自己也会写的配置；`[]` 这种流式空数组还会被写成跨行流式结构，越改越难看。
 
 代价：文本级编辑只能认少数形状——顶层不是块式数组、或者用户把我们的条目写成了流式 / 锚点形式，就走回退路径（排版会被重写，提示里说清楚）。追加时新建一条自己的 `- insert:` 项，而不是并进用户已有的 `insert` 列表（`insert` 里可能还有用户的 loader 条目）；同一文件里多个 Pack 各写一条，dsh 会把每条 patch 项都应用，条目按 `id` 认领，行为不变但文件里会出现多条 `- insert:`。替换已有条目时只重建那个 loader 行块（内部缩进用 `yaml` 的默认两空格步长），行首缩进沿用原行。
+
+### app 启动只对 attached dsh
+
+现状：`pal start <dsh home> --app` 直接 spawn dsh 的 Electron app（`PAL_DSH_APP_BIN` 优先，其次 Windows 常见安装位置），只对 attached dsh 开放；managed 记录传 `--app` 退 2，与 `--profile` 互斥，也不接受 `--port` / `--restart`。app 不进 core、不分配端口、不等 URL、不打开浏览器，运行态只记 `pid = spawnPid` 与 `startedAt`，`pal stop` 按 spawnPid 杀，`pal health` 只看进程在不在。
+
+没选另一条：让 managed 也能 `--app`（把实例 home 用 `DSH_HOME` 指过去），或让 app 走 core 的启动 / 看护。
+
+managed 的 home 是 PAL 数据目录下自己那一段，dsh app 认不认 `DSH_HOME`、认了之后会不会把 desktop profile 写到别处，都还没在真机上确认；未确认就开放，等于把「装进 PAL 数据目录」和「app 读写宿主全局状态」混在一起，出问题时分不清是谁改的。app 也不该由 core 看护：core 的重起走的是 web 启动路径（`--profile` + `--port`），拿它重起 app 会起出一份 web 页面，而不是窗口；所以 `--restart` 与 `--app` 互斥，`--port` 也没有落点。
+
+代价：managed 记录暂时没有 `--app` 入口，只能用 `--home` 的 attached dsh，或先 `pal start` 起 web；app 没有 URL / 端口，`pal ps` 的 port / url 为空、`pal logs` 没有启动输出（app 的输出不经过 PAL）、`pal health` 只能看进程在不在，连没连上 provider 看不到；`--app` 与 `--profile` / `--port` / `--restart` 都互斥，多几条要记的用法错；app 的退出事件没有人收，记录要等 `pal ps --refresh` 或下一轮 core 看护才会从 running 变成 broken；`pal restart` 仍按 web 路径重起，不会回到窗口。
