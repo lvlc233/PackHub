@@ -1,10 +1,10 @@
 // pal start / stop / restart / ps / health / logs：实例的运行态。
 import { defineCommand } from 'citty';
-import { spawn } from 'node:child_process';
 import pkg from '../../package.json' with { type: 'json' };
 import type { LaunchMode } from '@packhub/kernel';
 import { requireInstance, writeInstance, type InstanceRecord } from '../index.ts';
 import { activeEntries } from '../active.ts';
+import { openInBrowser } from '../browser.ts';
 import { coreCall } from '../coreClient.ts';
 import { refreshStatuses, logFileOf } from '../start.ts';
 import { startAppInstance } from '../startApp.ts';
@@ -20,25 +20,6 @@ import { palHomeInfo } from '../paths.ts';
 import { PalError } from '../errors.ts';
 import { collectLeftovers, printLeftovers } from './carry.ts';
 import { requireTarget } from './shared.ts';
-
-/** 用系统默认浏览器打开地址；后台进程、不等它、失败也不影响启动结果。 */
-function openInBrowser(url: string): void {
-  const [command, args] =
-    process.platform === 'win32'
-      ? ['cmd', ['/c', 'start', '', url]]
-      : process.platform === 'darwin'
-        ? ['open', [url]]
-        : ['xdg-open', [url]];
-  try {
-    const child = spawn(command, args, { detached: true, stdio: 'ignore' });
-    child.on('error', () => {
-      /* 打不开就算了：URL 已经打印出来 */
-    });
-    child.unref();
-  } catch {
-    /* 同上 */
-  }
-}
 
 export const start = defineCommand({
   meta: {

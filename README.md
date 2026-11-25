@@ -79,6 +79,11 @@ pnpm pal start claude-code-lvlc233-team-conventions --mode tui
 # 每个 home 可放 launch.json（args/env/dir）；pal run <home> --init 生成空模板，--dry-run 看合并结果
 # （前台模式与 run 读它；server / app 模式不读）
 
+# 本地可视化启动器：浏览器里列出 home，点按钮启动 / 停止、打开页面、看日志（只绑 127.0.0.1）
+# 默认端口 0（系统挑），起来后打印地址并按需用系统浏览器打开；--no-open 不打开，--json 只打印 {url, port}
+# 前台阻塞到 Ctrl+C；关掉它不影响已启动的实例，也不停 core。第一版没有安装表单
+pnpm pal ui
+
 # 接管已有目录成 attached home（只写记录，不装包、不动文件）；只看不接管用 adopt --scan
 pnpm pal adopt ~/.hermes --host hermes --name my-hermes
 pnpm pal install test/fixtures/packs/team-conventions --host hermes --home ~/.hermes
@@ -89,6 +94,8 @@ pnpm pal list --history            # install / update 写的审计
 pnpm pal verify --home <home> --accept   # 本地改动被接受，体检不再报漂移
 pnpm pal config <home> --name <新名字>    # 给 home 改名
 ```
+
+`pal ui` 的页面（单页、中文、不引框架与 CDN）：顶部是「刷新状态」与自动刷新开关；每个 home 一张卡片，写名字、宿主、Pack、状态与 attached 标记；卡片里按宿主声明的模式给按钮——server 起完给「打开页面」链接，app 是「启动 App」，前台模式显示「需终端」和可复制的 `pal run <名字>`；运行中的卡片有「停止」，「日志」打开侧栏显示最后 200 行。空状态只提示 `pal install …`——第一版不做安装表单。
 
 ## 代码分层
 

@@ -1,9 +1,9 @@
----
+﻿---
 kind: decision
 summary: 有意为之的取舍
-verified: 2026-11-24
+verified: 2026-11-25
 decay: 365
-review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增删、锁形状或签名载荷变化、接线规则再变、检查派生规则再变、安装参数或落点归属改名、dsh attached 的 profile 语义变化、升级清理的依据与撤销方式再变、patch 文件的编辑策略再变、路径基准或 state.written 形状再变、安装对象或命令族边界再变、命令层再出现例外、加 mac 门禁、命令面收缩、启动模式语义变化、dsh app 启动的适用范围变化）
+review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增删、锁形状或签名载荷变化、接线规则再变、检查派生规则再变、安装参数或落点归属改名、dsh attached 的 profile 语义变化、升级清理的依据与撤销方式再变、patch 文件的编辑策略再变、路径基准或 state.written 形状再变、安装对象或命令族边界再变、命令层再出现例外、加 mac 门禁、命令面收缩、启动模式语义变化、dsh app 启动的适用范围变化、pal ui 的职责边界变化）
 ---
 
 # PackHub 的取舍
@@ -283,3 +283,13 @@ README 只承诺分工：「packhub 做包与发版，pal 安装与运行」；C
 managed 的 home 是 PAL 数据目录下自己那一段，dsh app 认不认 `DSH_HOME`、认了之后会不会把 desktop profile 写到别处，都还没在真机上确认；未确认就开放，等于把「装进 PAL 数据目录」和「app 读写宿主全局状态」混在一起，出问题时分不清是谁改的。app 也不该由 core 看护：core 的重起走的是记录里那条 server 模式（`--profile` + `--port`），拿它重起 app 会起出一份 web 页面，而不是窗口；所以 app 模式不接 `--restart`，`--port` 也没有落点。
 
 代价：managed 记录暂时没有 app 入口，只能用 `--home` 的 attached dsh，或先 `pal start` 起 web；app 没有 URL / 端口，`pal ps` 的 port / url 为空、`pal logs` 没有启动输出（app 的输出不经过 PAL）、`pal health` 只能看进程在不在，连没连上 provider 看不到；app 的退出事件没有人收，记录要等 `pal ps --refresh` 或下一轮 core 看护才会从 running 变成 broken；`pal restart` 仍按 server 模式重起，不会回到窗口。
+
+### pal ui：本地 HTTP + 单页，只做启停与日志
+
+现状：`pal ui` 起一个只绑 `127.0.0.1` 的 HTTP 服务（默认端口 0 = 系统挑），返回一张单页 HTML：内联 CSS/JS、中文界面、不引框架与 CDN。`GET /api/instances` 从现有记录与适配器给出 home 列表和模式表（可用性按当前记录用 `unavailableReason` 现判）；`POST /api/start` 按 kind 分派——server 走 `coreCall('start')`（与 `pal start` 同一条 RPC，profile 用同一份 `resolveStartProfile`）、app 走 `startAppInstance`、前台模式直接 409 并给 `pal run <名字>`；`POST /api/stop` 按记录里上次的启动模式走 core stop 或 `stopInstance`；`GET /api/logs` 用现有 `readLog` 给 `start.log` 尾部（脱敏，默认 200 行、上限 2000）。页面每 2s 轮询 `/api/instances`，操作后立刻刷新。POST 要求 `content-type: application/json` 与 `x-pal-ui: 1`，否则 403。
+
+没选另一条：把启动器做成 Electron 壳，或在 `pal ui` 里一并做安装表单，或给这一页引前端框架/构建。
+
+Electron 壳已经删过一次（见「macOS 与 Electron 壳不在当前承诺内」）：多一套打包与更新，而这页只需要浏览器里的一张列表；壳还要求 PAL 进程跟着渲染进程生命周期走，启停却归 core。安装表单的输入就是一整套 target 规则（home / attached / 项目、`--host`、`--profile`、`--from-home`），第一版页面只回答「已经装好的 home 怎么跑起来」，把这套用法错复制进表单只会多一处要跟着改的界面。引框架意味着加依赖与构建产物，而页面只有列表、按钮和侧栏：几十行原生 JS 就够，动态内容用 `textContent` 写进去，天然避开名字与日志里的注入。
+
+代价：只绑本机——同一台机器上的其它进程能访问，想远程看得自己搞隧道，PAL 不提供；`x-pal-ui` + JSON content-type 只挡跨站表单，不挡本机进程，它是 CSRF 闸门不是鉴权；前台模式在页面上仍要终端，点了只复制 `pal run <名字>`、不 spawn（没有 TTY，宿主读不到输入）；第一版没有安装 / 卸载 / 改配置，也没有归档日志与事件流；页面是 2s 轮询、没有推送，`pal ui` 是前台进程，关掉页面就没了，不是常驻服务。

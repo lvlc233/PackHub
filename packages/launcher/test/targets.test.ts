@@ -703,13 +703,13 @@ describe('帮助与命令面', () => {
     }
   });
 
-  it('根帮助仍是 25 条，首组标题改成 home / 项目', () => {
+  it('根帮助仍是 26 条，首组标题改成 home / 项目', () => {
     const palHome = newPalHome('pal-help-root-');
     const res = palIn(palHome, ['--help']);
     expect(res.status).toBe(0);
     expect(res.out).toContain('安装（target = home / 项目）：');
     const commandLines = res.out.split(/\r?\n/).filter((line) => /^ {2}\S/.test(line));
-    expect(commandLines).toHaveLength(25);
+    expect(commandLines).toHaveLength(26);
     for (const old of ['--new', '--environment', '--harness', '--kind']) {
       expect(res.out).not.toContain(old);
     }
