@@ -1,14 +1,19 @@
-// `pal ui` 的服务端：本地 HTTP + 单页 HTML，只做「列出 home / 启动 / 停止 / 看日志」。
+// `pal ui` 的服务端：本地 HTTP + 单页 HTML。
 //
-// 边界（见 decisions「pal ui：本地 HTTP + 单页」）：
+// 边界（见 decisions「pal ui」）：
 // - 只绑 127.0.0.1，不是给局域网用的；
 // - 读/写实例都走现有模块（coreCall / startAppInstance / stopInstance / 记录扫描），这里不另造一套启停；
+// - 安装 / 更新 / 回滚 / 验证 / 卸载 / 删除 / 体检都不在 UI 里重写：spawn 同一条 pal 命令（见 uiSpawn.ts），
+//   只把 stdout / stderr / 退出码转给页面；
 // - POST 要求 `content-type: application/json` + `x-pal-ui: 1`（页面自己带），挡掉别的网页顺手 POST 127.0.0.1；
 // - 页面不用框架、不引 CDN，动态内容只在 JS 里用 textContent / 属性赋值，不拼 HTML 字符串。
+import { existsSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import type { LaunchMode } from '@packhub/kernel';
+import { tmpdir } from 'node:os';
+import { harnesses, type LaunchMode } from '@packhub/kernel';
 import { scanInstances } from './catalog.ts';
 import { coreCall } from './coreClient.ts';
+import { defaultHomeName } from './create.ts';
 import { errorBody, PalError } from './errors.ts';
 import { adapterFor } from './layout.ts';
 import { availabilityOf, resolveLaunchMode, unavailableReason } from './launchModes.ts';
@@ -17,6 +22,23 @@ import type { InstanceRecord } from './records.ts';
 import { resolveStartProfile } from './startProfile.ts';
 import { startAppInstance } from './startApp.ts';
 import { logFileOf, statusView, stopInstance } from './start.ts';
+import { PAGE_HTML } from './uiPage.ts';
+import {
+  ACTION_TIMEOUT_MS,
+  INSTALL_TIMEOUT_MS,
+  foregroundCommand as palRunCommand,
+  homeActionArgs,
+  homeActionTimeout,
+  installArgs,
+  isHomeAction,
+  openTerminalWindow,
+  parseInstallRequest,
+  runPalCommand,
+  type HomeAction,
+  type InstallRequest,
+  type PalRunner,
+  type TerminalOpener,
+} from './uiSpawn.ts';
 
 /** 一条模式在页面上的样子；`command` 只给前台模式（页面显示它、点击复制）。 */
 export interface UiMode {
@@ -36,17 +58,68 @@ export interface UiInstance {
   harness: string;
   pack: { name: string; version: string };
   status: string;
+  managed: boolean;
   attached: boolean;
+  root: string;
+  home: string | null;
+  profile: string | null;
+  launchMode: string | null;
   url: string | null;
   port: number | null;
   pid: number | null;
   modes: UiMode[];
 }
 
+/** `GET /api/hosts` 的一条宿主：安装表单的动态选项（宿主名单与模式都来自 kernel 注册表）。 */
+export interface UiHost {
+  id: string;
+  label: string;
+  /** 支持 attached home（装进宿主真实全局目录） */
+  attached: boolean;
+  /** 项目级落点：full / pointer / false（没有项目级落点） */
+  project: 'full' | 'pointer' | false;
+  modes: Array<{ id: string; label: string; kind: LaunchMode['kind']; default: boolean }>;
+}
+
+/** spawn 一条 pal 命令的通用回答：页面按 `ok` 决定红字，输出原样给出去。 */
+export interface UiPalResponse {
+  ok: boolean;
+  code: number | null;
+  stdout: string;
+  stderr: string;
+  timedOut?: boolean;
+}
+
+/** `POST /api/plan`：多一个解析出来的计划与最终名字（JSON 解析失败时只有原文）。 */
+export interface UiPlanResponse extends UiPalResponse {
+  plan?: unknown;
+  name?: string;
+}
+
+/** `GET /api/health`：能解析就带 `json`，否则只有 `raw` 文本。 */
+export interface UiHealthResponse {
+  ok: boolean;
+  code: number | null;
+  json?: unknown;
+  raw: string;
+  stderr?: string;
+  timedOut?: boolean;
+}
+
+/** `POST /api/terminal`：实际要跑的命令 + 起出来的窗口命令行。 */
+export interface UiTerminalResponse {
+  command: string;
+  window: string;
+}
+
 export interface UiServerOptions {
   /** 0 = 让系统挑（默认）；只有 CLI 的 `--port` 会给出具体值 */
   port?: number;
   host?: string;
+  /** 子进程边界（测试注入桩）；默认 spawn 当前进程的 pal 入口 */
+  runPal?: PalRunner;
+  /** 终端窗口（测试注入桩）；默认 wt.exe / cmd start / x-terminal-emulator */
+  openTerminal?: TerminalOpener;
 }
 
 export interface UiServer {
@@ -55,6 +128,12 @@ export interface UiServer {
   port: number;
   /** 关掉监听；已建立的连接不等，直接断（页面会显示「连不上」）。 */
   close: () => Promise<void>;
+}
+
+/** 处理一条请求时要用的外部能力：测试可以整段替掉，不碰真进程。 */
+interface UiContext {
+  runPal: PalRunner;
+  openTerminal: TerminalOpener;
 }
 
 const DEFAULT_TAIL = 200;
@@ -89,7 +168,12 @@ function instancesView(records: InstanceRecord[]): UiInstance[] {
       harness: rec.harness,
       pack: { name: rec.pack.name, version: rec.pack.version },
       status: rec.status,
+      managed: rec.managed === true,
       attached: rec.attached === true,
+      root: rec.root,
+      home: rec.home ?? null,
+      profile: rec.profile ?? null,
+      launchMode: rec.launchMode ?? null,
       url: rec.url ?? null,
       port: rec.port ?? null,
       pid: rec.pid ?? null,
@@ -108,6 +192,30 @@ function instancesView(records: InstanceRecord[]): UiInstance[] {
       }),
     };
   });
+}
+
+/**
+ * 宿主表：安装表单的宿主下拉与 attached / project 选项都从这里来。
+ * 加宿主只改 kernel 的注册表，页面与服务端都不另抄一份名单。
+ */
+function hostsView(): { hosts: UiHost[] } {
+  return {
+    hosts: harnesses().map((spec) => {
+      const defaultId = spec.defaultMode ?? spec.modes[0]?.id;
+      return {
+        id: spec.id,
+        label: spec.label,
+        attached: spec.attached === true,
+        project: spec.project ?? 'full',
+        modes: spec.modes.map((mode) => ({
+          id: mode.id,
+          label: mode.label,
+          kind: mode.kind,
+          default: mode.id === defaultId,
+        })),
+      };
+    }),
+  };
 }
 
 /** 按 id 或名字找一份记录；用纯读扫描，不因为页面刷新就把坏记录搬进隔离区。 */
@@ -249,7 +357,150 @@ function logsOf(url: URL): { file: string; lines: string[] } {
   return { file: logFileOf(rec), lines };
 }
 
-async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+/* ---------- 安装 / 管理：spawn 同一条 pal 命令 ---------- */
+
+/** 子进程工作目录：记录根还在就用它（pal 的命令按 cwd 解析相对路径），否则交回当前目录。 */
+function cwdOf(rec: InstanceRecord): string | undefined {
+  try {
+    return existsSync(rec.root) ? rec.root : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * home 级动作的 cwd。`remove` 例外：它连根删掉 `record.root`，Windows 上子进程的 cwd 在根里
+ * 就删不掉（目录被握着），所以换一个中立目录；pal remove 只按记录里的绝对路径干活，不看 cwd。
+ */
+function actionCwd(rec: InstanceRecord, action: HomeAction): string | undefined {
+  if (action === 'remove') return tmpdir();
+  return cwdOf(rec);
+}
+
+/** 计划 JSON 只认 `{plan, name?}`；解析失败返回空对象，原文由调用方原样带出去。 */
+function parsePlanJson(stdout: string): { plan?: unknown; name?: string } {
+  let data: unknown;
+  try {
+    data = JSON.parse(stdout);
+  } catch {
+    return {};
+  }
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return {};
+  const record = data as Record<string, unknown>;
+  const out: { plan?: unknown; name?: string } = {};
+  if (record.plan && typeof record.plan === 'object') out.plan = record.plan;
+  if (typeof record.name === 'string' && record.name.trim()) out.name = record.name.trim();
+  return out;
+}
+
+/**
+ * 最终名字：attached 的 dry-run JSON 自带（可能被自动改成 `<名字>-attached`）；
+ * managed 的 JSON 没有名字，按 CLI 同一条规则用 `defaultHomeName(host, plan.pack.name)` 算；
+ * 项目没有 home 名。
+ */
+function planName(request: InstallRequest, parsed: { plan?: unknown; name?: string }): string | undefined {
+  if (parsed.name) return parsed.name;
+  if (request.target === 'project') return undefined;
+  if (request.name) return request.name;
+  const plan = parsed.plan as { pack?: { name?: unknown } } | undefined;
+  const packName = plan && plan.pack && typeof plan.pack.name === 'string' ? plan.pack.name : undefined;
+  return packName ? defaultHomeName(request.host, packName) : undefined;
+}
+
+async function planInstall(body: Record<string, unknown>, ctx: UiContext): Promise<UiPlanResponse> {
+  const request = parseInstallRequest(body);
+  const result = await ctx.runPal(installArgs(request, { dryRun: true }), { timeoutMs: INSTALL_TIMEOUT_MS });
+  const parsed = parsePlanJson(result.stdout);
+  const name = planName(request, parsed);
+  return {
+    ok: result.code === 0,
+    code: result.code,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    ...(result.timedOut ? { timedOut: true } : {}),
+    ...(parsed.plan === undefined ? {} : { plan: parsed.plan }),
+    ...(name === undefined ? {} : { name }),
+  };
+}
+
+async function installFrom(body: Record<string, unknown>, ctx: UiContext): Promise<UiPalResponse> {
+  const request = parseInstallRequest(body);
+  const result = await ctx.runPal(installArgs(request), { timeoutMs: INSTALL_TIMEOUT_MS });
+  return {
+    ok: result.code === 0,
+    code: result.code,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    ...(result.timedOut ? { timedOut: true } : {}),
+  };
+}
+
+async function homeActionOf(body: Record<string, unknown>, ctx: UiContext): Promise<UiPalResponse> {
+  if (!isHomeAction(body.action)) {
+    throw new PalError(
+      'invalid-input',
+      `action 只能是 update / rollback / verify / uninstall / remove，收到：${String(body.action ?? '')}`,
+      { hint: '页面上的按钮各对应一条：更新 / 回滚 / 验证 / 卸载 / 删除' },
+    );
+  }
+  const action: HomeAction = body.action;
+  const rec = requireRecord(bodyId(body));
+  const profile = typeof body.profile === 'string' ? body.profile.trim() : '';
+  const result = await ctx.runPal(homeActionArgs(action, rec.id, profile || undefined), {
+    cwd: actionCwd(rec, action),
+    timeoutMs: homeActionTimeout(action),
+  });
+  return {
+    ok: result.code === 0,
+    code: result.code,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    ...(result.timedOut ? { timedOut: true } : {}),
+  };
+}
+
+async function healthOf(url: URL, ctx: UiContext): Promise<UiHealthResponse> {
+  const id = (url.searchParams.get('id') ?? '').trim();
+  if (!id) throw new PalError('invalid-input', '要 id：/api/health?id=<home>');
+  const rec = requireRecord(id);
+  const result = await ctx.runPal(['health', rec.id, '--json'], {
+    cwd: cwdOf(rec),
+    timeoutMs: ACTION_TIMEOUT_MS,
+  });
+  let json: unknown;
+  try {
+    json = JSON.parse(result.stdout);
+  } catch {
+    json = undefined;
+  }
+  return {
+    ok: result.code === 0,
+    code: result.code,
+    ...(json === undefined ? {} : { json }),
+    raw: result.stdout,
+    ...(result.stderr ? { stderr: result.stderr } : {}),
+    ...(result.timedOut ? { timedOut: true } : {}),
+  };
+}
+
+/**
+ * 终端按钮：只对前台（TUI）模式开放。窗口里跑 `pal run <名字>`；
+ * 返回实际命令与起出来的窗口命令行（Windows 上 wt.exe 不在就退回 cmd start）。
+ */
+async function terminalOf(body: Record<string, unknown>, ctx: UiContext): Promise<UiTerminalResponse> {
+  const rec = requireRecord(bodyId(body));
+  const mode = adapterFor(rec.harness)?.modes.find((item) => item.kind === 'foreground');
+  if (!mode) {
+    throw new PalError('invalid-input', `宿主 ${rec.harness} 没有前台模式，终端按钮只用于 TUI`, {
+      hint: 'server / app 模式用「启动」按钮；前台模式（tui）才需要终端窗口',
+    });
+  }
+  const command = palRunCommand(rec.name);
+  const opened = await ctx.openTerminal({ command, title: `PAL · ${rec.name}` });
+  return { command, window: opened.window };
+}
+
+async function handle(req: IncomingMessage, res: ServerResponse, ctx: UiContext): Promise<void> {
   const url = new URL(req.url ?? '/', 'http://pal-ui');
 
   if (req.method === 'GET' && url.pathname === '/') {
@@ -260,8 +511,16 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     sendJson(res, 200, { instances: instancesView(scanInstances().records) });
     return;
   }
+  if (req.method === 'GET' && url.pathname === '/api/hosts') {
+    sendJson(res, 200, hostsView());
+    return;
+  }
   if (req.method === 'GET' && url.pathname === '/api/logs') {
     sendJson(res, 200, logsOf(url));
+    return;
+  }
+  if (req.method === 'GET' && url.pathname === '/api/health') {
+    sendJson(res, 200, await healthOf(url, ctx));
     return;
   }
   if (req.method === 'POST' && url.pathname === '/api/start') {
@@ -276,8 +535,34 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     sendJson(res, 200, await stopOne(body));
     return;
   }
+  if (req.method === 'POST' && url.pathname === '/api/plan') {
+    requireUiRequest(req);
+    const body = await readJsonBody(req);
+    sendJson(res, 200, await planInstall(body, ctx));
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/api/install') {
+    requireUiRequest(req);
+    const body = await readJsonBody(req);
+    sendJson(res, 200, await installFrom(body, ctx));
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/api/home-action') {
+    requireUiRequest(req);
+    const body = await readJsonBody(req);
+    sendJson(res, 200, await homeActionOf(body, ctx));
+    return;
+  }
+  if (req.method === 'POST' && url.pathname === '/api/terminal') {
+    requireUiRequest(req);
+    const body = await readJsonBody(req);
+    sendJson(res, 200, await terminalOf(body, ctx));
+    return;
+  }
   throw new PalError('not-found', `pal ui 没有这个接口：${req.method} ${url.pathname}`, {
-    hint: '页面用的接口：GET / /api/instances /api/logs，POST /api/start /api/stop',
+    hint:
+      '页面用的接口：GET / /api/instances /api/hosts /api/logs /api/health，' +
+      'POST /api/start /api/stop /api/plan /api/install /api/home-action /api/terminal',
   });
 }
 
@@ -287,8 +572,12 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
  */
 export async function startUiServer(options: UiServerOptions = {}): Promise<UiServer> {
   const host = options.host ?? '127.0.0.1';
+  const ctx: UiContext = {
+    runPal: options.runPal ?? ((args, opts) => runPalCommand(args, opts)),
+    openTerminal: options.openTerminal ?? openTerminalWindow,
+  };
   const server = createServer((req, res) => {
-    handle(req, res).catch((err: unknown) => {
+    handle(req, res, ctx).catch((err: unknown) => {
       if (res.headersSent) {
         res.end();
         return;
@@ -343,310 +632,3 @@ export async function startUiServer(options: UiServerOptions = {}): Promise<UiSe
       }),
   };
 }
-
-/* ---------- 页面 ---------- */
-
-/**
- * 单页 HTML：内联 CSS/JS，不引 CDN、不用框架。
- * 动态内容一律走 textContent / 属性赋值（不拼 innerHTML），名字与日志里的尖括号不会被当成标记。
- */
-const PAGE_HTML = `<!doctype html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PAL 启动器</title>
-<style>
-:root { color-scheme: light; }
-* { box-sizing: border-box; }
-body { margin: 0; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; background: #f5f6f8; color: #1f2328; }
-header { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 20px; background: #fff; border-bottom: 1px solid #e3e6ea; }
-h1 { margin: 0; font-size: 18px; }
-.toolbar { display: flex; align-items: center; gap: 12px; color: #57606a; }
-button { font: inherit; border: 1px solid #d0d7de; background: #f6f8fa; color: #1f2328; border-radius: 6px; padding: 5px 10px; cursor: pointer; }
-button:hover:not(:disabled) { background: #eef1f4; }
-button:disabled { opacity: .5; cursor: not-allowed; }
-main { padding: 18px 20px 60px; display: grid; grid-template-columns: repeat(auto-fill, minmax(370px, 1fr)); gap: 14px; }
-.card { background: #fff; border: 1px solid #e3e6ea; border-radius: 10px; padding: 14px 16px; }
-.card-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.name { margin: 0; font-size: 15px; font-weight: 600; word-break: break-all; }
-.host, .pack { color: #57606a; font-size: 12px; }
-.badges { margin-left: auto; display: flex; gap: 6px; }
-.badge { font-size: 12px; padding: 1px 7px; border-radius: 999px; background: #eef1f4; color: #57606a; }
-.badge.run { background: #dafbe1; color: #1a7f37; }
-.badge.attached { background: #ddf4ff; color: #0969da; }
-.modes { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
-.mode-pair { display: flex; align-items: center; gap: 8px; }
-.cmd { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; background: #f6f8fa; border: 1px solid #e3e6ea; border-radius: 6px; padding: 3px 7px; cursor: pointer; }
-.meta { margin-top: 10px; color: #57606a; font-size: 12px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
-.meta button { padding: 3px 9px; font-size: 12px; }
-.open { color: #0969da; }
-.danger { color: #cf222e; border-color: #ffcecb; background: #fff5f5; }
-.empty { grid-column: 1 / -1; background: #fff; border: 1px dashed #d0d7de; border-radius: 10px; padding: 28px; text-align: center; }
-.empty p { margin: 6px 0; }
-.hint { color: #57606a; font-size: 13px; }
-.toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: #1f2328; color: #fff; padding: 8px 14px; border-radius: 8px; max-width: 80vw; z-index: 30; }
-.toast.bad { background: #cf222e; }
-.drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(760px, 92vw); background: #fff; border-left: 1px solid #e3e6ea; box-shadow: -8px 0 24px rgba(0,0,0,.08); z-index: 20; display: flex; flex-direction: column; }
-.drawer-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 1px solid #e3e6ea; }
-.drawer-head h2 { margin: 0; font-size: 14px; }
-.drawer-head .file { margin-left: auto; font-size: 12px; color: #57606a; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 55%; }
-pre#drawer-body { margin: 0; padding: 12px 14px; overflow: auto; flex: 1; font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; word-break: break-all; background: #fafbfc; }
-[hidden] { display: none !important; }
-</style>
-</head>
-<body>
-<header>
-  <h1>PAL 启动器</h1>
-  <div class="toolbar">
-    <label><input type="checkbox" id="auto" checked> 自动刷新（2s）</label>
-    <button id="refresh" type="button">刷新状态</button>
-  </div>
-</header>
-<main id="list"></main>
-<div id="toast" class="toast" hidden></div>
-<aside id="drawer" class="drawer" hidden>
-  <div class="drawer-head">
-    <h2 id="drawer-title">日志</h2>
-    <span class="file" id="drawer-file"></span>
-    <button id="drawer-close" type="button">关闭</button>
-  </div>
-  <pre id="drawer-body"></pre>
-</aside>
-<script>
-(function () {
-  'use strict';
-  var listEl = document.getElementById('list');
-  var toastEl = document.getElementById('toast');
-  var drawer = document.getElementById('drawer');
-  var drawerBody = document.getElementById('drawer-body');
-  var drawerTitle = document.getElementById('drawer-title');
-  var drawerFile = document.getElementById('drawer-file');
-  var auto = document.getElementById('auto');
-  var timer = null;
-
-  var STATUS = { running: '运行中', stopped: '已停止', installed: '已安装', installing: '安装中', broken: '异常', failed: '失败' };
-
-  function el(tag, cls, text) {
-    var node = document.createElement(tag);
-    if (cls) node.className = cls;
-    if (text !== undefined) node.textContent = text;
-    return node;
-  }
-
-  function toast(message, bad) {
-    toastEl.textContent = message;
-    toastEl.className = bad ? 'toast bad' : 'toast';
-    toastEl.hidden = false;
-    clearTimeout(toast._timer);
-    toast._timer = setTimeout(function () { toastEl.hidden = true; }, 3600);
-  }
-
-  function api(path, body) {
-    var options = {};
-    if (body !== undefined) {
-      options.method = 'POST';
-      options.headers = { 'content-type': 'application/json', 'x-pal-ui': '1' };
-      options.body = JSON.stringify(body);
-    }
-    return fetch(path, options).then(function (res) {
-      return res.text().then(function (text) {
-        var data = null;
-        try { data = text ? JSON.parse(text) : null; } catch (err) { data = null; }
-        if (!res.ok) {
-          var error = new Error(data && data.error ? data.error : 'HTTP ' + res.status);
-          error.data = data;
-          throw error;
-        }
-        return data;
-      });
-    });
-  }
-
-  function copy(text) {
-    function done() { toast('已复制：' + text); }
-    function failed() { toast('复制失败，请手动选择命令：' + text, true); }
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(done, failed);
-      return;
-    }
-    var area = document.createElement('textarea');
-    area.value = text;
-    document.body.appendChild(area);
-    area.select();
-    try { document.execCommand('copy'); done(); } catch (err) { failed(); }
-    document.body.removeChild(area);
-  }
-
-  function load() {
-    return api('/api/instances').then(function (data) {
-      render(data && data.instances ? data.instances : []);
-    }).catch(function (err) {
-      renderError(err);
-    });
-  }
-
-  function renderError(err) {
-    listEl.textContent = '';
-    var box = el('div', 'empty');
-    box.appendChild(el('p', '', '连不上 PAL 启动器：' + err.message));
-    box.appendChild(el('p', 'hint', '这个页面可能已经停了：回到终端看 pal ui 的输出。'));
-    listEl.appendChild(box);
-  }
-
-  function render(instances) {
-    listEl.textContent = '';
-    if (!instances.length) {
-      listEl.appendChild(emptyState());
-      return;
-    }
-    for (var i = 0; i < instances.length; i += 1) listEl.appendChild(card(instances[i]));
-  }
-
-  function emptyState() {
-    var box = el('div', 'empty');
-    box.appendChild(el('p', '', '还没有 home。先装一个：'));
-    var code = el('code', 'cmd', 'pal install <Pack 目录> --host dsh');
-    code.title = '点击复制';
-    code.addEventListener('click', function () { copy(code.textContent); });
-    box.appendChild(code);
-    box.appendChild(el('p', 'hint', '第一版不提供安装表单：装完在终端里刷新这个页面。'));
-    return box;
-  }
-
-  function card(inst) {
-    var wrap = el('article', 'card');
-    var head = el('div', 'card-head');
-    head.appendChild(el('h2', 'name', inst.name));
-    head.appendChild(el('span', 'host', inst.harness));
-    if (inst.pack && inst.pack.name) {
-      head.appendChild(el('span', 'pack', inst.pack.name + '@' + inst.pack.version));
-    }
-    var badges = el('div', 'badges');
-    badges.appendChild(el('span', 'badge ' + (inst.status === 'running' ? 'run' : 'idle'), STATUS[inst.status] || inst.status));
-    if (inst.attached) badges.appendChild(el('span', 'badge attached', 'attached'));
-    head.appendChild(badges);
-    wrap.appendChild(head);
-
-    var running = inst.status === 'running';
-    var modes = el('div', 'modes');
-    for (var i = 0; i < inst.modes.length; i += 1) modes.appendChild(modeButton(inst, inst.modes[i], running));
-    if (inst.modes.length === 0) modes.appendChild(el('span', 'hint', '这个宿主没有可启动的模式'));
-    wrap.appendChild(modes);
-
-    var meta = el('div', 'meta');
-    if (inst.pid) meta.appendChild(el('span', '', 'pid ' + inst.pid));
-    if (inst.port) meta.appendChild(el('span', '', '端口 ' + inst.port));
-    if (inst.url && /^https?:\\/\\//i.test(inst.url)) {
-      var link = el('a', 'open', '打开页面');
-      link.href = inst.url;
-      link.target = '_blank';
-      link.rel = 'noopener noreferrer';
-      meta.appendChild(link);
-    }
-    if (running) {
-      var stop = el('button', 'danger', '停止');
-      stop.addEventListener('click', function () { stopInstance(inst); });
-      meta.appendChild(stop);
-    }
-    var logs = el('button', '', '日志');
-    logs.addEventListener('click', function () { openLogs(inst); });
-    meta.appendChild(logs);
-    wrap.appendChild(meta);
-    return wrap;
-  }
-
-  function modeButton(inst, mode, running) {
-    var node;
-    if (mode.kind === 'foreground') {
-      node = el('button', '', '需终端');
-      node.title = '前台模式在终端里跑：点按钮或下面的命令复制';
-    } else {
-      node = el('button', '', mode.kind === 'app' ? '启动 App' : '启动 ' + mode.label);
-    }
-    if (!mode.available) {
-      node.disabled = true;
-      node.title = mode.reason || '当前 home 上不可用';
-    } else if (running && mode.kind !== 'foreground') {
-      node.disabled = true;
-      node.title = '已在运行，先停止';
-    } else if (mode.kind === 'foreground') {
-      node.addEventListener('click', function () { copy(mode.command || ''); });
-      var holder = el('span', 'mode-pair');
-      holder.appendChild(node);
-      var code = el('code', 'cmd', mode.command || '');
-      code.title = '点击复制';
-      code.addEventListener('click', function () { copy(mode.command || ''); });
-      holder.appendChild(code);
-      return holder;
-    } else {
-      node.addEventListener('click', function () { startInstance(inst, mode); });
-    }
-    return node;
-  }
-
-  function startInstance(inst, mode) {
-    toast('正在启动 ' + inst.name + '（' + mode.id + '）…');
-    api('/api/start', { id: inst.id, mode: mode.id }).then(function () {
-      return load();
-    }).catch(function (err) {
-      var data = err.data || {};
-      if (data.command) {
-        copy(data.command);
-        toast(err.message, true);
-      } else {
-        toast(err.message, true);
-      }
-      return load();
-    });
-  }
-
-  function stopInstance(inst) {
-    toast('正在停止 ' + inst.name + '…');
-    api('/api/stop', { id: inst.id }).then(function () {
-      toast('已停止 ' + inst.name);
-      return load();
-    }).catch(function (err) {
-      toast(err.message, true);
-      return load();
-    });
-  }
-
-  function openLogs(inst) {
-    drawer.hidden = false;
-    drawerTitle.textContent = '日志 · ' + inst.name;
-    drawerFile.textContent = '';
-    // 日志用 textContent 写进 <pre>：宿主输出里的标签不会被当成 HTML
-    drawerBody.textContent = '读取中…';
-    api('/api/logs?id=' + encodeURIComponent(inst.id) + '&tail=200').then(function (data) {
-      drawerFile.textContent = data.file || '';
-      drawerBody.textContent = data.lines && data.lines.length ? data.lines.join('\\n') : '还没有日志';
-    }).catch(function (err) {
-      drawerBody.textContent = '读日志失败：' + err.message;
-    });
-  }
-
-  function schedule() {
-    if (timer) {
-      clearInterval(timer);
-      timer = null;
-    }
-    if (auto.checked) {
-      timer = setInterval(function () { load(); }, 2000);
-    }
-  }
-
-  document.getElementById('refresh').addEventListener('click', function () { load(); });
-  document.getElementById('drawer-close').addEventListener('click', function () { drawer.hidden = true; });
-  document.addEventListener('keydown', function (event) {
-    if (event.key === 'Escape') drawer.hidden = true;
-  });
-  auto.addEventListener('change', schedule);
-
-  load();
-  schedule();
-})();
-</script>
-</body>
-</html>
-`;

@@ -7,7 +7,22 @@ import { fileURLToPath } from 'node:url';
 import { instancesRoot } from '../src/paths.ts';
 import { API_VERSION, type InstanceRecord } from '../src/records.ts';
 import { writeInstance } from '../src/recordWrite.ts';
-import { startUiServer, type UiInstance, type UiServer } from '../src/ui.ts';
+import {
+  startUiServer,
+  type UiHealthResponse,
+  type UiHost,
+  type UiInstance,
+  type UiPlanResponse,
+  type UiServer,
+  type UiServerOptions,
+} from '../src/ui.ts';
+import {
+  runPalCommand,
+  type PalRunResult,
+  type PalRunner,
+  type TerminalRequest,
+} from '../src/uiSpawn.ts';
+
 
 // `pal ui --json` 那条要真起一个子进程（CLI → 监听 → 打印 → 被关掉）；慢机器上给足时间
 vi.setConfig({ testTimeout: 120_000, hookTimeout: 120_000 });
@@ -62,6 +77,60 @@ function record(overrides: Partial<InstanceRecord> = {}): InstanceRecord {
 async function serve(): Promise<UiServer> {
   ui = await startUiServer({ port: 0 });
   return ui;
+}
+
+/** 带注入桩起服务：子进程与终端窗口都不碰真进程。 */
+async function serveWith(options: Pick<UiServerOptions, 'runPal' | 'openTerminal'>): Promise<UiServer> {
+  ui = await startUiServer({ port: 0, ...options });
+  return ui;
+}
+
+/** 子进程桩：记下每次的 argv 与选项，按给定结果（或函数）回答。 */
+function stubPal(result: PalRunResult | ((args: string[]) => PalRunResult)): {
+  runner: PalRunner;
+  calls: string[][];
+  options: Array<{ cwd?: string; timeoutMs?: number } | undefined>;
+} {
+  const calls: string[][] = [];
+  const options: Array<{ cwd?: string; timeoutMs?: number } | undefined> = [];
+  const runner: PalRunner = (args, opts) => {
+    calls.push(args);
+    options.push(opts);
+    return Promise.resolve(typeof result === 'function' ? result(args) : result);
+  };
+  return { runner, calls, options };
+}
+
+/** 真 spawn：用 bin.ts + strip-types 起子进程（与 `pal ui` 进程里同一条路）。 */
+const REAL_PAL: PalRunner = (args, options) =>
+  runPalCommand(args, options, {
+    execPath: process.execPath,
+    execArgv: ['--experimental-strip-types'],
+    entry: BIN,
+  });
+
+/** 一份最小 Pack：只放一个 knowledge 资源，够 `pal install --dry-run` 出计划。 */
+function writePack(dir: string, name = 'ui/demo-pack'): string {
+  mkdirSync(join(dir, 'resources'), { recursive: true });
+  writeFileSync(
+    join(dir, 'packhub.yaml'),
+    [
+      'apiVersion: packhub.dev/v0',
+      'kind: Pack',
+      'metadata:',
+      `  name: ${name}`,
+      '  version: 0.0.1',
+      '  title: UI 测试包',
+      'resources:',
+      '  - id: readme',
+      '    type: knowledge',
+      '    source: ./resources/readme.md',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+  writeFileSync(join(dir, 'resources', 'readme.md'), '# ui\n', 'utf8');
+  return dir;
 }
 
 async function getText(started: UiServer, path: string): Promise<{ status: number; text: string }> {
@@ -189,6 +258,14 @@ describe('pal ui 的页面与接口', () => {
 
     const noJson = await post(started, '/api/start', { id: 'demo-ui', mode: 'tui' }, { 'x-pal-ui': '1' });
     expect(noJson.status).toBe(403);
+
+    // 新增的 POST 也走同一道闸门
+    const plan = await post(started, '/api/plan', { source: 'some-pack', host: 'dsh' }, {
+      'content-type': 'application/json',
+    });
+    expect(plan.status).toBe(403);
+    const action = await post(started, '/api/home-action', { action: 'verify', id: 'demo-ui' }, { 'x-pal-ui': '1' });
+    expect(action.status).toBe(403);
   });
 
   it('/api/logs 给日志尾部与文件路径；没有日志时是 200 + 空数组', async () => {
@@ -228,6 +305,253 @@ describe('pal ui 的页面与接口', () => {
     expect(res.status).toBe(200);
     expect(res.body.status).toBe('stopped');
     expect(existsSync(join(process.env.PACKHUB_HOME!, 'core.json'))).toBe(false);
+  });
+});
+
+/* ---------- 启动器 v2：宿主表 / 安装 / 管理 / 体检 / 终端 ---------- */
+
+describe('pal ui 的启动器 v2 接口', () => {
+  it('GET /api/hosts 列出注册表里的六个宿主，dsh / opencode 的模式对都在', async () => {
+    const started = await serve();
+    const res = await fetch(new URL('/api/hosts', started.url));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { hosts: UiHost[] };
+    expect(body.hosts.map((host) => host.id)).toEqual([
+      'dsh',
+      'claude-code',
+      'codex',
+      'opencode',
+      'workbody',
+      'hermes',
+    ]);
+    const dsh = body.hosts.find((host) => host.id === 'dsh')!;
+    expect(dsh.modes.map((mode) => [mode.id, mode.kind, mode.default])).toEqual([
+      ['web', 'server', true],
+      ['app', 'app', false],
+    ]);
+    expect(dsh.attached).toBe(true);
+    expect(dsh.project).toBe('pointer');
+    const opencode = body.hosts.find((host) => host.id === 'opencode')!;
+    expect(opencode.modes.map((mode) => [mode.id, mode.kind, mode.default])).toEqual([
+      ['tui', 'foreground', true],
+      ['web', 'server', false],
+    ]);
+    expect(opencode.attached).toBe(true);
+    expect(opencode.project).toBe('full');
+  });
+
+  it('GET / 的页面有 Homes / 安装 / 活动 三个 tab 与安装表单', async () => {
+    const started = await serve();
+    const { status, text } = await getText(started, '/');
+    expect(status).toBe(200);
+    expect(text.match(/data-tab="/g)?.length).toBe(3);
+    expect(text).toContain('data-tab="homes"');
+    expect(text).toContain('data-tab="install"');
+    expect(text).toContain('data-tab="activity"');
+    expect(text).toContain('安装');
+    expect(text).toContain('活动');
+    expect(text).toContain('id="source"');
+    expect(text).toContain('id="preview"');
+    expect(text).toContain('id="install"');
+  });
+
+  it('POST /api/plan 缺参 / 未知宿主都是 400，且不 spawn', async () => {
+    const stub = stubPal({ code: 0, stdout: '{}', stderr: '' });
+    const started = await serveWith({ runPal: stub.runner });
+
+    const missing = await post(started, '/api/plan', { host: 'dsh' });
+    expect(missing.status).toBe(400);
+    expect(String(missing.body.error)).toContain('source');
+
+    const badHost = await post(started, '/api/plan', { source: 'some-pack', host: 'nope' });
+    expect(badHost.status).toBe(400);
+    expect(String(badHost.body.error)).toContain('未知宿主');
+
+    const badTarget = await post(started, '/api/plan', { source: 'some-pack', host: 'dsh', target: 'attached' });
+    expect(badTarget.status).toBe(400);
+    expect(String(badTarget.body.error)).toContain('home');
+
+    // target 与参数不匹配不静默忽略：与 CLI 退 2 是同一件事
+    const mismatched = await post(started, '/api/plan', {
+      source: 'some-pack',
+      host: 'dsh',
+      target: 'managed',
+      home: 'C:\\tmp\\dsh',
+    });
+    expect(mismatched.status).toBe(400);
+    expect(String(mismatched.body.error)).toContain('--home');
+    expect(stub.calls).toEqual([]);
+  });
+
+  it('POST /api/plan 用临时 Pack 真 spawn pal install --dry-run --json，返回计划与最终名字', async () => {
+    const packDir = writePack(join(tmp, 'pack'));
+    const started = await serveWith({ runPal: REAL_PAL });
+
+    const res = await post(started, '/api/plan', { source: packDir, host: 'opencode', target: 'managed' });
+    expect(res.status).toBe(200);
+    const body = res.body as unknown as UiPlanResponse;
+    expect(body.ok).toBe(true);
+    expect(body.code).toBe(0);
+    expect(body.name).toBe('opencode-ui-demo-pack');
+    const plan = body.plan as { actions: Array<{ op: string; to?: string }>; pack: { name: string } };
+    expect(plan.pack.name).toBe('ui/demo-pack');
+    expect(plan.actions.length).toBeGreaterThan(0);
+    // 计划动作里有知识文件落点：会写到实例 home 的 knowledge 目录
+    expect(plan.actions.some((action) => (action.to ?? '').includes('knowledge'))).toBe(true);
+    // dry-run 不落盘：实例目录还是空的
+    expect(existsSync(join(process.env.PACKHUB_INSTANCES!, 'opencode-ui-demo-pack'))).toBe(false);
+  });
+
+  it('POST /api/install 失败时把 exit code / stdout / stderr 原样带回来', async () => {
+    const stub = stubPal({ code: 2, stdout: 'partial-out', stderr: 'x 清单有问题：读不到 metadata.name\n' });
+    const started = await serveWith({ runPal: stub.runner });
+
+    const res = await post(started, '/api/install', { source: 'nope-pack', host: 'dsh' });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ ok: false, code: 2, stdout: 'partial-out' });
+    expect(String(res.body.stderr)).toContain('清单有问题');
+    // 非 dry-run：没有 --dry-run / --json，目标参数按 target 拼
+    expect(stub.calls[0]).toEqual(['install', 'nope-pack', '--host', 'dsh']);
+    expect(stub.options[0]?.timeoutMs).toBe(120_000);
+  });
+
+  it('POST /api/install 按 target 拼 --home / --project / --from-home', async () => {
+    const stub = stubPal({ code: 0, stdout: '✓ demo\n', stderr: '' });
+    const started = await serveWith({ runPal: stub.runner });
+
+    await post(started, '/api/install', {
+      source: 'p',
+      host: 'dsh',
+      target: 'attached',
+      home: 'C:\\tmp\\dsh-home',
+      profile: 'web',
+    });
+    await post(started, '/api/install', { source: 'p', host: 'dsh', target: 'project', project: 'C:\\tmp\\proj' });
+    await post(started, '/api/install', {
+      source: 'p',
+      host: 'opencode',
+      target: 'managed',
+      name: 'mine',
+      root: 'C:\\tmp\\root',
+      fromHome: 'C:\\tmp\\global',
+    });
+    expect(stub.calls[0]).toEqual(['install', 'p', '--host', 'dsh', '--home', 'C:\\tmp\\dsh-home', '--profile', 'web']);
+    expect(stub.calls[1]).toEqual(['install', 'p', '--host', 'dsh', '--project', 'C:\\tmp\\proj']);
+    expect(stub.calls[2]).toEqual([
+      'install',
+      'p',
+      '--host',
+      'opencode',
+      '--name',
+      'mine',
+      '--root',
+      'C:\\tmp\\root',
+      '--from-home',
+      'C:\\tmp\\global',
+    ]);
+  });
+
+  it('POST /api/home-action 非法 action 400；未知 id 404；update / remove 的 argv 正确', async () => {
+    writeInstance(record());
+    const stub = stubPal({ code: 0, stdout: '✓ demo\n', stderr: '' });
+    const started = await serveWith({ runPal: stub.runner });
+
+    const bad = await post(started, '/api/home-action', { action: 'explode', id: 'demo-ui' });
+    expect(bad.status).toBe(400);
+    expect(String(bad.body.error)).toContain('action');
+    expect(stub.calls).toEqual([]);
+
+    const unknown = await post(started, '/api/home-action', { action: 'verify', id: 'nope' });
+    expect(unknown.status).toBe(404);
+    expect(stub.calls).toEqual([]);
+
+    const update = await post(started, '/api/home-action', { action: 'update', id: 'demo-ui', profile: 'web' });
+    expect(update.status).toBe(200);
+    expect(update.body).toMatchObject({ ok: true, code: 0, stdout: '✓ demo\n' });
+    expect(stub.calls[0]).toEqual(['update', '--home', '20260101000000-abcdef123456', '--profile', 'web']);
+
+    await post(started, '/api/home-action', { action: 'remove', id: 'demo-ui' });
+    expect(stub.calls[1]).toEqual(['remove', '20260101000000-abcdef123456', '--yes']);
+    expect(stub.options[1]?.timeoutMs).toBe(60_000);
+  });
+
+  it('GET /api/health 未知 id 404；正常记录返回 raw 与解析后的 json', async () => {
+    writeInstance(record());
+    const report = {
+      id: '20260101000000-abcdef123456',
+      name: 'demo-ui',
+      ok: true,
+      checks: [{ name: 'record', status: 'ok', detail: 'instance.json 可读' }],
+    };
+    const stub = stubPal({ code: 0, stdout: JSON.stringify([report], null, 2), stderr: '' });
+    const started = await serveWith({ runPal: stub.runner });
+
+    const unknown = await fetch(new URL('/api/health?id=nope', started.url));
+    expect(unknown.status).toBe(404);
+    expect(stub.calls).toEqual([]);
+
+    const res = await fetch(new URL('/api/health?id=demo-ui', started.url));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as UiHealthResponse;
+    expect(body.ok).toBe(true);
+    expect(body.code).toBe(0);
+    expect(Array.isArray(body.json)).toBe(true);
+    expect(body.raw).toContain('"ok": true');
+    expect(stub.calls[0]).toEqual(['health', '20260101000000-abcdef123456', '--json']);
+  });
+
+  it('GET /api/health 解析不了 JSON 时只给 raw 原文', async () => {
+    writeInstance(record());
+    const stub = stubPal({ code: 1, stdout: 'not-json-output', stderr: 'x 坏了\n' });
+    const started = await serveWith({ runPal: stub.runner });
+
+    const res = await fetch(new URL('/api/health?id=demo-ui', started.url));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as UiHealthResponse;
+    expect(body.ok).toBe(false);
+    expect(body.code).toBe(1);
+    expect(body.json).toBeUndefined();
+    expect(body.raw).toBe('not-json-output');
+  });
+
+  it('POST /api/terminal 非前台模式 400；前台模式返回 pal run 命令并开窗口', async () => {
+    writeInstance(record({ harness: 'dsh', name: 'dsh-demo' }));
+    writeInstance(record({ id: '20260101000001-abcdef123456', name: 'oc-demo', harness: 'opencode' }));
+    const opened: TerminalRequest[] = [];
+    const stub = stubPal({ code: 0, stdout: '', stderr: '' });
+    const started = await serveWith({
+      runPal: stub.runner,
+      openTerminal: (request) => {
+        opened.push(request);
+        return Promise.resolve({ window: 'stub-window' });
+      },
+    });
+
+    const bad = await post(started, '/api/terminal', { id: 'dsh-demo' });
+    expect(bad.status).toBe(400);
+    expect(String(bad.body.error)).toContain('前台模式');
+    expect(opened).toEqual([]);
+
+    const good = await post(started, '/api/terminal', { id: 'oc-demo' });
+    expect(good.status).toBe(200);
+    expect(String(good.body.command)).toContain('pal run');
+    expect(String(good.body.command)).toContain('oc-demo');
+    expect(String(good.body.window)).toBe('stub-window');
+    expect(opened[0]?.command).toBe('pal run oc-demo');
+    expect(opened[0]?.title).toContain('oc-demo');
+  });
+
+  it('POST /api/terminal 打开失败时 500 + 原因', async () => {
+    writeInstance(record({ name: 'oc-demo', harness: 'opencode' }));
+    const stub = stubPal({ code: 0, stdout: '', stderr: '' });
+    const started = await serveWith({
+      runPal: stub.runner,
+      openTerminal: () => Promise.reject(new Error('没有可用的终端模拟器')),
+    });
+
+    const res = await post(started, '/api/terminal', { id: 'oc-demo' });
+    expect(res.status).toBe(500);
+    expect(String(res.body.error)).toContain('没有可用的终端模拟器');
   });
 });
 
