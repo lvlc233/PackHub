@@ -340,19 +340,17 @@ describe('pal ui 的启动器 v2 接口', () => {
     expect(opencode.project).toBe('full');
   });
 
-  it('GET / 的页面有 Homes / 安装 / 活动 三个 tab 与安装表单', async () => {
+  it('GET / 的页面是 harness-first：侧栏 harness 列表 + 添加整合包弹层', async () => {
     const started = await serve();
     const { status, text } = await getText(started, '/');
     expect(status).toBe(200);
-    expect(text.match(/data-tab="/g)?.length).toBe(3);
-    expect(text).toContain('data-tab="homes"');
-    expect(text).toContain('data-tab="install"');
-    expect(text).toContain('data-tab="activity"');
-    expect(text).toContain('安装');
-    expect(text).toContain('活动');
+    expect(text).toContain('id="harness-list"');
+    expect(text).toContain('添加整合包');
+    expect(text).toContain('id="install-modal"');
     expect(text).toContain('id="source"');
     expect(text).toContain('id="preview"');
     expect(text).toContain('id="install"');
+    expect(text).toContain('自动刷新');
   });
 
   it('POST /api/plan 缺参 / 未知宿主都是 400，且不 spawn', async () => {
