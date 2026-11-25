@@ -139,6 +139,7 @@ main{min-width:0;padding:26px 34px 60px;max-width:1160px}
 .section-head h2{margin:0;font-size:12px;font-weight:600;color:var(--muted);letter-spacing:.02em}
 .section-head span{color:var(--dim);font-size:11px}
 .grid{display:flex;flex-direction:column;gap:4px}
+.list-head{display:grid;grid-template-columns:26px minmax(0,1fr) 130px 110px 86px;gap:12px;padding:0 12px 5px;font-size:11px;color:var(--dim)}
 .card{
   position:relative;text-align:left;border:1px solid var(--line);border-radius:6px;background:var(--panel);
   padding:9px 12px;display:grid;grid-template-columns:26px minmax(0,1fr) 130px 110px 86px;align-items:center;gap:12px;
@@ -502,6 +503,13 @@ main{min-width:0;padding:26px 34px 60px;max-width:1160px}
     }
     var selected = findInstance(state.selected) || state.instances[0];
     hero.appendChild(heroCard(selected));
+    var head = el('div','list-head');
+    head.appendChild(el('span', null, ''));
+    head.appendChild(el('span', null, '名称 / Pack'));
+    head.appendChild(el('span', null, '宿主'));
+    head.appendChild(el('span', null, '状态'));
+    head.appendChild(el('span', null, ''));
+    $('grid').appendChild(head);
     for (var i=0;i<state.instances.length;i++) $('grid').appendChild(card(state.instances[i], selected.id));
   }
 
