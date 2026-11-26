@@ -11,6 +11,16 @@ pnpm build:local          # → dist/local（packhub.mjs + pal.mjs）
 npm i -g dist/local       # 得到 packhub / pal 两个命令
 ```
 
+## 桌面应用
+
+`apps/pal-desktop` 是 Electron 单窗口启动器：左侧 harness，右侧当前 home 与大启动按钮，TUI 直接嵌在窗口里（node-pty + xterm），添加整合包用系统目录选择器。
+
+```bash
+pnpm desktop              # = pnpm --filter @packhub/pal-desktop start
+```
+
+前提：`pal` 在 PATH 上（先按上面装到本机），并且 Electron 二进制已下载；国内网络可设 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/` 后重装依赖。
+
 ## 两个命令族
 
 `packhub` 只碰 Pack 目录：`plan` / `verify` 预览，`lock` / `pack` / `publish` / `sign` 出包与发版。`pal` 负责装和跑：安装类命令 `install` / `uninstall` / `verify` / `rollback` / `update` 的 target 是 home（`--home <路径|名字>`，managed 用名字、attached 用路径或名字）或项目（`--project <目录>`）；`install` 不给 target 时在 PAL 数据目录建一个 managed 命名 home（名字 `<host>-<packSlug>`），`--home` 则装进宿主的真实全局目录（attached）。attached 的默认名撞车会自动改用 `<名字>-attached`；`remove` 对 managed 删整根、对 attached 只摘记录（卸包 + 删 PAL 记录，目录与用户文件保留）；clone / backup / restore / migrate 仍只对 managed。home 侧还有 `adopt` 与起停看护，本机状态看 `list` / `ps` / `health`，审计看 `list --history`。

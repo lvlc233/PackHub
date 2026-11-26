@@ -17,6 +17,7 @@
     "typecheck": "tsc --noEmit --pretty false",
     "packhub": "node --experimental-strip-types apps/local/src/bin.ts",
     "pal": "node --experimental-strip-types packages/launcher/src/bin.ts",
+    "desktop": "pnpm --filter @packhub/pal-desktop start",
     "build:local": "node scripts/build-local.mjs",
     "pack:local": "node scripts/build-local.mjs && cd dist/local && npm pack",
     "registry:index": "node --experimental-strip-types scripts/registry/build-index.mjs",

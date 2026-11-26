@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PAL</title>
+<link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css">
+<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><div class="mark">P</div><div><b>PAL</b><span>启动器</span></div></div>
+    <div class="side-label">Harness</div>
+    <div class="harness-list" id="harness-list"></div>
+    <div class="side-foot">
+      <div class="core"><span class="dot"></span><span>本机</span></div>
+      <button class="link-btn" id="refresh" type="button">刷新</button>
+    </div>
+  </aside>
+
+  <main>
+    <div id="view-main">
+      <div class="topbar">
+        <div><h1 id="title">PAL</h1><p id="sub">选一个 harness，然后启动。</p></div>
+        <button class="icon-btn" id="refresh-top" type="button" title="刷新">↻</button>
+      </div>
+      <div id="errbar" class="errbar hidden"></div>
+      <div id="hero"></div>
+      <div id="running-strip"></div>
+      <div class="section-head"><h2>整合包</h2><span id="pack-count"></span><span class="spacer"></span><button class="btn" id="add-pack" type="button">+ 添加整合包</button></div>
+      <div id="pack-grid" class="pack-grid"></div>
+      <div id="empty" class="empty hidden">
+        <div class="big">+</div>
+        <h3>这个 harness 还没有整合包</h3>
+        <p>选一个 Pack 目录，PAL 会把它装进一个 managed home，之后这里会出现可启动的卡片。</p>
+        <button class="btn primary" id="empty-add" type="button">添加整合包</button>
+      </div>
+    </div>
+
+    <div id="view-term" class="hidden">
+      <div class="term-head">
+        <div><b id="term-title">终端</b><span id="term-sub"></span></div>
+        <div class="term-actions">
+          <button class="btn" id="term-hide" type="button">返回</button>
+          <button class="btn danger" id="term-kill" type="button">结束</button>
+        </div>
+      </div>
+      <div class="term-wrap" id="term"></div>
+    </div>
+  </main>
+</div>
+<div class="toasts" id="toasts"></div>
+<script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>
+<script src="../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+<script src="./renderer.js"></script>
+</body>
+</html>
