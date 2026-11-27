@@ -102,7 +102,7 @@ function spawnEnv() {
   return env;
 }
 
-writeLog([main] host bins dsh= claude= codex= opencode=);
+writeLog(`[main] host bins dsh=${findExecutable('dsh')} claude=${findExecutable('claude')} codex=${findExecutable('codex')} opencode=${findExecutable('opencode')}`);
 
 function quote(value) {
   return /[\s"]/g.test(value) ? `"${String(value).replace(/"/g, '\\"')}"` : String(value);
