@@ -1772,6 +1772,9 @@ async function pickPack() {
     ins.dir = res.path;
     ins.preview = null;
     logEvent('install:pick', { kind: 'phub', path: res.path });
+    toast(`已选择 ${String(res.path).split(/[\\/]/).filter(Boolean).pop() || res.path}`);
+    ins.step = 2;
+    logEvent('install:step', { step: 2 });
     renderModal();
   } catch (err) {
     toast(`选不了整合包：${(err && err.message) || err}`, true);
@@ -1801,6 +1804,9 @@ async function pickDirectory() {
     ins.dir = res.path;
     ins.preview = null;
     logEvent('install:pick', { kind: 'dir', path: res.path });
+    toast(`已选择 ${String(res.path).split(/[\\/]/).filter(Boolean).pop() || res.path}`);
+    ins.step = 2;
+    logEvent('install:step', { step: 2 });
     renderModal();
   } catch (err) {
     toast(`选不了目录：${(err && err.message) || err}`, true);
