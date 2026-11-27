@@ -9,6 +9,18 @@ const HOSTS = [
   { id: 'hermes', label: 'Hermes' },
 ];
 const HOST_DESC = { dsh: 'DeepSeek Harness', 'claude-code': 'Claude Code', codex: 'OpenAI Codex', opencode: 'opencode', workbody: 'WorkBuddy', hermes: 'Hermes' };
+const ICONS = {
+  dsh: '<path d="M4 7l5 5-5 5M12 17h8"/>',
+  'claude-code': '<path d="M12 3v18M4.8 7.5l14.4 9M19.2 7.5l-14.4 9"/>',
+  codex: '<path d="M8 7l-4 5 4 5M16 7l4 5-4 5"/>',
+  opencode: '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M7 9l3 3-3 3M13 15h4"/>',
+  workbody: '<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V5h6v2"/>',
+  hermes: '<path d="M4 20c8-2 12-8 14-16-6 2-12 6-14 16z"/><path d="M4 20l6-6"/>',
+};
+function hostIcon(id) {
+  const body = ICONS[id] || ICONS.dsh;
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' + body + '</svg>';
+}
 
 const state = {
   instances: [],
@@ -83,7 +95,7 @@ function renderHarnesses() {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'harness' + (state.harness === h.id ? ' active' : '');
-    const mark = document.createElement('span'); mark.className = 'mark'; mark.textContent = h.label.slice(0, 1).toUpperCase();
+    const mark = document.createElement('span'); mark.className = 'h-icon'; mark.innerHTML = hostIcon(h.id);
     const name = document.createElement('span'); name.className = 'name'; name.textContent = h.label;
     const dot = document.createElement('span'); dot.className = 'dot' + (running ? ' running' : '');
     b.append(mark, name, dot);
@@ -106,7 +118,7 @@ function renderHero(inst) {
   const mode = defaultMode(inst);
   const box = document.createElement('div'); box.className = 'hero';
   const main = document.createElement('div'); main.className = 'hero-main';
-  const mark = document.createElement('div'); mark.className = 'hero-mark'; mark.textContent = hostName(inst.harness).slice(0, 1).toUpperCase();
+  const mark = document.createElement('div'); mark.className = 'hero-mark'; mark.innerHTML = hostIcon(inst.harness);
   const copy = document.createElement('div');
   const eyebrow = document.createElement('div'); eyebrow.className = 'eyebrow'; eyebrow.textContent = `${HOST_DESC[inst.harness] || inst.harness} · ${inst.attached ? 'attached home' : 'managed home'}`;
   const title = document.createElement('h2'); title.textContent = inst.name;
@@ -154,12 +166,15 @@ function renderRunning() {
   const running = state.instances.filter((x) => x.status === 'running');
   if (!running.length) return;
   const label = document.createElement('span'); label.className = 'label'; label.textContent = '正在运行';
+  label.style.cssText = 'margin-right:10px;color:#94a3b8;font-size:12px';
   strip.appendChild(label);
   for (const inst of running) {
     const item = document.createElement('span'); item.className = 'item';
+    item.style.cssText = 'display:inline-flex;align-items:center;gap:8px;margin-right:8px;padding:3px 10px;border-radius:999px;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.22);font-size:11.5px;white-space:nowrap';
     const b = document.createElement('b'); b.textContent = inst.name; item.appendChild(b);
     if (inst.url) {
       const a = document.createElement('a'); a.href = inst.url; a.textContent = '打开';
+      a.style.cssText = 'margin-left:6px;color:#22c55e;text-decoration:none';
       a.addEventListener('click', (e) => { e.preventDefault(); window.pal.openExternal(inst.url); });
       item.appendChild(a);
     }
@@ -183,7 +198,7 @@ function packCard(inst, current) {
   const mode = defaultMode(inst);
   const card = document.createElement('div');
   card.className = 'pack' + (current && current.id === inst.id ? ' selected' : '');
-  const mark = document.createElement('div'); mark.className = 'mark'; mark.textContent = hostName(inst.harness).slice(0, 1).toUpperCase();
+  const mark = document.createElement('div'); mark.className = 'p-icon'; mark.innerHTML = hostIcon(inst.harness);
   const main = document.createElement('div'); main.className = 'pack-main';
   const name = document.createElement('div'); name.className = 'pack-name'; name.textContent = inst.name;
   const meta = document.createElement('div'); meta.className = 'pack-meta'; meta.textContent = packText(inst);
