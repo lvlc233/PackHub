@@ -1669,14 +1669,6 @@ function renderInstallModal() {
         h('div', { class: 'dz-actions' },
           h('button', { class: 'btn outline', type: 'button', onclick: () => pickPack() }, '选择 .phub…'),
           h('button', { class: 'btn outline', type: 'button', onclick: () => pickDirectory() }, '选择目录…'))),
-      h('div', { class: 'mg-row' },
-        h('div', { class: 'mgr-main' },
-          h('span', { class: 'mgr-t', text: '安装位置' }),
-          h('span', { class: 'mgr-s', text: ins.root ? '这个整合包的数据会落在这个目录下。' : '默认落在 PAL 数据目录；要放别的盘就选一个目录。' }),
-          h('code', { class: 'pathline mono', text: ins.root || '默认：PAL 数据目录', title: ins.root || '默认：PAL 数据目录' })),
-        h('div', { class: 'mgr-act' },
-          h('button', { class: 'btn outline', type: 'button', onclick: () => pickRoot() }, '选择数据盘目录…'),
-          ins.root ? h('button', { class: 'btn outline', type: 'button', onclick: () => { ins.root = null; renderModal(); } }, '恢复默认') : null)),
       h('p', { class: 'hint', text: '选完再决定装进哪个 harness；下一步会先算安装计划，不落盘。' }));
     foot = [
       h('button', { class: 'btn', type: 'button', onclick: () => closeModal() }, '取消'),
@@ -1747,7 +1739,18 @@ function renderInstallModal() {
         actions.length ? h('pre', { class: 'plan-lines', text: planText }) : null,
         h('p', { class: 'hint', text: '预览没有落盘。确认后才会真正写文件。' }));
     }
-    body = h('div', { class: 'pickwrap' }, stepsBar(3), pv);
+    const location = h('div', { class: 'mg-row' },
+      h('div', { class: 'mgr-main' },
+        h('span', { class: 'mgr-t', text: '安装位置' }),
+        h('span', { class: 'mgr-s', text: ins.root ? '这个整合包的数据会落在这个目录下。' : '默认落在 PAL 数据目录；要放别的盘就选一个目录。' }),
+        h('code', { class: 'pathline mono', text: ins.root || '默认：PAL 数据目录', title: ins.root || '默认：PAL 数据目录' })),
+      h('div', { class: 'mgr-act' },
+        h('button', { class: 'btn outline', type: 'button', disabled: ins.busy, onclick: () => pickRoot() }, '选择数据盘目录…'),
+        ins.root ? h('button', {
+          class: 'btn outline', type: 'button', disabled: ins.busy,
+          onclick: () => { ins.root = null; runInstallPreview(); },
+        }, '恢复默认') : null));
+    body = h('div', { class: 'pickwrap' }, stepsBar(3), location, pv);
     const ready = preview && preview.ok === true;
     foot = [
       h('button', {
@@ -1811,7 +1814,8 @@ async function pickRoot() {
     ins.root = res.path;
     logEvent('install:root', { root: res.path });
     toast(`安装位置：${res.path}`);
-    renderModal();
+    if (ins.step === 3) await runInstallPreview();
+    else renderModal();
   } catch (err) {
     toast(`选不了目录：${(err && err.message) || err}`, true);
   }
