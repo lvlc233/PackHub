@@ -28,6 +28,9 @@ if (process.env.APPDATA) env.PATH = `${join(process.env.APPDATA, 'npm')};${env.P
 if (!env.PACKHUB_HOME && process.env.DSH_SESSION_ID) {
   env.PACKHUB_HOME = join(ROOT, '.pal-desktop-data');
 }
+if (!env.PAL_DESKTOP_DATA && process.env.DSH_SESSION_ID) {
+  env.PAL_DESKTOP_DATA = join(ROOT, '.pal-desktop-data', 'app');
+}
 
 const child = spawn(electron, ['--no-sandbox', APP], { cwd: ROOT, env, stdio: 'inherit' });
 child.on('exit', (code) => process.exit(code ?? 0));
