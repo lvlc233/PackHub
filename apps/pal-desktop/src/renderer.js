@@ -166,13 +166,9 @@ async function refresh() {
 
 function render() {
   const installed = visible();
-  const rail = document.querySelector('.rail');
   const work = document.querySelector('.work');
-  const single = installed.length <= 1;
-  if (rail) rail.classList.toggle('hidden', single);
-  if (work) work.classList.toggle('no-rail', single);
+  if (work) work.classList.add('no-rail');
   renderHarnessSwitch(installed);
-  renderRail();
   renderPane();
   renderPanel();
   renderStatus();
@@ -786,7 +782,7 @@ function renderStatus() {
   if (live) box.append(' · ', h('b', { text: String(live) }), ' 个运行中');
 
   const filterBox = $('sb-filter');
-  filterBox.textContent = '按 harness 分组';
+  filterBox.textContent = '';
   if (state.filter !== 'all') {
     filterBox.append('筛选：', h('b', { text: hostLabel(state.filter) }),
       h('button', {
