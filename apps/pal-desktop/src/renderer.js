@@ -2043,6 +2043,42 @@ document.querySelectorAll('[data-icon]').forEach((node) => {
   node.innerHTML = svgIcon(node.dataset.icon);
 });
 
+/**
+ * 拖入 .phub / 目录后的直接导入：用当前 harness，不经过向导；
+ * 失败才退回安装弹层，保留已选路径让用户改目标。
+ */
+async function importPack(path) {
+  const host = (state.harness && hostOf(state.harness)) ? state.harness
+    : (installedHosts()[0] ? installedHosts()[0].id : 'dsh');
+  const label = String(path).split(/[\\/]/).filter(Boolean).pop() || path;
+  toast(`正在导入 ${label} → ${hostLabel(host)}…`);
+  try {
+    const res = await window.pal.install(host, path);
+    if (!res || res.ok !== true) {
+      toast(`导入失败：${(res && (res.error || res.stderr || res.stdout)) || 'pal install 返回非 0'}`, true);
+      openInstall(host, path);
+      return;
+    }
+    const name = res.name || (res.record && res.record.name) || '';
+    await refresh();
+    const fresh = state.instances.find((x) => x.name === name);
+    if (fresh) {
+      state.harness = fresh.harness;
+      state.packId = fresh.id;
+      state.packByHarness[fresh.harness] = fresh.id;
+      state.detailId = null;
+      state.view = 'launch';
+      state.tab = 'overview';
+      saveBrief();
+      render();
+    }
+    toast(name ? `已导入 ${name}` : `已导入 ${label}`);
+  } catch (err) {
+    toast(`导入失败：${(err && err.message) || err}`, true);
+    openInstall(host, path);
+  }
+}
+
 window.addEventListener('resize', () => {
   if (state.menu) placePopover(state.menu.rect);
 });
@@ -2063,7 +2099,7 @@ window.addEventListener('drop', (event) => {
   if (!file) return;
   const path = window.pal.pathForFile(file);
   if (!path) { toast('读不到拖入文件的路径', true); return; }
-  openInstall(state.harness || 'dsh', path);
+  importPack(path);
 });
 
 /* ---------- 启动 ---------- */
