@@ -19,6 +19,13 @@ if (!existsSync(electron)) {
 
 const env = { ...process.env };
 delete env.ELECTRON_RUN_AS_NODE;
+// GUI 启动时 PATH 常常不带 npm 全局 bin；补上，main 的 pal 解析才稳定。
+if (process.env.APPDATA) env.PATH = `${join(process.env.APPDATA, 'npm')};${env.PATH || ''}`;
+// DSH 会话里 Electron 子进程被 job object 限制，写不了 %LOCALAPPDATA%；
+// 从 DSH 启动时把 PAL 数据放到仓库内（仍在工作区），真实桌面启动不受影响。
+if (!env.PACKHUB_HOME && process.env.DSH_SESSION_ID) {
+  env.PACKHUB_HOME = join(ROOT, '.pal-desktop-data');
+}
 
 const child = spawn(electron, ['--no-sandbox', APP], { cwd: ROOT, env, stdio: 'inherit' });
 child.on('exit', (code) => process.exit(code ?? 0));

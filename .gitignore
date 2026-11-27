@@ -7,3 +7,5 @@ dist/
 !registry/packs/**/*.phub
 .tmp/
 tmp/
+
+.pal-desktop-data/

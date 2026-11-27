@@ -40,6 +40,12 @@ function errText(err) {
 
 function palBin() {
   if (process.env.PAL_BIN) return process.env.PAL_BIN;
+  if (process.platform === 'win32') {
+    const npm = process.env.APPDATA ? join(process.env.APPDATA, 'npm', 'pal.cmd') : '';
+    const pnpm = process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, 'pnpm', 'pal.cmd') : '';
+    const candidate = [npm, pnpm].find((item) => item && existsSync(item));
+    if (candidate) return candidate;
+  }
   const probe = spawnSync(process.platform === 'win32' ? 'where' : 'which', ['pal'], { encoding: 'utf8' });
   if (probe.status === 0) {
     const lines = String(probe.stdout || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
