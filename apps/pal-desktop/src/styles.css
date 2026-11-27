@@ -420,7 +420,7 @@ kbd{font-family:var(--mono);font-size:9.5px;line-height:1;padding:2px 3px;border
 .modal{display:flex;flex-direction:column;width:500px;max-width:100%;max-height:calc(100vh - 52px);
   background:var(--raise);border:1px solid var(--line-strong);border-radius:9px;
   box-shadow:0 26px 64px -22px rgba(20,20,16,.5),0 2px 4px rgba(20,20,16,.1);
-  animation:modal-in .13s ease}
+}
 .modal:focus,.modal:focus-visible{outline:none}
 .modal.wide{width:540px}
 @keyframes modal-in{from{opacity:0;transform:translateY(-4px) scale(.995)}to{opacity:1;transform:none}}

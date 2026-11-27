@@ -123,14 +123,12 @@ function modesFor(name) {
   }
 }
 
-/** 原生文件对话框关掉后，Electron 窗口常留在后面、也不重绘；强制拉回前台并请求重绘。 */
+/** 原生文件对话框关掉后把窗口拉回前台；不要 show()/invalidate()，那会在可见窗口上闪一帧。 */
 function refocusWindow() {
   if (!win || win.isDestroyed()) return;
   try {
-    win.show();
     win.focus();
     win.moveTop();
-    if (typeof win.webContents.invalidate === 'function') win.webContents.invalidate();
   } catch { /* 窗口状态异常时忽略 */ }
   setTimeout(() => {
     if (!win || win.isDestroyed()) return;
