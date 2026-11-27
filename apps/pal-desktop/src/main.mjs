@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
-const { app, BrowserWindow, clipboard, dialog, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, clipboard, dialog, ipcMain, shell, screen } = require('electron');
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 // Windows 上默认的 userData 路径偶尔会让 Electron 在启动阶段直接崩（0xC0000005）；
@@ -124,11 +124,19 @@ function modesFor(name) {
 }
 
 function createWindow() {
+  // 按 DPI 缩放后的工作区收敛窗口：1180×760 在 150% 缩放的 1080p 上会超出屏幕，
+  // 导致弹层被挤出可视区，看起来像“闪一下”。
+  const display = screen.getPrimaryDisplay();
+  const scale = display.scaleFactor || 1;
+  const availW = Math.floor(display.bounds.width / scale);
+  const availH = Math.floor(display.bounds.height / scale);
+  const width = Math.max(900, Math.min(1180, availW - 80));
+  const height = Math.max(560, Math.min(760, availH - 80));
   win = new BrowserWindow({
-    width: 1180,
-    height: 760,
+    width,
+    height,
     minWidth: 900,
-    minHeight: 600,
+    minHeight: 560,
     title: 'PAL',
     backgroundColor: '#f4f5f7',
     autoHideMenuBar: true,
