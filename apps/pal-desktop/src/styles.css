@@ -586,3 +586,11 @@ kbd{font-family:var(--mono);font-size:9.5px;line-height:1;padding:2px 3px;border
   .pk-row{grid-template-columns:minmax(0,1fr) 84px auto}
   .brand-sub{display:none}
 }
+
+.pane-empty.hero{margin:auto;max-width:560px;padding:0;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100%}
+.pane-empty.hero .pe-mark{width:48px;height:48px;border-radius:12px;border:1px solid var(--line-strong);background:var(--surface);display:grid;place-items:center;color:var(--muted);margin-bottom:16px}
+.pane-empty.hero .pe-mark svg{width:22px;height:22px}
+.pane-empty.hero .pe-body{max-width:440px}
+.pane-empty.hero .pe-steps{justify-content:center;flex-wrap:wrap}
+.pane-empty.hero .pe-actions{justify-content:center}
+.pane-empty.hero .pe-cli{text-align:center}

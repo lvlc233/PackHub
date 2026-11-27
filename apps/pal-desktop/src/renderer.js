@@ -431,6 +431,7 @@ function launchEmpty() {
   const hosts = installedHosts();
   if (!hosts.length) {
     return h('div', { class: 'pane-empty hero' },
+      h('div', { class: 'pe-mark', html: svgIcon('folder-plus') }),
       h('p', { class: 'pe-title', text: '还没有任何整合包' }),
       h('p', {
         class: 'pe-body',
