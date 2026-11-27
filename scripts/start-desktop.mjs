@@ -21,7 +21,10 @@ const env = { ...process.env };
 delete env.ELECTRON_RUN_AS_NODE;
 // pal.cmd 里是 `node ...`：保证 Node 自己的目录在 PATH 里，再补 npm 全局 bin（pal.cmd）。
 const nodeDir = dirname(process.execPath);
-if (nodeDir) env.PATH = `${nodeDir};${env.PATH || ''}`;
+if (nodeDir) {
+  env.PATH = `${nodeDir};${env.PATH || ''}`;
+  env.PAL_NODE_BIN = process.execPath;
+}
 if (process.env.APPDATA) env.PATH = `${join(process.env.APPDATA, 'npm')};${env.PATH || ''}`;
 // DSH 会话里 Electron 子进程被 job object 限制，写不了 %LOCALAPPDATA%；
 // 从 DSH 启动时把 PAL 数据放到仓库内（仍在工作区），真实桌面启动不受影响。

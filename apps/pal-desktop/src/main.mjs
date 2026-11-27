@@ -104,6 +104,8 @@ function spawnEnv() {
     env[key] = bin;
     dirs.push(dirname(bin));
   }
+  const nodeBin = process.env.PAL_NODE_BIN || findExecutable('node');
+  if (nodeBin) dirs.push(dirname(nodeBin));
   const pal = palBin();
   if (pal && pal !== 'pal') dirs.push(dirname(pal));
   env.PATH = [...new Set([...dirs, env.PATH || ''])].filter(Boolean).join(delimiter);
@@ -257,7 +259,15 @@ handle('pal:info', () => {
 handle('pal:start', (_event, { name, mode }) => {
   const args = ['start', name, '--json'];
   if (mode) args.push('--mode', mode);
-  const result = runPal(args, { timeout: 180000 });
+  let result = runPal(args, { timeout: 180000 });
+  // 旧 core 可能是从一个没注入 host bin 的终端起的：它找不到 dsh/claude。
+  // 停掉 core，让下一次 start 用当前 app 的环境重新拉起。
+  const output = `${result.stderr || ''}\n${result.stdout || ''}`;
+  if (result.status !== 0 && /找不到 .* 命令/.test(output)) {
+    writeLog('[main] start:harness-missing -> restart core and retry');
+    runPal(['__core', 'stop', '--home', palDataDir], { timeout: 20000 });
+    result = runPal(args, { timeout: 180000 });
+  }
   let record = null;
   try { record = JSON.parse(String(result.stdout || '')); } catch { /* text */ }
   return {
