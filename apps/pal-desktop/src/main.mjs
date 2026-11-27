@@ -1,12 +1,11 @@
-import { spawn, spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
-const { app, BrowserWindow, dialog, ipcMain, shell } = require('electron');
-
+const { app, BrowserWindow, clipboard, dialog, ipcMain, shell } = require('electron');
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const HOSTS = [
@@ -18,8 +17,19 @@ const HOSTS = [
   { id: 'hermes', label: 'Hermes', desc: 'Hermes Agent' },
 ];
 
+/** 每个动作对应一条 pal 命令；参数只在这里拼，渲染层只能传名字。 */
+const ACTIONS = {
+  update: (name) => ['update', '--home', name, '--json'],
+  uninstall: (name) => ['uninstall', '--home', name, '--json'],
+  remove: (name) => ['remove', name, '--yes', '--json'],
+};
+
 let win;
 let terminal = null;
+
+function errText(err) {
+  return (err && err.message) || String(err);
+}
 
 function palBin() {
   if (process.env.PAL_BIN) return process.env.PAL_BIN;
@@ -45,6 +55,22 @@ function runPal(args, opts = {}) {
     });
   }
   return spawnSync(command, args, { encoding: 'utf8', timeout, windowsHide: true, cwd: opts.cwd });
+}
+
+/** pal 非 0 退出时，把最有信息量的那段文字挑出来给 UI。 */
+function palFailure(result, fallback) {
+  return String(result.stderr || result.stdout || fallback).trim();
+}
+
+/** 统一外壳：任何 handler 抛错都变成 { ok:false, error }，不让渲染层拿到 rejected promise。 */
+function handle(channel, fn) {
+  ipcMain.handle(channel, async (event, payload) => {
+    try {
+      return await fn(event, payload || {});
+    } catch (err) {
+      return { ok: false, error: errText(err) };
+    }
+  });
 }
 
 function listInstances() {
@@ -105,15 +131,15 @@ function createWindow() {
   }
 }
 
-ipcMain.handle('pal:list', () => {
+handle('pal:list', () => {
   const base = listInstances();
   if (!base.ok) return base;
   return { ok: true, instances: base.instances.map((inst) => ({ ...inst, modes: modesFor(inst.name) })) };
 });
 
-ipcMain.handle('pal:hosts', () => HOSTS);
+handle('pal:hosts', () => HOSTS);
 
-ipcMain.handle('pal:start', (_event, { name, mode }) => {
+handle('pal:start', (_event, { name, mode }) => {
   const args = ['start', name, '--json'];
   if (mode) args.push('--mode', mode);
   const result = runPal(args, { timeout: 180000 });
@@ -124,36 +150,118 @@ ipcMain.handle('pal:start', (_event, { name, mode }) => {
     code: result.status,
     stdout: result.stdout || '',
     stderr: result.stderr || '',
+    error: result.status === 0 ? undefined : palFailure(result, 'pal start 返回非 0'),
     record,
   };
 });
 
-ipcMain.handle('pal:stop', (_event, { name }) => {
+handle('pal:stop', (_event, { name }) => {
   const result = runPal(['stop', name], { timeout: 60000 });
-  return { ok: result.status === 0, stdout: result.stdout || '', stderr: result.stderr || '' };
+  return {
+    ok: result.status === 0,
+    stdout: result.stdout || '',
+    stderr: result.stderr || '',
+    error: result.status === 0 ? undefined : palFailure(result, 'pal stop 返回非 0'),
+  };
 });
 
-ipcMain.handle('pal:install', async (_event, { host }) => {
+/** 系统目录选择器单独一个通道：添加整合包的第二步行内选目录要能反复调用。 */
+handle('pal:pick-directory', async () => {
   const picked = await dialog.showOpenDialog(win, {
     title: '选择 Pack 目录',
     properties: ['openDirectory'],
   });
-  if (picked.canceled || !picked.filePaths[0]) return { canceled: true };
-  const result = runPal(['install', picked.filePaths[0], '--host', host], { timeout: 180000 });
+  if (picked.canceled || !picked.filePaths[0]) return { canceled: true, path: null };
+  return { canceled: false, path: picked.filePaths[0] };
+});
+
+/** 只算计划、不落盘：弹层第三屏的预览。 */
+handle('pal:install-preview', (_event, { host, dir }) => {
+  if (!dir) return { ok: false, error: '还没有选目录' };
+  if (!existsSync(dir)) return { ok: false, error: `目录不存在：${dir}` };
+  const result = runPal(['install', dir, '--host', host, '--dry-run', '--json'], { timeout: 180000 });
+  if (result.status !== 0) {
+    return { ok: false, error: palFailure(result, `pal install --dry-run 退出码 ${result.status}`) };
+  }
+  let data;
+  try {
+    data = JSON.parse(String(result.stdout || '{}'));
+  } catch {
+    return { ok: false, error: `预览输出不是 JSON：\n${String(result.stdout || '').slice(0, 2000)}` };
+  }
+  return { ok: true, plan: data.plan || null, name: data.name || null };
+});
+
+/** 保留旧调用：只传 host 时仍然弹系统目录选择器。 */
+handle('pal:install', async (_event, { host, dir }) => {
+  let target = dir;
+  if (!target) {
+    const picked = await dialog.showOpenDialog(win, {
+      title: '选择 Pack 目录',
+      properties: ['openDirectory'],
+    });
+    if (picked.canceled || !picked.filePaths[0]) return { canceled: true };
+    target = picked.filePaths[0];
+  }
+  const result = runPal(['install', target, '--host', host, '--json'], { timeout: 180000 });
+  let record = null;
+  try { record = JSON.parse(String(result.stdout || '')); } catch { /* 纯文本输出 */ }
+  const ok = result.status === 0;
   return {
     canceled: false,
-    ok: result.status === 0,
+    ok,
     stdout: result.stdout || '',
     stderr: result.stderr || '',
+    error: ok ? undefined : palFailure(result, 'pal install 返回非 0'),
+    record,
+    name: record && record.name ? record.name : null,
   };
 });
 
-ipcMain.handle('pal:open-external', (_event, { url }) => shell.openExternal(url));
+/** 更新 / 卸载 / 删除：危险动作的确认在渲染层，这里只执行。 */
+handle('pal:action', (_event, { name, action }) => {
+  const build = ACTIONS[action];
+  if (!build) return { ok: false, error: `未知动作：${action}` };
+  if (!name) return { ok: false, error: '没有给实例名' };
+  const result = runPal(build(name), { timeout: 180000 });
+  const ok = result.status === 0;
+  return {
+    ok,
+    code: result.status,
+    stdout: result.stdout || '',
+    stderr: result.stderr || '',
+    error: ok ? undefined : palFailure(result, `pal ${action} 返回非 0`),
+  };
+});
 
-ipcMain.handle('term:start', (event, { name, cols, rows }) => {
+handle('pal:reveal', async (_event, { path: target }) => {
+  if (!target) return { ok: false, error: '这个实例没有记录路径' };
+  if (!existsSync(target)) return { ok: false, error: `路径不存在：${target}` };
+  let isDir = false;
+  try { isDir = statSync(target).isDirectory(); } catch { /* 当成文件 */ }
+  if (isDir) {
+    const failure = await shell.openPath(target);
+    return failure ? { ok: false, error: failure } : { ok: true };
+  }
+  shell.showItemInFolder(target);
+  return { ok: true };
+});
+
+handle('pal:copy', (_event, { text }) => {
+  clipboard.writeText(String(text ?? ''));
+  return { ok: true };
+});
+
+handle('pal:open-external', async (_event, { url }) => {
+  if (!url) return { ok: false, error: '没有链接' };
+  await shell.openExternal(url);
+  return { ok: true };
+});
+
+handle('term:start', (event, { name, cols, rows }) => {
   const pty = require('node-pty');
   if (terminal) {
-    try { terminal.kill(); } catch { /* ignore */ }
+    try { terminal.kill(); } catch { /* 已经退出 */ }
     terminal = null;
   }
   const command = palBin();
@@ -187,7 +295,7 @@ ipcMain.on('term:resize', (_event, { cols, rows }) => {
   }
 });
 
-ipcMain.handle('term:kill', () => {
+handle('term:kill', () => {
   if (terminal) {
     try { terminal.kill(); } catch { /* ignore */ }
     terminal = null;

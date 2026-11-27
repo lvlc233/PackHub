@@ -18,6 +18,7 @@
     <div class="toolbar-grow"></div>
     <button class="btn" id="add-pack" type="button"><span class="ico" data-icon="folder-plus"></span>添加整合包</button>
     <button class="btn icon" id="refresh" type="button" title="刷新 (F5)" aria-label="刷新"><span class="ico" data-icon="refresh"></span></button>
+    <button class="btn icon" id="about" type="button" title="关于与快捷键" aria-label="关于与快捷键"><span class="ico" data-icon="info"></span></button>
   </header>
 
   <div class="work">
@@ -37,19 +38,12 @@
     </aside>
 
     <section class="pane">
-      <div class="pane-head" id="pane-head"></div>
-      <div class="pane-body" id="pane-body"></div>
-      <div class="panel" id="panel">
-        <div class="panel-bar">
-          <span class="panel-title">终端</span>
-          <span class="panel-state" id="panel-state"></span>
-          <div class="panel-grow"></div>
-          <div class="panel-actions">
-            <button class="pbtn" id="panel-kill" type="button"><span class="ico" data-icon="stop"></span>结束</button>
-            <button class="pbtn" id="panel-toggle" type="button" title="展开 / 收起"><span class="ico" data-icon="expand"></span><span class="pt-label">展开</span></button>
-          </div>
-        </div>
-        <div class="panel-body">
+      <div class="pane-head hidden" id="pane-head"></div>
+      <div class="tabs hidden" id="tabs" role="tablist" aria-label="实例详情"></div>
+      <div class="pane-body" id="pane-body" role="tabpanel"></div>
+      <div class="panel hidden" id="panel">
+        <div class="panel-bar" id="panel-bar"></div>
+        <div class="panel-body" id="panel-body">
           <div class="panel-idle" id="panel-idle"></div>
           <div class="term-host" id="term"></div>
         </div>
@@ -64,9 +58,12 @@
     <span class="sb-item kb"><kbd>↑</kbd><kbd>↓</kbd> 选择</span>
     <span class="sb-item kb"><kbd>↵</kbd> 启动</span>
     <span class="sb-item kb"><kbd>F5</kbd> 刷新</span>
+    <span class="sb-item kb"><kbd>Esc</kbd> 关闭</span>
   </footer>
 </div>
 <div class="toasts" id="toasts"></div>
+<div class="popover hidden" id="popover" role="menu"></div>
+<div class="modal-root hidden" id="modal-root"></div>
 <script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>
 <script src="../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
 <script src="./renderer.js"></script>
