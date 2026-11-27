@@ -9,46 +9,39 @@
 </head>
 <body>
 <div class="app">
-  <aside class="sidebar">
-    <div class="brand"><div class="mark">P</div><div><b>PAL</b><span>启动器</span></div></div>
-    <div class="side-label">Harness</div>
-    <div class="harness-list" id="harness-list"></div>
-    <div class="side-foot">
-      <div class="core"><span class="dot"></span><span>本机</span></div>
-      <button class="link-btn" id="refresh" type="button">刷新</button>
+  <header class="topbar">
+    <div class="brand"><div class="mark">P</div><b>PAL</b><span>启动器</span></div>
+    <div class="filters" id="filters"></div>
+    <div class="top-actions">
+      <button class="btn" id="add-pack" type="button">+ 添加整合包</button>
+      <button class="icon-btn" id="refresh" type="button" title="刷新">↻</button>
     </div>
-  </aside>
+  </header>
 
-  <main>
-    <div id="view-main">
-      <div class="topbar">
-        <div><h1 id="title">PAL</h1><p id="sub">选一个 harness，然后启动。</p></div>
-        <button class="icon-btn" id="refresh-top" type="button" title="刷新">↻</button>
-      </div>
-      <div id="errbar" class="errbar hidden"></div>
-      <div id="hero"></div>
-      <div id="running-strip"></div>
-      <div class="section-head"><h2>整合包</h2><span id="pack-count"></span><span class="spacer"></span><button class="btn" id="add-pack" type="button">+ 添加整合包</button></div>
-      <div id="pack-grid" class="pack-grid"></div>
+  <div class="body">
+    <section class="list-pane">
+      <div class="list-head"><span>实例</span><span id="count"></span></div>
+      <div id="home-list" class="home-list"></div>
       <div id="empty" class="empty hidden">
         <div class="big">+</div>
-        <h3>这个 harness 还没有整合包</h3>
-        <p>选一个 Pack 目录，PAL 会把它装进一个 managed home，之后这里会出现可启动的卡片。</p>
+        <h3>还没有实例</h3>
+        <p>添加一个整合包，PAL 会为它建一个 home；之后这里就是可启动的实例列表。</p>
         <button class="btn primary" id="empty-add" type="button">添加整合包</button>
       </div>
-    </div>
+    </section>
 
-    <div id="view-term" class="hidden">
-      <div class="term-head">
-        <div><b id="term-title">终端</b><span id="term-sub"></span></div>
-        <div class="term-actions">
-          <button class="btn" id="term-hide" type="button">返回</button>
-          <button class="btn danger" id="term-kill" type="button">结束</button>
-        </div>
-      </div>
-      <div class="term-wrap" id="term"></div>
+    <aside class="launch-pane">
+      <div id="launch"></div>
+    </aside>
+  </div>
+
+  <div id="view-term" class="term-overlay hidden">
+    <div class="term-head">
+      <div><b id="term-title">终端</b><span id="term-sub"></span></div>
+      <div class="term-actions"><button class="btn" id="term-hide" type="button">返回</button><button class="btn danger" id="term-kill" type="button">结束</button></div>
     </div>
-  </main>
+    <div class="term-wrap" id="term"></div>
+  </div>
 </div>
 <div class="toasts" id="toasts"></div>
 <script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>

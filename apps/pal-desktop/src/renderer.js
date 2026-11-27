@@ -22,14 +22,7 @@ function hostIcon(id) {
   return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">' + body + '</svg>';
 }
 
-const state = {
-  instances: [],
-  harness: null,
-  home: null,
-  term: null,
-  fit: null,
-  termName: null,
-};
+const state = { instances: [], filter: 'all', selectedId: null, term: null, fit: null };
 
 function toast(text, bad) {
   const node = document.createElement('div');
@@ -38,280 +31,215 @@ function toast(text, bad) {
   $('toasts').appendChild(node);
   setTimeout(() => node.remove(), bad ? 5000 : 2600);
 }
-function showError(text) {
-  const bar = $('errbar');
-  bar.textContent = text;
-  bar.classList.remove('hidden');
-}
-function clearError() { $('errbar').classList.add('hidden'); }
 function hostName(id) { const h = HOSTS.find((x) => x.id === id); return h ? h.label : id; }
 function packText(inst) { return inst.pack ? `${inst.pack.name}@${inst.pack.version}` : ''; }
 function statusText(inst) { return inst.status === 'running' ? '运行中' : inst.status === 'broken' || inst.status === 'failed' ? '异常' : '已安装'; }
-function defaultMode(inst) {
-  if (!inst.modes || !inst.modes.length) return null;
-  return inst.modes.find((m) => m.default) || inst.modes[0];
-}
-function homesOf(harness) { return state.instances.filter((x) => x.harness === harness); }
-function currentHome(harness) {
-  const list = homesOf(harness);
-  return list.find((x) => x.id === state.home) || list.find((x) => x.status === 'running') || list[0] || null;
-}
+function defaultMode(inst) { return inst.modes && inst.modes.length ? (inst.modes.find((m) => m.default) || inst.modes[0]) : null; }
+function selected() { return state.instances.find((x) => x.id === state.selectedId) || null; }
 
 async function refresh() {
   try {
     const data = await window.pal.list();
-    if (!data.ok) { showError(data.error || '读取失败'); return; }
+    if (!data.ok) { toast(data.error || '读取失败', true); return; }
     state.instances = data.instances;
-    if (!state.harness) {
+    if (!state.selectedId || !state.instances.some((x) => x.id === state.selectedId)) {
       const running = state.instances.find((x) => x.status === 'running');
-      state.harness = running ? running.harness : (state.instances[0] ? state.instances[0].harness : HOSTS[0].id);
+      state.selectedId = running ? running.id : (state.instances[0] ? state.instances[0].id : null);
     }
-    clearError();
     render();
   } catch (err) {
-    showError(`读取失败：${err.message || err}`);
+    toast(`读取失败：${err.message || err}`, true);
   }
 }
 
 function render() {
-  renderHarnesses();
-  const host = state.harness;
-  $('title').textContent = hostName(host);
-  $('sub').textContent = HOST_DESC[host] || host;
-  const homes = homesOf(host);
-  const home = currentHome(host);
-  state.home = home ? home.id : null;
-  renderHero(home);
-  renderRunning();
-  renderPacks(homes, home);
+  renderFilters();
+  renderList();
+  renderLaunch();
 }
 
-function renderHarnesses() {
-  const box = $('harness-list');
+function renderFilters() {
+  const box = $('filters');
   box.textContent = '';
-  for (const h of HOSTS) {
-    const list = homesOf(h.id);
-    const running = list.some((x) => x.status === 'running');
+  const items = [{ id: 'all', label: '全部' }, ...HOSTS];
+  for (const item of items) {
     const b = document.createElement('button');
     b.type = 'button';
-    b.className = 'harness' + (state.harness === h.id ? ' active' : '');
-    const mark = document.createElement('span'); mark.className = 'h-icon'; mark.innerHTML = hostIcon(h.id);
-    const name = document.createElement('span'); name.className = 'name'; name.textContent = h.label;
-    const dot = document.createElement('span'); dot.className = 'dot' + (running ? ' running' : '');
-    b.append(mark, name, dot);
-    b.addEventListener('click', () => { state.harness = h.id; state.home = null; render(); });
+    b.className = 'filter' + (state.filter === item.id ? ' active' : '');
+    b.textContent = item.label;
+    b.addEventListener('click', () => { state.filter = item.id; render(); });
     box.appendChild(b);
   }
 }
 
-function renderHero(inst) {
-  const hero = $('hero');
-  hero.textContent = '';
-  if (!inst) {
-    const empty = document.createElement('div');
-    empty.className = 'empty';
-    empty.innerHTML = '<div class="big">+</div><h3>这个 harness 还没有整合包</h3><p>点下面的「添加整合包」，选一个 Pack 目录。</p>';
-    hero.appendChild(empty);
-    return;
-  }
+function visible() {
+  const list = state.filter === 'all' ? state.instances.slice() : state.instances.filter((x) => x.harness === state.filter);
+  return list.sort((a, b) => {
+    const ar = a.status === 'running' ? 0 : 1;
+    const br = b.status === 'running' ? 0 : 1;
+    if (ar !== br) return ar - br;
+    return String(a.name).localeCompare(String(b.name));
+  });
+}
+
+function renderList() {
+  const box = $('home-list');
+  box.textContent = '';
+  const list = visible();
+  $('count').textContent = `${list.length} 个`;
+  $('empty').classList.toggle('hidden', list.length > 0);
+  for (const inst of list) box.appendChild(row(inst));
+}
+
+function row(inst) {
   const running = inst.status === 'running';
-  const mode = defaultMode(inst);
-  const box = document.createElement('div'); box.className = 'hero';
-  const main = document.createElement('div'); main.className = 'hero-main';
-  const mark = document.createElement('div'); mark.className = 'hero-mark'; mark.innerHTML = hostIcon(inst.harness);
-  const copy = document.createElement('div');
-  const eyebrow = document.createElement('div'); eyebrow.className = 'eyebrow'; eyebrow.textContent = `${HOST_DESC[inst.harness] || inst.harness} · ${inst.attached ? 'attached home' : 'managed home'}`;
-  const title = document.createElement('h2'); title.textContent = inst.name;
-  const sub = document.createElement('p'); sub.className = 'sub'; sub.textContent = packText(inst);
-  const chips = document.createElement('div'); chips.className = 'chips';
-  const chipStatus = document.createElement('span'); chipStatus.className = 'chip' + (running ? ' ok' : ''); chipStatus.textContent = statusText(inst);
-  chips.appendChild(chipStatus);
-  if (mode) { const c = document.createElement('span'); c.className = 'chip'; c.textContent = mode.label; chips.appendChild(c); }
-  if (inst.port) { const c = document.createElement('span'); c.className = 'chip'; c.textContent = `端口 ${inst.port}`; chips.appendChild(c); }
-  const count = document.createElement('span'); count.className = 'chip'; count.textContent = `${homesOf(inst.harness).length} 个整合包`; chips.appendChild(count);
-  copy.append(eyebrow, title, sub, chips);
-  main.append(mark, copy);
-
-  const actions = document.createElement('div'); actions.className = 'hero-actions';
-  if (running) {
-    const stop = document.createElement('button'); stop.type = 'button'; stop.className = 'btn xl hero-stop'; stop.textContent = '停止';
-    stop.addEventListener('click', () => stopInstance(inst));
-    actions.appendChild(stop);
-  } else if (mode && mode.available !== false) {
-    const start = document.createElement('button'); start.type = 'button'; start.className = 'btn primary xl';
-    start.textContent = mode.kind === 'app' ? '启动 App' : mode.kind === 'foreground' ? '打开终端' : '启动';
-    start.addEventListener('click', () => launch(inst, mode));
-    actions.appendChild(start);
-  } else {
-    const no = document.createElement('button'); no.type = 'button'; no.className = 'btn xl'; no.textContent = '不可启动'; no.disabled = true;
-    actions.appendChild(no);
-  }
-  const second = document.createElement('div'); second.className = 'hero-secondary';
-  if (inst.url) {
-    const open = document.createElement('button'); open.type = 'button'; open.className = 'btn'; open.textContent = '打开页面';
-    open.addEventListener('click', () => window.pal.openExternal(inst.url));
-    second.appendChild(open);
-  }
-  const term = document.createElement('button'); term.type = 'button'; term.className = 'btn'; term.textContent = '终端';
-  term.addEventListener('click', () => openTerminal(inst));
-  second.appendChild(term);
-  actions.appendChild(second);
-  box.append(main, actions);
-  hero.appendChild(box);
-}
-
-function renderRunning() {
-  const strip = $('running-strip');
-  strip.textContent = '';
-  const running = state.instances.filter((x) => x.status === 'running');
-  if (!running.length) return;
-  const label = document.createElement('span'); label.className = 'label'; label.textContent = '正在运行';
-  label.style.cssText = 'margin-right:10px;color:#94a3b8;font-size:12px';
-  strip.appendChild(label);
-  for (const inst of running) {
-    const item = document.createElement('span'); item.className = 'item';
-    item.style.cssText = 'display:inline-flex;align-items:center;gap:8px;margin-right:8px;padding:3px 10px;border-radius:999px;background:rgba(34,197,94,.08);border:1px solid rgba(34,197,94,.22);font-size:11.5px;white-space:nowrap';
-    const b = document.createElement('b'); b.textContent = inst.name; item.appendChild(b);
-    if (inst.url) {
-      const a = document.createElement('a'); a.href = inst.url; a.textContent = '打开';
-      a.style.cssText = 'margin-left:6px;color:#22c55e;text-decoration:none';
-      a.addEventListener('click', (e) => { e.preventDefault(); window.pal.openExternal(inst.url); });
-      item.appendChild(a);
-    }
-    strip.appendChild(item);
-  }
-}
-
-function renderPacks(homes, home) {
-  const grid = $('pack-grid');
-  grid.textContent = '';
-  $('pack-count').textContent = homes.length ? `${homes.length} 个` : '';
-  $('empty').classList.toggle('hidden', homes.length > 0);
-  for (const inst of homes) grid.appendChild(packCard(inst, home));
-  const add = document.createElement('button'); add.type = 'button'; add.className = 'add-pack'; add.textContent = '+ 添加整合包';
-  add.addEventListener('click', installPack);
-  grid.appendChild(add);
-}
-
-function packCard(inst, current) {
-  const running = inst.status === 'running';
-  const mode = defaultMode(inst);
-  const card = document.createElement('div');
-  card.className = 'pack' + (current && current.id === inst.id ? ' selected' : '');
-  const mark = document.createElement('div'); mark.className = 'p-icon'; mark.innerHTML = hostIcon(inst.harness);
-  const main = document.createElement('div'); main.className = 'pack-main';
-  const name = document.createElement('div'); name.className = 'pack-name'; name.textContent = inst.name;
-  const meta = document.createElement('div'); meta.className = 'pack-meta'; meta.textContent = packText(inst);
-  const st = document.createElement('div'); st.className = 'pack-state';
-  const dot = document.createElement('span'); dot.className = 'status' + (running ? ' running' : '');
+  const el = document.createElement('div');
+  el.className = 'row' + (inst.id === state.selectedId ? ' selected' : '');
+  const icon = document.createElement('div'); icon.className = 'r-icon'; icon.innerHTML = hostIcon(inst.harness);
+  const main = document.createElement('div'); main.className = 'r-main';
+  const name = document.createElement('div'); name.className = 'r-name'; name.textContent = inst.name;
+  const meta = document.createElement('div'); meta.className = 'r-meta'; meta.textContent = packText(inst);
+  main.append(name, meta);
+  const host = document.createElement('div'); host.className = 'r-host'; host.textContent = hostName(inst.harness);
+  const st = document.createElement('div'); st.className = 'r-state';
+  const dot = document.createElement('span'); dot.className = 'dot' + (running ? ' running' : inst.status === 'broken' || inst.status === 'failed' ? ' broken' : '');
   st.append(dot, document.createTextNode(statusText(inst)));
-  main.append(name, meta, st);
-  const acts = document.createElement('div'); acts.className = 'pack-actions';
-  if (running) {
-    const stop = document.createElement('button'); stop.type = 'button'; stop.className = 'btn'; stop.textContent = '停止';
-    stop.addEventListener('click', (e) => { e.stopPropagation(); stopInstance(inst); });
-    acts.appendChild(stop);
-  } else if (mode && mode.available !== false) {
-    const go = document.createElement('button'); go.type = 'button'; go.className = 'btn primary'; go.textContent = mode.kind === 'foreground' ? '终端' : '启动';
-    go.addEventListener('click', (e) => { e.stopPropagation(); launch(inst, mode); });
-    acts.appendChild(go);
-  }
-  card.append(mark, main, acts);
-  card.addEventListener('click', () => { state.home = inst.id; render(); });
-  return card;
+  el.append(icon, main, host, st);
+  el.addEventListener('click', () => { state.selectedId = inst.id; render(); });
+  el.addEventListener('dblclick', () => launch(inst));
+  return el;
 }
 
-async function launch(inst, mode) {
+function renderLaunch() {
+  const box = $('launch');
+  box.textContent = '';
+  const inst = selected();
+  if (!inst) {
+    const p = document.createElement('div'); p.className = 'launch-empty'; p.textContent = '选一个实例，然后启动。';
+    box.appendChild(p); return;
+  }
+  const running = inst.status === 'running';
+  const mode = defaultMode(inst);
+  const card = document.createElement('div'); card.className = 'launch-card';
+  const label = document.createElement('div'); label.className = 'launch-label'; label.textContent = '启动';
+  const head = document.createElement('div'); head.className = 'launch-head';
+  const icon = document.createElement('div'); icon.className = 'launch-icon'; icon.innerHTML = hostIcon(inst.harness);
+  const titles = document.createElement('div'); titles.style.minWidth = '0';
+  const name = document.createElement('div'); name.className = 'launch-name'; name.textContent = inst.name;
+  const sub = document.createElement('div'); sub.className = 'launch-sub'; sub.textContent = packText(inst);
+  titles.append(name, sub); head.append(icon, titles);
+  const chips = document.createElement('div'); chips.className = 'launch-chips';
+  const c1 = document.createElement('span'); c1.className = 'chip' + (running ? ' ok' : ''); c1.textContent = statusText(inst); chips.appendChild(c1);
+  const c2 = document.createElement('span'); c2.className = 'chip'; c2.textContent = hostName(inst.harness); chips.appendChild(c2);
+  if (mode) { const c = document.createElement('span'); c.className = 'chip'; c.textContent = mode.label; chips.appendChild(c); }
+  const meta = document.createElement('div'); meta.className = 'launch-meta';
+  meta.appendChild(metaRow('路径', inst.root));
+  if (inst.url) meta.appendChild(metaRow('地址', inst.url));
+  if (inst.port) meta.appendChild(metaRow('端口', String(inst.port)));
+  if (inst.profile) meta.appendChild(metaRow('profile', inst.profile));
+  const actions = document.createElement('div'); actions.className = 'launch-actions';
+  if (running) {
+    const stop = document.createElement('button'); stop.type = 'button'; stop.className = 'btn danger launch'; stop.textContent = '停止';
+    stop.addEventListener('click', () => stopInstance(inst)); actions.appendChild(stop);
+  } else if (mode && mode.available !== false) {
+    const go = document.createElement('button'); go.type = 'button'; go.className = 'btn primary launch';
+    go.textContent = mode.kind === 'app' ? '启动 App' : mode.kind === 'foreground' ? '打开终端' : '启动';
+    go.addEventListener('click', () => launch(inst)); actions.appendChild(go);
+  } else {
+    const no = document.createElement('button'); no.type = 'button'; no.className = 'btn launch'; no.textContent = '不可启动'; no.disabled = true; actions.appendChild(no);
+  }
+  const secondary = document.createElement('div'); secondary.className = 'launch-secondary';
+  if (inst.url) {
+    const open = document.createElement('button'); open.type = 'button'; open.className = 'btn block'; open.textContent = '打开页面';
+    open.addEventListener('click', () => window.pal.openExternal(inst.url)); secondary.appendChild(open);
+  }
+  const term = document.createElement('button'); term.type = 'button'; term.className = 'btn block'; term.textContent = '终端';
+  term.addEventListener('click', () => openTerminal(inst)); secondary.appendChild(term);
+  actions.appendChild(secondary);
+  const hint = document.createElement('div'); hint.className = 'launch-hint';
+  hint.textContent = mode && mode.kind === 'foreground' ? 'TUI 会在这个窗口里打开，返回后进程继续运行。' : '双击左侧实例也可以直接启动。';
+  card.append(label, head, chips, meta, actions, hint);
+  box.appendChild(card);
+}
+
+function metaRow(key, value) {
+  const row = document.createElement('div'); row.className = 'meta-row';
+  const k = document.createElement('span'); k.textContent = key;
+  const v = document.createElement('b'); v.textContent = value; v.title = value;
+  row.append(k, v); return row;
+}
+
+async function launch(inst) {
+  const mode = defaultMode(inst);
+  if (!mode) { toast('这个实例没有启动模式', true); return; }
   if (mode.kind === 'foreground') { openTerminal(inst); return; }
   try {
     const res = await window.pal.start(inst.name, mode.id);
-    if (!res.ok) { showError(`启动失败：${(res.stderr || res.stdout || '').trim()}`); return; }
+    if (!res.ok) { toast(`启动失败：${(res.stderr || res.stdout || '').trim()}`, true); return; }
     toast(`已启动 ${inst.name}`);
     await refresh();
-    const record = res.record;
-    if (record && record.url) window.pal.openExternal(record.url);
+    if (res.record && res.record.url) window.pal.openExternal(res.record.url);
   } catch (err) {
-    showError(`启动失败：${err.message || err}`);
+    toast(`启动失败：${err.message || err}`, true);
   }
 }
 
 async function stopInstance(inst) {
   try {
     const res = await window.pal.stop(inst.name);
-    if (!res.ok) { showError(`停止失败：${(res.stderr || res.stdout || '').trim()}`); return; }
+    if (!res.ok) { toast(`停止失败：${(res.stderr || res.stdout || '').trim()}`, true); return; }
     toast(`已停止 ${inst.name}`);
     await refresh();
   } catch (err) {
-    showError(`停止失败：${err.message || err}`);
+    toast(`停止失败：${err.message || err}`, true);
   }
 }
 
 function ensureTerminal() {
   if (state.term) return;
   const term = new Terminal({
-    fontFamily: 'Cascadia Code, Consolas, monospace',
-    fontSize: 12.5,
-    cursorBlink: true,
-    theme: { background: '#0b0d10', foreground: '#d7dde7', cursor: '#8b9cff' },
+    fontFamily: 'Cascadia Code, Consolas, monospace', fontSize: 12.5, cursorBlink: true,
+    theme: { background: '#070b12', foreground: '#d7dde7', cursor: '#22c55e' },
   });
   const fit = new FitAddon.FitAddon();
-  term.loadAddon(fit);
-  term.open($('term'));
-  state.term = term;
-  state.fit = fit;
+  term.loadAddon(fit); term.open($('term'));
+  state.term = term; state.fit = fit;
   term.onData((data) => window.pal.termInput(data));
   window.pal.onTermData((data) => term.write(data));
-  window.pal.onTermExit(({ exitCode }) => {
-    term.write(`\r\n\x1b[2m[进程已退出，code ${exitCode}]\x1b[0m\r\n`);
-  });
-  new ResizeObserver(() => {
-    if (!state.term) return;
-    try { fit.fit(); window.pal.termResize(term.cols, term.rows); } catch { /* ignore */ }
-  }).observe($('term'));
+  window.pal.onTermExit(({ exitCode }) => term.write(`\r\n\x1b[2m[进程已退出，code ${exitCode}]\x1b[0m\r\n`));
+  new ResizeObserver(() => { try { fit.fit(); window.pal.termResize(term.cols, term.rows); } catch { /* ignore */ } }).observe($('term'));
 }
 
 async function openTerminal(inst) {
   ensureTerminal();
-  state.termName = inst.name;
   $('term-title').textContent = inst.name;
   $('term-sub').textContent = `${hostName(inst.harness)} · TUI`;
-  $('view-main').classList.add('hidden');
   $('view-term').classList.remove('hidden');
   state.term.clear();
-  try {
-    state.fit.fit();
-    await window.pal.termStart(inst.name, state.term.cols, state.term.rows);
-    state.term.focus();
-  } catch (err) {
-    showError(`打开终端失败：${err.message || err}`);
-  }
+  try { state.fit.fit(); await window.pal.termStart(inst.name, state.term.cols, state.term.rows); state.term.focus(); }
+  catch (err) { toast(`打开终端失败：${err.message || err}`, true); }
 }
 
 async function installPack() {
-  if (!state.harness) return;
+  const host = state.filter !== 'all' ? state.filter : (selected() ? selected().harness : 'dsh');
   try {
-    const res = await window.pal.install(state.harness);
+    const res = await window.pal.install(host);
     if (res.canceled) return;
-    if (!res.ok) { showError(`安装失败：${(res.stderr || res.stdout || '').trim()}`); return; }
+    if (!res.ok) { toast(`安装失败：${(res.stderr || res.stdout || '').trim()}`, true); return; }
     toast('安装完成');
     await refresh();
   } catch (err) {
-    showError(`安装失败：${err.message || err}`);
+    toast(`安装失败：${err.message || err}`, true);
   }
 }
 
 $('refresh').addEventListener('click', refresh);
-$('refresh-top').addEventListener('click', refresh);
 $('add-pack').addEventListener('click', installPack);
 $('empty-add').addEventListener('click', installPack);
-$('term-hide').addEventListener('click', () => {
-  $('view-term').classList.add('hidden');
-  $('view-main').classList.remove('hidden');
-});
+$('term-hide').addEventListener('click', () => $('view-term').classList.add('hidden'));
 $('term-kill').addEventListener('click', async () => {
   await window.pal.termKill();
   toast('终端已结束');
   $('view-term').classList.add('hidden');
-  $('view-main').classList.remove('hidden');
 });
 refresh();
