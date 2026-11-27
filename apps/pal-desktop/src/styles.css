@@ -598,3 +598,12 @@ kbd{font-family:var(--mono);font-size:9.5px;line-height:1;padding:2px 3px;border
 body.onboarding .nav,body.onboarding .harness-switch,body.onboarding #add-pack,body.onboarding #refresh,body.onboarding #about,body.onboarding .statusbar{display:none}
 body.onboarding .toolbar{height:46px}
 body.onboarding .pane-head,body.onboarding #tabs{display:none}
+
+.dropzone{border:1px dashed var(--line-strong);border-radius:10px;background:var(--surface);padding:22px;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center}
+.dropzone .dz-icon{width:38px;height:38px;border-radius:9px;display:grid;place-items:center;background:var(--panel);border:1px solid var(--line);color:var(--muted)}
+.dropzone .dz-icon svg{width:18px;height:18px}
+.dropzone .dz-title{font-size:12.5px;font-weight:600;color:var(--text)}
+.dropzone .dz-path{font-family:var(--mono);font-size:10.5px;color:var(--muted);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dropzone .dz-actions{display:flex;gap:8px;margin-top:6px}
+body.drag-over .pane{outline:2px dashed var(--ink);outline-offset:-10px}
+body.drag-over::after{content:'松开安装整合包';position:fixed;right:20px;bottom:20px;padding:8px 12px;border-radius:6px;background:var(--ink);color:var(--surface);font-size:12px;z-index:100}

@@ -186,6 +186,16 @@ handle('pal:stop', (_event, { name }) => {
 });
 
 /** 系统目录选择器单独一个通道：添加整合包的第二步行内选目录要能反复调用。 */
+handle('pal:pick-pack', async () => {
+  const picked = await dialog.showOpenDialog(win, {
+    title: '选择整合包',
+    properties: ['openFile'],
+    filters: [{ name: 'Pack', extensions: ['phub'] }, { name: '全部文件', extensions: ['*'] }],
+  });
+  if (picked.canceled || !picked.filePaths[0]) return { canceled: true, path: null };
+  return { canceled: false, path: picked.filePaths[0] };
+});
+
 handle('pal:pick-directory', async () => {
   const picked = await dialog.showOpenDialog(win, {
     title: '选择 Pack 目录',

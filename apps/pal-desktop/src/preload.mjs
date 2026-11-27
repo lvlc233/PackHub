@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
 contextBridge.exposeInMainWorld('pal', {
   list: () => ipcRenderer.invoke('pal:list'),
@@ -6,8 +6,12 @@ contextBridge.exposeInMainWorld('pal', {
   info: () => ipcRenderer.invoke('pal:info'),
   start: (name, mode) => ipcRenderer.invoke('pal:start', { name, mode }),
   stop: (name) => ipcRenderer.invoke('pal:stop', { name }),
-  // 添加整合包：先挑目录、再看 dry-run 预览，最后才真装。
+  // 添加整合包：先挑 .phub / 目录、再看 dry-run 预览，最后才真装。
+  pickPack: () => ipcRenderer.invoke('pal:pick-pack'),
   pickDirectory: () => ipcRenderer.invoke('pal:pick-directory'),
+  pathForFile: (file) => {
+    try { return webUtils.getPathForFile(file); } catch { return ''; }
+  },
   installPreview: (host, dir) => ipcRenderer.invoke('pal:install-preview', { host, dir }),
   install: (host, dir) => ipcRenderer.invoke('pal:install', { host, dir }),
   // 管理页：update / uninstall / remove 只传名字，命令参数留在主进程。

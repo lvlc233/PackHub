@@ -1533,16 +1533,16 @@ function renderModal() {
 }
 
 /* ---------- L3 安装向导 ---------- */
-function openInstall(pickedHost) {
+function openInstall(pickedHost, pickedPath) {
   const host = pickedHost || state.harness || 'dsh';
   state.install = {
-    step: 1, host, dir: null, preview: null, name: null, done: false, busy: false, error: null, raw: '',
+    step: 1, host, dir: pickedPath || null, preview: null, name: null, done: false, busy: false, error: null, raw: '',
   };
   openModal({ kind: 'install', title: '安装整合包' });
 }
 
 function stepsBar(step) {
-  const labels = ['选 harness', '选目录', '确认'];
+  const labels = ['选整合包', '选 harness', '确认'];
   return h('div', { class: 'stepper' }, labels.map((label, index) => {
     const n = index + 1;
     const cls = n < step ? ' done' : n === step ? ' on' : '';
@@ -1588,7 +1588,26 @@ function renderInstallModal() {
   if (ins.step === 1) {
     body = h('div', { class: 'pickwrap' },
       stepsBar(1),
-      h('p', { class: 'lead', text: `装进哪个 harness 的 home？默认跟着当前上下文（${host ? host.full : ins.host}）。` }),
+      h('p', { class: 'lead', text: '先选整合包：把 .phub 拖进窗口，或者选一个 Pack 目录。' }),
+      h('div', { class: 'dropzone' + (ins.dir ? ' filled' : '') },
+        h('span', { class: 'dz-icon', html: svgIcon('folder-plus') }),
+        h('span', { class: 'dz-title', text: ins.dir ? '已选择整合包' : '拖入 .phub 或 Pack 目录' }),
+        ins.dir ? h('code', { class: 'dz-path', text: ins.dir, title: ins.dir }) : null,
+        h('div', { class: 'dz-actions' },
+          h('button', { class: 'btn outline', type: 'button', onclick: () => pickPack() }, '选择 .phub…'),
+          h('button', { class: 'btn outline', type: 'button', onclick: () => pickDirectory() }, '选择目录…'))),
+      h('p', { class: 'hint', text: '选完再决定装进哪个 harness；下一步会先算安装计划，不落盘。' }));
+    foot = [
+      h('button', { class: 'btn', type: 'button', onclick: () => closeModal() }, '取消'),
+      h('button', {
+        class: 'btn ink', type: 'button', disabled: !ins.dir,
+        onclick: () => { ins.step = 2; renderModal(); },
+      }, '下一步'),
+    ];
+  } else if (ins.step === 2) {
+    body = h('div', { class: 'pickwrap' },
+      stepsBar(2),
+      h('p', { class: 'lead', text: `这个整合包装进哪个 harness？默认跟着当前上下文（${host ? host.full : ins.host}）。` }),
       h('div', { class: 'pick-list' }, HOSTS.map((item) => {
         const count = state.instances.filter((x) => x.harness === item.id).length;
         return h('button', {
@@ -1604,28 +1623,10 @@ function renderInstallModal() {
       })),
       h('p', { class: 'hint', text: '托管 home 建在 PAL 数据目录下；attached 宿主也可以随后在命令行用 --home 装进它自己的目录。' }));
     foot = [
-      h('button', { class: 'btn', type: 'button', onclick: () => closeModal() }, '取消'),
-      h('button', {
-        class: 'btn ink', type: 'button',
-        onclick: () => { ins.step = 2; renderModal(); },
-      }, '下一步'),
-    ];
-  } else if (ins.step === 2) {
-    body = h('div', { class: 'pickwrap' },
-      stepsBar(2),
-      h('p', { class: 'lead', text: `选一个 Pack 目录，PAL 会把它装进 ${host ? host.full : ins.host}。` }),
-      h('div', { class: 'dirpick' },
-        h('code', { class: 'dirpath' + (ins.dir ? '' : ' empty'), text: ins.dir || '还没有选目录' }),
-        h('button', {
-          class: 'btn outline', type: 'button',
-          onclick: () => pickDirectory(),
-        }, h('span', { class: 'ico', html: svgIcon('folder') }), '选择目录…')),
-      h('p', { class: 'hint', text: '目录里要有 pack 清单（packhub.yml）；下一步会先算一遍安装计划，不落盘。' }));
-    foot = [
       h('button', { class: 'btn outline', type: 'button', onclick: () => { ins.step = 1; renderModal(); } },
         h('span', { class: 'ico', html: svgIcon('chevron-left') }), '返回'),
       h('button', {
-        class: 'btn ink', type: 'button', disabled: !ins.dir,
+        class: 'btn ink', type: 'button',
         onclick: () => runInstallPreview(),
       }, '下一步'),
     ];
@@ -1685,6 +1686,20 @@ function renderInstallModal() {
     foot,
     busy: ins.busy,
   });
+}
+
+async function pickPack() {
+  const ins = state.install;
+  try {
+    const res = await window.pal.pickPack();
+    if (res && res.error) { toast(`选不了整合包：${res.error}`, true); return; }
+    if (!res || res.canceled || !res.path) return;
+    ins.dir = res.path;
+    ins.preview = null;
+    renderModal();
+  } catch (err) {
+    toast(`选不了整合包：${(err && err.message) || err}`, true);
+  }
 }
 
 async function pickDirectory() {
@@ -2030,6 +2045,25 @@ document.querySelectorAll('[data-icon]').forEach((node) => {
 
 window.addEventListener('resize', () => {
   if (state.menu) placePopover(state.menu.rect);
+});
+
+// 拖入 .phub 或 Pack 目录：直接进安装弹层的第一步（已选中），再选 harness。
+window.addEventListener('dragover', (event) => {
+  if (!event.dataTransfer || !Array.from(event.dataTransfer.types).includes('Files')) return;
+  event.preventDefault();
+  document.body.classList.add('drag-over');
+});
+window.addEventListener('dragleave', (event) => {
+  if (event.relatedTarget === null) document.body.classList.remove('drag-over');
+});
+window.addEventListener('drop', (event) => {
+  event.preventDefault();
+  document.body.classList.remove('drag-over');
+  const file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
+  if (!file) return;
+  const path = window.pal.pathForFile(file);
+  if (!path) { toast('读不到拖入文件的路径', true); return; }
+  openInstall(state.harness || 'dsh', path);
 });
 
 /* ---------- 启动 ---------- */
