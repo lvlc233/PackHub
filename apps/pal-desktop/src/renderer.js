@@ -1764,7 +1764,9 @@ function renderInstallModal() {
 async function pickPack() {
   const ins = state.install;
   try {
+    logEvent('pick:start', { kind: 'phub' });
     const res = await window.pal.pickPack();
+    logEvent('pick:result', { kind: 'phub', canceled: Boolean(res && res.canceled), path: (res && res.path) || '', error: (res && res.error) || '' });
     if (res && res.error) { toast(`选不了整合包：${res.error}`, true); return; }
     if (!res || res.canceled || !res.path) return;
     ins.dir = res.path;
@@ -1791,7 +1793,9 @@ async function pickAndImport() {
 async function pickDirectory() {
   const ins = state.install;
   try {
+    logEvent('pick:start', { kind: 'dir' });
     const res = await window.pal.pickDirectory();
+    logEvent('pick:result', { kind: 'dir', canceled: Boolean(res && res.canceled), path: (res && res.path) || '', error: (res && res.error) || '' });
     if (res && res.error) { toast(`选不了目录：${res.error}`, true); return; }
     if (!res || res.canceled || !res.path) return;
     ins.dir = res.path;

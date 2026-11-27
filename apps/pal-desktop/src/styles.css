@@ -620,3 +620,5 @@ body.drag-over::after{content:'松开安装整合包';position:fixed;right:20px;
 .imp-meta{display:flex;gap:6px;align-items:center;font-size:11.5px;color:var(--faint);margin-top:4px}
 .imp-meta b{font-weight:500;color:var(--text)}
 .imp .out{width:100%;text-align:left}
+
+.btn:active:not(:disabled){transform:translateY(1px)}
