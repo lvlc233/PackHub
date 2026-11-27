@@ -62,6 +62,7 @@ function h(tag, props, ...kids) {
 const state = {
   instances: [],
   filter: 'all',
+  homeByHarness: {},
   selectedId: null,
   loading: true,
   error: null,
@@ -111,16 +112,27 @@ function kindWord(kind) {
   return kind || '模式';
 }
 
+/** 每个 harness 只占左栏一行：优先记住的那份 home，否则运行中的，否则第一份。 */
+function currentForHost(host) {
+  const list = state.instances.filter((x) => x.harness === host);
+  if (!list.length) return null;
+  const remembered = state.homeByHarness[host];
+  return list.find((x) => x.id === remembered) || list.find(isRunning) || list[0];
+}
+
 function visible() {
-  const list = state.filter === 'all'
-    ? state.instances.slice()
-    : state.instances.filter((x) => x.harness === state.filter);
-  return list.sort((a, b) => {
-    const ar = isRunning(a) ? 0 : 1;
-    const br = isRunning(b) ? 0 : 1;
-    if (ar !== br) return ar - br;
-    return String(a.name).localeCompare(String(b.name));
+  return HOSTS.map((host) => currentForHost(host.id) || {
+    id: `empty:${host.id}`,
+    harness: host.id,
+    empty: true,
+    name: '未安装',
+    pack: null,
+    status: null,
   });
+}
+
+function homesOf(host) {
+  return state.instances.filter((x) => x.harness === host);
 }
 
 function toast(text, bad) {
@@ -149,6 +161,8 @@ async function refresh() {
       const running = state.instances.find(isRunning);
       state.selectedId = running ? running.id : (state.instances[0] ? state.instances[0].id : null);
     }
+    const selectedInst = byId(state.selectedId);
+    if (selectedInst) state.homeByHarness[selectedInst.harness] = selectedInst.id;
     render();
   } catch (err) {
     state.loading = false;
@@ -169,14 +183,11 @@ function renderRail() {
   if (state.rowMenu) closeRowMenu({ restore: false });
 
   const list = visible();
-  $('count').textContent = state.error ? '—' : String(state.instances.length);
-  $('filter-label').textContent = state.filter === 'all' ? '全部' : hostLabel(state.filter);
-  const showEmpty = !list.length && !state.loading && state.instances.length > 0;
+  $('count').textContent = state.error ? '—' : String(list.length);
+  $('filter-label').textContent = '按宿主';
+  const showEmpty = !list.length && !state.loading && state.instances.length === 0;
   $('empty').classList.toggle('hidden', !showEmpty);
   $('home-list').classList.toggle('hidden', list.length === 0 && !state.loading);
-  if (showEmpty) {
-    $('empty').querySelector('.re-body').textContent = `另外 ${state.instances.length} 个实例在别的宿主下。`;
-  }
 
   const box = $('home-list');
   box.textContent = '';
@@ -190,18 +201,7 @@ function renderRail() {
     return;
   }
 
-  const live = list.filter(isRunning);
-  const rest = list.filter((x) => !isRunning(x));
-
-  if (live.length) {
-    box.append(groupHead('运行中', live.length));
-    for (const inst of live) box.append(railRow(inst));
-    if (rest.length) box.append(h('div', { class: 'group-gap' }));
-  }
-  if (rest.length) {
-    if (live.length) box.append(groupHead('其他', rest.length));
-    for (const inst of rest) box.append(railRow(inst));
-  }
+  for (const inst of list) box.append(railRow(inst));
 
   const active = box.querySelector('.row.sel');
   if (active) active.scrollIntoView({ block: 'nearest' });
@@ -214,6 +214,23 @@ function groupHead(label, count) {
 }
 
 function railRow(inst) {
+  if (inst.empty) {
+    return h('div', {
+      class: 'row empty',
+      role: 'option',
+      'aria-selected': 'false',
+      tabindex: '-1',
+      'data-id': inst.id,
+      title: `${hostFull(inst.harness)} · 未安装`,
+      onclick: () => { state.emptyHost = inst.harness; state.selectedId = null; render(); },
+      ondblclick: () => { state.emptyHost = inst.harness; openInstall(); },
+    },
+    h('span', { class: `tile hm-${inst.harness}`, text: hostCode(inst.harness) }),
+    h('span', { class: 'r-name' },
+      h('span', { class: 'r-host', text: hostLabel(inst.harness) }),
+      h('span', { class: 'r-pack', text: '未安装' })),
+    h('span', { class: 'r-end' }, h('span', { class: 'r-dot idle' })));
+  }
   const status = statusOf(inst);
   const sel = inst.id === state.selectedId;
   const running = isRunning(inst);
@@ -232,7 +249,9 @@ function railRow(inst) {
     ondblclick: () => launchInstance(inst),
   },
   h('span', { class: `tile hm-${inst.harness}`, text: hostCode(inst.harness) }),
-  h('span', { class: 'r-name', text: inst.name }),
+  h('span', { class: 'r-name' },
+    h('span', { class: 'r-host', text: hostLabel(inst.harness) }),
+    h('span', { class: 'r-pack', text: inst.name })),
   h('span', { class: 'r-end' },
     h('span', { class: status.key === 'idle' ? 'r-dot idle' : `r-dot ${status.key}` }),
     h('span', { class: 'r-acts' },
@@ -268,7 +287,17 @@ function railRow(inst) {
 }
 
 function selectInstance(id) {
+  const inst = byId(id);
+  if (!inst) return;
+  state.emptyHost = null;
+  state.homeByHarness[inst.harness] = id;
   if (state.selectedId === id) return;
+  state.selectedId = id;
+  render();
+}
+
+function selectHome(host, id) {
+  state.homeByHarness[host] = id;
   state.selectedId = id;
   render();
 }
@@ -304,7 +333,7 @@ function renderPane() {
   if (!inst) {
     head.classList.add('hidden');
     tabs.classList.add('hidden');
-    body.append(emptyPane());
+    body.append(emptyPane(state.emptyHost));
     return;
   }
 
@@ -315,19 +344,16 @@ function renderPane() {
   renderTabBody(body, inst);
 }
 
-function emptyPane() {
-  const anyHere = state.instances.length > 0;
-  const host = state.filter !== 'all' ? state.filter : 'dsh';
+function emptyPane(pickedHost) {
+  const host = pickedHost || state.emptyHost || (state.filter !== 'all' ? state.filter : 'dsh');
   return h('div', { class: 'pane-empty' },
-    h('p', { class: 'pe-title', text: anyHere ? '这个宿主下没有实例' : '还没有实例' }),
+    h('p', { class: 'pe-title', text: `${hostLabel(host)} 还没有整合包` }),
     h('p', {
       class: 'pe-body',
-      text: anyHere
-        ? '换一个宿主筛选，或者也给这个宿主装一个整合包。'
-        : '选一个整合包目录，PAL 会为它建一个 home 并列到左边。装好之后，这一栏就是它的启动面板。',
+      text: '给这个 harness 装一个包：选一个 Pack 目录，PAL 会为它建一个 home。装好之后，这里就是它的启动面板。',
     }),
     h('div', { class: 'pe-actions' },
-      h('button', { class: 'btn ink', type: 'button', onclick: openInstall },
+      h('button', { class: 'btn ink', type: 'button', onclick: () => openInstall(host) },
         h('span', { class: 'ico', html: svgIcon('folder-plus') }), '添加整合包')),
     h('pre', { class: 'pe-cli', text: `$ pal install <pack 目录> --host ${host}` }));
 }
@@ -336,11 +362,11 @@ function renderHead(head, inst) {
   const status = statusOf(inst);
   const running = isRunning(inst);
   const broken = isBroken(inst);
+  const homes = homesOf(inst.harness);
 
-  // 左栏那块宿主砖在这里再出现一次：右边这一屏属于左边哪一行，一眼对上。
   const eyebrow = h('div', { class: 'eyebrow' },
     h('span', { class: `tile ph-tile hm-${inst.harness}`, text: hostCode(inst.harness) }),
-    h('span', { class: 'ph-host', text: hostFull(inst.harness) }));
+    h('span', { class: 'ph-host', text: inst.name }));
 
   const subline = h('div', { class: 'subline' },
     h('span', { class: 'mono', text: packText(inst) || '未挂钩整合包' }),
@@ -349,10 +375,26 @@ function renderHead(head, inst) {
       status.key === 'idle' ? null : h('span', { class: `dot ${status.key}` }),
       status.text));
 
+  const picker = h('div', { class: 'pack-pick' },
+    h('span', { class: 'pack-pick-label', text: '整合包' }),
+    homes.length > 1
+      ? h('select', {
+          class: 'pack-select',
+          'aria-label': '切换整合包',
+          onchange: (event) => selectHome(inst.harness, event.target.value),
+        }, homes.map((home) => h('option', {
+          value: home.id,
+          selected: home.id === inst.id,
+          text: `${home.name}${isRunning(home) ? ' · 运行中' : ''}`,
+        })))
+      : h('span', { class: 'pack-current', text: inst.name }),
+    h('button', { class: 'link-btn', type: 'button', onclick: openInstall }, '+ 安装'));
+
   head.append(h('div', { class: 'ph-main' },
     eyebrow,
-    h('h1', { class: 'inst-name', text: inst.name, title: inst.name }),
-    subline));
+    h('h1', { class: 'inst-name', text: hostLabel(inst.harness), title: hostFull(inst.harness) }),
+    subline,
+    picker));
 
   const act = h('div', { class: 'ph-act' });
   act.append(primaryButton(inst));
@@ -717,15 +759,15 @@ function togglePanel() {
 
 /* ---------- 状态栏 ---------- */
 function renderStatus() {
-  const total = state.instances.length;
+  const total = HOSTS.length;
   const live = state.instances.filter(isRunning).length;
   const box = $('sb-count');
   box.textContent = '';
-  box.append(h('b', { text: String(total) }), ' 个实例');
+  box.append(h('b', { text: String(total) }), ' 个 harness');
   if (live) box.append(' · ', h('b', { text: String(live) }), ' 个运行中');
 
   const filterBox = $('sb-filter');
-  filterBox.textContent = '';
+  filterBox.textContent = '按 harness 分组';
   if (state.filter !== 'all') {
     filterBox.append('筛选：', h('b', { text: hostLabel(state.filter) }),
       h('button', {
@@ -1083,9 +1125,9 @@ function renderModal() {
 }
 
 /* ---------- 弹层：添加整合包 ---------- */
-function openInstall() {
+function openInstall(pickedHost) {
   const current = selected();
-  const host = state.filter !== 'all' ? state.filter : (current ? current.harness : 'dsh');
+  const host = pickedHost || state.emptyHost || (current ? current.harness : 'dsh');
   state.install = {
     step: 1, host, dir: null, preview: null, name: null, done: false, busy: false, error: null, raw: '',
   };
