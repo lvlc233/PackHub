@@ -291,6 +291,7 @@ async function loadInfo() {
 }
 
 function render() {
+  document.body.classList.toggle('onboarding', !state.instances.length && !state.loading);
   renderToolbar();
   renderViews();
   renderStatus();

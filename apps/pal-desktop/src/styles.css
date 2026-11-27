@@ -594,3 +594,7 @@ kbd{font-family:var(--mono);font-size:9.5px;line-height:1;padding:2px 3px;border
 .pane-empty.hero .pe-steps{justify-content:center;flex-wrap:wrap}
 .pane-empty.hero .pe-actions{justify-content:center}
 .pane-empty.hero .pe-cli{text-align:center}
+
+body.onboarding .nav,body.onboarding .harness-switch,body.onboarding #add-pack,body.onboarding #refresh,body.onboarding #about,body.onboarding .statusbar{display:none}
+body.onboarding .toolbar{height:46px}
+body.onboarding .pane-head,body.onboarding #tabs{display:none}
