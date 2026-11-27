@@ -78,9 +78,16 @@ const HOST_COMMANDS = {
 
 function findExecutable(name) {
   const probe = spawnSync(process.platform === 'win32' ? 'where' : 'which', [name], { encoding: 'utf8' });
-  if (probe.status !== 0) return '';
-  const lines = String(probe.stdout || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  return lines.find((line) => /\.(cmd|exe|bat)$/i.test(line)) || lines[0] || '';
+  if (probe.status === 0) {
+    const lines = String(probe.stdout || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    const found = lines.find((line) => /\.(cmd|exe|bat)$/i.test(line)) || lines[0];
+    if (found) return found;
+  }
+  const suffix = process.platform === 'win32' ? '.cmd' : '';
+  return [
+    process.env.APPDATA ? join(process.env.APPDATA, 'npm', `${name}${suffix}`) : '',
+    process.env.LOCALAPPDATA ? join(process.env.LOCALAPPDATA, 'pnpm', `${name}${suffix}`) : '',
+  ].find((item) => item && existsSync(item)) || '';
 }
 
 /**
@@ -91,9 +98,10 @@ function spawnEnv() {
   const env = { ...process.env };
   const dirs = [];
   for (const [host, command] of Object.entries(HOST_COMMANDS)) {
-    const bin = findExecutable(command);
+    const key = `PAL_${host.toUpperCase().replace(/-/g, '_')}_BIN`;
+    const bin = process.env[key] || findExecutable(command);
     if (!bin) continue;
-    env[`PAL_${host.toUpperCase().replace(/-/g, '_')}_BIN`] = bin;
+    env[key] = bin;
     dirs.push(dirname(bin));
   }
   const pal = palBin();

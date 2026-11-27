@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // 启动 PAL 桌面版：清掉 DSH 注入的 ELECTRON_RUN_AS_NODE，再以 --no-sandbox 起 Electron。
 // 这两个都是本机会话里 Electron 能开窗的前提；普通机器上 --no-sandbox 也不会改变应用行为。
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -31,6 +31,27 @@ if (!env.PACKHUB_HOME && process.env.DSH_SESSION_ID) {
 if (!env.PAL_DESKTOP_DATA && process.env.DSH_SESSION_ID) {
   env.PAL_DESKTOP_DATA = join(ROOT, '.pal-desktop-data', 'app');
 }
+
+// Electron 子进程的 PATH 可能没有 npm 全局 bin，无法发现 dsh/claude/codex/opencode。
+// 从当前 shell 的 where 结果把它们解析成 PAL_<HOST>_BIN，并把目录补进 PATH。
+const HOST_COMMANDS = {
+  dsh: 'dsh',
+  'claude-code': 'claude',
+  codex: 'codex',
+  opencode: 'opencode',
+  workbody: 'codebuddy',
+  hermes: 'hermes',
+};
+const hostDirs = [];
+for (const [host, command] of Object.entries(HOST_COMMANDS)) {
+  const probe = spawnSync(process.platform === 'win32' ? 'where' : 'which', [command], { encoding: 'utf8' });
+  if (probe.status !== 0) continue;
+  const first = String(probe.stdout || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean)[0];
+  if (!first) continue;
+  env[`PAL_${host.toUpperCase().replace(/-/g, '_')}_BIN`] = first;
+  hostDirs.push(dirname(first));
+}
+if (hostDirs.length) env.PATH = `${[...new Set(hostDirs)].join(';')};${env.PATH || ''}`;
 
 const child = spawn(electron, ['--no-sandbox', APP], { cwd: ROOT, env, stdio: 'inherit' });
 child.on('exit', (code) => process.exit(code ?? 0));
