@@ -5,7 +5,7 @@
   "type": "module",
   "main": "src/main.mjs",
   "scripts": {
-    "start": "electron ."
+    "start": "node ../../scripts/start-desktop.mjs"
   },
   "dependencies": {
     "@xterm/addon-fit": "^0.10.0",

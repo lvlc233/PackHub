@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { existsSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -8,6 +8,11 @@ const require = createRequire(import.meta.url);
 const { app, BrowserWindow, clipboard, dialog, ipcMain, shell } = require('electron');
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+// Windows 上默认的 userData 路径偶尔会让 Electron 在启动阶段直接崩（0xC0000005）；
+// 固定到 LOCALAPPDATA\pal-desktop 并确保存在，启动就不依赖 APPDATA 下的默认目录状态。
+const dataDir = process.env.PAL_DESKTOP_DATA || join(process.env.LOCALAPPDATA || process.env.APPDATA || HERE, 'pal-desktop');
+mkdirSync(dataDir, { recursive: true });
+app.setPath('userData', dataDir);
 const HOSTS = [
   { id: 'dsh', label: 'DSH', desc: 'DeepSeek Harness' },
   { id: 'claude-code', label: 'Claude', desc: 'Claude Code' },
@@ -35,8 +40,12 @@ function palBin() {
   if (process.env.PAL_BIN) return process.env.PAL_BIN;
   const probe = spawnSync(process.platform === 'win32' ? 'where' : 'which', ['pal'], { encoding: 'utf8' });
   if (probe.status === 0) {
-    const first = String(probe.stdout || '').split(/\r?\n/).find((line) => line.trim());
-    if (first) return first.trim();
+    const lines = String(probe.stdout || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    // npm 在 Windows 上同时生成 pal / pal.cmd / pal.ps1；只有 .cmd/.exe/.bat 能直接 spawn
+    const executable = lines.find((line) => /\.(cmd|exe|bat)$/i.test(line));
+    if (executable) return executable;
+    const first = lines[0];
+    if (first) return first;
   }
   return 'pal';
 }
@@ -51,7 +60,7 @@ function runPal(args, opts = {}) {
   if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(command)) {
     const line = `${quote(command)} ${args.map(quote).join(' ')}`;
     return spawnSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `"${line}"`], {
-      encoding: 'utf8', timeout, windowsHide: true, cwd: opts.cwd,
+      encoding: 'utf8', timeout, windowsHide: true, cwd: opts.cwd, windowsVerbatimArguments: true,
     });
   }
   return spawnSync(command, args, { encoding: 'utf8', timeout, windowsHide: true, cwd: opts.cwd });

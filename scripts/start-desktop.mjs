@@ -1,0 +1,24 @@
+#!/usr/bin/env node
+// 启动 PAL 桌面版：清掉 DSH 注入的 ELECTRON_RUN_AS_NODE，再以 --no-sandbox 起 Electron。
+// 这两个都是本机会话里 Electron 能开窗的前提；普通机器上 --no-sandbox 也不会改变应用行为。
+import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const APP = join(ROOT, 'apps', 'pal-desktop');
+const BIN = join(APP, 'node_modules', 'electron', 'dist', 'electron.exe');
+const POSIX_BIN = join(APP, 'node_modules', 'electron', 'dist', 'electron');
+
+const electron = process.platform === 'win32' ? BIN : POSIX_BIN;
+if (!existsSync(electron)) {
+  console.error('找不到 Electron 二进制；先在仓库根跑 pnpm install（国内可设 ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/）。');
+  process.exit(1);
+}
+
+const env = { ...process.env };
+delete env.ELECTRON_RUN_AS_NODE;
+
+const child = spawn(electron, ['--no-sandbox', APP], { cwd: ROOT, env, stdio: 'inherit' });
+child.on('exit', (code) => process.exit(code ?? 0));
