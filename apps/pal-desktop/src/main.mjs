@@ -123,6 +123,21 @@ function modesFor(name) {
   }
 }
 
+/** 原生文件对话框关掉后，Electron 窗口常留在后面、也不重绘；强制拉回前台并请求重绘。 */
+function refocusWindow() {
+  if (!win || win.isDestroyed()) return;
+  try {
+    win.show();
+    win.focus();
+    win.moveTop();
+    if (typeof win.webContents.invalidate === 'function') win.webContents.invalidate();
+  } catch { /* 窗口状态异常时忽略 */ }
+  setTimeout(() => {
+    if (!win || win.isDestroyed()) return;
+    try { win.focus(); win.moveTop(); } catch { /* ignore */ }
+  }, 60);
+}
+
 function createWindow() {
   // 按 DPI 缩放后的工作区收敛窗口：1180×760 在 150% 缩放的 1080p 上会超出屏幕，
   // 导致弹层被挤出可视区，看起来像“闪一下”。
@@ -225,12 +240,14 @@ handle('pal:stop', (_event, { name }) => {
 /** 系统目录选择器单独一个通道：添加整合包的第二步行内选目录要能反复调用。 */
 handle('pal:pick-pack', async () => {
   writeLog('[main] pick-pack:open');
+  if (win && !win.isDestroyed()) win.focus();
   const picked = await dialog.showOpenDialog(win, {
     title: '选择整合包',
     properties: ['openFile'],
     filters: [{ name: 'Pack', extensions: ['phub'] }, { name: '全部文件', extensions: ['*'] }],
   });
   writeLog(`[main] pick-pack:close canceled=${picked.canceled} files=${picked.filePaths.length}`);
+  refocusWindow();
   if (picked.canceled || !picked.filePaths[0]) return { canceled: true, path: null };
   return { canceled: false, path: picked.filePaths[0] };
 });
@@ -242,6 +259,7 @@ handle('pal:pick-directory', async () => {
     properties: ['openDirectory'],
   });
   writeLog(`[main] pick-directory:close canceled=${picked.canceled} files=${picked.filePaths.length}`);
+  refocusWindow();
   if (picked.canceled || !picked.filePaths[0]) return { canceled: true, path: null };
   return { canceled: false, path: picked.filePaths[0] };
 });
