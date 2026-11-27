@@ -9,39 +9,62 @@
 </head>
 <body>
 <div class="app">
-  <header class="topbar">
-    <div class="brand"><div class="mark">P</div><b>PAL</b><span>启动器</span></div>
-    <div class="filters" id="filters"></div>
-    <div class="top-actions">
-      <button class="btn" id="add-pack" type="button">+ 添加整合包</button>
-      <button class="icon-btn" id="refresh" type="button" title="刷新">↻</button>
+  <header class="toolbar">
+    <div class="brand">
+      <span class="brand-name">PAL</span>
+      <span class="brand-rule"></span>
+      <span class="brand-sub">实例启动器</span>
     </div>
+    <div class="toolbar-grow"></div>
+    <button class="btn" id="add-pack" type="button"><span class="ico" data-icon="folder-plus"></span>添加整合包</button>
+    <button class="btn icon" id="refresh" type="button" title="刷新 (F5)" aria-label="刷新"><span class="ico" data-icon="refresh"></span></button>
   </header>
 
-  <div class="body">
-    <section class="list-pane">
-      <div class="list-head"><span>实例</span><span id="count"></span></div>
-      <div id="home-list" class="home-list"></div>
-      <div id="empty" class="empty hidden">
-        <div class="big">+</div>
-        <h3>还没有实例</h3>
-        <p>添加一个整合包，PAL 会为它建一个 home；之后这里就是可启动的实例列表。</p>
-        <button class="btn primary" id="empty-add" type="button">添加整合包</button>
+  <div class="work">
+    <aside class="rail">
+      <div class="rail-head">
+        <div class="rail-title">实例<span class="rail-count" id="count">0</span></div>
+        <button class="filter-btn" id="filter-btn" type="button" aria-haspopup="menu" aria-expanded="false">
+          <span id="filter-label">全部</span><span class="ico" data-icon="chevron-down"></span>
+        </button>
+        <div class="menu hidden" id="filter-menu" role="menu"></div>
+      </div>
+      <div class="rail-list" id="home-list" role="listbox" aria-label="实例"></div>
+      <div class="rail-empty hidden" id="empty">
+        <p class="re-title">这个宿主下没有实例</p>
+        <p class="re-body"></p>
+      </div>
+    </aside>
+
+    <section class="pane">
+      <div class="pane-head" id="pane-head"></div>
+      <div class="pane-body" id="pane-body"></div>
+      <div class="panel" id="panel">
+        <div class="panel-bar">
+          <span class="panel-title">终端</span>
+          <span class="panel-state" id="panel-state"></span>
+          <div class="panel-grow"></div>
+          <div class="panel-actions">
+            <button class="pbtn" id="panel-kill" type="button"><span class="ico" data-icon="stop"></span>结束</button>
+            <button class="pbtn" id="panel-toggle" type="button" title="展开 / 收起"><span class="ico" data-icon="expand"></span><span class="pt-label">展开</span></button>
+          </div>
+        </div>
+        <div class="panel-body">
+          <div class="panel-idle" id="panel-idle"></div>
+          <div class="term-host" id="term"></div>
+        </div>
       </div>
     </section>
-
-    <aside class="launch-pane">
-      <div id="launch"></div>
-    </aside>
   </div>
 
-  <div id="view-term" class="term-overlay hidden">
-    <div class="term-head">
-      <div><b id="term-title">终端</b><span id="term-sub"></span></div>
-      <div class="term-actions"><button class="btn" id="term-hide" type="button">返回</button><button class="btn danger" id="term-kill" type="button">结束</button></div>
-    </div>
-    <div class="term-wrap" id="term"></div>
-  </div>
+  <footer class="statusbar">
+    <span class="sb-item" id="sb-count"></span>
+    <span class="sb-item" id="sb-filter"></span>
+    <div class="sb-grow"></div>
+    <span class="sb-item kb"><kbd>↑</kbd><kbd>↓</kbd> 选择</span>
+    <span class="sb-item kb"><kbd>↵</kbd> 启动</span>
+    <span class="sb-item kb"><kbd>F5</kbd> 刷新</span>
+  </footer>
 </div>
 <div class="toasts" id="toasts"></div>
 <script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>
