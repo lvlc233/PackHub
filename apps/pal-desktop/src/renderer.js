@@ -451,7 +451,8 @@ function launchEmpty() {
         h('span', { class: 'pe-step' }, h('b', { text: '3' }), '预览并安装')),
       h('div', { class: 'pe-actions' },
         h('button', { class: 'btn ink', type: 'button', onclick: () => openInstall('dsh') },
-          h('span', { class: 'ico', html: svgIcon('folder-plus') }), '安装第一个整合包')),
+          h('span', { class: 'ico', html: svgIcon('folder-plus') }), '安装第一个整合包'),
+        h('button', { class: 'btn outline', type: 'button', onclick: () => pickAndImport() }, '选择 .phub 直接导入')),
       h('pre', { class: 'pe-cli', text: '$ pal install <pack 目录> --host dsh' }));
   }
   return h('div', { class: 'pane-empty' },
@@ -1774,6 +1775,18 @@ async function pickPack() {
   }
 }
 
+async function pickAndImport() {
+  try {
+    const res = await window.pal.pickPack();
+    if (res && res.error) { toast(`选不了整合包：${res.error}`, true); return; }
+    if (!res || res.canceled || !res.path) return;
+    logEvent('pick:import', { path: res.path });
+    await importPack(res.path);
+  } catch (err) {
+    toast(`选不了整合包：${(err && err.message) || err}`, true);
+  }
+}
+
 async function pickDirectory() {
   const ins = state.install;
   try {
@@ -2164,13 +2177,21 @@ window.addEventListener('resize', () => {
 });
 
 // 拖入 .phub 或 Pack 目录：直接进安装弹层的第一步（已选中），再选 harness。
+window.addEventListener('dragenter', (event) => {
+  logEvent('drag:enter', { types: event.dataTransfer ? Array.from(event.dataTransfer.types) : [] });
+});
 window.addEventListener('dragover', (event) => {
   if (!event.dataTransfer || !Array.from(event.dataTransfer.types).includes('Files')) return;
   event.preventDefault();
+  if (!state.dragLogged) { state.dragLogged = true; logEvent('drag:over', {}); }
   document.body.classList.add('drag-over');
 });
 window.addEventListener('dragleave', (event) => {
-  if (event.relatedTarget === null) document.body.classList.remove('drag-over');
+  if (event.relatedTarget === null) {
+    document.body.classList.remove('drag-over');
+    state.dragLogged = false;
+    logEvent('drag:leave', {});
+  }
 });
 window.addEventListener('drop', (event) => {
   event.preventDefault();
