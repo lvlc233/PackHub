@@ -13,7 +13,7 @@ npm i -g dist/local       # 得到 packhub / pal 两个命令
 
 ## 桌面应用
 
-`apps/pal-desktop` 是 Electron 单窗口启动器：左侧 harness，右侧当前 home 与大启动按钮，TUI 直接嵌在窗口里（node-pty + xterm），添加整合包用系统目录选择器。
+`apps/pal-desktop` 是 Electron 单窗口启动器：顶部选 harness，三个一级视图（启动 / 整合包 / 设置）；启动视图只放当前整合包与大启动按钮，全部整合包在「整合包」视图里管理，TUI 直接嵌在启动视图底部（node-pty + xterm），添加整合包走三步向导（选 harness → 选目录 → 看安装计划再装）。
 
 ```bash
 pnpm desktop              # = pnpm --filter @packhub/pal-desktop start

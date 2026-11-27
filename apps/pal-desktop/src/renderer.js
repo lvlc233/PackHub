@@ -1,3 +1,10 @@
+/* PAL desktop renderer.
+   结构：L0 工具栏（PAL / harness / 一级 nav + 添加·刷新·关于）
+         L1 三个视图（启动 / 整合包 / 设置）
+         L2 启动视图内三 tab（概览 / 启动方式 / 管理）、整合包视图内的 pack 详情
+         L3 弹层（安装向导 / 危险确认 / 行菜单 / 关于）
+   状态：state.view 决定 L1，state.tab 决定 L2，state.detailId 决定整合包视图的 L2。
+   记住：{ harness, view, tab, packs } 写 localStorage，坏数据一律当没存过。 */
 /* global Terminal, FitAddon */
 const $ = (id) => document.getElementById(id);
 
@@ -28,10 +35,8 @@ const ICONS = {
   info: '<circle cx="12" cy="12" r="8.4"/><path d="M12 11v5.2M12 8.1v.02"/>',
   copy: '<rect x="8.4" y="8.4" width="11.2" height="11.2" rx="2"/><path d="M15.6 8.4V6.2a2 2 0 0 0-2-2H6.2a2 2 0 0 0-2 2v7.4a2 2 0 0 0 2 2h2.2"/>',
   folder: '<path d="M4 7.6A2.4 2.4 0 0 1 6.4 5.2h2.6l1.7 2h6.9A2.4 2.4 0 0 1 20 9.6v6.8a2.4 2.4 0 0 1-2.4 2.4H6.4A2.4 2.4 0 0 1 4 16.4z"/>',
-  trash: '<path d="M4.8 7.2h14.4M9.6 7.2V5.4a1 1 0 0 1 1-1h2.8a1 1 0 0 1 1 1v1.8"/><path d="M6.6 7.2 7.5 19a1 1 0 0 0 1 .9h7a1 1 0 0 0 1-.9l.9-11.8M10.4 10.8v5.4M13.6 10.8v5.4"/>',
   sliders: '<path d="M5 7.5h14M5 12h14M5 16.5h14"/><circle cx="9" cy="7.5" r="1.6" style="fill:var(--raise)"/><circle cx="15" cy="12" r="1.6" style="fill:var(--raise)"/><circle cx="10.5" cy="16.5" r="1.6" style="fill:var(--raise)"/>',
   x: '<path d="M6.5 6.5 17.5 17.5M17.5 6.5 6.5 17.5"/>',
-  arrow: '<path d="M5 12h13M13 6.8 18.2 12 13 17.2"/>',
   plus: '<path d="M12 5.5v13M5.5 12h13"/>',
 };
 
@@ -59,23 +64,40 @@ function h(tag, props, ...kids) {
   return node;
 }
 
+const NAV = [
+  { id: 'launch', label: '启动', hint: '当前整合包、启动动作与会话' },
+  { id: 'library', label: '整合包', hint: '这个 harness 的全部整合包' },
+  { id: 'settings', label: '设置', hint: '数据目录、快捷键与关于' },
+];
+
+const TABS = [
+  { id: 'overview', label: '概览' },
+  { id: 'modes', label: '启动方式' },
+  { id: 'manage', label: '管理' },
+];
+
+const BRIEF_KEY = 'pal.ui.v1';
+
 const state = {
   instances: [],
-  filter: 'all',
-  homeByHarness: {},
-  selectedId: null,
   loading: true,
   error: null,
-  tab: 'overview', // overview | modes | manage
-  menuOpen: false, // 宿主筛选菜单
-  rowMenu: null, // { id, x, y, anchor }
-  modal: null, // { kind, ... }
+  harness: 'dsh',
+  view: 'launch',
+  tab: 'overview',
+  packId: null, // 当前整合包（整个应用只认这一个）
+  detailId: null, // 整合包视图里的 L2
+  packByHarness: {}, // 每个 harness 上次用的整合包
   busy: null, // { id, action }
+  menu: null, // { id, rect }
+  modal: null,
+  install: null,
+  info: null,
   term: null,
   fit: null,
-  session: null, // { id, name, live, exitCode }
+  session: null,
   lastDims: '',
-  panelOpen: false,
+  panelOpen: true,
 };
 
 /* ---------- 数据 ---------- */
@@ -83,11 +105,16 @@ const hostOf = (id) => HOSTS.find((x) => x.id === id) || null;
 const hostLabel = (id) => (hostOf(id) ? hostOf(id).label : id);
 const hostFull = (id) => (hostOf(id) ? hostOf(id).full : id);
 const hostCode = (id) => (hostOf(id) ? hostOf(id).code : String(id).slice(0, 2).toUpperCase());
-const packText = (inst) => (inst.pack ? `${inst.pack.name}@${inst.pack.version}` : '');
-const selected = () => state.instances.find((x) => x.id === state.selectedId) || null;
 const byId = (id) => state.instances.find((x) => x.id === id) || null;
+const homesOf = (host) => state.instances.filter((x) => x.harness === host);
+const installedHosts = () => HOSTS.filter((host) => state.instances.some((x) => x.harness === host.id));
 const isRunning = (inst) => inst.status === 'running';
 const isBroken = (inst) => inst.status === 'broken' || inst.status === 'failed';
+const currentPack = () => byId(state.packId);
+const packName = (inst) => (inst.pack && inst.pack.name ? inst.pack.name : inst.name);
+const packVer = (inst) => (inst.pack && inst.pack.version ? inst.pack.version : '');
+const packText = (inst) => (inst.pack ? `${inst.pack.name}@${inst.pack.version}` : '未挂钩整合包');
+const liveCount = () => state.instances.filter(isRunning).length;
 
 function statusOf(inst) {
   if (isRunning(inst)) return { key: 'live', text: '运行中' };
@@ -112,20 +139,11 @@ function kindWord(kind) {
   return kind || '模式';
 }
 
-/** 每个 harness 只占左栏一行：优先记住的那份 home，否则运行中的，否则第一份。 */
-function currentForHost(host) {
-  const list = state.instances.filter((x) => x.harness === host);
-  if (!list.length) return null;
-  const remembered = state.homeByHarness[host];
-  return list.find((x) => x.id === remembered) || list.find(isRunning) || list[0];
-}
-
-function visible() {
-  return HOSTS.map((host) => currentForHost(host.id)).filter(Boolean);
-}
-
-function homesOf(host) {
-  return state.instances.filter((x) => x.harness === host);
+function dateText(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
 function toast(text, bad) {
@@ -134,6 +152,112 @@ function toast(text, bad) {
     h('span', { text }));
   $('toasts').append(node);
   setTimeout(() => node.remove(), bad ? 5200 : 2600);
+}
+
+/* ---------- 记住上次的位置（坏数据当没存过） ---------- */
+function loadBrief() {
+  let raw = null;
+  try { raw = window.localStorage.getItem(BRIEF_KEY); } catch { return; }
+  if (!raw) return;
+  let data;
+  try { data = JSON.parse(raw); } catch { return; }
+  if (!data || typeof data !== 'object') return;
+  if (typeof data.harness === 'string' && HOSTS.some((x) => x.id === data.harness)) state.harness = data.harness;
+  if (typeof data.view === 'string' && NAV.some((x) => x.id === data.view)) state.view = data.view;
+  if (typeof data.tab === 'string' && TABS.some((x) => x.id === data.tab)) state.tab = data.tab;
+  if (data.packs && typeof data.packs === 'object') {
+    for (const [host, id] of Object.entries(data.packs)) {
+      if (typeof id === 'string') state.packByHarness[host] = id;
+    }
+  }
+}
+
+function saveBrief() {
+  try {
+    window.localStorage.setItem(BRIEF_KEY, JSON.stringify({
+      harness: state.harness,
+      view: state.view,
+      tab: state.tab,
+      packs: state.packByHarness,
+    }));
+  } catch { /* 隐私模式之类，记不住就算了 */ }
+}
+
+function clearBrief() {
+  try { window.localStorage.removeItem(BRIEF_KEY); } catch { /* ignore */ }
+  state.packByHarness = {};
+  state.view = 'launch';
+  state.tab = 'overview';
+}
+
+/* ---------- 上下文（L0 + 当前 pack） ---------- */
+function resolveContext() {
+  const hosts = installedHosts();
+  if (!hosts.length) {
+    state.packId = null;
+    state.detailId = null;
+    return;
+  }
+  if (!hosts.some((x) => x.id === state.harness)) {
+    const running = hosts.find((x) => homesOf(x.id).some(isRunning));
+    state.harness = (running || hosts[0]).id;
+    state.detailId = null;
+  }
+  const list = homesOf(state.harness);
+  const found = list.find((x) => x.id === state.packId)
+    || list.find((x) => x.id === state.packByHarness[state.harness])
+    || list.find(isRunning)
+    || list[0];
+  state.packId = found ? found.id : null;
+  if (found) state.packByHarness[state.harness] = found.id;
+}
+
+function switchHarness(id) {
+  if (!id || id === state.harness || !HOSTS.some((x) => x.id === id)) return;
+  state.harness = id;
+  state.detailId = null;
+  const list = homesOf(id);
+  const found = list.find((x) => x.id === state.packByHarness[id]) || list.find(isRunning) || list[0];
+  state.packId = found ? found.id : null;
+  if (found) state.packByHarness[id] = found.id;
+  saveBrief();
+  render();
+}
+
+function setView(id) {
+  if (!NAV.some((x) => x.id === id) || state.view === id) return;
+  state.view = id;
+  if (id !== 'library') state.detailId = null;
+  saveBrief();
+  render();
+  if (id === 'launch') requestAnimationFrame(() => fitTerminal());
+}
+
+function setCurrent(id) {
+  const inst = byId(id);
+  if (!inst) return;
+  state.packId = inst.id;
+  state.packByHarness[inst.harness] = inst.id;
+  saveBrief();
+  render();
+  toast(`当前整合包：${packName(inst)}`);
+}
+
+function openPackDetail(id) {
+  const inst = byId(id);
+  if (!inst) return;
+  state.detailId = id;
+  render();
+  const back = $('lib-head').querySelector('.crumb-back');
+  if (back) back.focus();
+}
+
+function backToLibrary() {
+  state.detailId = null;
+  render();
+  const row = document.querySelector(`#lib-scroll .pk-row[data-pack="${CSS.escape(state.packId || '')}"]`)
+    || document.querySelector('#lib-scroll .pk-row');
+  if (row) row.focus();
 }
 
 /* ---------- 主流程 ---------- */
@@ -149,13 +273,8 @@ async function refresh() {
     }
     state.error = null;
     state.instances = data.instances || [];
-    const stillThere = state.instances.some((x) => x.id === state.selectedId);
-    if (!stillThere) {
-      const running = state.instances.find(isRunning);
-      state.selectedId = running ? running.id : (state.instances[0] ? state.instances[0].id : null);
-    }
-    const selectedInst = byId(state.selectedId);
-    if (selectedInst) state.homeByHarness[selectedInst.harness] = selectedInst.id;
+    resolveContext();
+    if (state.detailId && !byId(state.detailId)) state.detailId = null;
     render();
   } catch (err) {
     state.loading = false;
@@ -164,263 +283,236 @@ async function refresh() {
   }
 }
 
+async function loadInfo() {
+  try {
+    if (window.pal && typeof window.pal.info === 'function') state.info = await window.pal.info();
+  } catch { state.info = null; }
+  if (state.view === 'settings') render();
+}
+
 function render() {
-  const installed = visible();
-  const work = document.querySelector('.work');
-  if (work) work.classList.add('no-rail');
-  renderHarnessSwitch(installed);
-  renderPane();
-  renderPanel();
+  renderToolbar();
+  renderViews();
   renderStatus();
 }
 
-function renderHarnessSwitch(installed) {
+/* ---------- L0/L1 外壳 ---------- */
+function renderToolbar() {
   const select = $('harness-switch');
-  if (!select) return;
   select.textContent = '';
-  if (!installed.length) {
+  const hosts = installedHosts();
+  if (!hosts.length) {
     select.append(h('option', { value: '', text: '未安装' }));
     select.disabled = true;
-    return;
-  }
-  select.disabled = false;
-  for (const inst of installed) {
-    select.append(h('option', {
-      value: inst.id,
-      selected: inst.id === state.selectedId,
-      text: `${hostLabel(inst.harness)} · ${inst.name}`,
-    }));
-  }
-}
-
-/* ---------- 左栏：导航层 ---------- */
-function renderRail() {
-  if (state.rowMenu) closeRowMenu({ restore: false });
-
-  const list = visible();
-  $('count').textContent = state.error ? '—' : String(list.length);
-  $('filter-label').textContent = '按宿主';
-  const showEmpty = !list.length && !state.loading && state.instances.length === 0;
-  $('empty').classList.toggle('hidden', !showEmpty);
-  $('home-list').classList.toggle('hidden', list.length === 0 && !state.loading);
-
-  const box = $('home-list');
-  box.textContent = '';
-
-  if (state.loading && !state.instances.length) {
-    for (let i = 0; i < 5; i += 1) {
-      box.append(h('div', { class: 'sk-row pulse' },
-        h('div', { class: 'sk-tile' }),
-        h('div', { class: 'sk-bar' })));
+  } else {
+    select.disabled = false;
+    for (const host of hosts) {
+      const list = homesOf(host.id);
+      const running = list.filter(isRunning).length;
+      select.append(h('option', {
+        value: host.id,
+        selected: host.id === state.harness,
+        text: `${host.label} · ${list.length} 个整合包${running ? ` · ${running} 运行中` : ''}`,
+      }));
     }
-    return;
   }
 
-  for (const inst of list) box.append(railRow(inst));
-
-  const active = box.querySelector('.row.sel');
-  if (active) active.scrollIntoView({ block: 'nearest' });
-}
-
-function groupHead(label, count) {
-  return h('div', { class: 'group-h' },
-    h('span', { text: label }),
-    h('span', { class: 'gh-n', text: String(count) }));
-}
-
-function railRow(inst) {
-  if (inst.empty) {
-    return h('div', {
-      class: 'row empty',
-      role: 'option',
-      'aria-selected': 'false',
-      tabindex: '-1',
-      'data-id': inst.id,
-      title: `${hostFull(inst.harness)} · 未安装`,
-      onclick: () => { state.emptyHost = inst.harness; state.selectedId = null; render(); },
-      ondblclick: () => { state.emptyHost = inst.harness; openInstall(); },
-    },
-    h('span', { class: `tile hm-${inst.harness}`, text: hostCode(inst.harness) }),
-    h('span', { class: 'r-name' },
-      h('span', { class: 'r-host', text: hostLabel(inst.harness) }),
-      h('span', { class: 'r-pack', text: '未安装' })),
-    h('span', { class: 'r-end' }, h('span', { class: 'r-dot idle' })));
+  const nav = $('nav');
+  nav.textContent = '';
+  const count = state.harness ? homesOf(state.harness).length : 0;
+  for (const item of NAV) {
+    const on = state.view === item.id;
+    nav.append(h('button', {
+      class: 'nav-btn' + (on ? ' on' : ''),
+      id: `nav-${item.id}`,
+      type: 'button',
+      role: 'tab',
+      title: item.hint,
+      'data-nav': item.id,
+      'aria-selected': on ? 'true' : 'false',
+      onclick: () => setView(item.id),
+    }, item.label,
+    item.id === 'library' && count ? h('span', { class: 'nav-n', text: String(count) }) : null));
   }
-  const status = statusOf(inst);
-  const sel = inst.id === state.selectedId;
-  const running = isRunning(inst);
-  const broken = isBroken(inst);
-  const attention = running || broken;
-  const title = `${hostFull(inst.harness)} · ${packText(inst) || '未挂钩整合包'} · ${status.text}`;
-
-  const row = h('div', {
-    class: 'row' + (sel ? ' sel' : ''),
-    role: 'option',
-    'aria-selected': sel ? 'true' : 'false',
-    tabindex: sel ? '0' : '-1',
-    'data-id': inst.id,
-    title,
-    onclick: () => selectInstance(inst.id),
-    ondblclick: () => launchInstance(inst),
-  },
-  h('span', { class: `tile hm-${inst.harness}`, text: hostCode(inst.harness) }),
-  h('span', { class: 'r-name' },
-    h('span', { class: 'r-host', text: hostLabel(inst.harness) }),
-    h('span', { class: 'r-pack', text: inst.name })),
-  h('span', { class: 'r-end' },
-    h('span', { class: status.key === 'idle' ? 'r-dot idle' : `r-dot ${status.key}` }),
-    h('span', { class: 'r-acts' },
-      h('button', {
-        class: 'ract', type: 'button', tabindex: '-1',
-        title: attention ? '停止' : '启动', 'aria-label': attention ? '停止' : '启动',
-        onclick: (event) => {
-          event.stopPropagation();
-          if (attention) stopInstance(inst); else launchInstance(inst);
-        },
-      }, h('span', { class: 'ico', html: svgIcon(attention ? 'stop' : 'play') })),
-      h('button', {
-        class: 'ract ract-more', type: 'button', tabindex: '-1',
-        title: '更多动作', 'aria-label': '更多动作', 'aria-haspopup': 'menu',
-        onclick: (event) => {
-          event.stopPropagation();
-          openRowMenu(inst.id, event.currentTarget);
-        },
-      }, h('span', { class: 'ico dots', html: svgIcon('more') })))));
-
-  row.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      event.stopPropagation();
-      launchInstance(inst);
-    } else if (event.key === 'ArrowRight') {
-      event.preventDefault();
-      event.stopPropagation();
-      openRowMenu(inst.id, row.querySelector('.ract-more'));
-    }
-  });
-  return row;
+  // 首次使用：一个整合包都没有时，工具条不再和空状态里的引导按钮抢同一件事。
+  $('add-pack').classList.toggle('hidden', !state.loading && state.instances.length === 0);
 }
 
-function selectInstance(id) {
-  const inst = byId(id);
-  if (!inst) return;
-  state.emptyHost = null;
-  state.homeByHarness[inst.harness] = id;
-  if (state.selectedId === id) return;
-  state.selectedId = id;
-  render();
+function renderViews() {
+  $('view-launch').classList.toggle('hidden', state.view !== 'launch');
+  $('view-library').classList.toggle('hidden', state.view !== 'library');
+  $('view-settings').classList.toggle('hidden', state.view !== 'settings');
+  if (state.view === 'launch') {
+    renderLaunch();
+    renderPanel();
+    requestAnimationFrame(() => fitTerminal());
+  } else if (state.view === 'library') {
+    renderLibrary();
+  } else {
+    renderSettings();
+  }
 }
 
-function selectHome(host, id) {
-  state.homeByHarness[host] = id;
-  state.selectedId = id;
-  render();
-}
-
-/* ---------- 右栏：详情层 ---------- */
-function renderPane() {
-  const head = $('pane-head');
-  const tabs = $('tabs');
-  const body = $('pane-body');
+/* ---------- L1 启动视图 ---------- */
+function renderLaunch() {
+  const head = $('launch-head');
+  const tabs = $('launch-tabs');
+  const sw = $('launch-switch');
+  const body = $('launch-body');
   head.textContent = '';
   tabs.textContent = '';
+  sw.textContent = '';
   body.textContent = '';
   body.dataset.tab = state.tab;
-  const inst = selected();
 
   if (state.loading && !state.instances.length) {
     head.classList.add('hidden');
     tabs.classList.add('hidden');
+    sw.classList.add('hidden');
+    $('launch-foot').classList.add('hidden');
     body.append(h('div', { class: 'sk-block pulse' }));
     return;
   }
-
   if (state.error) {
     head.classList.add('hidden');
     tabs.classList.add('hidden');
-    body.append(h('div', { class: 'err' },
-      h('h4', { text: '读不到实例列表' }),
-      h('pre', { text: state.error }),
-      h('button', { class: 'btn outline', type: 'button', onclick: refresh }, '重试')));
+    sw.classList.add('hidden');
+    $('launch-foot').classList.add('hidden');
+    body.append(errorBox());
     return;
   }
-
+  const inst = currentPack();
   if (!inst) {
     head.classList.add('hidden');
     tabs.classList.add('hidden');
-    body.append(emptyPane(state.emptyHost));
+    sw.classList.add('hidden');
+    $('launch-foot').classList.add('hidden');
+    body.append(launchEmpty());
     return;
   }
 
   head.classList.remove('hidden');
   tabs.classList.remove('hidden');
-  renderHead(head, inst);
+  sw.classList.remove('hidden');
+  $('launch-foot').classList.remove('hidden');
+  renderLaunchHead(head, inst);
   renderTabs(tabs, inst);
+  renderSwitcher(sw, inst);
   renderTabBody(body, inst);
+  setFoot('launch-foot', launchCmd(inst));
 }
 
-function emptyPane(pickedHost) {
-  const host = pickedHost || state.emptyHost || (state.filter !== 'all' ? state.filter : 'dsh');
+/** 这一屏的动作翻译成命令行：脚注永远说当前 tab 真正会跑的那一条。 */
+function launchCmd(inst) {
+  if (state.tab === 'modes') return `$ pal start ${inst.name} --list-modes`;
+  if (state.tab === 'manage') return `$ pal update --home ${inst.name}`;
+  return isRunning(inst) || isBroken(inst)
+    ? `$ pal stop ${inst.name}`
+    : `$ pal start ${inst.name} --mode ${(defaultMode(inst) || {}).id || 'web'}`;
+}
+
+function setFoot(id, cmd) {
+  const box = $(id);
+  if (!box) return;
+  box.textContent = '';
+  box.append(
+    h('span', { class: 'tf-k', text: '命令行等价' }),
+    h('code', { class: 'tf-c', text: cmd }));
+}
+
+function errorBox() {
+  return h('div', { class: 'err' },
+    h('h4', { text: '读不到整合包列表' }),
+    h('pre', { text: state.error }),
+    h('button', { class: 'btn outline', type: 'button', onclick: refresh }, '重试'));
+}
+
+function launchEmpty() {
+  const hosts = installedHosts();
+  if (!hosts.length) {
+    return h('div', { class: 'pane-empty hero' },
+      h('p', { class: 'pe-title', text: '还没有任何整合包' }),
+      h('p', {
+        class: 'pe-body',
+        text: 'PAL 的每个 harness 都从一个整合包开始：选 harness、选 Pack 目录、看一遍安装计划，装好之后这里就是它的启动面板。',
+      }),
+      h('div', { class: 'pe-steps' },
+        h('span', { class: 'pe-step' }, h('b', { text: '1' }), '选 harness'),
+        h('span', { class: 'pe-step' }, h('b', { text: '2' }), '选 Pack 目录'),
+        h('span', { class: 'pe-step' }, h('b', { text: '3' }), '预览并安装')),
+      h('div', { class: 'pe-actions' },
+        h('button', { class: 'btn ink', type: 'button', onclick: () => openInstall('dsh') },
+          h('span', { class: 'ico', html: svgIcon('folder-plus') }), '安装第一个整合包')),
+      h('pre', { class: 'pe-cli', text: '$ pal install <pack 目录> --host dsh' }));
+  }
   return h('div', { class: 'pane-empty' },
-    h('p', { class: 'pe-title', text: `${hostLabel(host)} 还没有整合包` }),
+    h('p', { class: 'pe-title', text: `${hostFull(state.harness)} 还没有整合包` }),
     h('p', {
       class: 'pe-body',
       text: '给这个 harness 装一个包：选一个 Pack 目录，PAL 会为它建一个 home。装好之后，这里就是它的启动面板。',
     }),
     h('div', { class: 'pe-actions' },
-      h('button', { class: 'btn ink', type: 'button', onclick: () => openInstall(host) },
+      h('button', { class: 'btn ink', type: 'button', onclick: () => openInstall(state.harness) },
         h('span', { class: 'ico', html: svgIcon('folder-plus') }), '添加整合包')),
-    h('pre', { class: 'pe-cli', text: `$ pal install <pack 目录> --host ${host}` }));
+    h('pre', { class: 'pe-cli', text: `$ pal install <pack 目录> --host ${state.harness}` }));
 }
 
-function renderHead(head, inst) {
+function renderLaunchHead(head, inst) {
   const status = statusOf(inst);
-  const running = isRunning(inst);
-  const broken = isBroken(inst);
-  const homes = homesOf(inst.harness);
-
-  const eyebrow = h('div', { class: 'eyebrow' },
-    h('span', { class: `tile ph-tile hm-${inst.harness}`, text: hostCode(inst.harness) }),
-    h('span', { class: 'ph-host', text: inst.name }));
-
-  const subline = h('div', { class: 'subline' },
-    h('span', { class: 'mono', text: packText(inst) || '未挂钩整合包' }),
-    h('span', { class: 'sep' }),
-    h('span', { class: `pill ${status.key === 'idle' ? '' : status.key}` },
-      status.key === 'idle' ? null : h('span', { class: `dot ${status.key}` }),
-      status.text));
-
-  const picker = h('div', { class: 'pack-pick' },
-    h('span', { class: 'pack-pick-label', text: '整合包' }),
-    homes.length > 1
-      ? h('select', {
-          class: 'pack-select',
-          'aria-label': '切换整合包',
-          onchange: (event) => selectHome(inst.harness, event.target.value),
-        }, homes.map((home) => h('option', {
-          value: home.id,
-          selected: home.id === inst.id,
-          text: `${home.name}${isRunning(home) ? ' · 运行中' : ''}`,
-        })))
-      : h('span', { class: 'pack-current', text: inst.name }),
-    h('button', { class: 'link-btn', type: 'button', onclick: openInstall }, '+ 安装'));
+  const version = packVer(inst);
 
   head.append(h('div', { class: 'ph-main' },
-    eyebrow,
-    h('h1', { class: 'inst-name', text: hostLabel(inst.harness), title: hostFull(inst.harness) }),
-    subline,
-    picker));
+    h('div', { class: 'eyebrow' },
+      h('span', { class: `tile ph-tile hm-${inst.harness}`, text: hostCode(inst.harness) }),
+      h('span', { class: 'ph-host', text: hostFull(inst.harness) }),
+      h('span', { class: 'sep' }),
+      h('span', { text: '当前整合包' })),
+    h('h1', { class: 'inst-name', text: packName(inst), title: packText(inst) }),
+    h('div', { class: 'subline' },
+      h('span', { class: 'mono', text: version ? `@${version}` : '无版本' }),
+      h('span', { class: 'sep' }),
+      h('span', { class: 'mono dim', text: inst.name }),
+      h('span', { class: 'sep' }),
+      h('span', { class: `pill ${status.key === 'idle' ? '' : status.key}` },
+        status.key === 'idle' ? null : h('span', { class: `dot ${status.key}` }),
+        status.text))));
 
   const act = h('div', { class: 'ph-act' });
   act.append(primaryButton(inst));
-
-  const note = headNote(inst, running, broken);
-  if (note) act.append(h('div', { class: 'ph-note' + (broken ? ' bad' : ''), text: note }));
+  act.append(h('button', {
+    class: 'linkbtn line act-link', type: 'button',
+    title: `装进 ${hostFull(inst.harness)}`,
+    onclick: () => openInstall(inst.harness),
+  }, '+ 安装整合包'));
+  const note = headNote(inst, isRunning(inst));
+  if (note) act.append(h('div', { class: 'ph-note' + (isBroken(inst) ? ' bad' : ''), text: note }));
   head.append(act);
 }
 
-function headNote(inst, running, broken) {
-  if (broken) return '记录还停在 running，pid 已经不在了';
+/** 换版本：只在有几个包时给下拉；单包时右侧只留一条去「整合包」视图的入口。 */
+function renderSwitcher(box, inst) {
+  const homes = homesOf(inst.harness);
+  if (homes.length > 1) {
+    box.append(
+      h('span', { class: 'tab-switch-label', text: '切换' }),
+      h('select', {
+        class: 'tab-switch',
+        'aria-label': '切换当前整合包',
+        onchange: (event) => setCurrent(event.target.value),
+      }, homes.map((home) => h('option', {
+        value: home.id,
+        selected: home.id === inst.id,
+        text: `${packName(home)}@${packVer(home)}`,
+      }))));
+  }
+  box.append(h('button', {
+    class: 'linkbtn line', type: 'button',
+    onclick: () => setView('library'),
+  }, '全部 ›'));
+}
+
+/** 头部只说「这个动作为什么现在点不了」；进程已不在之类的状态由概览卡和终端条说，不在这里重复。 */
+function headNote(inst, running) {
   const mode = defaultMode(inst);
   if (mode && mode.available === false && !running) return mode.reason || '这个模式不可用';
   return '';
@@ -439,14 +531,14 @@ function primaryButton(inst) {
   if (running || broken) {
     return h('button', {
       class: 'launch stop', type: 'button',
-      title: broken ? '记录还停在 running，但 pid 已经不在：停止会清掉这条记录' : '停止这个实例',
+      title: broken ? '记录还停在 running，但 pid 已经不在：停止会清掉这条记录' : '停止这个整合包',
       onclick: () => stopInstance(inst),
     }, h('span', { class: 'ico', html: svgIcon('stop') }), '停止');
   }
   if (!mode || mode.available === false) {
     return h('button', {
       class: 'launch off', type: 'button', disabled: true,
-      title: (mode && mode.reason) || '这个实例没有可用的启动模式',
+      title: (mode && mode.reason) || '这个整合包没有可用的启动模式',
     }, '不可启动');
   }
   return h('button', {
@@ -455,11 +547,29 @@ function primaryButton(inst) {
   }, '启动');
 }
 
-const TABS = [
-  { id: 'overview', label: '概览' },
-  { id: 'modes', label: '启动方式' },
-  { id: 'manage', label: '管理' },
-];
+/** 整合包视图里的轻量主按钮：同一件事，换个场景不抢封面。 */
+function smallLaunch(inst) {
+  const running = isRunning(inst);
+  const broken = isBroken(inst);
+  const busy = state.busy && state.busy.id === inst.id;
+  if (busy) {
+    return h('button', { class: 'btn outline', type: 'button', disabled: true },
+      state.busy.action === 'stop' ? '正在停止…' : '正在启动…');
+  }
+  if (running || broken) {
+    return h('button', { class: 'btn outline', type: 'button', onclick: () => stopInstance(inst) },
+      h('span', { class: 'ico', html: svgIcon('stop') }), '停止');
+  }
+  const mode = defaultMode(inst);
+  if (!mode || mode.available === false) {
+    return h('button', {
+      class: 'btn outline', type: 'button', disabled: true,
+      title: (mode && mode.reason) || '没有可用的启动模式',
+    }, '不可启动');
+  }
+  return h('button', { class: 'btn ink', type: 'button', onclick: () => launchInstance(inst) },
+    h('span', { class: 'ico', html: svgIcon('play') }), '启动');
+}
 
 function renderTabs(box, inst) {
   for (const tab of TABS) {
@@ -481,14 +591,9 @@ function renderTabs(box, inst) {
 function selectTab(id) {
   if (state.tab === id) return;
   state.tab = id;
-  renderPane();
-}
-
-/** 每一屏底部的句号：发丝线 + 这一屏动作的命令行等价。 */
-function tabFoot(cmd) {
-  return h('footer', { class: 'tab-foot' },
-    h('span', { class: 'tf-k', text: '命令行等价' }),
-    h('code', { class: 'tf-c', text: cmd }));
+  saveBrief();
+  renderLaunch();
+  renderPanel();
 }
 
 function renderTabBody(body, inst) {
@@ -497,7 +602,8 @@ function renderTabBody(body, inst) {
   else body.append(overviewBody(inst));
 }
 
-/* ---------- 概览 ---------- */
+
+/* ---------- L2 概览 ---------- */
 function overviewBody(inst) {
   const status = statusOf(inst);
   const running = isRunning(inst);
@@ -540,20 +646,17 @@ function overviewBody(inst) {
     h('dl', { class: 'facts' }, factRows(inst).map(([key, value, dim]) => h('div', { class: 'fact' },
       h('dt', { text: key }),
       h('dd', { class: dim ? 'dim' : '', text: value, title: value })))),
-    next,
-    tabFoot(running || broken
-      ? `$ pal stop ${inst.name}`
-      : `$ pal start ${inst.name} --mode ${(defaultMode(inst) || {}).id || 'web'}`));
+    next);
 }
 
 function launchHint(inst, mode, running, broken) {
   if (broken) return '先停止清记录';
   if (running) return inst.url ? '服务在跑，用「打开页面」进界面' : '进程在跑，先停止再换模式';
-  if (!mode) return '这个宿主没有声明启动模式';
+  if (!mode) return '这个 harness 没有声明启动模式';
   if (mode.available === false) return '这个模式在当前 home 上不可用';
   if (mode.kind === 'foreground') return '启动会在下面终端里开一个前台会话';
   if (mode.kind === 'server') return '启动后起本地服务，并自动用浏览器打开';
-  if (mode.kind === 'app') return '启动会拉起宿主的桌面窗口';
+  if (mode.kind === 'app') return '启动会拉起 harness 自己的桌面窗口';
   return '';
 }
 
@@ -563,7 +666,7 @@ function factRows(inst) {
   if (inst.profile) rows.push(['Profile', inst.profile, false]);
   // 形态决定「删除」会删掉什么，值得在概览里就让人看见。
   rows.push(['形态', inst.attached
-    ? 'attached home · 装在宿主自己的目录'
+    ? 'attached home · 装在 harness 自己的目录'
     : inst.managed === false
       ? '接管目录 · 不归 PAL 整根管'
       : '托管 home · PAL 数据目录下', false]);
@@ -573,14 +676,7 @@ function factRows(inst) {
   return rows;
 }
 
-function dateText(value) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-}
-
-/* ---------- 启动方式 ---------- */
+/* ---------- L2 启动方式 ---------- */
 function modesBody(inst) {
   const modes = inst.modes || [];
   const running = isRunning(inst);
@@ -594,7 +690,7 @@ function modesBody(inst) {
     ? h('div', { class: 'modes' }, modes.map((mode) => {
       const off = running || broken || busy || mode.available === false;
       const used = Boolean(inst.launchMode) && inst.launchMode === mode.id;
-      // 右侧说的必须是「这个模式」的状态，不是实例状态：运行中时它没在跑，只是还不能切。
+      // 右侧说的必须是「这个模式」的状态，不是实例状态。
       const side = busy ? '处理中'
         : used && running ? '运行中'
           : mode.available === false ? '不可用'
@@ -619,15 +715,32 @@ function modesBody(inst) {
           off ? null : h('span', { class: 'ico', html: svgIcon('chevron-right') }))));
     }))
     : h('div', { class: 'modes' },
-      h('div', { class: 'mode-item' }, h('div', { class: 'mode-note', text: '这个宿主没有声明启动模式' })));
+      h('div', { class: 'mode-item' }, h('div', { class: 'mode-note', text: '这个 harness 没有声明启动模式' })));
 
   return h('div', { class: 'mb' },
     h('p', { class: 'sec-lead', text: lead }),
-    list,
-    tabFoot(`$ pal start ${inst.name} --list-modes`));
+    list);
 }
 
-/* ---------- 管理 ---------- */
+/* ---------- L2 管理 ---------- */
+function actionRow(title, desc, buttons, opts = {}) {
+  return h('div', { class: 'mg-row' + (opts.danger ? ' danger' : '') },
+    h('div', { class: 'mgr-main' },
+      h('span', { class: 'mgr-t', text: title }),
+      h('span', { class: 'mgr-s', text: desc })),
+    h('div', { class: 'mgr-act' }, buttons));
+}
+
+function rowBtn(label, opts = {}) {
+  return h('button', {
+    class: 'btn outline' + (opts.danger ? ' danger' : ''),
+    type: 'button',
+    disabled: opts.disabled || false,
+    title: opts.title || null,
+    onclick: opts.onclick,
+  }, label);
+}
+
 function manageBody(inst) {
   const running = isRunning(inst);
   const broken = isBroken(inst);
@@ -635,173 +748,409 @@ function manageBody(inst) {
   const busy = state.busy && state.busy.id === inst.id;
   const attached = inst.attached === true;
 
-  const row = (title, desc, buttons) => h('div', { class: 'mg-row' },
-    h('div', { class: 'mgr-main' },
-      h('span', { class: 'mgr-t', text: title }),
-      h('span', { class: 'mgr-s', text: desc })),
-    h('div', { class: 'mgr-act' }, buttons));
-
-  const btn = (label, opts = {}) => h('button', {
-    class: 'btn outline' + (opts.danger ? ' danger' : ''),
-    type: 'button',
-    disabled: opts.disabled || false,
-    title: opts.title || null,
-    onclick: opts.onclick,
-  }, label);
-
   return h('div', { class: 'mg' },
     h('section', { class: 'mg-group' },
       h('h3', { class: 'mg-h', text: '整合包' }),
-      row('更新到最新版', blocked ? '先停止实例，才能换版本' : '从 registry 拉最新版覆盖当前安装；本地改过的文件会拦住更新',
-        btn('更新', { disabled: blocked || busy, onclick: () => confirmAction('update', inst) })),
-      row('卸载整合包',
-        blocked ? '先停止实例，才能卸包' : '摘掉包写进这个 home 的文件，实例记录与目录保留，可以重新装',
-        btn('卸载', { disabled: blocked || busy, onclick: () => confirmAction('uninstall', inst) }))),
+      actionRow(`版本 ${packText(inst)}`,
+        blocked
+          ? '先停止实例，才能换版本或卸包'
+          : '更新换成 registry 的最新版（本地改过的文件会拦住）；卸载摘掉包写进这个 home 的文件，记录与目录保留',
+        h('div', { class: 'mgr-act' },
+          rowBtn('更新', { disabled: blocked || busy, onclick: () => confirmAction('update', inst) }),
+          rowBtn('卸载', { disabled: blocked || busy, onclick: () => confirmAction('uninstall', inst) })))),
 
     h('section', { class: 'mg-group' },
       h('h3', { class: 'mg-h', text: '位置' }),
-      row('打开所在文件夹', inst.root || '这个实例没有记录路径',
+      actionRow('打开所在文件夹', inst.root || '这个实例没有记录路径',
         h('div', { class: 'mgr-act' },
-          btn('打开', { disabled: !inst.root, onclick: () => reveal(inst) }),
-          btn('复制路径', { disabled: !inst.root, onclick: () => copyText(inst.root, '路径已复制') }))),
-      row('实例 ID', inst.id,
-        btn('复制', { onclick: () => copyText(inst.id, '实例 ID 已复制') }))),
+          rowBtn('打开', { disabled: !inst.root, onclick: () => reveal(inst) }),
+          rowBtn('复制路径', { disabled: !inst.root, onclick: () => copyText(inst.root, '路径已复制') }))),
+      actionRow('实例 ID', inst.id,
+        rowBtn('复制', { onclick: () => copyText(inst.id, '实例 ID 已复制') }))),
 
     h('section', { class: 'mg-group danger' },
       h('h3', { class: 'mg-h', text: '危险操作' }),
-      row(`删除这个实例${attached ? '（只摘记录）' : ''}`,
+      actionRow(`删除这个实例${attached ? '（只摘记录）' : ''}`,
         attached
           ? 'attached home：只删 PAL 的记录，目录与用户文件留在原处'
           : '删除前会先停进程，整个 home 目录（含会话与凭据）一起删掉，不可恢复',
-        btn('删除…', { danger: true, disabled: busy, onclick: () => confirmAction('remove', inst) }))),
-    tabFoot(`$ pal update --home ${inst.name}`));
+        rowBtn('删除…', { danger: true, disabled: busy, onclick: () => confirmAction('remove', inst) }))));
 }
 
-/* ---------- 终端面板 ---------- */
-function panelModeOf(inst) {
-  if (state.session) return 'term';
-  if (!inst) return 'hidden';
-  return foregroundMode(inst) ? 'term' : 'note';
-}
+/* ---------- L1 整合包视图 ---------- */
+function renderLibrary() {
+  const head = $('lib-head');
+  const scroll = $('lib-scroll');
+  head.textContent = '';
+  scroll.textContent = '';
 
-/** 折叠条是这一屏唯一的一级状态文案，必须和实例状态一致。 */
-function panelBarText(inst, session) {
-  if (session) {
-    return session.live ? `pal run ${session.name}` : `${session.name} · 已退出 code ${session.exitCode}`;
+  const detail = state.detailId ? byId(state.detailId) : null;
+  if (detail && detail.harness === state.harness) {
+    renderPackDetail(head, scroll, detail);
+    return;
   }
-  if (!inst) return '未连接';
-  if (isBroken(inst)) return '记录异常';
-  if (isRunning(inst)) return '进程在跑 · 无前台会话';
-  return `$ pal run ${inst.name}`;
-}
+  state.detailId = null;
 
-function renderPanel() {
-  const panel = $('panel');
-  const bar = $('panel-bar');
-  const inst = selected();
-  const mode = panelModeOf(inst);
-  const open = Boolean(state.session) || state.panelOpen;
-  bar.textContent = '';
+  const host = hostOf(state.harness);
+  const list = state.harness ? homesOf(state.harness) : [];
+  const running = list.filter(isRunning).length;
 
-  panel.className = 'panel'
-    + (mode === 'hidden' ? ' hidden' : '')
-    + (mode === 'note' ? ' note-mode' : '')
-    + (mode === 'term' && !open ? ' collapsed' : '');
+  head.append(
+    h('div', { class: 'vh-main' },
+      h('h1', { class: 'vh-title', text: '整合包' }),
+      h('p', {
+        class: 'vh-sub',
+        text: host
+          ? `${host.full} · ${running ? `${running} 个运行中` : '没有在跑'}`
+          : '还没有安装任何 harness',
+      })));
 
-  if (mode === 'hidden') return;
-
-  if (mode === 'note') {
-    bar.append(
-      h('span', { class: 'panel-title', text: '终端' }),
-      h('span', { class: 'panel-note', text: `${hostLabel(inst.harness)} 没有前台模式，${kindWord((defaultMode(inst) || {}).kind)}的输出不进 PAL` }));
+  if (state.loading && !state.instances.length) {
+    $('lib-foot').classList.add('hidden');
+    scroll.append(h('div', { class: 'sk-block pulse' }));
+    return;
+  }
+  if (state.error) {
+    $('lib-foot').classList.add('hidden');
+    scroll.append(errorBox());
+    return;
+  }
+  $('lib-foot').classList.remove('hidden');
+  setFoot('lib-foot', '$ pal list --json');
+  if (!list.length) {
+    scroll.append(libraryEmpty(host));
     return;
   }
 
-  const session = state.session;
-  bar.append(
-    h('span', { class: 'panel-title', text: '终端' }),
-    h('span', { class: 'panel-state' + (session && session.live ? ' live' : '') },
-      h('span', { class: 'dot' }),
-      panelBarText(inst, session)),
-    h('div', { class: 'panel-grow' }),
-    h('div', { class: 'panel-actions' },
+  scroll.append(h('div', { class: 'pk-list', role: 'list' },
+    list.map((inst) => packRow(inst)),
+    h('button', {
+      class: 'pk-add', type: 'button',
+      title: `装进 ${host ? host.full : 'harness'}`,
+      onclick: () => openInstall(state.harness),
+    },
+    h('span', { class: 'ico', html: svgIcon('plus') }),
+    h('span', { text: `安装到 ${host ? host.label : 'harness'}` }))));
+  scroll.append(h('p', {
+    class: 'hint',
+    text: '点一行进详情；「当前」是启动视图在用的那一个，其余用「设为当前」换过去。',
+  }));
+}
+
+function libraryEmpty(host) {
+  const name = host ? host.full : '这个 harness';
+  return h('div', { class: 'pane-empty tight' },
+    h('p', { class: 'pe-title', text: `${name} 还没有整合包` }),
+    h('p', {
+      class: 'pe-body',
+      text: '整合包按 harness 归位：装进来的每个包都会出现在这张表里，并占一个 home。',
+    }),
+    h('div', { class: 'pe-actions' },
+      h('button', { class: 'btn ink', type: 'button', onclick: () => openInstall(state.harness) },
+        h('span', { class: 'ico', html: svgIcon('folder-plus') }), '安装第一个整合包')),
+    h('pre', { class: 'pe-cli', text: `$ pal install <pack 目录> --host ${state.harness}` }));
+}
+
+function packRow(inst) {
+  const current = inst.id === state.packId;
+  const st = statusOf(inst);
+  const version = packVer(inst);
+  const more = h('button', {
+    class: 'ract ract-more', type: 'button', tabindex: '-1',
+    title: '更多动作', 'aria-label': '更多动作', 'aria-haspopup': 'menu',
+    onclick: (event) => {
+      event.stopPropagation();
+      openPackMenu(inst.id, event.currentTarget);
+    },
+  }, h('span', { class: 'ico dots', html: svgIcon('more') }));
+
+  const row = h('div', {
+    class: 'pk-row' + (current ? ' cur' : ''),
+    role: 'listitem',
+    tabindex: '0',
+    'data-pack': inst.id,
+    title: `${packText(inst)} · ${inst.name} · ${st.text}`,
+    onclick: () => openPackDetail(inst.id),
+    onkeydown: (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        event.stopPropagation();
+        openPackDetail(inst.id);
+      }
+    },
+  },
+  h('span', { class: 'pk-main' },
+    h('span', { class: 'pk-name', text: packName(inst) }),
+    h('span', { class: 'pk-meta' },
+      h('span', { text: version ? `@${version}` : '无版本' }),
+      h('span', { class: 'sep' }),
+      h('span', { class: 'mono', text: inst.name }))),
+  h('span', { class: 'pk-path mono', text: inst.root || '—', title: inst.root || '' }),
+  h('span', { class: 'pk-state' + (current ? ' cur' : '') },
+    h('span', { class: `r-dot ${st.key}` }),
+    h('span', { text: st.text })),
+  h('span', { class: 'pk-acts' },
+    current
+      ? h('span', { class: 'tag cur', text: '当前' })
+      : h('button', {
+        class: 'linkbtn line', type: 'button', tabindex: '-1',
+        title: '让启动视图改用这个整合包',
+        onclick: (event) => { event.stopPropagation(); setCurrent(inst.id); },
+      }, '设为当前'),
+    more));
+
+  return row;
+}
+
+function renderPackDetail(head, scroll, inst) {
+  const status = statusOf(inst);
+  const running = isRunning(inst);
+  const broken = isBroken(inst);
+  const blocked = running || broken;
+  const busy = state.busy && state.busy.id === inst.id;
+  const attached = inst.attached === true;
+  const mode = defaultMode(inst);
+
+  head.append(
+    h('div', { class: 'vh-main' },
+      h('div', { class: 'crumb' },
+        h('button', { class: 'crumb-back', type: 'button', onclick: backToLibrary },
+          h('span', { class: 'ico', html: svgIcon('chevron-left') }), '整合包')),
+      h('h1', { class: 'vh-title', text: packName(inst) }),
+      h('p', { class: 'vh-sub' },
+        h('span', { class: 'mono', text: packVer(inst) ? `@${packVer(inst)}` : '无版本' }),
+        h('span', { class: 'sep' }),
+        h('span', { class: 'mono', text: inst.name }),
+        h('span', { class: 'sep' }),
+        h('span', { class: `pill ${status.key === 'idle' ? '' : status.key}` },
+          status.key === 'idle' ? null : h('span', { class: `dot ${status.key}` }),
+          status.text),
+        h('button', { class: 'linkbtn line sub-link', type: 'button', onclick: () => goLaunch(inst) },
+          '在启动视图中打开 ›'))),
+    h('div', { class: 'vh-act' },
+      inst.id === state.packId
+        ? h('span', { class: 'tag cur', text: '当前整合包' })
+        : h('button', { class: 'btn outline', type: 'button', onclick: () => setCurrent(inst.id) }, '设为当前'),
+      smallLaunch(inst)));
+
+  const statusCard = h('div', { class: `ov-status ${status.key}` },
+    h('div', { class: 'ovs-main' },
+      h('p', { class: 'ovs-line' },
+        status.key === 'idle' ? h('span', { class: 'ring' }) : h('span', { class: `dot ${status.key}` }),
+        h('span', {
+          class: 'ovs-val',
+          text: running
+            ? (inst.url ? inst.url.replace(/^https?:\/\//, '').replace(/\/$/, '') : '进程在跑')
+            : broken ? '进程已不在' : '没有进程在跑',
+        }),
+        (running || broken) && inst.pid ? h('span', { class: 'ovs-aux', text: `${broken ? '上次 ' : ''}pid ${inst.pid}` }) : null)),
+    inst.url
+      ? h('button', { class: 'btn outline', type: 'button', onclick: () => openExternal(inst.url) },
+        h('span', { class: 'ico', html: svgIcon('external') }), '打开页面')
+      : null);
+
+  // 路径与实例 ID 的动作挂在这一行上：它们在详情里就是「这个东西 + 对它做的事」。
+  const factRow = (key, value, acts, dim) => h('div', { class: 'fact' + (acts ? ' has-act' : '') },
+    h('dt', { text: key }),
+    h('dd', { class: dim ? 'dim' : '', text: value, title: value }),
+    acts ? h('div', { class: 'fact-act' }, acts) : null);
+
+  const facts = [
+    factRow('路径', inst.root || '—', [
+      rowBtn('打开', { disabled: !inst.root, onclick: () => reveal(inst) }),
+      rowBtn('复制', { disabled: !inst.root, onclick: () => copyText(inst.root, '路径已复制') }),
+    ], !inst.root),
+    factRow('实例 ID', inst.id, rowBtn('复制', { onclick: () => copyText(inst.id, '实例 ID 已复制') })),
+  ];
+  if (inst.home && inst.home !== inst.root) facts.push(factRow('Home', inst.home));
+  if (inst.profile) facts.push(factRow('Profile', inst.profile));
+  facts.push(factRow('形态', inst.attached
+    ? 'attached home · 装在 harness 自己的目录'
+    : inst.managed === false ? '接管目录 · 不归 PAL 整根管' : '托管 home · PAL 数据目录下'));
+  if (inst.harnessVersion) facts.push(factRow('宿主版本', String(inst.harnessVersion)));
+  if (inst.createdAt) facts.push(factRow('建于', dateText(inst.createdAt)));
+  facts.push(factRow('启动方式', mode
+    ? `${mode.label || mode.id} · ${kindWord(mode.kind)}${mode.available === false ? ' · 不可用' : ''}`
+    : '这个 harness 没有声明启动模式', null, !mode));
+
+  scroll.append(h('div', { class: 'detail' },
+    statusCard,
+    h('dl', { class: 'facts' }, facts),
+
+    h('section', { class: 'mg-group' },
+      h('h3', { class: 'mg-h', text: '整合包' }),
+      actionRow(`版本 ${packText(inst)}`,
+        blocked
+          ? '先停止实例，才能换版本或卸包'
+          : '更新换成 registry 的最新版（本地改过的文件会拦住）；卸载摘掉包写进这个 home 的文件',
+        h('div', { class: 'mgr-act' },
+          rowBtn('更新', { disabled: blocked || busy, onclick: () => confirmAction('update', inst) }),
+          rowBtn('卸载', { disabled: blocked || busy, onclick: () => confirmAction('uninstall', inst) })))),
+
+    h('section', { class: 'mg-group danger' },
+      h('h3', { class: 'mg-h', text: '危险操作' }),
+      actionRow(`删除这个实例${attached ? '（只摘记录）' : ''}`,
+        attached
+          ? 'attached home：只删 PAL 的记录，目录与用户文件留在原处'
+          : '删除前会先停进程，整个 home 目录（含会话与凭据）一起删掉，不可恢复',
+        rowBtn('删除…', { danger: true, disabled: busy, onclick: () => confirmAction('remove', inst) })))));
+  setFoot('lib-foot', `$ pal update --home ${inst.name}`);
+}
+
+/** 详情 → 启动视图（同一份 pack，换的是视图不是选择）。 */
+function goLaunch(inst) {
+  state.view = 'launch';
+  state.packId = inst.id;
+  state.packByHarness[inst.harness] = inst.id;
+  saveBrief();
+  render();
+}
+
+/* ---------- L1 设置视图 ---------- */
+function renderSettings() {
+  const head = $('set-head');
+  const scroll = $('set-scroll');
+  head.textContent = '';
+  scroll.textContent = '';
+
+  const version = state.info && state.info.version ? String(state.info.version) : '';
+  const dataDir = state.info && state.info.dataDir ? String(state.info.dataDir) : '';
+  const palBin = state.info && state.info.palBin ? String(state.info.palBin) : '';
+
+  head.append(
+    h('div', { class: 'vh-main' },
+      h('h1', { class: 'vh-title', text: '设置' }),
+      h('p', { class: 'vh-sub', text: `本机 · PAL 桌面版${version ? ` ${version}` : ''}` })));
+
+  const dirRow = h('div', { class: 'mg-row' },
+    h('div', { class: 'mgr-main' },
+      h('span', { class: 'mgr-t', text: 'PAL 数据目录' }),
+      h('span', {
+        class: 'mgr-s',
+        text: dataDir ? '实例记录、runtime 与会话日志都在这里；PAL 不会删这个目录之外的文件。'
+          : '主进程没有提供数据目录（直接开页面时会是空的）。',
+      }),
+      h('code', { class: 'pathline mono' + (dataDir ? '' : ' empty'), text: dataDir || '—', title: dataDir || '' })),
+    h('div', { class: 'mgr-act' },
       h('button', {
-        class: 'pbtn', id: 'panel-kill', type: 'button',
-        disabled: !(session && session.live),
-        onclick: killSession,
-      }, h('span', { class: 'ico', html: svgIcon('stop') }), '结束'),
+        class: 'btn outline', type: 'button', disabled: !dataDir,
+        onclick: () => revealPath(dataDir),
+      }, '打开'),
       h('button', {
-        class: 'pbtn', id: 'panel-toggle', type: 'button',
-        title: open ? '收起终端面板' : '展开终端面板',
-        onclick: togglePanel,
-      }, h('span', { class: 'ico', html: svgIcon(open ? 'collapse' : 'expand') }),
-      h('span', { class: 'pt-label', text: open ? '收起' : '展开' }))));
+        class: 'btn outline', type: 'button', disabled: !dataDir,
+        onclick: () => copyText(dataDir, '数据目录已复制'),
+      }, '复制')));
 
-  const idle = $('panel-idle');
-  idle.textContent = '';
-  idle.classList.toggle('hidden', Boolean(session));
-  if (session) return;
+  const memory = readBriefLabel();
 
-  if (!inst) {
-    idle.append(h('span', { class: 'ln cmd', text: '选一个实例' }));
-    return;
-  }
-  const fg = foregroundMode(inst);
-  if (isRunning(inst) || isBroken(inst)) {
-    idle.append(
-      h('span', { class: 'ln', text: isBroken(inst)
-        ? '记录停在 running，进程已经不在了。'
-        : '服务进程在跑：它的输出去宿主自己的日志里看。' }),
-      h('span', { class: 'ln', text: '要开前台终端，先在这里停止它。' }));
-    return;
-  }
-  if (!fg) {
-    idle.append(h('span', { class: 'ln', text: '这个宿主只声明了服务类模式，没有可交互的前台会话。' }));
-    return;
-  }
-  idle.append(
-    h('span', { class: 'ln cmd', text: '$ ' }, h('b', { text: `pal run ${inst.name}` })),
-    h('span', { class: 'ln' }, h('i', { class: 'k', text: 'cwd ' }), inst.root || '—'),
-    h('span', { class: 'ln' }, h('i', { class: 'k', text: 'mode' }), `${fg.id} · ${fg.label || fg.id}`),
-    h('span', { class: 'ln cmd', text: '$ ' }, h('span', { class: 'caret' })));
+  scroll.append(h('div', { class: 'set' },
+    h('section', { class: 'mg-group' },
+      h('h3', { class: 'mg-h', text: '数据与位置' }),
+      dirRow,
+      h('div', { class: 'mg-row' },
+        h('div', { class: 'mgr-main' },
+          h('span', { class: 'mgr-t', text: 'pal 命令' }),
+          h('span', { class: 'mgr-s', text: '列表、启动、安装都调这一个 CLI；这里显示主进程实际 spawn 的路径。' }),
+          h('code', { class: 'pathline mono' + (palBin ? '' : ' empty'), text: palBin || '—', title: palBin || '' })),
+        h('div', { class: 'mgr-act' },
+          h('button', {
+            class: 'btn outline', type: 'button', disabled: !palBin,
+            onclick: () => copyText(palBin, 'pal 路径已复制'),
+          }, '复制')))),
+
+    h('section', { class: 'mg-group' },
+      h('h3', { class: 'mg-h', text: '启动位置' }),
+      h('div', { class: 'mg-row' },
+        h('div', { class: 'mgr-main' },
+          h('span', { class: 'mgr-t', text: '记住上次的 harness 与视图' }),
+          h('span', { class: 'mgr-s', text: memory })),
+        h('div', { class: 'mgr-act' },
+          h('button', {
+            class: 'btn outline', type: 'button',
+            title: '清掉记在本地的位置，下次打开回到默认',
+            onclick: () => {
+              clearBrief();
+              render();
+              toast('已清掉本地记忆');
+            },
+          }, '清除记忆')))),
+
+    h('section', { class: 'mg-group' },
+      h('h3', { class: 'mg-h', text: '快捷键' }),
+      h('div', { class: 'kb-table cols' }, KEYMAP.map(([key, label]) => h('div', { class: 'kb-row' },
+        h('kbd', { text: key }),
+        h('span', { text: label }))))),
+
+    h('section', { class: 'mg-group' },
+      h('h3', { class: 'mg-h', text: '关于' }),
+      h('div', { class: 'mg-row' },
+        h('div', { class: 'mgr-main' },
+          h('span', { class: 'mgr-t', text: `PAL 桌面版${version ? ` · ${version}` : ''}` }),
+          h('span', { class: 'mgr-s', text: 'PAL 是本地实例启动器：每个整合包装进一个 home，动作用 pal CLI 完成，界面只负责选择和确认。' })),
+        h('div', { class: 'mgr-act' },
+          h('button', { class: 'btn outline', type: 'button', onclick: () => openModal({ kind: 'about' }) }, '关于与快捷键'))))));
+  setFoot('set-foot', '$ pal --help');
 }
 
-function togglePanel() {
-  state.panelOpen = !state.panelOpen;
-  renderPanel();
-  requestAnimationFrame(() => fitTerminal());
+const KEYMAP = [
+  ['↑ ↓', '在整合包列表里移动焦点'],
+  ['Enter', '打开焦点所在的整合包详情 / 启动当前整合包'],
+  ['← →', '在一级导航之间切换（焦点在导航上时）'],
+  ['F5', '重新读取整合包列表'],
+  ['Esc', '关闭弹层 / 菜单；在详情里返回列表'],
+  ['Ctrl 1 2 3', '切到 启动 / 整合包 / 设置'],
+];
+
+function readBriefLabel() {
+  const host = hostOf(state.harness);
+  const view = (NAV.find((x) => x.id === state.view) || {}).label || state.view;
+  const tab = (TABS.find((x) => x.id === state.tab) || {}).label || state.tab;
+  if (!host) return '还没有可记的内容。';
+  return `下次打开回到 ${host.label} · ${view}${state.view === 'launch' ? ` · ${tab}` : ''}；坏数据会自动忽略。`;
 }
 
 /* ---------- 状态栏 ---------- */
 function renderStatus() {
-  const total = visible().length;
-  const live = state.instances.filter(isRunning).length;
-  const box = $('sb-count');
-  box.textContent = '';
-  box.append(h('b', { text: String(total) }), ' 个 harness');
-  if (live) box.append(' · ', h('b', { text: String(live) }), ' 个运行中');
+  const host = hostOf(state.harness);
+  const hasHosts = installedHosts().length > 0;
+  const live = liveCount();
 
-  const filterBox = $('sb-filter');
-  filterBox.textContent = '';
-  if (state.filter !== 'all') {
-    filterBox.append('筛选：', h('b', { text: hostLabel(state.filter) }),
-      h('button', {
-        class: 'sb-x', type: 'button', title: '清除筛选',
-        onclick: () => { state.filter = 'all'; render(); },
-      }, '×'));
+  const harnessBox = $('sb-harness');
+  harnessBox.textContent = '';
+  harnessBox.append(h('span', { class: 'sb-k', text: 'harness' }), h('b', { text: host && hasHosts ? host.label : '未安装' }));
+
+  const liveBox = $('sb-live');
+  liveBox.textContent = '';
+  if (live) liveBox.append('全局 ', h('b', { text: String(live) }), ' 个运行中');
+  else liveBox.append('没有在跑的实例');
+
+  const keys = $('sb-keys');
+  keys.textContent = '';
+  const pairs = state.view === 'library'
+    ? (state.detailId ? [['Esc', '返回列表']] : [['↑↓', '选择'], ['Enter', '详情']])
+    : state.view === 'launch' ? [['Enter', '启动']] : [];
+  for (const [key, label] of pairs.concat([['F5', '刷新'], ['Esc', '关闭']])) {
+    keys.append(h('span', { class: 'sb-item kb' }, h('kbd', { text: key }), ` ${label}`));
   }
 }
 
 /* ---------- 动作 ---------- */
 async function launchInstance(inst) {
   const mode = defaultMode(inst);
-  if (!mode) { toast('这个实例没有启动模式', true); return; }
+  if (!mode) { toast('这个整合包没有启动模式', true); return; }
   await launchMode(inst, mode);
 }
 
 async function launchMode(inst, mode) {
   if (isRunning(inst)) { toast('进程在跑：先停止再启动', true); return; }
   if (mode.available === false) { toast(mode.reason || '这个模式不可用', true); return; }
+  if (state.view !== 'launch') {
+    state.view = 'launch';
+    state.packId = inst.id;
+    state.packByHarness[inst.harness] = inst.id;
+    saveBrief();
+    render();
+  }
   if (mode.kind === 'foreground') { await openTerminal(inst); return; }
   setBusy(inst.id, 'start');
   try {
@@ -851,8 +1200,13 @@ function openExternal(url) {
 
 async function reveal(inst) {
   if (!inst.root) return;
+  await revealPath(inst.root);
+}
+
+async function revealPath(path) {
+  if (!path) return;
   try {
-    const res = await window.pal.reveal(inst.root);
+    const res = await window.pal.reveal(path);
     if (res && res.ok === false) toast(res.error || '打不开文件夹', true);
   } catch (err) {
     toast(`打不开文件夹：${(err && err.message) || err}`, true);
@@ -868,6 +1222,103 @@ async function copyText(text, okText) {
   } catch (err) {
     toast(`复制失败：${(err && err.message) || err}`, true);
   }
+}
+
+/* ---------- 终端面板（属于启动视图） ---------- */
+function panelModeOf(inst) {
+  if (state.session) return 'term';
+  if (!inst) return 'hidden';
+  return foregroundMode(inst) ? 'term' : 'note';
+}
+
+/** 折叠条是这一屏唯一的一级状态文案，必须和实例状态一致。 */
+function panelBarText(inst, session) {
+  if (session) {
+    return session.live ? `pal run ${session.name}` : `${session.name} · 已退出 code ${session.exitCode}`;
+  }
+  if (!inst) return '未连接';
+  if (isBroken(inst)) return '记录异常';
+  if (isRunning(inst)) return '进程在跑 · 无前台会话';
+  return `$ pal run ${inst.name}`;
+}
+
+function renderPanel() {
+  const panel = $('panel');
+  const bar = $('panel-bar');
+  const inst = currentPack();
+  const mode = panelModeOf(inst);
+  const open = Boolean(state.session) || state.panelOpen;
+  bar.textContent = '';
+
+  panel.className = 'panel'
+    + (mode === 'hidden' ? ' hidden' : '')
+    + (mode === 'note' ? ' note-mode' : '')
+    + (mode === 'term' && !open ? ' collapsed' : '');
+  // 没有会话时不开一块空黑：压成一行提示 + 一条起会话的命令，够用又不压正文。
+  panel.classList.toggle('short', mode === 'term' && open && !state.session);
+
+  if (mode === 'hidden') return;
+
+  if (mode === 'note') {
+    bar.append(
+      h('span', { class: 'panel-title', text: '终端' }),
+      h('span', { class: 'panel-note', text: `${hostLabel(inst.harness)} 没有前台模式，${kindWord((defaultMode(inst) || {}).kind)}的输出不进 PAL` }));
+    return;
+  }
+
+  const session = state.session;
+  bar.append(
+    h('span', { class: 'panel-title', text: '终端' }),
+    h('span', { class: 'panel-state' + (session && session.live ? ' live' : '') },
+      h('span', { class: 'dot' }),
+      panelBarText(inst, session)),
+    h('div', { class: 'panel-grow' }),
+    h('div', { class: 'panel-actions' },
+      h('button', {
+        class: 'pbtn', id: 'panel-kill', type: 'button',
+        disabled: !(session && session.live),
+        onclick: killSession,
+      }, h('span', { class: 'ico', html: svgIcon('stop') }), '结束'),
+      h('button', {
+        class: 'pbtn', id: 'panel-toggle', type: 'button',
+        title: open ? '收起终端面板' : '展开终端面板',
+        onclick: togglePanel,
+      }, h('span', { class: 'ico', html: svgIcon(open ? 'collapse' : 'expand') }),
+      h('span', { class: 'pt-label', text: open ? '收起' : '展开' }))));
+
+  const idle = $('panel-idle');
+  idle.textContent = '';
+  idle.classList.toggle('hidden', Boolean(session));
+  if (session) return;
+
+  if (!inst) {
+    idle.append(h('span', { class: 'ln cmd', text: '选一个整合包' }));
+    return;
+  }
+  const fg = foregroundMode(inst);
+  if (isRunning(inst) || isBroken(inst)) {
+    idle.append(
+      h('span', { class: 'ln', text: isBroken(inst)
+        ? '记录停在 running，进程已经不在了。'
+        : '服务进程在跑：它的输出去 harness 自己的日志里看。' }),
+      h('span', { class: 'ln', text: '要开前台终端，先在这里停止它。' }));
+    return;
+  }
+  if (!fg) {
+    idle.append(h('span', { class: 'ln', text: '这个 harness 只声明了服务类模式，没有可交互的前台会话。' }));
+    return;
+  }
+  idle.append(
+    h('span', { class: 'ln cmd', text: '$ ' }, h('b', { text: `pal run ${inst.name}` })),
+    h('span', { class: 'ln' }, h('i', { class: 'k', text: 'cwd ' }), inst.root || '—'),
+    h('span', { class: 'ln' }, h('i', { class: 'k', text: 'mode' }), `${fg.id} · ${fg.label || fg.id}`),
+    h('span', { class: 'ln cmd', text: '$ ' }, h('span', { class: 'caret' })));
+}
+
+function togglePanel() {
+  state.panelOpen = !state.panelOpen;
+  renderPanel();
+  requestAnimationFrame(() => fitTerminal());
 }
 
 /* ---------- 终端 ---------- */
@@ -962,72 +1413,17 @@ async function killSession() {
   toast('终端会话已结束');
 }
 
-/* ---------- 宿主筛选菜单 ---------- */
-function renderMenu() {
-  const box = $('filter-menu');
-  box.textContent = '';
-  const items = [{ id: 'all', label: '全部', count: state.instances.length }].concat(
-    HOSTS.map((host) => ({
-      id: host.id,
-      label: host.full,
-      count: state.instances.filter((x) => x.harness === host.id).length,
-    })).filter((item) => item.count > 0 || state.filter === item.id));
-  for (const item of items) {
-    box.append(h('button', {
-      class: 'menu-item', type: 'button', role: 'menuitem',
-      onclick: () => {
-        state.filter = item.id;
-        closeMenu();
-        render();
-        $('filter-btn').focus();
-      },
-    },
-    h('span', { class: 'mi-ico', html: state.filter === item.id ? svgIcon('check') : '' }),
-    h('span', { class: 'mi-name', text: item.label }),
-    h('span', { class: 'mi-n', text: String(item.count) })));
-  }
-}
-
-function openMenu() {
-  state.menuOpen = true;
-  renderMenu();
-  $('filter-menu').classList.remove('hidden');
-  $('filter-btn').setAttribute('aria-expanded', 'true');
-  const first = $('filter-menu').querySelector('.menu-item');
-  if (first) first.focus();
-}
-
-function closeMenu() {
-  state.menuOpen = false;
-  $('filter-menu').classList.add('hidden');
-  $('filter-btn').setAttribute('aria-expanded', 'false');
-}
-
-/* ---------- 实例行菜单 ---------- */
-function openRowMenu(id, anchor) {
-  if (state.selectedId !== id) {
-    state.selectedId = id;
-    render();
-  }
-  const row = document.querySelector(`.row[data-id="${CSS.escape(id)}"]`);
-  const bar = row ? row.querySelector('.ract-more') : anchor;
-  if (!bar) return;
-  const rect = bar.getBoundingClientRect();
-  state.rowMenu = { id, rect, anchor: bar };
-  renderRowMenu();
-  const first = $('popover').querySelector('.pm-item');
-  if (first) first.focus();
-}
-
-function rowMenuItems(inst) {
+/* ---------- 行菜单（pack 的更多动作） ---------- */
+function packMenuItems(inst) {
   const running = isRunning(inst);
   const broken = isBroken(inst);
-  const items = [];
+  const items = [{ label: '打开详情', icon: 'sliders', run: () => openPackDetail(inst.id) }];
+  if (inst.id !== state.packId) items.push({ label: '设为当前整合包', icon: 'check', run: () => setCurrent(inst.id) });
+  items.push({ sep: true });
   items.push(running || broken
     ? { label: '停止', icon: 'stop', run: () => stopInstance(inst) }
     : { label: '启动', icon: 'play', run: () => launchInstance(inst) });
   if (inst.url) items.push({ label: '打开页面', icon: 'external', run: () => openExternal(inst.url) });
-  items.push({ label: '打开「管理」', icon: 'sliders', run: () => selectTab('manage') });
   items.push({ sep: true });
   if (inst.root) {
     items.push({ label: '打开所在文件夹', icon: 'folder', run: () => reveal(inst) });
@@ -1036,59 +1432,54 @@ function rowMenuItems(inst) {
   return items;
 }
 
-function renderRowMenu() {
+function openPackMenu(id, anchor) {
+  const inst = byId(id);
+  if (!inst || !anchor) return;
+  state.menu = { id, rect: anchor.getBoundingClientRect(), anchor };
   const box = $('popover');
-  const menu = state.rowMenu;
-  if (!menu) { box.classList.add('hidden'); box.textContent = ''; return; }
-  const inst = byId(menu.id);
-  if (!inst) { closeRowMenu({ restore: false }); return; }
-
   box.textContent = '';
   box.classList.remove('hidden');
-  for (const item of rowMenuItems(inst)) {
+  for (const item of packMenuItems(inst)) {
     if (item.sep) { box.append(h('div', { class: 'pm-sep' })); continue; }
     box.append(h('button', {
       class: 'pm-item', type: 'button', role: 'menuitem',
       onclick: () => {
-        closeRowMenu({ restore: true });
+        closeMenu();
         item.run();
       },
     },
     h('span', { class: 'ico', html: svgIcon(item.icon) }),
     h('span', { class: 'pm-label', text: item.label })));
   }
+  placePopover(state.menu.rect);
+  const first = box.querySelector('.pm-item');
+  if (first) first.focus();
+}
 
-  // 贴着 ⋯ 往列表右侧展开，被操作的那一行保持可见；右边放不下才翻到上方 / 左侧
+function placePopover(rect) {
+  const box = $('popover');
   const width = box.offsetWidth || 186;
   const height = box.offsetHeight || 160;
-  const rect = menu.rect;
-  const railRight = document.querySelector('.rail')?.getBoundingClientRect().right ?? rect.right;
-  let x = railRight + 6;
+  let x = rect.right - width;
   let y = rect.bottom + 5;
-  if (x + width > window.innerWidth - 10) x = Math.max(8, rect.right - width);
   if (y + height > window.innerHeight - 10) y = Math.max(10, rect.top - height - 5);
   x = Math.min(Math.max(8, x), window.innerWidth - width - 8);
   box.style.left = `${Math.round(x)}px`;
   box.style.top = `${Math.round(y)}px`;
 }
 
-function closeRowMenu(opts = {}) {
-  const menu = state.rowMenu;
-  state.rowMenu = null;
+function closeMenu(opts = {}) {
+  const menu = state.menu;
+  state.menu = null;
   $('popover').classList.add('hidden');
   $('popover').textContent = '';
-  if (opts.restore && menu) {
-    const row = document.querySelector(`.row[data-id="${CSS.escape(menu.id)}"]`);
-    const bar = row ? row.querySelector('.ract-more') : menu.anchor;
-    if (bar && bar.isConnected) bar.focus();
-  }
+  if (opts.restore && menu && menu.anchor && menu.anchor.isConnected) menu.anchor.focus();
 }
 
 /* ---------- 弹层：通用外壳 ---------- */
 function openModal(spec) {
   state.modal = { returnFocus: document.activeElement, ...spec };
   renderModal();
-  // 焦点落在 dialog 容器上：不压任何按钮，Tab 之后再进控件。
   const box = $('modal-root').querySelector('.modal');
   if (box) box.focus();
 }
@@ -1096,6 +1487,7 @@ function openModal(spec) {
 function closeModal() {
   const modal = state.modal;
   state.modal = null;
+  state.install = null;
   $('modal-root').classList.add('hidden');
   $('modal-root').textContent = '';
   if (modal && modal.returnFocus && modal.returnFocus.isConnected) modal.returnFocus.focus();
@@ -1112,17 +1504,16 @@ function modalShell(opts) {
     class: 'modal' + (opts.wide ? ' wide' : ''), role: 'dialog', 'aria-modal': 'true',
     'aria-label': opts.title, tabindex: '-1',
   },
-    h('div', { class: 'modal-head' },
-      h('span', { class: 'modal-title', text: opts.title }),
-      opts.sub ? h('span', { class: 'modal-sub' + (opts.subMono ? ' mono' : ''), text: opts.sub }) : null,
-      h('div', { class: 'modal-grow' }),
-      h('button', {
-        class: 'modal-x', type: 'button', 'aria-label': '关闭', onclick: () => closeModal(),
-      }, h('span', { class: 'ico', html: svgIcon('x') }))),
-    h('div', { class: 'modal-body' }, opts.body),
-    h('div', { class: 'modal-foot' }, opts.foot));
+  h('div', { class: 'modal-head' },
+    h('span', { class: 'modal-title', text: opts.title }),
+    opts.sub ? h('span', { class: 'modal-sub' + (opts.subMono ? ' mono' : ''), text: opts.sub }) : null,
+    h('div', { class: 'modal-grow' }),
+    h('button', {
+      class: 'modal-x', type: 'button', 'aria-label': '关闭', onclick: () => closeModal(),
+    }, h('span', { class: 'ico', html: svgIcon('x') }))),
+  h('div', { class: 'modal-body' }, opts.body),
+  h('div', { class: 'modal-foot' }, opts.foot));
   root.append(box);
-  // 重渲染后原来的按钮没了：焦点落回弹层本身，别丢到 body 上。
   if (!root.contains(document.activeElement)) box.focus();
   return box;
 }
@@ -1139,18 +1530,17 @@ function renderModal() {
   else if (modal.kind === 'about') renderAboutModal();
 }
 
-/* ---------- 弹层：添加整合包 ---------- */
+/* ---------- L3 安装向导 ---------- */
 function openInstall(pickedHost) {
-  const current = selected();
-  const host = pickedHost || state.emptyHost || (current ? current.harness : 'dsh');
+  const host = pickedHost || state.harness || 'dsh';
   state.install = {
     step: 1, host, dir: null, preview: null, name: null, done: false, busy: false, error: null, raw: '',
   };
-  openModal({ kind: 'install', title: '添加整合包' });
+  openModal({ kind: 'install', title: '安装整合包' });
 }
 
 function stepsBar(step) {
-  const labels = ['选宿主', '选目录', '确认'];
+  const labels = ['选 harness', '选目录', '确认'];
   return h('div', { class: 'stepper' }, labels.map((label, index) => {
     const n = index + 1;
     const cls = n < step ? ' done' : n === step ? ' on' : '';
@@ -1175,7 +1565,7 @@ function renderInstallModal() {
           h('span', { class: 'fin-dot' }),
           h('div', {},
             h('b', { text: ins.name ? `已装好 ${ins.name}` : '安装完成' }),
-            h('p', { class: 'fin-s', text: `宿主 ${host ? host.full : ins.host}；实例已出现在左边，可以直接启动。` })))
+            h('p', { class: 'fin-s', text: `harness ${host ? host.full : ins.host}；已经切到「启动」视图，当前整合包就是这个。` })))
         : h('div', { class: 'fin-bad' },
           h('span', { class: 'ico', html: svgIcon('alert') }),
           h('div', {},
@@ -1189,14 +1579,14 @@ function renderInstallModal() {
         h('button', { class: 'btn outline', type: 'button', onclick: () => { ins.step = 3; ins.error = null; renderModal(); } }, '返回'),
         h('button', { class: 'btn ink', type: 'button', onclick: () => doInstall() }, '重试'),
       ];
-    modalShell({ title: '添加整合包', sub: ins.done ? '完成' : '失败', body, foot, busy: ins.busy });
+    modalShell({ title: '安装整合包', sub: ins.done ? '完成' : '失败', body, foot, busy: ins.busy });
     return;
   }
 
   if (ins.step === 1) {
     body = h('div', { class: 'pickwrap' },
       stepsBar(1),
-      h('p', { class: 'lead', text: '装进哪个宿主的 home？默认跟着当前筛选 / 选中实例走。' }),
+      h('p', { class: 'lead', text: `装进哪个 harness 的 home？默认跟着当前上下文（${host ? host.full : ins.host}）。` }),
       h('div', { class: 'pick-list' }, HOSTS.map((item) => {
         const count = state.instances.filter((x) => x.harness === item.id).length;
         return h('button', {
@@ -1207,7 +1597,7 @@ function renderInstallModal() {
         h('span', { class: `tile sm hm-${item.id}`, text: item.code }),
         h('span', { class: 'pick-main' },
           h('span', { class: 'pick-t', text: item.full }),
-          h('span', { class: 'pick-s', text: count ? `${count} 个实例` : '还没有实例' })),
+          h('span', { class: 'pick-s', text: count ? `${count} 个整合包` : '还没有整合包' })),
         h('span', { class: 'pick-check', html: ins.host === item.id ? svgIcon('check') : '' }));
       })),
       h('p', { class: 'hint', text: '托管 home 建在 PAL 数据目录下；attached 宿主也可以随后在命令行用 --home 装进它自己的目录。' }));
@@ -1287,8 +1677,8 @@ function renderInstallModal() {
   }
 
   modalShell({
-    title: '添加整合包',
-    sub: `${ins.step < 4 ? `第 ${Math.min(ins.step, 3)} 步，共 3 步` : ''}`,
+    title: '安装整合包',
+    sub: ins.step < 4 ? `第 ${Math.min(ins.step, 3)} 步，共 3 步` : '',
     body,
     foot,
     busy: ins.busy,
@@ -1349,10 +1739,17 @@ async function doInstall() {
     ins.name = res.name || (res.record && res.record.name) || '';
     renderModal();
     await refresh();
-    if (ins.name) {
-      const fresh = state.instances.find((x) => x.name === ins.name);
-      if (fresh) { state.selectedId = fresh.id; render(); }
+    const fresh = state.instances.find((x) => x.name === ins.name);
+    if (fresh) {
+      state.harness = fresh.harness;
+      state.packId = fresh.id;
+      state.packByHarness[fresh.harness] = fresh.id;
     }
+    state.detailId = null;
+    state.view = 'launch';
+    state.tab = 'overview';
+    saveBrief();
+    render();
     toast(ins.name ? `已装好 ${ins.name}` : '安装完成');
   } catch (err) {
     ins.busy = false;
@@ -1363,7 +1760,7 @@ async function doInstall() {
   }
 }
 
-/* ---------- 弹层：危险操作确认 ---------- */
+/* ---------- L3 危险确认 ---------- */
 const CONFIRM_COPY = {
   update: {
     title: '更新整合包',
@@ -1466,8 +1863,9 @@ async function runConfirm() {
       return;
     }
     const label = spec.copy.label;
+    const name = spec.inst.name;
     closeModal();
-    toast(`${spec.inst.name} · ${label}完成`);
+    toast(`${name} · ${label}完成`);
     await refresh();
   } catch (err) {
     spec.busy = false;
@@ -1476,45 +1874,27 @@ async function runConfirm() {
   }
 }
 
-/* ---------- 弹层：关于 ---------- */
+/* ---------- L3 关于 ---------- */
 function renderAboutModal() {
-  const keys = [
-    ['↑ ↓', '在实例列表里移动选择'],
-    ['↵', '启动选中的实例'],
-    ['→', '在选中行上打开动作菜单'],
-    ['F5', '重新读取实例列表'],
-    ['Esc', '关闭菜单 / 弹层'],
-  ];
+  const version = state.info && state.info.version ? ` ${state.info.version}` : '';
   const body = h('div', { class: 'about' },
-    h('p', { class: 'lead', text: 'PAL 是本地实例启动器：每个整合包装进一个 home，左边是实例，右边是这一份实例的详情。' }),
-    h('div', { class: 'kb-table' }, keys.map(([k, v]) => h('div', { class: 'kb-row' },
-      h('kbd', { text: k }),
-      h('span', { text: v })))),
+    h('p', {
+      class: 'lead',
+      text: `PAL 是本地实例启动器：顶部选 harness，三个视图分别是启动、整合包、设置。启动视图只放当前整合包，全部整合包在「整合包」，数据目录与快捷键在「设置」。`,
+    }),
+    h('div', { class: 'kb-table' }, KEYMAP.map(([key, label]) => h('div', { class: 'kb-row' },
+      h('kbd', { text: key }),
+      h('span', { text: label })))),
     h('p', { class: 'hint', text: '终端里的输出只属于当前会话；关掉 PAL 不会停掉已经在后台跑的服务，用「停止」显式收回。' }));
 
   modalShell({
-    title: '关于与快捷键',
+    title: `关于${version ? ` · ${version.trim()}` : ''}`,
     body,
     foot: [h('button', { class: 'btn ink', type: 'button', onclick: () => closeModal() }, '知道了')],
   });
 }
 
 /* ---------- 键盘 ---------- */
-function focusRow(id) {
-  const row = document.querySelector(`.row[data-id="${CSS.escape(id)}"]`);
-  if (row) row.focus({ preventScroll: true });
-}
-
-function moveSelection(delta) {
-  const list = visible();
-  if (!list.length) return;
-  const index = list.findIndex((x) => x.id === state.selectedId);
-  const next = Math.min(list.length - 1, Math.max(0, (index < 0 ? 0 : index) + delta));
-  state.selectedId = list[next].id;
-  render();
-  focusRow(state.selectedId);
-}
-
 function trapFocus(event) {
   const root = $('modal-root');
   const focusables = Array.from(root.querySelectorAll('button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'))
@@ -1523,7 +1903,6 @@ function trapFocus(event) {
   const first = focusables[0];
   const last = focusables[focusables.length - 1];
   const active = document.activeElement;
-  // 焦点在 dialog 容器上（刚打开 / 刚重渲染）时，Tab 必须进第一个控件，Shift+Tab 进最后一个。
   if (!root.contains(active) || active === root.querySelector('.modal')) {
     event.preventDefault();
     (event.shiftKey ? last : first).focus();
@@ -1536,6 +1915,16 @@ function trapFocus(event) {
   }
 }
 
+function movePackFocus(delta) {
+  const rows = Array.from(document.querySelectorAll('#lib-scroll .pk-row'));
+  if (!rows.length) return;
+  const index = rows.indexOf(document.activeElement);
+  const next = index < 0
+    ? (delta > 0 ? 0 : rows.length - 1)
+    : Math.min(rows.length - 1, Math.max(0, index + delta));
+  rows[next].focus();
+}
+
 function moveMenuFocus(delta) {
   const items = Array.from($('popover').querySelectorAll('.pm-item'));
   if (!items.length) return;
@@ -1544,9 +1933,13 @@ function moveMenuFocus(delta) {
   items[index < 0 ? 0 : next].focus();
 }
 
+function inEditable(target) {
+  return Boolean(target && target.closest
+    && target.closest('input, select, textarea, [contenteditable="true"], #term'));
+}
+
 document.addEventListener('keydown', (event) => {
   const target = event.target;
-  const inTerm = target && target.closest && target.closest('#term');
 
   if (state.modal) {
     if (event.key === 'Escape') { event.preventDefault(); closeModal(); return; }
@@ -1554,95 +1947,91 @@ document.addEventListener('keydown', (event) => {
     return;
   }
 
-  if (inTerm) return;
-
-  if (state.rowMenu) {
-    if (event.key === 'Escape') { event.preventDefault(); closeRowMenu({ restore: true }); return; }
+  if (state.menu) {
+    if (event.key === 'Escape') { event.preventDefault(); closeMenu({ restore: true }); return; }
     if (event.key === 'ArrowDown') { event.preventDefault(); moveMenuFocus(1); return; }
     if (event.key === 'ArrowUp') { event.preventDefault(); moveMenuFocus(-1); return; }
   }
 
+  if (inEditable(target)) return;
+
   if (event.key === 'Escape') {
-    if (state.menuOpen) { closeMenu(); $('filter-btn').focus(); }
+    if (state.view === 'library' && state.detailId) { event.preventDefault(); backToLibrary(); }
     return;
   }
+
   if (event.key === 'F5') {
     event.preventDefault();
     refresh();
     return;
   }
-  if (state.menuOpen) {
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-      event.preventDefault();
-      const items = Array.from($('filter-menu').querySelectorAll('.menu-item'));
-      const index = items.indexOf(document.activeElement);
-      const next = (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
-      items[index < 0 ? 0 : next].focus();
-    }
+
+  if ((event.metaKey || event.ctrlKey) && /^[1-3]$/.test(event.key)) {
+    event.preventDefault();
+    setView(NAV[Number(event.key) - 1].id);
     return;
   }
 
-  const onControl = target && target.closest && target.closest('button, a, input, textarea, [contenteditable]');
-
-  if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-    // tablist 的标准行为：← → 在屏之间移动，焦点跟着走。
-    const tab = target && target.closest && target.closest('.tab');
-    if (tab) {
-      event.preventDefault();
-      const ids = TABS.map((item) => item.id);
-      const index = ids.indexOf(state.tab);
-      const next = (index + (event.key === 'ArrowRight' ? 1 : -1) + ids.length) % ids.length;
-      selectTab(ids[next]);
-      const btn = document.querySelector(`.tab[data-tab="${ids[next]}"]`);
-      if (btn) btn.focus();
-      return;
-    }
+  const navBtn = target && target.closest && target.closest('.nav-btn');
+  if (navBtn && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+    event.preventDefault();
+    const index = NAV.findIndex((x) => x.id === state.view);
+    const next = (index + (event.key === 'ArrowRight' ? 1 : -1) + NAV.length) % NAV.length;
+    setView(NAV[next].id);
+    const btn = $(`nav-${NAV[next].id}`);
+    if (btn) btn.focus();
+    return;
   }
 
-  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+  const tabBtn = target && target.closest && target.closest('.tab');
+  if (tabBtn && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
     event.preventDefault();
-    moveSelection(event.key === 'ArrowDown' ? 1 : -1);
-  } else if (event.key === 'ArrowRight' && target && target.closest && target.closest('.row')) {
+    const ids = TABS.map((x) => x.id);
+    const index = ids.indexOf(state.tab);
+    const next = (index + (event.key === 'ArrowRight' ? 1 : -1) + ids.length) % ids.length;
+    selectTab(ids[next]);
+    const btn = document.querySelector(`.tab[data-tab="${ids[next]}"]`);
+    if (btn) btn.focus();
+    return;
+  }
+
+  if (state.view === 'library' && !state.detailId && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
     event.preventDefault();
-    const inst = selected();
-    if (inst) openRowMenu(inst.id, document.querySelector(`.row[data-id="${CSS.escape(inst.id)}"] .ract-more`));
-  } else if (event.key === 'Enter' && !onControl) {
-    const inst = selected();
+    movePackFocus(event.key === 'ArrowDown' ? 1 : -1);
+    return;
+  }
+
+  if (event.key === 'Enter' && state.view === 'launch') {
+    const onControl = target && target.closest && target.closest('button, a, input, select, textarea, [contenteditable]');
+    if (onControl) return;
+    const inst = currentPack();
     if (inst) launchInstance(inst);
   }
 });
 
 document.addEventListener('click', (event) => {
-  if (state.menuOpen) {
-    if (event.target.closest('#filter-menu') || event.target.closest('#filter-btn')) { /* 自己 */ }
-    else { closeMenu(); }
-  }
-  if (state.rowMenu) {
+  if (state.menu) {
     if (event.target.closest('#popover') || event.target.closest('.ract-more')) { /* 自己 */ }
-    else { closeRowMenu({ restore: false }); }
+    else { closeMenu(); }
   }
 });
 
 /* ---------- 绑定 ---------- */
 $('refresh').addEventListener('click', refresh);
-$('add-pack').addEventListener('click', openInstall);
-$('about').addEventListener('click', () => openModal({ kind: 'about', title: '关于与快捷键' }));
-$('harness-switch').addEventListener('change', (event) => {
-  const inst = byId(event.target.value);
-  if (!inst) return;
-  state.emptyHost = null;
-  state.homeByHarness[inst.harness] = inst.id;
-  state.selectedId = inst.id;
-  render();
-});
-$('filter-btn').addEventListener('click', () => (state.menuOpen ? closeMenu() : openMenu()));
+$('add-pack').addEventListener('click', () => openInstall());
+$('about').addEventListener('click', () => openModal({ kind: 'about' }));
+$('harness-switch').addEventListener('change', (event) => switchHarness(event.target.value));
 
 document.querySelectorAll('[data-icon]').forEach((node) => {
   node.innerHTML = svgIcon(node.dataset.icon);
 });
 
 window.addEventListener('resize', () => {
-  if (state.rowMenu) renderRowMenu();
+  if (state.menu) placePopover(state.menu.rect);
 });
 
+/* ---------- 启动 ---------- */
+loadBrief();
+render();
 refresh();
+loadInfo();

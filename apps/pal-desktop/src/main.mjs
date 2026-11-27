@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -13,6 +13,8 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const dataDir = process.env.PAL_DESKTOP_DATA || join(process.env.LOCALAPPDATA || process.env.APPDATA || HERE, 'pal-desktop');
 mkdirSync(dataDir, { recursive: true });
 app.setPath('userData', dataDir);
+// PAL 自己的数据目录（instances / 审计），不是桌面应用的 userData
+const palDataDir = process.env.PACKHUB_HOME || join(process.env.LOCALAPPDATA || process.env.APPDATA || HERE, 'PackHub');
 const HOSTS = [
   { id: 'dsh', label: 'DSH', desc: 'DeepSeek Harness' },
   { id: 'claude-code', label: 'Claude', desc: 'Claude Code' },
@@ -147,6 +149,15 @@ handle('pal:list', () => {
 });
 
 handle('pal:hosts', () => HOSTS);
+
+/** 设置视图要展示的数据目录与版本：只读，不改 pal 的命令契约。 */
+handle('pal:info', () => {
+  let version = '';
+  try {
+    version = JSON.parse(readFileSync(join(HERE, '..', 'package.json'), 'utf8')).version || '';
+  } catch { /* 打包后拿不到就留空 */ }
+  return { ok: true, version, dataDir: palDataDir, palBin: palBin(), platform: process.platform };
+});
 
 handle('pal:start', (_event, { name, mode }) => {
   const args = ['start', name, '--json'];

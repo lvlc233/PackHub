@@ -15,35 +15,25 @@
       <span class="brand-rule"></span>
       <span class="brand-sub">实例启动器</span>
     </div>
-    <label class="harness-switch" title="切换 harness">
-      <select id="harness-switch" aria-label="切换 harness"></select>
+    <label class="harness-switch" title="当前 harness（只列已安装的）">
+      <select id="harness-switch" aria-label="当前 harness"></select>
     </label>
+    <nav class="nav" id="nav" aria-label="主导航"></nav>
     <div class="toolbar-grow"></div>
     <button class="btn" id="add-pack" type="button"><span class="ico" data-icon="folder-plus"></span>添加整合包</button>
     <button class="btn icon" id="refresh" type="button" title="刷新 (F5)" aria-label="刷新"><span class="ico" data-icon="refresh"></span></button>
     <button class="btn icon" id="about" type="button" title="关于与快捷键" aria-label="关于与快捷键"><span class="ico" data-icon="info"></span></button>
   </header>
 
-  <div class="work">
-    <aside class="rail">
-      <div class="rail-head">
-        <div class="rail-title">Harness<span class="rail-count" id="count">0</span></div>
-        <button class="filter-btn hidden" id="filter-btn" type="button" aria-haspopup="menu" aria-expanded="false">
-          <span id="filter-label">全部</span><span class="ico" data-icon="chevron-down"></span>
-        </button>
-        <div class="menu hidden" id="filter-menu" role="menu"></div>
+  <main class="work">
+    <section class="view" id="view-launch" aria-label="启动">
+      <div class="pane-head" id="launch-head"></div>
+      <div class="tabbar">
+        <div class="tabs" id="launch-tabs" role="tablist" aria-label="当前整合包"></div>
+        <div class="tabbar-end" id="launch-switch"></div>
       </div>
-      <div class="rail-list" id="home-list" role="listbox" aria-label="Harness"></div>
-      <div class="rail-empty hidden" id="empty">
-        <p class="re-title">这个宿主下没有实例</p>
-        <p class="re-body"></p>
-      </div>
-    </aside>
-
-    <section class="pane">
-      <div class="pane-head hidden" id="pane-head"></div>
-      <div class="tabs hidden" id="tabs" role="tablist" aria-label="实例详情"></div>
-      <div class="pane-body" id="pane-body" role="tabpanel"></div>
+      <div class="pane-body" id="launch-body" role="tabpanel"></div>
+      <footer class="tab-foot" id="launch-foot"></footer>
       <div class="panel hidden" id="panel">
         <div class="panel-bar" id="panel-bar"></div>
         <div class="panel-body" id="panel-body">
@@ -52,16 +42,25 @@
         </div>
       </div>
     </section>
-  </div>
+
+    <section class="view hidden" id="view-library" aria-label="整合包">
+      <div class="view-head" id="lib-head"></div>
+      <div class="view-scroll" id="lib-scroll"></div>
+      <footer class="tab-foot" id="lib-foot"></footer>
+    </section>
+
+    <section class="view hidden" id="view-settings" aria-label="设置">
+      <div class="view-head" id="set-head"></div>
+      <div class="view-scroll" id="set-scroll"></div>
+      <footer class="tab-foot" id="set-foot"></footer>
+    </section>
+  </main>
 
   <footer class="statusbar">
-    <span class="sb-item" id="sb-count"></span>
-    <span class="sb-item" id="sb-filter"></span>
+    <span class="sb-item" id="sb-harness"></span>
+    <span class="sb-item" id="sb-live"></span>
     <div class="sb-grow"></div>
-    <span class="sb-item kb"><kbd>↑</kbd><kbd>↓</kbd> 选择</span>
-    <span class="sb-item kb"><kbd>↵</kbd> 启动</span>
-    <span class="sb-item kb"><kbd>F5</kbd> 刷新</span>
-    <span class="sb-item kb"><kbd>Esc</kbd> 关闭</span>
+    <span class="sb-keys" id="sb-keys"></span>
   </footer>
 </div>
 <div class="toasts" id="toasts"></div>

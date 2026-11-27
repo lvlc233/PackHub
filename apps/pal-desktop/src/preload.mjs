@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 contextBridge.exposeInMainWorld('pal', {
   list: () => ipcRenderer.invoke('pal:list'),
   hosts: () => ipcRenderer.invoke('pal:hosts'),
+  info: () => ipcRenderer.invoke('pal:info'),
   start: (name, mode) => ipcRenderer.invoke('pal:start', { name, mode }),
   stop: (name) => ipcRenderer.invoke('pal:stop', { name }),
   // 添加整合包：先挑目录、再看 dry-run 预览，最后才真装。
