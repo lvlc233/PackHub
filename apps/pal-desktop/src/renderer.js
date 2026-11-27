@@ -1769,6 +1769,7 @@ async function pickPack() {
     if (!res || res.canceled || !res.path) return;
     ins.dir = res.path;
     ins.preview = null;
+    logEvent('install:pick', { kind: 'phub', path: res.path });
     renderModal();
   } catch (err) {
     toast(`选不了整合包：${(err && err.message) || err}`, true);
@@ -1795,6 +1796,7 @@ async function pickDirectory() {
     if (!res || res.canceled || !res.path) return;
     ins.dir = res.path;
     ins.preview = null;
+    logEvent('install:pick', { kind: 'dir', path: res.path });
     renderModal();
   } catch (err) {
     toast(`选不了目录：${(err && err.message) || err}`, true);
@@ -1805,6 +1807,7 @@ async function runInstallPreview() {
   const ins = state.install;
   ins.step = 3;
   ins.preview = { loading: true };
+  logEvent('install:preview', { host: ins.host, dir: ins.dir });
   renderModal();
   try {
     const res = await window.pal.installPreview(ins.host, ins.dir);
@@ -1824,6 +1827,7 @@ async function doInstall() {
   ins.busy = true;
   ins.error = null;
   ins.raw = '';
+  logEvent('install:start', { host: ins.host, dir: ins.dir });
   renderModal();
   try {
     const res = await window.pal.install(ins.host, ins.dir);
@@ -1833,12 +1837,14 @@ async function doInstall() {
       ins.done = false;
       ins.error = (res && (res.error || res.stderr || res.stdout)) || 'pal install 返回非 0';
       ins.raw = (res && res.stdout) || '';
+      logEvent('install:error', { host: ins.host, dir: ins.dir, error: ins.error });
       renderModal();
       return;
     }
     ins.step = 4;
     ins.done = true;
     ins.name = res.name || (res.record && res.record.name) || '';
+    logEvent('install:success', { host: ins.host, dir: ins.dir, name: ins.name });
     renderModal();
     await refresh();
     const fresh = state.instances.find((x) => x.name === ins.name);
