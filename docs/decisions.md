@@ -1,9 +1,9 @@
-﻿---
+---
 kind: decision
 summary: 有意为之的取舍
 verified: 2026-11-25
 decay: 365
-review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增删、锁形状或签名载荷变化、接线规则再变、检查派生规则再变、安装参数或落点归属改名、dsh attached 的 profile 语义变化、升级清理的依据与撤销方式再变、patch 文件的编辑策略再变、路径基准或 state.written 形状再变、安装对象或命令族边界再变、命令层再出现例外、加 mac 门禁、命令面收缩、启动模式语义变化、dsh app 启动的适用范围变化、pal ui 的职责边界变化）
+review: 任何一条的前提变了（跨包引用进格式 v0、清单字段增删、锁形状或签名载荷变化、接线规则再变、检查派生规则再变、安装参数或落点归属改名、dsh attached 的 profile 语义变化、升级清理的依据与撤销方式再变、patch 文件的编辑策略再变、路径基准或 state.written 形状再变、安装对象或命令族边界再变、命令层再出现例外、加 mac 门禁、命令面收缩、启动模式语义变化、dsh app 启动的适用范围变化）
 ---
 
 # PackHub 的取舍
@@ -283,14 +283,4 @@ README 只承诺分工：「packhub 做包与发版，pal 安装与运行」；C
 managed 的 home 是 PAL 数据目录下自己那一段，dsh app 认不认 `DSH_HOME`、认了之后会不会把 desktop profile 写到别处，都还没在真机上确认；未确认就开放，等于把「装进 PAL 数据目录」和「app 读写宿主全局状态」混在一起，出问题时分不清是谁改的。app 也不该由 core 看护：core 的重起走的是记录里那条 server 模式（`--profile` + `--port`），拿它重起 app 会起出一份 web 页面，而不是窗口；所以 app 模式不接 `--restart`，`--port` 也没有落点。
 
 代价：managed 记录暂时没有 app 入口，只能用 `--home` 的 attached dsh，或先 `pal start` 起 web；app 没有 URL / 端口，`pal ps` 的 port / url 为空、`pal logs` 没有启动输出（app 的输出不经过 PAL）、`pal health` 只能看进程在不在，连没连上 provider 看不到；app 的退出事件没有人收，记录要等 `pal ps --refresh` 或下一轮 core 看护才会从 running 变成 broken；`pal restart` 仍按 server 模式重起，不会回到窗口。
-
-### pal ui：本地 HTTP + 单页，安装与管理都 spawn 同一条 CLI
-
-现状：`pal ui` 起一个只绑 `127.0.0.1` 的 HTTP 服务（默认端口 0 = 系统挑），返回一张单页 HTML：内联 CSS/JS、中文界面、不引框架与 CDN，分 Homes / 安装 / 活动三块。列表、启停、日志仍走现有模块：server 走 `coreCall('start')`（与 `pal start` 同一条 RPC，profile 用同一份 `resolveStartProfile`）、app 走 `startAppInstance`、前台模式在页面上只给命令（409 + `pal run <名字>`）。**安装与管理不重写**：预览 spawn `pal install … --dry-run --json`，安装 spawn 同一条命令去掉 dry-run，更新 / 回滚 / 验证 / 卸载 / 删除 / 体检各 spawn `pal update | rollback | verify | uninstall --home <id>`、`pal remove <id> --yes`、`pal health <id> --json`，只把 stdout / stderr / 退出码转给页面。子进程用 `process.execPath` + `process.execArgv` + `process.argv[1]` 起同一个入口（全局安装是 pal.mjs，开发时是 bin.ts + `--experimental-strip-types`），不依赖 PATH 上的 `pal`；cwd 用记录根，超时杀进程树（install / update 120s，其余 60s）。前台模式的「终端」按钮开一个新的终端窗口跑 `pal run <名字>`：Windows 优先 `wt.exe -w 0 new-tab`，没有就 `cmd /c start "" powershell -NoExit -Command …`，其它平台依次试 x-terminal-emulator / gnome-terminal / konsole / xterm。页面每 2s 轮询 `/api/instances`（长操作期间暂停），活动只记在页面内存里；POST 要求 `content-type: application/json` 与 `x-pal-ui: 1`，否则 403。
-
-没选另一条：把 install / update / uninstall 在服务端重写成函数调用（launcher 里现成的 `createInstance` / `updateFromRef` / `removeInstance` 都能直接调），或给这一页引前端框架 / 构建，或把它做成 Electron 壳。
-
-重写一遍等于第二份 target 规则：home / attached / 项目三选一、`--name` / `--root` / `--profile` / `--from-home` 的适用范围、用法错退 2 的文案，全都要跟着 CLI 改两处；spawn 同一条命令则只有一份事实，页面上的「预览」就是终端里 `--dry-run` 的同一份计划，管理动作的 stdout 也原样可读。框架与构建产物对一张列表、一个表单、一个抽屉是纯成本（原生 JS 就够，动态内容用 `textContent` 写进去，天然避开名字与日志里的注入）。Electron 壳已经删过一次（见「macOS 与 Electron 壳不在当前承诺内」），且壳要求 PAL 进程跟着渲染进程生命周期走，启停却归 core。终端窗口同理：前台模式在页面进程里没有 TTY，宿主读不到输入，开一个真终端是唯一能跑 TUI 的方式。
-
-代价：spawn 边界很薄——只有 stdout / stderr / exit code，没有流式进度，长安装期间页面只有「进行中」，超时是杀进程，半成品等 CLI 自己的失败路径收拾；每次按钮都冷起一个 node 进程；`remove` 的 cwd 不能是记录根（Windows 上目录被 cwd 握着就删不掉），它用系统临时目录，pal remove 只按绝对路径干活所以不受影响；终端窗口里的 `pal` 来自 PATH，开发检出要先把 pal 放进 PATH 或用全局装，否则窗口报命令不存在；Windows 上依赖 Windows Terminal 或 cmd.exe；只绑本机——同一台机器上的其它进程能访问，想远程看得自己搞隧道，PAL 不提供；`x-pal-ui` + JSON content-type 只挡跨站表单，不挡本机进程，它是 CSRF 闸门不是鉴权；页面是 2s 轮询、没有推送，`pal ui` 是前台进程，关掉页面就没了，不是常驻服务；活动不落盘，刷新即失；dry-run 的计划里只有动作与 `excluded`，页面没有比 JSON 更多的问题信息，其余提示靠 stderr。
 

@@ -89,12 +89,6 @@ pnpm pal start claude-code-lvlc233-team-conventions --mode tui
 # 每个 home 可放 launch.json（args/env/dir）；pal run <home> --init 生成空模板，--dry-run 看合并结果
 # （前台模式与 run 读它；server / app 模式不读）
 
-# 本地可视化启动器：Homes（启停 / 打开 / 日志 / 体检 / 更新 / 回滚 / 验证 / 卸载 / 删除 / 终端）、
-# 安装（表单 = pal install，先预览看计划）、活动（最近操作，不落盘）；只绑 127.0.0.1
-# 默认端口 0（系统挑），起来后打印地址并按需用系统浏览器打开；--no-open 不打开，--json 只打印 {url, port}
-# 前台阻塞到 Ctrl+C；关掉它不影响已启动的实例，也不停 core。
-pnpm pal ui
-
 # 接管已有目录成 attached home（只写记录，不装包、不动文件）；只看不接管用 adopt --scan
 pnpm pal adopt ~/.hermes --host hermes --name my-hermes
 pnpm pal install test/fixtures/packs/team-conventions --host hermes --home ~/.hermes
@@ -105,8 +99,6 @@ pnpm pal list --history            # install / update 写的审计
 pnpm pal verify --home <home> --accept   # 本地改动被接受，体检不再报漂移
 pnpm pal config <home> --name <新名字>    # 给 home 改名
 ```
-
-`pal ui` 的页面（单页、中文、不引框架与 CDN）分三个 tab。**Homes**：每个 home 一张卡片，写名字、宿主、Pack、状态、managed / attached 与按需加载的体检徽标；按宿主声明的模式给「启动」（server / app），前台模式给「终端」——后端开一个新窗口跑 `pal run <名字>`（Windows 先试 `wt.exe`，没有就 `cmd /c start "" powershell -NoExit -Command …`）；运行中有「停止」，有 url 给「打开」，「日志」与「详情」打开右侧抽屉：路径 / profile / launchMode / 端口 / pid / url、按需体检（`pal health <id> --json`）、更新（dsh attached 可带 profile）/ 回滚 / 验证 / 卸载 / 删除（attached 的删除只摘记录），命令的 stdout / stderr 显示在抽屉里。**安装**：包来源、宿主（来自 `/api/hosts`）、target（managed / attached `--home` / project `--project`）、名字或 `--root`、profile（只 dsh attached）、`--from-home`；「预览」等价于 `pal install … --dry-run --json`，列出会写 / 改哪些文件、问题与最终名字，「安装」就是同一条命令去掉 dry-run。**活动**：最近的操作（时间 / 动作 / 目标 / 成败），只在页面内存里。按钮动作期间所有按钮禁用并显示进度条，错误以红条显示带输出尾部；自动刷新 2s，长操作期间暂停。空状态引导去「安装」tab。
 
 ## 代码分层
 

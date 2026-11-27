@@ -65,7 +65,7 @@ const HELP_GROUPS: { title: string; names: string[] }[] = [
   },
   {
     title: '环境',
-    names: ['adopt', 'list', 'show', 'run', 'start', 'stop', 'restart', 'ps', 'health', 'logs', 'ui', 'use', 'current', 'remove', 'config'],
+    names: ['adopt', 'list', 'show', 'run', 'start', 'stop', 'restart', 'ps', 'health', 'logs', 'use', 'current', 'remove', 'config'],
   },
   { title: '搬运', names: ['clone', 'migrate', 'export', 'import', 'backup', 'restore'] },
 ];

@@ -5,7 +5,6 @@ import pkg from '../package.json' with { type: 'json' };
 import { adopt, list, remove, show } from './commands/instance.ts';
 import { health, logs, ps, restart, start, stop } from './commands/lifecycle.ts';
 import { run } from './commands/run.ts';
-import { ui } from './commands/ui.ts';
 import { backup, clone, exportCmd, importCmd, migrate, restore } from './commands/carry.ts';
 import { config, current, use } from './commands/other.ts';
 import { install, rollback, uninstall, update, verify } from './commands/dir.ts';
@@ -34,7 +33,6 @@ export const main = defineCommand({
     ps,
     health,
     logs,
-    ui,
     use,
     current,
     adopt,

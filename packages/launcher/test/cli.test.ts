@@ -114,11 +114,11 @@ describe('pal --version', () => {
   });
 });
 
-describe('pal 命令面：26 条，诊断并进 flag', () => {
-  it('一共 26 条命令：core / leftovers / audit / scan / cache / rebaseline / rename 都不是命令', () => {
+describe('pal 命令面：25 条，诊断并进 flag', () => {
+  it('一共 25 条命令：core / leftovers / audit / scan / cache / rebaseline / rename 都不是命令', () => {
     const names = Object.keys(subCommands);
-    expect(names).toHaveLength(26);
-    expect(new Set(names).size).toBe(26);
+    expect(names).toHaveLength(25);
+    expect(new Set(names).size).toBe(25);
     // 历史入口：create → install 的默认 target；status → ps；doctor → health --hosts；recover → health --leftovers
     // 这一轮：leftovers / audit / scan / rebaseline / rename 并进 flag，core / cache 从 CLI 移除
     for (const removed of [
