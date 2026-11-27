@@ -121,14 +121,7 @@ function currentForHost(host) {
 }
 
 function visible() {
-  return HOSTS.map((host) => currentForHost(host.id) || {
-    id: `empty:${host.id}`,
-    harness: host.id,
-    empty: true,
-    name: '未安装',
-    pack: null,
-    status: null,
-  });
+  return HOSTS.map((host) => currentForHost(host.id)).filter(Boolean);
 }
 
 function homesOf(host) {
@@ -172,10 +165,36 @@ async function refresh() {
 }
 
 function render() {
+  const installed = visible();
+  const rail = document.querySelector('.rail');
+  const work = document.querySelector('.work');
+  const single = installed.length <= 1;
+  if (rail) rail.classList.toggle('hidden', single);
+  if (work) work.classList.toggle('no-rail', single);
+  renderHarnessSwitch(installed);
   renderRail();
   renderPane();
   renderPanel();
   renderStatus();
+}
+
+function renderHarnessSwitch(installed) {
+  const select = $('harness-switch');
+  if (!select) return;
+  select.textContent = '';
+  if (!installed.length) {
+    select.append(h('option', { value: '', text: '未安装' }));
+    select.disabled = true;
+    return;
+  }
+  select.disabled = false;
+  for (const inst of installed) {
+    select.append(h('option', {
+      value: inst.id,
+      selected: inst.id === state.selectedId,
+      text: `${hostLabel(inst.harness)} · ${inst.name}`,
+    }));
+  }
 }
 
 /* ---------- 左栏：导航层 ---------- */
@@ -759,7 +778,7 @@ function togglePanel() {
 
 /* ---------- 状态栏 ---------- */
 function renderStatus() {
-  const total = HOSTS.length;
+  const total = visible().length;
   const live = state.instances.filter(isRunning).length;
   const box = $('sb-count');
   box.textContent = '';
@@ -1612,6 +1631,14 @@ document.addEventListener('click', (event) => {
 $('refresh').addEventListener('click', refresh);
 $('add-pack').addEventListener('click', openInstall);
 $('about').addEventListener('click', () => openModal({ kind: 'about', title: '关于与快捷键' }));
+$('harness-switch').addEventListener('change', (event) => {
+  const inst = byId(event.target.value);
+  if (!inst) return;
+  state.emptyHost = null;
+  state.homeByHarness[inst.harness] = inst.id;
+  state.selectedId = inst.id;
+  render();
+});
 $('filter-btn').addEventListener('click', () => (state.menuOpen ? closeMenu() : openMenu()));
 
 document.querySelectorAll('[data-icon]').forEach((node) => {
