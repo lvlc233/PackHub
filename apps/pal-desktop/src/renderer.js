@@ -1577,7 +1577,7 @@ function renderImportModal() {
       }, '重试'),
     ];
   }
-  modalShell({ title: '导入整合包', sub: job.status === 'running' ? '直接导入' : '', body, foot, busy: job.status === 'running' });
+  modalShell({ title: '导入整合包', sub: job.status === 'running' ? '直接导入' : '', body, foot, busy: job.status === 'running', onScrim: false });
 }
 
 /* ---------- L3 安装向导 ---------- */
