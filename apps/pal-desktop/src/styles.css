@@ -607,3 +607,16 @@ body.onboarding .pane-head,body.onboarding #tabs{display:none}
 .dropzone .dz-actions{display:flex;gap:8px;margin-top:6px}
 body.drag-over .pane{outline:2px dashed var(--ink);outline-offset:-10px}
 body.drag-over::after{content:'松开安装整合包';position:fixed;right:20px;bottom:20px;padding:8px 12px;border-radius:6px;background:var(--ink);color:var(--surface);font-size:12px;z-index:100}
+
+.imp{display:flex;flex-direction:column;align-items:center;text-align:center;padding:14px 4px 4px;gap:8px}
+.imp-spin{width:36px;height:36px;border-radius:50%;border:2px solid var(--line-strong);border-top-color:var(--ink);animation:spin .8s linear infinite;margin-bottom:4px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.imp-ok,.imp-bad{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;margin-bottom:4px}
+.imp-ok{background:rgba(26,127,66,.1);color:var(--live)}
+.imp-bad{background:rgba(173,47,32,.08);color:var(--danger)}
+.imp-ok svg,.imp-bad svg{width:20px;height:20px}
+.imp-title{margin:0;font-size:16px;font-weight:650;color:var(--ink)}
+.imp-sub{margin:0;font-family:var(--mono);font-size:11.5px;color:var(--muted);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.imp-meta{display:flex;gap:6px;align-items:center;font-size:11.5px;color:var(--faint);margin-top:4px}
+.imp-meta b{font-weight:500;color:var(--text)}
+.imp .out{width:100%;text-align:left}

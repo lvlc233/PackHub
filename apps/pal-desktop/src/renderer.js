@@ -92,6 +92,7 @@ const state = {
   menu: null, // { id, rect }
   modal: null,
   install: null,
+  importJob: null,
   info: null,
   term: null,
   fit: null,
@@ -1528,8 +1529,55 @@ function renderModal() {
     return;
   }
   if (modal.kind === 'install') renderInstallModal();
+  else if (modal.kind === 'import') renderImportModal();
   else if (modal.kind === 'confirm') renderConfirmModal();
   else if (modal.kind === 'about') renderAboutModal();
+}
+
+function renderImportModal() {
+  const job = state.importJob;
+  if (!job) { closeModal(); return; }
+  let body;
+  let foot;
+  if (job.status === 'running') {
+    body = h('div', { class: 'imp' },
+      h('div', { class: 'imp-spin' }),
+      h('p', { class: 'imp-title', text: '正在导入…' }),
+      h('p', { class: 'imp-sub', text: job.label }),
+      h('div', { class: 'imp-meta' },
+        h('span', { text: '目标' }), h('b', { text: hostFull(job.host) })));
+    foot = [h('button', { class: 'btn', type: 'button', disabled: true }, '导入中…')];
+  } else if (job.status === 'done') {
+    body = h('div', { class: 'imp' },
+      h('div', { class: 'imp-ok', html: svgIcon('check') }),
+      h('p', { class: 'imp-title', text: '导入完成' }),
+      h('p', { class: 'imp-sub', text: job.name || job.label }),
+      h('div', { class: 'imp-meta' },
+        h('span', { text: '已装进' }), h('b', { text: hostFull(job.host) })));
+    foot = [
+      h('button', {
+        class: 'btn outline', type: 'button',
+        onclick: () => { state.view = 'library'; closeModal(); render(); },
+      }, '查看整合包'),
+      h('button', {
+        class: 'btn ink', type: 'button',
+        onclick: () => { state.view = 'launch'; state.tab = 'overview'; closeModal(); render(); },
+      }, '开始使用'),
+    ];
+  } else {
+    body = h('div', { class: 'imp' },
+      h('div', { class: 'imp-bad', html: svgIcon('alert') }),
+      h('p', { class: 'imp-title', text: '导入失败' }),
+      h('pre', { class: 'out', text: job.error || 'pal install 返回非 0' }));
+    foot = [
+      h('button', { class: 'btn', type: 'button', onclick: () => closeModal() }, '取消'),
+      h('button', {
+        class: 'btn ink', type: 'button',
+        onclick: () => importPack(job.path),
+      }, '重试'),
+    ];
+  }
+  modalShell({ title: '导入整合包', sub: job.status === 'running' ? '直接导入' : '', body, foot, busy: job.status === 'running' });
 }
 
 /* ---------- L3 安装向导 ---------- */
@@ -2051,15 +2099,19 @@ async function importPack(path) {
   const host = (state.harness && hostOf(state.harness)) ? state.harness
     : (installedHosts()[0] ? installedHosts()[0].id : 'dsh');
   const label = String(path).split(/[\\/]/).filter(Boolean).pop() || path;
-  toast(`正在导入 ${label} → ${hostLabel(host)}…`);
+  state.importJob = { path, host, label, status: 'running', name: '', error: '' };
+  openModal({ kind: 'import', title: '导入整合包' });
   try {
     const res = await window.pal.install(host, path);
     if (!res || res.ok !== true) {
-      toast(`导入失败：${(res && (res.error || res.stderr || res.stdout)) || 'pal install 返回非 0'}`, true);
-      openInstall(host, path);
+      state.importJob.status = 'error';
+      state.importJob.error = (res && (res.error || res.stderr || res.stdout)) || 'pal install 返回非 0';
+      renderModal();
       return;
     }
     const name = res.name || (res.record && res.record.name) || '';
+    state.importJob.name = name;
+    state.importJob.status = 'done';
     await refresh();
     const fresh = state.instances.find((x) => x.name === name);
     if (fresh) {
@@ -2072,10 +2124,11 @@ async function importPack(path) {
       saveBrief();
       render();
     }
-    toast(name ? `已导入 ${name}` : `已导入 ${label}`);
+    renderModal();
   } catch (err) {
-    toast(`导入失败：${(err && err.message) || err}`, true);
-    openInstall(host, path);
+    state.importJob.status = 'error';
+    state.importJob.error = String((err && err.message) || err);
+    renderModal();
   }
 }
 
