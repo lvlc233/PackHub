@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync, appendFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, delimiter } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const require = createRequire(import.meta.url);
@@ -67,6 +67,43 @@ function palBin() {
   return 'pal';
 }
 
+const HOST_COMMANDS = {
+  dsh: 'dsh',
+  'claude-code': 'claude',
+  codex: 'codex',
+  opencode: 'opencode',
+  workbody: 'codebuddy',
+  hermes: 'hermes',
+};
+
+function findExecutable(name) {
+  const probe = spawnSync(process.platform === 'win32' ? 'where' : 'which', [name], { encoding: 'utf8' });
+  if (probe.status !== 0) return '';
+  const lines = String(probe.stdout || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return lines.find((line) => /\.(cmd|exe|bat)$/i.test(line)) || lines[0] || '';
+}
+
+/**
+ * GUI 启动时 PATH 经常只有系统目录，没有 npm 全局 bin；PAL 找 host 命令会失败。
+ * 这里把每个 host 的命令解析成 PAL_<HOST>_BIN，并把所在目录补进 PATH。
+ */
+function spawnEnv() {
+  const env = { ...process.env };
+  const dirs = [];
+  for (const [host, command] of Object.entries(HOST_COMMANDS)) {
+    const bin = findExecutable(command);
+    if (!bin) continue;
+    env[`PAL_${host.toUpperCase().replace(/-/g, '_')}_BIN`] = bin;
+    dirs.push(dirname(bin));
+  }
+  const pal = palBin();
+  if (pal && pal !== 'pal') dirs.push(dirname(pal));
+  env.PATH = [...new Set([...dirs, env.PATH || ''])].filter(Boolean).join(delimiter);
+  return env;
+}
+
+writeLog([main] host bins dsh= claude= codex= opencode=);
+
 function quote(value) {
   return /[\s"]/g.test(value) ? `"${String(value).replace(/"/g, '\\"')}"` : String(value);
 }
@@ -77,10 +114,10 @@ function runPal(args, opts = {}) {
   if (process.platform === 'win32' && /\.(cmd|bat)$/i.test(command)) {
     const line = `${quote(command)} ${args.map(quote).join(' ')}`;
     return spawnSync(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `"${line}"`], {
-      encoding: 'utf8', timeout, windowsHide: true, cwd: opts.cwd, windowsVerbatimArguments: true,
+      encoding: 'utf8', timeout, windowsHide: true, cwd: opts.cwd, windowsVerbatimArguments: true, env: spawnEnv(),
     });
   }
-  return spawnSync(command, args, { encoding: 'utf8', timeout, windowsHide: true, cwd: opts.cwd });
+  return spawnSync(command, args, { encoding: 'utf8', timeout, windowsHide: true, cwd: opts.cwd, env: spawnEnv() });
 }
 
 /** pal 非 0 退出时，把最有信息量的那段文字挑出来给 UI。 */
