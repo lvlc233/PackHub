@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('pal', {
   pathForFile: (file) => {
     try { return webUtils.getPathForFile(file); } catch { return ''; }
   },
+  log: (event, data) => ipcRenderer.invoke('pal:log', { event, data }),
   installPreview: (host, dir) => ipcRenderer.invoke('pal:install-preview', { host, dir }),
   install: (host, dir) => ipcRenderer.invoke('pal:install', { host, dir }),
   // 管理页：update / uninstall / remove 只传名字，命令参数留在主进程。

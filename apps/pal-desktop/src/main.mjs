@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync, appendFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -15,6 +15,15 @@ mkdirSync(dataDir, { recursive: true });
 app.setPath('userData', dataDir);
 // PAL 自己的数据目录（instances / 审计），不是桌面应用的 userData
 const palDataDir = process.env.PACKHUB_HOME || join(process.env.LOCALAPPDATA || process.env.APPDATA || HERE, 'PackHub');
+
+// 动态观察：主进程/渲染层事件都追加到这个文件，拖放一闪而过的问题可以直接看时序。
+export const LOG_FILE = join(dataDir, 'pal-desktop.log');
+function writeLog(line) {
+  try {
+    appendFileSync(LOG_FILE, `${new Date().toISOString()} ${line}\n`);
+  } catch { /* 日志失败不影响应用 */ }
+}
+writeLog(`[main] start version=${app.getVersion()} dataDir=${dataDir} palDataDir=${palDataDir}`);
 const HOSTS = [
   { id: 'dsh', label: 'DSH', desc: 'DeepSeek Harness' },
   { id: 'claude-code', label: 'Claude', desc: 'Claude Code' },
@@ -131,6 +140,15 @@ function createWindow() {
     },
   });
   win.loadFile(join(HERE, 'index.html'));
+  win.webContents.on('console-message', (_event, level, message) => {
+    writeLog(`[renderer:${level}] ${message}`);
+  });
+  win.webContents.on('did-fail-load', (_event, code, desc) => {
+    writeLog(`[main] did-fail-load code=${code} ${desc}`);
+  });
+  win.webContents.on('render-process-gone', (_event, details) => {
+    writeLog(`[main] render-process-gone ${JSON.stringify(details)}`);
+  });
   const shot = process.env.PAL_DESKTOP_SHOT;
   if (shot) {
     win.webContents.once('did-finish-load', () => {
@@ -156,13 +174,18 @@ handle('pal:list', () => {
 
 handle('pal:hosts', () => HOSTS);
 
+handle('pal:log', (_event, { event, data }) => {
+  writeLog(`[renderer] ${event} ${data ? JSON.stringify(data) : ''}`);
+  return { ok: true };
+});
+
 /** 设置视图要展示的数据目录与版本：只读，不改 pal 的命令契约。 */
 handle('pal:info', () => {
   let version = '';
   try {
     version = JSON.parse(readFileSync(join(HERE, '..', 'package.json'), 'utf8')).version || '';
   } catch { /* 打包后拿不到就留空 */ }
-  return { ok: true, version, dataDir: palDataDir, palBin: palBin(), platform: process.platform };
+  return { ok: true, version, dataDir: palDataDir, palBin: palBin(), platform: process.platform, logFile: LOG_FILE };
 });
 
 handle('pal:start', (_event, { name, mode }) => {

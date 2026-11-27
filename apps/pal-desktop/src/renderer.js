@@ -147,6 +147,12 @@ function dateText(value) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
+function logEvent(event, data) {
+  try {
+    if (window.pal && typeof window.pal.log === 'function') window.pal.log(event, data);
+  } catch { /* 日志失败不影响交互 */ }
+}
+
 function toast(text, bad) {
   const node = h('div', { class: 'toast' + (bad ? ' bad' : '') },
     h('span', { class: 'tdot' }),
@@ -1019,6 +1025,7 @@ function renderSettings() {
   const version = state.info && state.info.version ? String(state.info.version) : '';
   const dataDir = state.info && state.info.dataDir ? String(state.info.dataDir) : '';
   const palBin = state.info && state.info.palBin ? String(state.info.palBin) : '';
+  const logFile = state.info && state.info.logFile ? String(state.info.logFile) : '';
 
   head.append(
     h('div', { class: 'vh-main' },
@@ -1060,6 +1067,21 @@ function renderSettings() {
             class: 'btn outline', type: 'button', disabled: !palBin,
             onclick: () => copyText(palBin, 'pal 路径已复制'),
           }, '复制')))),
+
+      h('div', { class: 'mg-row' },
+        h('div', { class: 'mgr-main' },
+          h('span', { class: 'mgr-t', text: '运行日志' }),
+          h('span', { class: 'mgr-s', text: '拖放、导入、弹层和渲染层事件都按时间记在这里，用来复现一闪而过的交互。' }),
+          h('code', { class: 'pathline mono' + (logFile ? '' : ' empty'), text: logFile || '—', title: logFile || '' })),
+        h('div', { class: 'mgr-act' },
+          h('button', {
+            class: 'btn outline', type: 'button', disabled: !logFile,
+            onclick: () => revealPath(logFile),
+          }, '打开'),
+          h('button', {
+            class: 'btn outline', type: 'button', disabled: !logFile,
+            onclick: () => copyText(logFile, '日志路径已复制'),
+          }, '复制'))),
 
     h('section', { class: 'mg-group' },
       h('h3', { class: 'mg-h', text: '启动位置' }),
@@ -1481,6 +1503,7 @@ function closeMenu(opts = {}) {
 
 /* ---------- 弹层：通用外壳 ---------- */
 function openModal(spec) {
+  logEvent('modal:open', { kind: spec && spec.kind, title: spec && spec.title });
   state.modal = { returnFocus: document.activeElement, ...spec };
   renderModal();
   const box = $('modal-root').querySelector('.modal');
@@ -1489,6 +1512,7 @@ function openModal(spec) {
 
 function closeModal() {
   const modal = state.modal;
+  logEvent('modal:close', { kind: modal && modal.kind, title: modal && modal.title });
   state.modal = null;
   state.install = null;
   $('modal-root').classList.add('hidden');
@@ -2100,18 +2124,21 @@ async function importPack(path) {
     : (installedHosts()[0] ? installedHosts()[0].id : 'dsh');
   const label = String(path).split(/[\\/]/).filter(Boolean).pop() || path;
   state.importJob = { path, host, label, status: 'running', name: '', error: '' };
+  logEvent('import:start', { path, host });
   openModal({ kind: 'import', title: '导入整合包' });
   try {
     const res = await window.pal.install(host, path);
     if (!res || res.ok !== true) {
       state.importJob.status = 'error';
       state.importJob.error = (res && (res.error || res.stderr || res.stdout)) || 'pal install 返回非 0';
+      logEvent('import:error', { path, host, error: state.importJob.error });
       renderModal();
       return;
     }
     const name = res.name || (res.record && res.record.name) || '';
     state.importJob.name = name;
     state.importJob.status = 'done';
+    logEvent('import:success', { path, host, name });
     await refresh();
     const fresh = state.instances.find((x) => x.name === name);
     if (fresh) {
@@ -2151,6 +2178,7 @@ window.addEventListener('drop', (event) => {
   const file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
   if (!file) return;
   const path = window.pal.pathForFile(file);
+  logEvent('drop', { name: file.name, path });
   if (!path) { toast('读不到拖入文件的路径', true); return; }
   importPack(path);
 });
