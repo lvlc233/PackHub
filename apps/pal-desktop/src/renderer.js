@@ -754,36 +754,38 @@ function modesBody(inst) {
       : '点上任意一种方式启动；默认方式也是右上角「启动」用的那个。';
 
   const list = modes.length
-    ? h('div', { class: 'modes' }, modes.map((mode) => {
+    ? h('div', { class: 'mode-cards' }, modes.map((mode) => {
       const off = running || busy || mode.available === false;
       const used = Boolean(inst.launchMode) && inst.launchMode === mode.id;
-      // 右侧说的必须是「这个模式」的状态，不是实例状态。
       const side = busy ? '处理中'
-        : used && running ? '运行中'
+        : used && running ? '正在用'
           : mode.available === false ? '不可用'
             : running ? '先停止'
-              : broken ? '重启'
-                : '启动';
-      return h('div', { class: 'mode-item' },
-        h('button', {
-          class: 'mode-btn', type: 'button', disabled: off,
-          title: mode.available === false ? (mode.reason || '不可用') : running ? '先停止再启动' : `以 ${mode.id} 启动`,
-          onclick: () => launchMode(inst, mode),
-        },
-        h('span', { class: 'mi-main' },
-          h('span', { class: 'mi-label' },
-            mode.label || mode.id,
-            mode.default ? h('span', { class: 'tag', text: '默认' }) : null,
-            used ? h('span', { class: 'tag used', text: running ? '正在用' : '上次用' }) : null),
-          h('span', { class: 'mi-id', text: mode.available === false && mode.reason && !used
-            ? mode.reason
-            : `--mode ${mode.id} · ${kindWord(mode.kind)}` })),
-        h('span', { class: 'mi-side' },
-          side,
-          off ? null : h('span', { class: 'ico', html: svgIcon('chevron-right') }))));
+              : broken ? '可重起'
+                : '可启动';
+      const detail = mode.available === false && mode.reason
+        ? mode.reason
+        : `--mode ${mode.id} · ${kindWord(mode.kind)}`;
+      return h('button', {
+        class: 'mode-card'
+          + (used ? ' used' : '')
+          + (off && !used ? ' off' : ''),
+        type: 'button', disabled: off,
+        title: mode.available === false ? (mode.reason || '不可用') : running ? '先停止再启动' : `以 ${mode.id} 启动`,
+        onclick: () => launchMode(inst, mode),
+      },
+      h('span', { class: 'mc-top' },
+        h('span', { class: 'mc-label', text: mode.label || mode.id }),
+        h('span', { class: 'mc-tags' },
+          mode.default ? h('span', { class: 'tag', text: '默认' }) : null,
+          used ? h('span', { class: 'tag used', text: running ? '正在用' : '上次用' }) : null)),
+      h('span', { class: 'mc-detail', text: detail, title: detail }),
+      h('span', { class: 'mc-foot' },
+        h('span', { class: 'mc-state', text: side }),
+        off ? null : h('span', { class: 'mc-go', text: running ? '先停止' : '启动 →' })));
     }))
-    : h('div', { class: 'modes' },
-      h('div', { class: 'mode-item' }, h('div', { class: 'mode-note', text: '这个 harness 没有声明启动模式' })));
+    : h('div', { class: 'mode-cards' },
+      h('div', { class: 'mode-card off' }, h('span', { class: 'mc-detail', text: '这个 harness 没有声明启动模式' })));
 
   return h('div', { class: 'mb' },
     h('p', { class: 'sec-lead', text: lead }),

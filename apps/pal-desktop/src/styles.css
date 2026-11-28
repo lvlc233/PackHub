@@ -629,3 +629,32 @@ body.drag-over::after{content:'松开安装整合包';position:fixed;right:20px;
 .plan-humans{margin:2px 0 10px;font-size:11.5px;color:var(--text)}
 
 .logs-out{max-height:52vh;overflow:auto;white-space:pre-wrap;word-break:break-all}
+
+.mode-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;max-width:860px}
+.mode-card{appearance:none;text-align:left;display:flex;flex-direction:column;gap:10px;min-height:126px;padding:14px 15px;border:1px solid var(--line-strong);border-radius:9px;background:var(--surface);color:var(--text);cursor:pointer;transition:border-color .12s ease,background .12s ease}
+.mode-card:hover:not(:disabled){border-color:var(--ink);background:var(--raise)}
+.mode-card.used{border-color:rgba(47,125,79,.45);background:rgba(47,125,79,.035)}
+.mode-card.off{opacity:.55;cursor:default}
+.mc-top{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.mc-label{font-size:13.5px;font-weight:650;color:var(--ink)}
+.mc-tags{display:flex;gap:4px;flex:none}
+.mc-detail{font-family:var(--mono);font-size:10.5px;line-height:1.55;color:var(--muted);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.mc-foot{margin-top:auto;display:flex;align-items:center;justify-content:space-between;font-size:11.5px;color:var(--faint)}
+.mc-state{font-weight:500}
+.mc-go{color:var(--ink);font-weight:600}
+.mc-go:hover{text-decoration:underline}
+
+/* 内容列：宽屏时居中，避免左侧一条、右侧大片空白 */
+.pane-head,#tabs,.pane-body{padding-left:max(24px,calc((100% - 1080px)/2));padding-right:max(24px,calc((100% - 1080px)/2))}
+.pane-head{padding-top:20px}
+.mode-cards{max-width:none}
+.mode-card{min-height:112px}
+
+.mb{flex:1;display:flex;flex-direction:column;justify-content:center}
+.mode-card{min-height:96px;gap:8px;padding:12px 14px}
+.mc-detail{-webkit-line-clamp:1}
+
+.pane-head,.pane-body{max-width:860px;margin-left:auto;margin-right:auto}
+.tabbar{padding-left:max(24px,calc((100% - 860px)/2));padding-right:max(24px,calc((100% - 860px)/2))}
+.tabs{padding:0}
+.tabbar-end{padding-right:0}
