@@ -13,8 +13,8 @@ contextBridge.exposeInMainWorld('pal', {
     try { return webUtils.getPathForFile(file); } catch { return ''; }
   },
   log: (event, data) => ipcRenderer.invoke('pal:log', { event, data }),
-  installPreview: (host, dir, root) => ipcRenderer.invoke('pal:install-preview', { host, dir, root }),
-  install: (host, dir, root) => ipcRenderer.invoke('pal:install', { host, dir, root }),
+  installPreview: (host, dir, root, home) => ipcRenderer.invoke('pal:install-preview', { host, dir, root, home }),
+  install: (host, dir, root, home) => ipcRenderer.invoke('pal:install', { host, dir, root, home }),
   // 管理页：update / uninstall / remove 只传名字，命令参数留在主进程。
   action: (name, action) => ipcRenderer.invoke('pal:action', { name, action }),
   instanceLogs: (name) => ipcRenderer.invoke('pal:instance-logs', { name }),

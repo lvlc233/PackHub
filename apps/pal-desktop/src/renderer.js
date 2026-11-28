@@ -824,13 +824,13 @@ function manageBody(inst) {
       : null,
     h('section', { class: 'mg-group' },
       h('h3', { class: 'mg-h', text: '整合包' }),
-      actionRow(`版本 ${packText(inst)}`,
+      actionRow(inst.pack ? `版本 ${packText(inst)}` : '未挂钩整合包',
         blocked
           ? '先停止实例，才能换版本或卸包'
           : '更新换成 registry 的最新版（本地改过的文件会拦住）；卸载摘掉包写进这个 home 的文件，记录与目录保留',
         h('div', { class: 'mgr-act' },
-          rowBtn('更新', { disabled: blocked || busy, onclick: () => confirmAction('update', inst) }),
-          rowBtn('卸载', { disabled: blocked || busy, onclick: () => confirmAction('uninstall', inst) })))),
+          rowBtn('更新', { disabled: !inst.pack || blocked || busy, onclick: () => confirmAction('update', inst) }),
+          rowBtn('卸载', { disabled: !inst.pack || blocked || busy, onclick: () => confirmAction('uninstall', inst) })))),
 
     h('section', { class: 'mg-group' },
       h('h3', { class: 'mg-h', text: '位置' }),
@@ -1056,13 +1056,13 @@ function renderPackDetail(head, scroll, inst) {
 
     h('section', { class: 'mg-group' },
       h('h3', { class: 'mg-h', text: '整合包' }),
-      actionRow(`版本 ${packText(inst)}`,
+      actionRow(inst.pack ? `版本 ${packText(inst)}` : '未挂钩整合包',
         blocked
           ? '先停止实例，才能换版本或卸包'
           : '更新换成 registry 的最新版（本地改过的文件会拦住）；卸载摘掉包写进这个 home 的文件',
         h('div', { class: 'mgr-act' },
-          rowBtn('更新', { disabled: blocked || busy, onclick: () => confirmAction('update', inst) }),
-          rowBtn('卸载', { disabled: blocked || busy, onclick: () => confirmAction('uninstall', inst) })))),
+          rowBtn('更新', { disabled: !inst.pack || blocked || busy, onclick: () => confirmAction('update', inst) }),
+          rowBtn('卸载', { disabled: !inst.pack || blocked || busy, onclick: () => confirmAction('uninstall', inst) })))),
 
     h('section', { class: 'mg-group danger' },
       h('h3', { class: 'mg-h', text: '危险操作' }),
@@ -1714,7 +1714,7 @@ function renderImportModal() {
 function openInstall(pickedHost, pickedPath) {
   const host = pickedHost || state.harness || 'dsh';
   state.install = {
-    step: 1, host, dir: pickedPath || null, root: null, preview: null, name: null, done: false, busy: false, error: null, raw: '',
+    step: 1, host, dir: pickedPath || null, root: null, home: null, preview: null, name: null, done: false, busy: false, error: null, raw: '',
   };
   openModal({ kind: 'install', title: '安装整合包' });
 }
@@ -1862,7 +1862,7 @@ function renderInstallModal() {
           h('span', { class: 'pill', text: host ? host.full : ins.host })),
         h('p', { class: 'plan-humans', text: `会写 ${fileCount} 个路径 · 登记 ${mcpCount} 条 MCP · 改 ${instrCount} 处宿主指令` }),
         h('dl', { class: 'pv-grid' },
-          h('div', {}, h('dt', { text: '落点' }), h('dd', { text: preview.name || '新建托管 home' })),
+          h('div', {}, h('dt', { text: '落点' }), h('dd', { text: ins.home ? 'attached home（已有目录）' : (preview.name || '新建托管 home') })),
           h('div', {}, h('dt', { text: '安装根' }), h('dd', { class: 'mono', text: ins.root || '默认 PAL 数据目录', title: ins.root || '' })),
           h('div', {}, h('dt', { text: '动作' }), h('dd', { text: `${actions.length} 条` })),
           h('div', {}, h('dt', { text: '来源' }), h('dd', { class: 'mono', text: ins.dir, title: ins.dir }))),
@@ -1880,7 +1880,23 @@ function renderInstallModal() {
           class: 'btn outline', type: 'button', disabled: ins.busy,
           onclick: () => { ins.root = null; runInstallPreview(); },
         }, '恢复默认') : null));
-    body = h('div', { class: 'pickwrap' }, stepsBar(3), location, pv);
+    const attachedRow = h('div', { class: 'mg-row' },
+      h('div', { class: 'mgr-main' },
+        h('span', { class: 'mgr-t', text: '或装进已有宿主目录' }),
+        h('span', {
+          class: 'mgr-s',
+          text: ins.home
+            ? 'attached：会改这个宿主目录里的全局配置与指令文件；卸载只摘记录，不删目录。'
+            : '不新建独立 home，把包直接装进你日常在用的那个宿主目录。',
+        }),
+        h('code', { class: 'pathline mono' + (ins.home ? '' : ' empty'), text: ins.home || '未选择', title: ins.home || '' })),
+      h('div', { class: 'mgr-act' },
+        h('button', { class: 'btn outline', type: 'button', disabled: ins.busy, onclick: () => pickAttached() }, ins.home ? '换目录…' : '选择目录…'),
+        ins.home ? h('button', {
+          class: 'btn outline', type: 'button', disabled: ins.busy,
+          onclick: () => { ins.home = null; runInstallPreview(); },
+        }, '改回新建') : null));
+    body = h('div', { class: 'pickwrap' }, stepsBar(3), location, attachedRow, pv);
     const ready = preview && preview.ok === true;
     foot = [
       h('button', {
@@ -1935,6 +1951,23 @@ async function pickAndImport() {
   }
 }
 
+async function pickAttached() {
+  const ins = state.install;
+  try {
+    const res = await window.pal.pickDirectory();
+    if (res && res.error) { toast(`选不了目录：${res.error}`, true); return; }
+    if (!res || res.canceled || !res.path) return;
+    ins.home = res.path;
+    ins.root = null;
+    logEvent('install:attached', { home: res.path });
+    toast('已选 attached 目录');
+    if (ins.step === 3) await runInstallPreview();
+    else renderModal();
+  } catch (err) {
+    toast(`选不了目录：${(err && err.message) || err}`, true);
+  }
+}
+
 async function pickRoot() {
   const ins = state.install;
   try {
@@ -1942,6 +1975,7 @@ async function pickRoot() {
     if (res && res.error) { toast(`选不了目录：${res.error}`, true); return; }
     if (!res || res.canceled || !res.path) return;
     ins.root = res.path;
+    ins.home = null;
     logEvent('install:root', { root: res.path });
     toast(`安装位置：${res.path}`);
     if (ins.step === 3) await runInstallPreview();
@@ -1978,7 +2012,7 @@ async function runInstallPreview() {
   logEvent('install:preview', { host: ins.host, dir: ins.dir });
   renderModal();
   try {
-    const res = await window.pal.installPreview(ins.host, ins.dir, ins.root);
+    const res = await window.pal.installPreview(ins.host, ins.dir, ins.root, ins.home);
     if (!res || !res.ok) {
       ins.preview = { ok: false, error: (res && res.error) || '预览失败' };
     } else {
@@ -2003,7 +2037,7 @@ async function doInstall() {
   logEvent('install:start', { host: ins.host, dir: ins.dir });
   renderModal();
   try {
-    const res = await window.pal.install(ins.host, ins.dir, ins.root);
+    const res = await window.pal.install(ins.host, ins.dir, ins.root, ins.home);
     ins.busy = false;
     if (!res || res.ok !== true) {
       ins.step = 4;

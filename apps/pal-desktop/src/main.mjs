@@ -337,11 +337,12 @@ handle('pal:pick-directory', async () => {
 });
 
 /** 只算计划、不落盘：弹层第三屏的预览。 */
-handle('pal:install-preview', (_event, { host, dir, root }) => {
+handle('pal:install-preview', (_event, { host, dir, root, home }) => {
   if (!dir) return { ok: false, error: '还没有选目录' };
   if (!existsSync(dir)) return { ok: false, error: `目录不存在：${dir}` };
   const args = ['install', dir, '--host', host, '--dry-run', '--json'];
-  if (root) args.push('--root', root);
+  if (home) args.push('--home', home);
+  else if (root) args.push('--root', root);
   const result = runPal(args, { timeout: 180000 });
   if (result.status !== 0) {
     return { ok: false, error: palFailure(result, `pal install --dry-run 退出码 ${result.status}`) };
@@ -356,7 +357,7 @@ handle('pal:install-preview', (_event, { host, dir, root }) => {
 });
 
 /** 保留旧调用：只传 host 时仍然弹系统目录选择器。 */
-handle('pal:install', async (_event, { host, dir, root }) => {
+handle('pal:install', async (_event, { host, dir, root, home }) => {
   let target = dir;
   if (!target) {
     const picked = await dialog.showOpenDialog(win, {
@@ -367,7 +368,8 @@ handle('pal:install', async (_event, { host, dir, root }) => {
     target = picked.filePaths[0];
   }
   const args = ['install', target, '--host', host, '--json'];
-  if (root) args.push('--root', root);
+  if (home) args.push('--home', home);
+  else if (root) args.push('--root', root);
   const result = runPal(args, { timeout: 180000 });
   let record = null;
   try { record = JSON.parse(String(result.stdout || '')); } catch { /* 纯文本输出 */ }
