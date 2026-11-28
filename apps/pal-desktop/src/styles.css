@@ -595,7 +595,7 @@ kbd{font-family:var(--mono);font-size:9.5px;line-height:1;padding:2px 3px;border
 .pane-empty.hero .pe-actions{justify-content:center}
 .pane-empty.hero .pe-cli{text-align:center}
 
-body.onboarding .nav,body.onboarding .harness-switch,body.onboarding #add-pack,body.onboarding #refresh,body.onboarding #about,body.onboarding .statusbar{display:none}
+body.onboarding .harness-switch,body.onboarding #add-pack,body.onboarding #refresh,body.onboarding #about,body.onboarding .statusbar{display:none}
 body.onboarding .toolbar{height:46px}
 body.onboarding .pane-head,body.onboarding #tabs{display:none}
 
@@ -622,3 +622,10 @@ body.drag-over::after{content:'松开安装整合包';position:fixed;right:20px;
 .imp .out{width:100%;text-align:left}
 
 .btn:active:not(:disabled){transform:translateY(1px)}
+
+.pick.off{opacity:.55}
+.pick-hint{display:block;font-size:10.5px;color:var(--danger);margin-top:2px}
+
+.plan-humans{margin:2px 0 10px;font-size:11.5px;color:var(--text)}
+
+.logs-out{max-height:52vh;overflow:auto;white-space:pre-wrap;word-break:break-all}

@@ -1,7 +1,7 @@
 ---
 kind: contract
 summary: 格式 v0 的数据形状与格式层不变量
-verified: 2026-11-24
+verified: 2026-11-28
 decay: 365
 review: 格式升版、字段增删、apiVersion 变化时
 ---
@@ -57,7 +57,7 @@ review: 格式升版、字段增删、apiVersion 变化时
 | `kind` | `server` \| `foreground` \| `app` | 执行路径：core 托管 / 前台 exec / detached app |
 | `command` | string? | 可执行文件名；不写用 `HarnessSpec.executable` |
 | `args` | `(ctx: StartContext) => string[]`? | 参数拼法；不写 = 不带参数 |
-| `url` / `readyTimeoutMs` | RegExp? / number? | 只有 `server` 用：从启动输出里认地址、等地址超时 |
+| `url` / `readyTimeoutMs` | RegExp? / number? | 只有 `server` 用：从启动输出里认地址、等地址超时。地址只认本机服务（`127.0.0.1` / `localhost`）；多条候选时按「端口 = 本次端口 > 带 token > 最后出现」选，一条本机地址都没有就保持 `url` 为空，不拿日志里的 registry / npm 链接兜底 |
 | `usesProfile` | boolean? | 这条模式读 `StartContext.profile`；不写 = 给它 `--profile` 是用法错 |
 | `available` | `(ctx: LaunchAvailability) => true \| string`? | 当前 home 上能不能用；string 是不可用原因 |
 | `app` | `{ env: string; candidates(home): string[] }`? | 只有 `app` 用：可执行文件先看环境变量，再按候选路径找 |

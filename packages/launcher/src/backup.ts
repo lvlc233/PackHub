@@ -196,8 +196,9 @@ export function backupInstance(idOrName: string, opts: BackupOptions = {}): Back
       id: record.id,
       name: record.name,
       harness: record.harness,
-      pack: record.pack.name,
-      version: record.pack.version,
+      // 卸载干净的 home 没有包：信封里的 Pack 身份留空，不编一个名字
+      pack: record.pack?.name ?? '',
+      version: record.pack?.version ?? '',
       createdAt: record.createdAt,
     },
     createdAt: nowIso(),

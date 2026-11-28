@@ -171,25 +171,61 @@ export function credentialRels(kind: InstanceKind, root: string, home?: string):
  * 从启动输出里取 URL 与端口；取不到就返回 undefined。
  *
  * `modeId` 指定用哪条模式的地址正则；不写 = 该宿主第一条 `server` 模式（前台 / app 模式没有 url）。
+ *
+ * 只认本机服务地址（`http(s)://127.0.0.1|localhost[:port]`）：宿主日志里还会出现 registry / npm /
+ * 包名这类带冒号的「伪 URL」（例如 `https://registry.npmjs.org/@scope/name:`），以前取第一处匹配
+ * 就会把它记成实例地址。多条本地候选时按「端口是本次这个 > 带 token > 最后出现」选；
+ * 一条本地地址都没有就返回 undefined，由调用方保持 url 为空，不拿无关链接兜底。
  */
 export function parseStartUrl(
   text: string,
   kind: InstanceKind,
   modeId?: string,
+  opts: { port?: number } = {},
 ): { url: string; port?: number } | undefined {
   const modes = adapterFor(kind)?.modes ?? [];
   const mode = modeId === undefined ? modes.find((item) => item.kind === 'server') : modes.find((item) => item.id === modeId);
   const pattern = mode?.url;
   if (!pattern) return undefined;
-  const hit = text.match(pattern);
-  if (!hit?.[1]) return undefined;
-  const url = hit[1].replace(/[),.;]+$/, '');
-  try {
-    const port = Number(new URL(url).port);
-    return Number.isFinite(port) && port > 0 ? { url, port } : { url };
-  } catch {
-    return { url };
+
+  // 模式给的正则可能是第一条命中就够；这里要扫全部候选，再按本地/端口/内容排序
+  const global = new RegExp(pattern.source, pattern.flags.includes('g') ? pattern.flags : `${pattern.flags}g`);
+  const candidates: Array<{ url: string; port?: number; token: boolean; index: number }> = [];
+  for (const hit of text.matchAll(global)) {
+    const raw = hit[1]?.replace(/[),.;]+$/, '');
+    if (!raw) continue;
+    let parsed: URL;
+    try {
+      parsed = new URL(raw);
+    } catch {
+      continue;
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') continue;
+    if (!isLocalHost(parsed.hostname)) continue;
+    const port = Number(parsed.port);
+    candidates.push({
+      url: raw,
+      ...(Number.isFinite(port) && port > 0 ? { port } : {}),
+      token: parsed.searchParams.has('token'),
+      index: hit.index ?? 0,
+    });
   }
+  if (candidates.length === 0) return undefined;
+
+  candidates.sort(
+    (a, b) =>
+      Number(b.port !== undefined && b.port === opts.port) - Number(a.port !== undefined && a.port === opts.port) ||
+      Number(b.token) - Number(a.token) ||
+      b.index - a.index,
+  );
+  const best = candidates[0]!;
+  return { url: best.url, ...(best.port ? { port: best.port } : {}) };
+}
+
+/** 本机服务地址的主机名：只认回环名，不接受 registry / npm 这类外网主机。 */
+function isLocalHost(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  return host === '127.0.0.1' || host === 'localhost';
 }
 
 /** 注册表里的全部宿主描述（诊断/帮助用；顺序即注册顺序）。 */

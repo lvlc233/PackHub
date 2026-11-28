@@ -57,7 +57,12 @@ export interface InstanceConfig {
    * 不能按默认重起成前台命令）；前台模式不写记录（进程退出即结束）。
    */
   launchMode?: string;
-  pack: { name: string; version: string; ref?: string };
+  /**
+   * 这份 home 现在挂着的 Pack。可选：卸载把 state 里的包删干净后，记录里不再留包身份
+   * （`pal uninstall` 成功路径会把它与只在有包时有意义的字段一起摘掉），home 仍存在。
+   * 读的时候 `pack` 缺失就是「没有挂钩整合包」，不补 unknown@0.0.0 之类的假身份。
+   */
+  pack?: { name: string; version: string; ref?: string };
   createdAt: string;
   updatedAt: string;
   /** 这个根归 PAL 整根管（false = 接管目录 / attached home；只有 true 才允许整根删除） */
@@ -210,11 +215,29 @@ function runtimeFrom(data: Record<string, unknown>): RuntimeState {
 }
 
 /**
+ * 记录里的 Pack 身份：只认带 name 字符串的对象（version 缺省 0.0.0，ref 可选）。
+ * 缺失 / 类型不对 = 这个 home 没有挂钩 Pack，不编一个假身份。
+ */
+function packFrom(value: unknown): InstanceConfig['pack'] | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const { name, version, ref } = value as Record<string, unknown>;
+  if (typeof name !== 'string' || !name.trim()) return undefined;
+  return {
+    name,
+    version: typeof version === 'string' ? version : '0.0.0',
+    ...(typeof ref === 'string' && ref ? { ref } : {}),
+  };
+}
+
+/**
  * 把 instance.json 的原始对象归一成一条记录：缺省字段补默认，运行态字段剔除。
  */
 function normalizeRecord(root: string, data: Record<string, unknown>): InstanceRecord {
   const config: Record<string, unknown> = { ...data };
   for (const key of RUNTIME_KEYS) delete config[key];
+  // pack 已归一成下面的可选字段；原始值（可能是坏形状）不留在 config 里
+  delete config.pack;
+  const pack = packFrom(data.pack);
   return {
     ...(config as unknown as InstanceConfig),
     apiVersion: API_VERSION,
@@ -235,7 +258,7 @@ function normalizeRecord(root: string, data: Record<string, unknown>): InstanceR
     ...(typeof data.launchMode === 'string' && data.launchMode.trim()
       ? { launchMode: data.launchMode.trim() }
       : {}),
-    pack: (data.pack as InstanceConfig['pack'] | undefined) ?? { name: 'unknown', version: '0.0.0' },
+    ...(pack ? { pack } : {}),
     // 隔离策略坏了不至于让整份记录变坏记录：解析不了就按默认策略读
     isolation: parseIsolation(data.isolation) ?? DEFAULT_ISOLATION,
     ...runtimeFrom(data),

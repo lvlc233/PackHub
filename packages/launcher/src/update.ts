@@ -129,6 +129,15 @@ export async function updateInstance(
   opts: { packDir: string; packRef?: string; force?: boolean; profile?: string },
 ): Promise<UpdateInstanceResult> {
   const record = requireInstance(nameOrId);
+  // 没有包就没有东西可更新：记录里的 pack 可能已经被卸载清掉，也可能是一条 state 已丢的旧记录。
+  // 两种都报同一条「没有安装记录」，不静默成功一次什么都没写（进度都是按 state 算的）。
+  const packRecord = record.pack;
+  if (!packRecord || Object.keys(loadState(record.root).packs).length === 0) {
+    throw new PalError('invalid-input', `这个 home 里没有安装记录：${record.name}`, {
+      hint: `用 pal install <pack> --home ${record.root} 装一个包；pal list 看现有 home`,
+      details: { root: record.root },
+    });
+  }
   if (record.pid && isPidAlive(record.pid)) {
     throw new PalError('already-running', `实例还在运行，先停掉再更新：pid ${record.pid}`, {
       hint: 'pal stop <id>，更新完再 pal start',
@@ -155,10 +164,10 @@ export async function updateInstance(
   const ctx: PackContext = withLockPins(loaded, read.lock);
   const errors = ctx.issues.filter((i) => i.severity === 'error');
   if (errors.length > 0) throw new PalError('invalid-input', `清单有问题：${errors.map((i) => i.message).join('; ')}`);
-  if (ctx.manifest.metadata.name !== record.pack.name) {
+  if (ctx.manifest.metadata.name !== packRecord.name) {
     throw new PalError(
       'invalid-input',
-      `这不是同一个 Pack：实例里是 ${record.pack.name}，新的是 ${ctx.manifest.metadata.name}`,
+      `这不是同一个 Pack：实例里是 ${packRecord.name}，新的是 ${ctx.manifest.metadata.name}`,
       { hint: '换 Pack 请新建实例，不要原地替换' },
     );
   }
@@ -175,7 +184,7 @@ export async function updateInstance(
   if (!plan) throw new PalError('invalid-input', `生成不了计划：${issues.map((i) => i.message).join('; ')}`);
 
   const before = loadState(record.root);
-  const oldKeys = Object.keys(before.packs).filter((key) => key.startsWith(`${record.pack.name}@`));
+  const oldKeys = Object.keys(before.packs).filter((key) => key.startsWith(`${packRecord.name}@`));
   // attached 的 home 就是记录根；managed 是根里的 home 段（base: home / absolute 的落点按它解析）
   const adapter = requireAdapter(kind);
   const home =
@@ -193,13 +202,13 @@ export async function updateInstance(
   );
   // 旧产物清理的唯一依据：state 里这一版的计划快照。没有快照的旧 state 只报 warning，
   // 不回退成「按 written 整文件删」——共享配置里的用户条目就是这么被误删的。
-  const previous = previousSnapshotOf(before, record.pack.name);
+  const previous = previousSnapshotOf(before, packRecord.name);
   const baseline = readBaseline(record.root);
   // 更新会覆盖 Pack 装过的文件，所以先看哪些已经被本地改过：改过的要提前告诉人
   const localChanges = localChangesOf(record.root, baseline);
 
   // 计划是否变过以 baseline 为准（instance.json 不再存 planHash）；没有 baseline 视为变了
-  const changed = baseline?.planHash !== plan.planHash || record.pack.version !== ctx.manifest.metadata.version;
+  const changed = baseline?.planHash !== plan.planHash || packRecord.version !== ctx.manifest.metadata.version;
 
   // P0：计划真的会覆盖 Pack 装过的文件时，先停下来问人；--force / body.force 才继续。
   // 同版本重跑（changed=false）本来不写盘，不拦。
@@ -219,7 +228,7 @@ export async function updateInstance(
   await withInstanceLock(record.root, 'update', async () => {
     // 记录与文件分开处理：换 profile 可能算出逐字节相同的计划（Pack 没有 MCP、目标 profile
     // 又恰好是枚举时排第一的那个），这时文件不用动，记录仍要换成新的范围。
-    let pack = record.pack;
+    let pack = packRecord;
     if (changed) {
       // 同一 Pack 的新版本要能覆盖旧版本写过的文件；overwrite 只放开"自己的包"
       await installPack(ctx, plan, {
@@ -280,7 +289,7 @@ export async function updateInstance(
       ...record,
       pack: {
         ...pack,
-        ...(opts.packRef ? { ref: opts.packRef } : record.pack.ref ? { ref: record.pack.ref } : {}),
+        ...(opts.packRef ? { ref: opts.packRef } : packRecord.ref ? { ref: packRecord.ref } : {}),
       },
       status: 'installed',
     };
@@ -295,7 +304,7 @@ export async function updateInstance(
 
   return {
     record: readRecord(record.root)!,
-    from: `${record.pack.name}@${record.pack.version}`,
+    from: `${packRecord.name}@${packRecord.version}`,
     to: `${ctx.manifest.metadata.name}@${ctx.manifest.metadata.version}`,
     changed,
     planHash: plan.planHash,
@@ -310,11 +319,18 @@ export async function updateInstance(
 /** 重新基准化：把当前磁盘状态认作基线（本地改动被"接受"，体检不再报漂移）。 */
 export function rebaselineInstance(nameOrId: string): Baseline {
   const record = requireInstance(nameOrId);
+  const pack = record.pack;
+  if (!pack) {
+    throw new PalError('invalid-input', `这个 home 里没有装包，没有可认作基线的内容：${record.name}`, {
+      hint: `用 pal install <pack> --home ${record.root} 装一个包；pal list 看现有 home`,
+      details: { root: record.root },
+    });
+  }
   const baseline = readBaseline(record.root);
   // ignore 必须随 files 一起交给 writeBaseline：写盘后改返回值不会落进 baseline.json
   return writeBaseline(record.root, {
-    pack: record.pack.name,
-    version: record.pack.version,
+    pack: pack.name,
+    version: pack.version,
     harness: record.harness,
     // 记录里不再存 planHash：重基准化只刷新文件清单，计划哈希沿用已有 baseline
     planHash: baseline?.planHash ?? '',

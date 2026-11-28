@@ -389,7 +389,7 @@ export async function startInstanceDetailed(
   child.unref?.();
 
   const timeoutMs = opts.timeoutMs ?? mode.readyTimeoutMs ?? 20_000;
-  const ready = await waitForReady(log.file, rec, mode.id, timeoutMs, exited, opts.pollMs ?? 100);
+  const ready = await waitForReady(log.file, rec, mode.id, port, timeoutMs, exited, opts.pollMs ?? 100);
   closeLog(log.fd);
 
   if (!ready.ok) {
@@ -533,6 +533,7 @@ async function waitForReady(
   logFile: string,
   rec: InstanceRecord,
   modeId: string,
+  port: number,
   timeoutMs: number,
   exited: ExitTracker,
   pollMs: number,
@@ -542,7 +543,8 @@ async function waitForReady(
     const dead = exited.peek();
     if (dead) return { ok: false, exited: dead };
     try {
-      const hit = parseStartUrl(readTail(logFile, READY_TAIL_BYTES), rec.harness, modeId);
+      // 把本次端口交给解析：日志里不止一条本地地址时优先就是它（P0-4）
+      const hit = parseStartUrl(readTail(logFile, READY_TAIL_BYTES), rec.harness, modeId, { port });
       if (hit) return { ok: true, url: hit.url, ...(hit.port ? { port: hit.port } : {}) };
     } catch {
       /* 日志还没出现 */

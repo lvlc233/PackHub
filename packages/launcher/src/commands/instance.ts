@@ -21,8 +21,10 @@ function printRecord(rec: InstanceRecord): void {
   // profile 列只对 dsh attached 有意义：记录里有就显示，缺省是 all（装时枚举所有已有 profile）；
   // 其它宿主 / managed home 没有这个维度，写 `-`。
   const profile = rec.harness === 'dsh' && rec.attached === true ? (rec.profile ?? 'all') : '-';
+  // 卸载干净的 home 没有 pack：写「没有装包」，不拿 unknown@0.0.0 之类的假身份充数
+  const pack = rec.pack ? `${rec.pack.name}@${rec.pack.version}` : '-（没有装包）';
   console.log(
-    `${rec.id}\t${rec.name}\t${rec.status}\t${rec.harness}\t${rec.pack.name}@${rec.pack.version}\t${rec.attached ? 'attached' : 'managed'}\t${profile}`,
+    `${rec.id}\t${rec.name}\t${rec.status}\t${rec.harness}\t${pack}\t${rec.attached ? 'attached' : 'managed'}\t${profile}`,
   );
   console.log(`  ${rec.root}`);
   if (rec.url) console.log(`  ${rec.url}`);

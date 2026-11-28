@@ -1,7 +1,7 @@
 ---
 kind: concept
 summary: 术语与边界（Pack / 资源 / 计划 / 宿主 / 命名 home（managed / attached）/ 项目 / 隔离 / 可视化启动器）
-verified: 2026-11-25
+verified: 2026-11-28
 decay: 365
 review: 环境模型或安装流程改动后
 ---
@@ -144,6 +144,8 @@ home 的宿主形态用 `--host` 选：`install` 只接受宿主名（`dsh` / `c
 配置里的 `attached` 标出这个 home 是 managed（缺省 `false`，PAL 数据目录下新建、整根归 PAL）还是 attached（`true`，宿主真实全局目录或 `adopt` 登记的目录，PAL 不拥有它）。`managed` 字段仍保留（`false` = 这个根不归 PAL 整根删；attached 一律 `false`）。dsh 的 attached 记录还可以带可选的 `profile`（那次安装选的 profile；缺省不写 = all），`update` / `verify` / `health` 不带 `--profile` 时沿用它；`update` 显式给 `--profile` 可以换范围，`--profile all` 回到全部已有 profile。
 
 两者之和才是「一份环境」；缺运行态就算坏记录，坏记录会被隔离到 `.quarantine/`，不会静默消失。
+
+`instance.json` 的 `pack` 是可选字段：`pal uninstall` 成功卸干净（state 里已经没有包）后，记录里的 `pack` / `harnessVersion` / `profile` / `origin.kind='pack'` 一起摘掉，home 仍然存在。此后 `pal list` / `pal show` 不再给出 Pack 身份，`update` / `uninstall` 仍按 state 报「这个目录没有安装记录」（不拿记录里残留的身份装作还装着）；`pal install` 可以再往这份空 home 里装一个包。
 
 ### Isolation（隔离）
 

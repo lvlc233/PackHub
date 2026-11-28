@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('pal', {
   install: (host, dir, root) => ipcRenderer.invoke('pal:install', { host, dir, root }),
   // 管理页：update / uninstall / remove 只传名字，命令参数留在主进程。
   action: (name, action) => ipcRenderer.invoke('pal:action', { name, action }),
+  instanceLogs: (name) => ipcRenderer.invoke('pal:instance-logs', { name }),
   reveal: (path) => ipcRenderer.invoke('pal:reveal', { path }),
   copy: (text) => ipcRenderer.invoke('pal:copy', { text }),
   openExternal: (url) => ipcRenderer.invoke('pal:open-external', { url }),

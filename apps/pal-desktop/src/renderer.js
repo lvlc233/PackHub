@@ -94,6 +94,9 @@ const state = {
   install: null,
   importJob: null,
   info: null,
+  hosts: null,
+  launchError: null,
+  lastAction: null,
   term: null,
   fit: null,
   session: null,
@@ -151,6 +154,24 @@ function logEvent(event, data) {
   try {
     if (window.pal && typeof window.pal.log === 'function') window.pal.log(event, data);
   } catch { /* 日志失败不影响交互 */ }
+}
+
+function friendlyError(text) {
+  const raw = String(text || '').trim();
+  if (/TAR_BAD_ARCHIVE|Unrecognized archive format|Unexpected end of archive/i.test(raw)) {
+    return '这个文件不是有效的 .phub：归档读不出来，换一个包或重新打包。';
+  }
+  if (/用 registry 名称需要一个索引|--index/i.test(raw)) {
+    return '这个来源需要 registry 索引：选 .phub / Pack 目录，或先配置 PACKHUB_INDEX。';
+  }
+  if (/packhub\.yaml|清单有错误|锁核对未通过/i.test(raw)) return raw.split(/\r?\n/).filter(Boolean).slice(0, 2).join(' ');
+  if (/is not recognized|不是内部或外部命令|command not found/i.test(raw)) {
+    return '找不到宿主命令：先安装它，或用 PAL_<HOST>_BIN 指定路径。';
+  }
+  if (/EADDRINUSE|port .*in use|端口.*占用/i.test(raw)) return '端口被占用：换一个端口或先结束占用进程。';
+  if (/timed out|ETIMEDOUT|等地址超时/i.test(raw)) return '等待宿主地址超时：看实例日志，或换一种启动方式。';
+  if (/profile.*不存在|profile .*not found/i.test(raw)) return 'dsh profile 不存在：先启动一次 dsh 生成它。';
+  return raw.split(/\r?\n/).filter(Boolean).slice(0, 2).join(' ') || '启动失败';
 }
 
 function toast(text, bad) {
@@ -288,6 +309,21 @@ async function refresh() {
     state.error = String((err && err.message) || err);
     render();
   }
+}
+
+function hostInfoOf(id) {
+  if (!Array.isArray(state.hosts)) return null;
+  return state.hosts.find((item) => item.id === id) || null;
+}
+
+async function loadHosts() {
+  try {
+    if (window.pal && typeof window.pal.hosts === 'function') {
+      const list = await window.pal.hosts();
+      if (Array.isArray(list)) state.hosts = list;
+    }
+  } catch { /* 用静态表兜底 */ }
+  if (state.modal && state.modal.kind === 'install') renderModal();
 }
 
 async function loadInfo() {
@@ -496,6 +532,14 @@ function renderLaunchHead(head, inst) {
   }, '+ 安装整合包'));
   const note = headNote(inst, isRunning(inst));
   if (note) act.append(h('div', { class: 'ph-note' + (isBroken(inst) ? ' bad' : ''), text: note }));
+  const launchError = state.launchError;
+  if (launchError && launchError.id === inst.id) {
+    act.append(h('div', { class: 'ph-note bad launch-err', text: friendlyError(launchError.message), title: launchError.message }));
+    act.append(h('button', {
+      class: 'linkbtn line act-link', type: 'button',
+      onclick: () => copyText(launchError.message, '错误详情已复制'),
+    }, '复制错误'));
+  }
   head.append(act);
 }
 
@@ -538,12 +582,19 @@ function primaryButton(inst) {
     return h('button', { class: 'launch off', type: 'button', disabled: true },
       state.busy.action === 'stop' ? '正在停止…' : '正在启动…');
   }
-  if (running || broken) {
+  if (running) {
     return h('button', {
       class: 'launch stop', type: 'button',
-      title: broken ? '记录还停在 running，但 pid 已经不在：停止会清掉这条记录' : '停止这个整合包',
+      title: '停止这个整合包',
       onclick: () => stopInstance(inst),
     }, h('span', { class: 'ico', html: svgIcon('stop') }), '停止');
+  }
+  if (broken) {
+    return h('button', {
+      class: 'launch', type: 'button',
+      title: '上次没有正常退出；重起会先收敛记录再启动',
+      onclick: () => launchInstance(inst),
+    }, h('span', { class: 'ico', html: svgIcon('play') }), '重启');
   }
   if (!mode || mode.available === false) {
     return h('button', {
@@ -566,9 +617,13 @@ function smallLaunch(inst) {
     return h('button', { class: 'btn outline', type: 'button', disabled: true },
       state.busy.action === 'stop' ? '正在停止…' : '正在启动…');
   }
-  if (running || broken) {
+  if (running) {
     return h('button', { class: 'btn outline', type: 'button', onclick: () => stopInstance(inst) },
       h('span', { class: 'ico', html: svgIcon('stop') }), '停止');
+  }
+  if (broken) {
+    return h('button', { class: 'btn outline', type: 'button', onclick: () => launchInstance(inst) },
+      h('span', { class: 'ico', html: svgIcon('play') }), '重启');
   }
   const mode = defaultMode(inst);
   if (!mode || mode.available === false) {
@@ -692,24 +747,27 @@ function modesBody(inst) {
   const running = isRunning(inst);
   const broken = isBroken(inst);
   const busy = state.busy && state.busy.id === inst.id;
-  const lead = running || broken
+  const lead = running
     ? '进程在跑：先停止，才能换启动方式。'
-    : '点上任意一种方式启动；默认方式也是右上角「启动」用的那个。';
+    : broken
+      ? '上次没有正常退出；直接选一种方式重起。'
+      : '点上任意一种方式启动；默认方式也是右上角「启动」用的那个。';
 
   const list = modes.length
     ? h('div', { class: 'modes' }, modes.map((mode) => {
-      const off = running || broken || busy || mode.available === false;
+      const off = running || busy || mode.available === false;
       const used = Boolean(inst.launchMode) && inst.launchMode === mode.id;
       // 右侧说的必须是「这个模式」的状态，不是实例状态。
       const side = busy ? '处理中'
         : used && running ? '运行中'
           : mode.available === false ? '不可用'
-            : running || broken ? '先停止'
-              : '启动';
+            : running ? '先停止'
+              : broken ? '重启'
+                : '启动';
       return h('div', { class: 'mode-item' },
         h('button', {
           class: 'mode-btn', type: 'button', disabled: off,
-          title: mode.available === false ? (mode.reason || '不可用') : running || broken ? '先停止再启动' : `以 ${mode.id} 启动`,
+          title: mode.available === false ? (mode.reason || '不可用') : running ? '先停止再启动' : `以 ${mode.id} 启动`,
           onclick: () => launchMode(inst, mode),
         },
         h('span', { class: 'mi-main' },
@@ -754,11 +812,16 @@ function rowBtn(label, opts = {}) {
 function manageBody(inst) {
   const running = isRunning(inst);
   const broken = isBroken(inst);
-  const blocked = running || broken;
+  const blocked = false; // 在跑也可以更新/卸载：确认后先停再继续
   const busy = state.busy && state.busy.id === inst.id;
   const attached = inst.attached === true;
 
   return h('div', { class: 'mg' },
+    state.lastAction && state.lastAction.name === inst.name
+      ? h('section', { class: 'mg-group' },
+        h('h3', { class: 'mg-h', text: `上次${state.lastAction.label}结果` }),
+        h('pre', { class: 'out', text: state.lastAction.stdout || '（命令没有输出）' }))
+      : null,
     h('section', { class: 'mg-group' },
       h('h3', { class: 'mg-h', text: '整合包' }),
       actionRow(`版本 ${packText(inst)}`,
@@ -776,15 +839,19 @@ function manageBody(inst) {
           rowBtn('打开', { disabled: !inst.root, onclick: () => reveal(inst) }),
           rowBtn('复制路径', { disabled: !inst.root, onclick: () => copyText(inst.root, '路径已复制') }))),
       actionRow('实例 ID', inst.id,
-        rowBtn('复制', { onclick: () => copyText(inst.id, '实例 ID 已复制') }))),
+        rowBtn('复制', { onclick: () => copyText(inst.id, '实例 ID 已复制') })),
+      actionRow('启动日志', '看宿主这次启动/退出的原始输出；和桌面壳日志分开。',
+        rowBtn('查看', { onclick: () => openLogs(inst) }))),
 
     h('section', { class: 'mg-group danger' },
       h('h3', { class: 'mg-h', text: '危险操作' }),
       actionRow(`删除这个实例${attached ? '（只摘记录）' : ''}`,
         attached
           ? 'attached home：只删 PAL 的记录，目录与用户文件留在原处'
-          : '删除前会先停进程，整个 home 目录（含会话与凭据）一起删掉，不可恢复',
-        rowBtn('删除…', { danger: true, disabled: busy, onclick: () => confirmAction('remove', inst) }))));
+          : '先停进程；可以直接删整根，也可以归档保留数据',
+        h('div', { class: 'mgr-act' },
+          rowBtn('删除…', { danger: true, disabled: busy, onclick: () => confirmAction('remove', inst) }),
+          attached ? null : rowBtn('保留数据…', { disabled: busy, onclick: () => confirmAction('removeKeep', inst) })))));
 }
 
 /* ---------- L1 整合包视图 ---------- */
@@ -916,7 +983,7 @@ function renderPackDetail(head, scroll, inst) {
   const status = statusOf(inst);
   const running = isRunning(inst);
   const broken = isBroken(inst);
-  const blocked = running || broken;
+  const blocked = false; // 在跑也可以更新/卸载：确认后先停再继续
   const busy = state.busy && state.busy.id === inst.id;
   const attached = inst.attached === true;
   const mode = defaultMode(inst);
@@ -1002,8 +1069,11 @@ function renderPackDetail(head, scroll, inst) {
       actionRow(`删除这个实例${attached ? '（只摘记录）' : ''}`,
         attached
           ? 'attached home：只删 PAL 的记录，目录与用户文件留在原处'
-          : '删除前会先停进程，整个 home 目录（含会话与凭据）一起删掉，不可恢复',
-        rowBtn('删除…', { danger: true, disabled: busy, onclick: () => confirmAction('remove', inst) })))));
+          : '先停进程；可以直接删整根，也可以归档保留数据',
+        h('div', { class: 'mgr-act' },
+          rowBtn('删除…', { danger: true, disabled: busy, onclick: () => confirmAction('remove', inst) }),
+          attached ? null : rowBtn('保留数据…', { disabled: busy, onclick: () => confirmAction('removeKeep', inst) }))))));
+  setFoot('lib-foot', `$ pal update --home ${inst.name}`);
   setFoot('lib-foot', `$ pal update --home ${inst.name}`);
 }
 
@@ -1071,8 +1141,8 @@ function renderSettings() {
 
       h('div', { class: 'mg-row' },
         h('div', { class: 'mgr-main' },
-          h('span', { class: 'mgr-t', text: '运行日志' }),
-          h('span', { class: 'mgr-s', text: '拖放、导入、弹层和渲染层事件都按时间记在这里，用来复现一闪而过的交互。' }),
+          h('span', { class: 'mgr-t', text: '桌面日志' }),
+          h('span', { class: 'mgr-s', text: '桌面壳自己的拖放/弹层/渲染事件；实例启动日志在「启动视图 · 管理 → 启动日志」。' }),
           h('code', { class: 'pathline mono' + (logFile ? '' : ' empty'), text: logFile || '—', title: logFile || '' })),
         h('div', { class: 'mgr-act' },
           h('button', {
@@ -1083,6 +1153,32 @@ function renderSettings() {
             class: 'btn outline', type: 'button', disabled: !logFile,
             onclick: () => copyText(logFile, '日志路径已复制'),
           }, '复制'))),
+
+    h('section', { class: 'mg-group' },
+      h('h3', { class: 'mg-h', text: '宿主发现' }),
+      HOSTS.map((item) => {
+        const info = hostInfoOf(item.id);
+        return h('div', { class: 'mg-row' },
+          h('div', { class: 'mgr-main' },
+            h('span', { class: 'mgr-t', text: `${item.full} · ${item.id}` }),
+            h('span', {
+              class: 'mgr-s',
+              text: !info ? '正在探测…'
+                : info.available
+                  ? `可用${info.version ? ` · ${info.version}` : ''}`
+                  : `未安装 · 找不到 ${info.executable || item.id}`,
+            }),
+            info && info.commandPath
+              ? h('code', { class: 'pathline mono', text: info.commandPath, title: info.commandPath })
+              : null),
+          h('div', { class: 'mgr-act' },
+            info && info.commandPath
+              ? h('button', {
+                class: 'btn outline', type: 'button',
+                onclick: () => copyText(info.commandPath, '命令路径已复制'),
+              }, '复制路径')
+              : null));
+      })),
 
     h('section', { class: 'mg-group' },
       h('h3', { class: 'mg-h', text: '启动位置' }),
@@ -1183,14 +1279,16 @@ async function launchMode(inst, mode) {
     const res = await window.pal.start(inst.name, mode.id);
     if (!res || !res.ok) {
       const detail = String((res && (res.stderr || res.stdout)) || '').trim();
-      toast(`启动失败：${detail || 'pal start 返回非 0'}`, true);
+      state.launchError = { id: inst.id, message: detail || 'pal start 返回非 0' };
+      await refresh();
       return;
     }
+    state.launchError = null;
     toast(`已启动 ${inst.name}`);
     await refresh();
-    if (res.record && res.record.url) window.pal.openExternal(res.record.url);
   } catch (err) {
-    toast(`启动失败：${(err && err.message) || err}`, true);
+    state.launchError = { id: inst.id, message: (err && err.message) || String(err) };
+    try { await refresh(); } catch { /* 保留错误块 */ }
   } finally {
     setBusy(null);
   }
@@ -1205,6 +1303,7 @@ async function stopInstance(inst) {
       toast(`停止失败：${detail || 'pal stop 返回非 0'}`, true);
       return;
     }
+    state.launchError = null;
     toast(`已停止 ${inst.name}`);
     await refresh();
   } catch (err) {
@@ -1272,8 +1371,13 @@ function renderPanel() {
   const panel = $('panel');
   const bar = $('panel-bar');
   const inst = currentPack();
+  // 会话属于某个实例；切实例后旧输出不能继续占着面板。
+  if (state.session && (!inst || state.session.id !== inst.id)) {
+    state.session = null;
+    if (state.term) state.term.clear();
+  }
   const mode = panelModeOf(inst);
-  const open = Boolean(state.session) || state.panelOpen;
+  const open = state.panelOpen;
   bar.textContent = '';
 
   panel.className = 'panel'
@@ -1557,6 +1661,7 @@ function renderModal() {
   else if (modal.kind === 'import') renderImportModal();
   else if (modal.kind === 'confirm') renderConfirmModal();
   else if (modal.kind === 'about') renderAboutModal();
+  else if (modal.kind === 'logs') renderLogsModal();
 }
 
 function renderImportModal() {
@@ -1649,7 +1754,17 @@ function renderInstallModal() {
       ins.error ? h('pre', { class: 'out', text: ins.error }) : null,
       !ins.done && ins.raw ? h('pre', { class: 'out dim', text: ins.raw }) : null);
     foot = ins.done
-      ? [h('button', { class: 'btn ink', type: 'button', onclick: () => closeModal() }, '完成')]
+      ? [
+        h('button', { class: 'btn outline', type: 'button', onclick: () => closeModal() }, '稍后'),
+        h('button', {
+          class: 'btn ink', type: 'button',
+          onclick: () => {
+            const installed = state.instances.find((x) => x.name === ins.name);
+            closeModal();
+            if (installed) launchInstance(installed);
+          },
+        }, '启动'),
+      ]
       : [
         h('button', { class: 'btn outline', type: 'button', onclick: () => { ins.step = 3; ins.error = null; renderModal(); } }, '返回'),
         h('button', { class: 'btn ink', type: 'button', onclick: () => doInstall() }, '重试'),
@@ -1680,28 +1795,39 @@ function renderInstallModal() {
   } else if (ins.step === 2) {
     body = h('div', { class: 'pickwrap' },
       stepsBar(2),
-      h('p', { class: 'lead', text: `这个整合包装进哪个 harness？默认跟着当前上下文（${host ? host.full : ins.host}）。` }),
+      h('p', { class: 'lead', text: `${String(ins.dir || '').split(/[\\/]/).filter(Boolean).pop() || '这个整合包'} 装进哪个 harness？默认跟着当前上下文（${host ? host.full : ins.host}）。` }),
       h('div', { class: 'pick-list' }, HOSTS.map((item) => {
         const count = state.instances.filter((x) => x.harness === item.id).length;
+        const info = hostInfoOf(item.id);
+        const missing = info && info.available === false;
         return h('button', {
-          class: 'pick', type: 'button', role: 'radio',
+          class: 'pick' + (missing ? ' off' : ''), type: 'button', role: 'radio',
           'aria-checked': ins.host === item.id ? 'true' : 'false',
           onclick: () => { ins.host = item.id; renderModal(); },
         },
         h('span', { class: `tile sm hm-${item.id}`, text: item.code }),
         h('span', { class: 'pick-main' },
           h('span', { class: 'pick-t', text: item.full }),
-          h('span', { class: 'pick-s', text: count ? `${count} 个整合包` : '还没有整合包' })),
+          h('span', { class: 'pick-s' },
+            missing
+              ? `未安装 · 找不到 ${info.executable || item.code}`
+              : info && info.available
+                ? `可用${info.version ? ` · ${info.version}` : ''} · ${count ? `${count} 个整合包` : '还没有整合包'}`
+                : count ? `${count} 个整合包` : '还没有整合包')),
+          missing ? h('span', { class: 'pick-hint', text: `先装它，或用 PAL_${item.id.toUpperCase().replace(/-/g, '_')}_BIN 指定路径` }) : null,
         h('span', { class: 'pick-check', html: ins.host === item.id ? svgIcon('check') : '' }));
       })),
       h('p', { class: 'hint', text: '托管 home 建在 PAL 数据目录下；attached 宿主也可以随后在命令行用 --home 装进它自己的目录。' }));
+    const selectedInfo = hostInfoOf(ins.host);
+    const hostBlocked = Boolean(selectedInfo && selectedInfo.available === false);
     foot = [
       h('button', { class: 'btn outline', type: 'button', onclick: () => { ins.step = 1; renderModal(); } },
         h('span', { class: 'ico', html: svgIcon('chevron-left') }), '返回'),
       h('button', {
-        class: 'btn ink', type: 'button',
+        class: 'btn ink', type: 'button', disabled: hostBlocked,
+        title: hostBlocked ? '这个宿主没有安装，先装它再继续' : '',
         onclick: () => runInstallPreview(),
-      }, '下一步'),
+      }, hostBlocked ? '宿主未安装' : '下一步'),
     ];
   } else {
     const preview = ins.preview || { loading: true };
@@ -1713,7 +1839,7 @@ function renderInstallModal() {
         h('span', { class: 'ico', html: svgIcon('alert') }),
         h('div', {},
           h('b', { text: '这个目录装不了' }),
-          h('pre', { class: 'out', text: preview.error || 'pal install --dry-run 返回非 0' })));
+          h('pre', { class: 'out', text: friendlyError(preview.error) || 'pal install --dry-run 返回非 0' })));
     } else {
       const plan = preview.plan || {};
       const pack = plan.pack || {};
@@ -1727,10 +1853,14 @@ function renderInstallModal() {
       const wB = Math.max(0, ...shown.map((r) => r[1].length)) + 2;
       const planText = shown.map(([id, op, dest]) => `${id.padEnd(wA)}${op.padEnd(wB)}${dest}`).join('\n')
         + (actions.length > 10 ? `\n… 另有 ${actions.length - 10} 条` : '');
+      const mcpCount = actions.filter((a) => /mcp/i.test(String(a.op || ''))).length;
+      const instrCount = actions.filter((a) => /instruction/i.test(String(a.op || ''))).length;
+      const fileCount = actions.length - mcpCount - instrCount;
       pv = h('div', { class: 'pv' },
         h('div', { class: 'pv-head' },
           h('span', { class: 'pv-pack', text: `${pack.name || '未知 Pack'}${pack.version ? `@${pack.version}` : ''}` }),
           h('span', { class: 'pill', text: host ? host.full : ins.host })),
+        h('p', { class: 'plan-humans', text: `会写 ${fileCount} 个路径 · 登记 ${mcpCount} 条 MCP · 改 ${instrCount} 处宿主指令` }),
         h('dl', { class: 'pv-grid' },
           h('div', {}, h('dt', { text: '落点' }), h('dd', { text: preview.name || '新建托管 home' })),
           h('div', {}, h('dt', { text: '安装根' }), h('dd', { class: 'mono', text: ins.root || '默认 PAL 数据目录', title: ins.root || '' })),
@@ -1852,7 +1982,12 @@ async function runInstallPreview() {
     if (!res || !res.ok) {
       ins.preview = { ok: false, error: (res && res.error) || '预览失败' };
     } else {
-      ins.preview = { ok: true, plan: res.plan, name: res.name || null };
+      const name = res.name || (res.plan && res.plan.name) || null;
+      if (name && state.instances.some((x) => x.name === name)) {
+        ins.preview = { ok: false, error: `同名 home 已存在：${name}。换一个来源/宿主，或先在命令行用 --name 换名字。` };
+      } else {
+        ins.preview = { ok: true, plan: res.plan, name };
+      }
     }
   } catch (err) {
     ins.preview = { ok: false, error: String((err && err.message) || err) };
@@ -1912,7 +2047,7 @@ const CONFIRM_COPY = {
     title: '更新整合包',
     lead: (inst) => ['把 ', h('b', { text: inst.name }), ' 的整合包换成 registry 的最新版。'],
     points: [
-      '实例必须已停止（更新前会先拦下在跑的进程）',
+      '在跑会先停止再继续，不用回列表重找',
       'Pack 写过的文件如果被本地改过，更新会被拒绝，需要先确认改了什么',
       '更新后记录里的版本号会一起改',
     ],
@@ -1935,8 +2070,19 @@ const CONFIRM_COPY = {
       : ['删掉 ', h('b', { text: inst.name }), ' 这个实例：先停进程，再连同 home 目录一起删除。']),
     points: (inst) => (inst.attached
       ? ['只删 PAL 的 instance / runtime / baseline 记录', '目录与用户文件不会被删除', '之后可以再装进同一个目录']
-      : ['会先停止正在跑的进程', '整个 home 目录（含会话与凭据）会被删除，不可恢复', '想保留数据就先在命令行用 pal remove --keep-data 归档']),
+      : ['会先停止正在跑的进程', '整个 home 目录（含会话与凭据）会被删除，不可恢复']),
     label: '删除',
+    danger: true,
+  },
+  removeKeep: {
+    title: '删除实例，保留数据',
+    lead: (inst) => ['删掉 ', h('b', { text: inst.name }), ' 的 PAL 记录，并把 home 归档，之后可以找回。'],
+    points: [
+      '会先停止正在跑的进程',
+      '记录从列表消失，目录归档到 PAL 的归档区',
+      '归档目录不会被自动清理',
+    ],
+    label: '删除并保留数据',
     danger: true,
   },
 };
@@ -1950,6 +2096,7 @@ function confirmAction(kind, inst) {
     spec: {
       kind, inst, copy,
       points: typeof copy.points === 'function' ? copy.points(inst) : copy.points,
+      needsStop: isRunning(inst) && (kind === 'update' || kind === 'uninstall'),
       error: null,
       busy: false,
     },
@@ -1971,7 +2118,8 @@ function renderConfirmModal() {
       spec.kind === 'remove' && inst.root
         ? [h('span', { class: 'cf-t', text: '目录' }), h('span', { class: 'cf-v mono', text: inst.root, title: inst.root })]
         : null),
-    spec.error ? h('pre', { class: 'out', text: spec.error }) : null);
+    spec.error ? h('pre', { class: 'out', text: spec.error }) : null,
+    spec.needsStop ? h('p', { class: 'hint', text: '实例在运行：确认后会先停止，再继续这个操作。' }) : null);
 
   const foot = [
     h('button', { class: 'btn outline', type: 'button', disabled: spec.busy, onclick: () => closeModal() }, '取消'),
@@ -2001,6 +2149,15 @@ async function runConfirm() {
   spec.error = null;
   renderConfirmModal();
   try {
+    if (spec.needsStop) {
+      const stop = await window.pal.stop(spec.inst.name);
+      if (!stop || !stop.ok) {
+        spec.error = (stop && (stop.error || stop.stderr || stop.stdout)) || '先停止失败，操作没有继续';
+        spec.busy = false;
+        renderConfirmModal();
+        return;
+      }
+    }
     const res = await window.pal.action(spec.inst.name, spec.kind);
     if (!res || res.ok !== true) {
       spec.busy = false;
@@ -2010,6 +2167,7 @@ async function runConfirm() {
     }
     const label = spec.copy.label;
     const name = spec.inst.name;
+    state.lastAction = { name, label, stdout: String(res.stdout || '') };
     closeModal();
     toast(`${name} · ${label}完成`);
     await refresh();
@@ -2021,6 +2179,40 @@ async function runConfirm() {
 }
 
 /* ---------- L3 关于 ---------- */
+async function openLogs(inst) {
+  openModal({ kind: 'logs', title: '启动日志', spec: { inst, loading: true, error: '', text: '', file: '' } });
+  const spec = state.modal && state.modal.spec;
+  if (!spec) return;
+  const res = await window.pal.instanceLogs(inst.name);
+  const current = state.modal && state.modal.spec;
+  if (!current) return;
+  current.loading = false;
+  if (!res || !res.ok) current.error = (res && res.error) || '读不到实例日志';
+  else {
+    current.text = res.text || '';
+    current.file = res.file || 'start.log';
+  }
+  renderModal();
+}
+
+function renderLogsModal() {
+  const spec = state.modal.spec;
+  const body = h('div', { class: 'logs' },
+    spec.loading
+      ? h('div', { class: 'pv-loading pulse' }, h('div', { class: 'pv-bar' }), h('div', { class: 'pv-bar short' }))
+      : spec.error
+        ? h('pre', { class: 'out', text: spec.error })
+        : h('pre', { class: 'out logs-out', text: spec.text || '（日志为空）' }));
+  const foot = [
+    h('button', {
+      class: 'btn outline', type: 'button', disabled: !spec.text,
+      onclick: () => copyText(spec.text, '日志已复制'),
+    }, '复制'),
+    h('button', { class: 'btn ink', type: 'button', onclick: () => closeModal() }, '关闭'),
+  ];
+  modalShell({ title: '启动日志', sub: `${spec.inst.name} · ${spec.file || 'start.log'}`, subMono: true, body, foot, wide: true });
+}
+
 function renderAboutModal() {
   const version = state.info && state.info.version ? ` ${state.info.version}` : '';
   const body = h('div', { class: 'about' },
@@ -2253,3 +2445,4 @@ loadBrief();
 render();
 refresh();
 loadInfo();
+loadHosts();

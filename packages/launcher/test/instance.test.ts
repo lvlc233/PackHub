@@ -190,8 +190,8 @@ describe('实例配置', () => {
     expect(record.harness).toBe('dir');
     expect(record.status).toBe('installed');
     expect(record.managed).toBe(true);
-    expect(record.pack.name).toBe('lvlc233/doc-review');
-    expect(record.pack.version).toBe('0.1.0');
+    expect(record.pack!.name).toBe('lvlc233/doc-review');
+    expect(record.pack!.version).toBe('0.1.0');
     expect(existsSync(join(record.root, 'instance.json'))).toBe(true);
     expect(existsSync(join(record.root, '.packhub', 'state.json'))).toBe(true);
 
@@ -1008,7 +1008,7 @@ describe('实例配置', () => {
     expect(copy.managed).toBe(true);
     expect(copy.origin).toEqual({ kind: 'copy', from: source.id });
     // pack 元数据还在（它是什么版本），但来源不能再冒充 Pack
-    expect(copy.pack.ref).toBe(PACK);
+    expect(copy.pack!.ref).toBe(PACK);
 
     const template = exportTemplate('pack-copy');
     expect(template.reproducible).toBe(false);
@@ -1231,7 +1231,7 @@ resources:
     expect(result.removedFiles).toContain('.packhub/knowledge/b.md');
     // 没有失败时 warnings 是空数组，不是 undefined
     expect(result.warnings).toEqual([]);
-    expect(readInstance(rec.id)?.pack.version).toBe('0.2.0');
+    expect(readInstance(rec.id)?.pack!.version).toBe('0.2.0');
     expect(readBaseline(rec.root)?.version).toBe('0.2.0');
   });
 
@@ -1257,7 +1257,7 @@ resources:
     // 删不掉的文件还在，新版本照样装好
     expect(existsSync(bPath)).toBe(true);
     expect(readFileSync(aPath, 'utf8')).toBe('# a2\n');
-    expect(readInstance(rec.id)?.pack.version).toBe('0.2.0');
+    expect(readInstance(rec.id)?.pack!.version).toBe('0.2.0');
   });
 
   it('本地改过 Pack 写的文件：不带 force 拒绝更新且不写盘，带 force 才覆盖', async () => {
@@ -1284,7 +1284,7 @@ resources:
     // 拒绝时一个文件都不写：内容、记录、基线都停在旧版本
     expect(readFileSync(aPath, 'utf8')).toBe('# 本地改的\n');
     expect(existsSync(cPath)).toBe(false);
-    expect(readInstance(rec.id)?.pack.version).toBe('0.1.0');
+    expect(readInstance(rec.id)?.pack!.version).toBe('0.1.0');
     expect(readBaseline(rec.root)?.version).toBe('0.1.0');
 
     const result = await updateInstance('guard', { packDir: v2, force: true });
@@ -1293,7 +1293,7 @@ resources:
     expect(result.localChanges).toContain('.packhub/knowledge/a.md');
     expect(readFileSync(aPath, 'utf8')).toBe('# a2\n');
     expect(existsSync(cPath)).toBe(true);
-    expect(readInstance(rec.id)?.pack.version).toBe('0.2.0');
+    expect(readInstance(rec.id)?.pack!.version).toBe('0.2.0');
     expect(readBaseline(rec.root)?.version).toBe('0.2.0');
   });
 
@@ -1308,7 +1308,7 @@ resources:
     expect(result.changed).toBe(false);
     expect(result.localChanges).toContain('.packhub/knowledge/a.md');
     expect(readFileSync(aPath, 'utf8')).toBe('# 本地改的\n');
-    expect(readInstance(rec.id)?.pack.version).toBe('0.1.0');
+    expect(readInstance(rec.id)?.pack!.version).toBe('0.1.0');
     expect(readBaseline(rec.root)).toEqual(before);
   });
 
@@ -1324,7 +1324,7 @@ resources:
     const drifted = JSON.parse(readFileSync(file, 'utf8')) as { pack: { name: string; version: string } };
     drifted.pack.version = '9.9.9';
     writeFileSync(file, JSON.stringify(drifted, null, 2) + '\n', 'utf8');
-    expect(readInstance(rec.id)?.pack.version).toBe('9.9.9');
+    expect(readInstance(rec.id)?.pack!.version).toBe('9.9.9');
 
     // 同版本重跑：身份以 state 为准，漂移被纠正，ref 逻辑不变
     const same = await updateInstance('drift', { packDir: v1 });
@@ -1339,8 +1339,8 @@ resources:
     };
     const entries = Object.values(state.packs);
     expect(entries).toHaveLength(1);
-    expect(readInstance(rec.id)?.pack.name).toBe(entries[0]!.pack);
-    expect(readInstance(rec.id)?.pack.version).toBe(entries[0]!.version);
+    expect(readInstance(rec.id)?.pack!.name).toBe(entries[0]!.pack);
+    expect(readInstance(rec.id)?.pack!.version).toBe(entries[0]!.version);
   });
 
   it('运行中的实例拒绝更新', async () => {

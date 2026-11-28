@@ -25,12 +25,20 @@ export interface InstanceTemplate {
 
 export function exportTemplate(nameOrId: string): InstanceTemplate {
   const record = requireInstance(nameOrId);
+  // 模板要能回答「重建哪个 Pack」：没有包的 home 导不出有意义的模板
+  const pack = record.pack;
+  if (!pack) {
+    throw new PalError('invalid-input', `这个实例没有装包，导不出模板：${record.name}`, {
+      hint: `用 pal install <pack> --home ${record.root} 装一个包；pal list 看现有 home`,
+      details: { root: record.root },
+    });
+  }
   const reproducible = record.origin?.kind === 'pack' && Boolean(record.origin.ref);
   return {
     apiVersion: 'packhub.dev/instance-template/v0',
     name: record.name,
     harness: record.harness,
-    pack: record.pack,
+    pack,
     ...(record.origin ? { origin: record.origin } : {}),
     createdAt: nowIso(),
     reproducible,

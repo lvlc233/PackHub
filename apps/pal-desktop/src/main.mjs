@@ -38,6 +38,7 @@ const ACTIONS = {
   update: (name) => ['update', '--home', name, '--json'],
   uninstall: (name) => ['uninstall', '--home', name, '--json'],
   remove: (name) => ['remove', name, '--yes', '--json'],
+  removeKeep: (name) => ['remove', name, '--yes', '--keep-data', '--json'],
 };
 
 let win;
@@ -240,7 +241,25 @@ handle('pal:list', () => {
   return { ok: true, instances: base.instances.map((inst) => ({ ...inst, modes: modesFor(inst.name) })) };
 });
 
-handle('pal:hosts', () => HOSTS);
+handle('pal:hosts', () => {
+  const result = runPal(['health', '--hosts', '--json'], { timeout: 90000 });
+  let found = [];
+  try {
+    found = JSON.parse(String(result.stdout || '{}')).hosts || [];
+  } catch { /* 用静态表兜底 */ }
+  const byId = new Map(found.map((item) => [item.id, item]));
+  return HOSTS.map((host) => {
+    const live = byId.get(host.id);
+    return {
+      ...host,
+      available: Boolean(live && live.available),
+      version: (live && live.version) || '',
+      executable: (live && live.executable) || '',
+      commandPath: (live && live.commandPath) || '',
+      reason: (live && live.reason) || '',
+    };
+  });
+});
 
 handle('pal:log', (_event, { event, data }) => {
   writeLog(`[renderer] ${event} ${data ? JSON.stringify(data) : ''}`);
@@ -365,6 +384,17 @@ handle('pal:install', async (_event, { host, dir, root }) => {
 });
 
 /** 更新 / 卸载 / 删除：危险动作的确认在渲染层，这里只执行。 */
+handle('pal:instance-logs', (_event, { name }) => {
+  if (!name) return { ok: false, error: '没有给实例名' };
+  const result = runPal(['logs', name, '--json'], { timeout: 30000 });
+  if (result.status !== 0) return { ok: false, error: palFailure(result, 'pal logs 返回非 0') };
+  try {
+    return { ok: true, ...JSON.parse(String(result.stdout || '{}')) };
+  } catch {
+    return { ok: true, file: 'start.log', text: String(result.stdout || ''), truncated: false, files: [] };
+  }
+});
+
 handle('pal:action', (_event, { name, action }) => {
   const build = ACTIONS[action];
   if (!build) return { ok: false, error: `未知动作：${action}` };

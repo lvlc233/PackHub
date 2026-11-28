@@ -5,6 +5,7 @@
 // 目录路径的实现仍在 dirCommands.ts，命令层只做 target 解析与文案。
 import { defineCommand, type CommandDef } from 'citty';
 import { defaultLaunchMode, harness, harnessIds, harnesses, type HarnessId } from '@packhub/kernel';
+import { loadState } from '@packhub/runtime';
 import { materializePack, readPackIdentity } from '../materialize.ts';
 import {
   createInstance,
@@ -13,7 +14,13 @@ import {
   previewHomePlan,
   type CreateInstanceOptions,
 } from '../create.ts';
-import { findInstanceByRoot, requireInstance, type InstanceRecord } from '../index.ts';
+import {
+  findInstanceByRoot,
+  readRecord,
+  requireInstance,
+  writeInstance,
+  type InstanceRecord,
+} from '../index.ts';
 import { isPidAlive } from '../process.ts';
 import { updateFromRef } from '../service.ts';
 import {
@@ -354,7 +361,7 @@ export const install = defineCommand({
           console.log('\n（dry-run：没有落盘）');
           return;
         }
-        printInstalled(result.record, result.record.pack);
+        printInstalled(result.record, result.record.pack!);
         return;
       }
 
@@ -391,7 +398,7 @@ export const install = defineCommand({
         console.log(JSON.stringify(rec, null, 2));
         return;
       }
-      printInstalled(rec, rec.pack, nameNote);
+      printInstalled(rec, rec.pack!, nameNote);
       return;
     }
 
@@ -422,9 +429,39 @@ export const install = defineCommand({
       console.log(JSON.stringify(rec, null, 2));
       return;
     }
-    printInstalled(rec, rec.pack);
+    printInstalled(rec, rec.pack!);
   },
 });
+
+/**
+ * 卸载成功后让实例记录跟 state 一致。
+ *
+ * `pal uninstall` 摘的是 state 里的安装记录；home 自己的 `instance.json` 不是 state，不会跟着变。
+ * 卸载干净（state 里已经没有包）时，记录里这些字段只在有包时才有意义，一起摘掉：
+ * - `pack`：包身份（名称/版本/引用）；
+ * - `harnessVersion`：装包那一刻探测的宿主版本；
+ * - `profile`：dsh attached 那次安装选的 profile 范围；
+ * - `origin.kind === 'pack'`：这份 home 是从哪个 Pack 引用装的（模板复现的依据）。
+ *
+ * 还有别的包（多 Pack 的接管目录）就保留记录；坏记录不在这里改写——那归隔离区，别盖成半份。
+ */
+function syncInstanceAfterUninstall(dir: string): void {
+  if (Object.keys(loadState(dir).packs).length > 0) return;
+  const rec = readRecord(dir);
+  if (!rec) return;
+  const stale =
+    rec.pack !== undefined ||
+    rec.harnessVersion !== undefined ||
+    rec.profile !== undefined ||
+    rec.origin?.kind === 'pack';
+  if (!stale) return;
+  const next: InstanceRecord = { ...rec };
+  delete next.pack;
+  delete next.harnessVersion;
+  delete next.profile;
+  if (next.origin?.kind === 'pack') delete next.origin;
+  writeInstance(next);
+}
 
 export const uninstall = defineCommand({
   meta: {
@@ -459,6 +496,8 @@ export const uninstall = defineCommand({
       dir,
       json: Boolean(args.json),
     });
+    // 摘干净之后实例记录也要认账：否则 list/show/更新/卸载继续宣称装着（P0-1）
+    syncInstanceAfterUninstall(dir);
   },
 });
 
@@ -590,8 +629,16 @@ export const update = defineCommand({
 
     const rec = requireHome(args.home);
     requireStopped(rec);
+    // 记录里没有包、或 state 里已经没有包：没有东西可更新。在取包之前就报，
+    // 不装一次再空跑成功（P0-1 的「更新还能成功一次什么也没写」）。
+    const pack = rec.pack;
+    if (!pack || Object.keys(loadState(rec.root).packs).length === 0) {
+      throw new PalError('invalid-input', `这个目录没有安装记录：${rec.root}（state 里没有包）`, {
+        hint: `装包用 pal install <pack> --home ${rec.root}；pal list 看现有 home`,
+      });
+    }
     if (profile !== undefined) assertProfileTarget(rec.harness, rec.attached === true);
-    const ref = rec.pack.ref ?? rec.pack.name;
+    const ref = pack.ref ?? pack.name;
     const log = (line: string): void => {
       if (!args.json) console.error(line);
     };
