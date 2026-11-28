@@ -3,5 +3,3 @@ packages:
   - "apps/*"
 allowBuilds:
   esbuild: true
-  node-pty: true
-  electron: true
