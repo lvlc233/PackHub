@@ -441,7 +441,6 @@ function renderLaunch() {
   $('launch-foot').classList.remove('hidden');
   renderLaunchHead(head, inst);
   renderTabs(tabs, inst);
-  renderSwitcher(sw, inst);
   renderTabBody(body, inst);
   setFoot('launch-foot', launchCmd(inst));
 }
@@ -504,8 +503,11 @@ function launchEmpty() {
 }
 
 function renderLaunchHead(head, inst) {
+  head.classList.add('launch-hero');
   const status = statusOf(inst);
   const version = packVer(inst);
+  const versionBox = h('div', { class: 'hero-version' });
+  renderSwitcher(versionBox, inst);
 
   head.append(h('div', { class: 'ph-main' },
     h('div', { class: 'eyebrow' },
@@ -521,10 +523,18 @@ function renderLaunchHead(head, inst) {
       h('span', { class: 'sep' }),
       h('span', { class: `pill ${status.key === 'idle' ? '' : status.key}` },
         status.key === 'idle' ? null : h('span', { class: `dot ${status.key}` }),
-        status.text))));
+        status.text)),
+    versionBox));
 
   const act = h('div', { class: 'ph-act' });
   act.append(primaryButton(inst));
+  // 运行中主按钮是「进入」（页面/终端），停止降为次要动作，不是把人挡在门外。
+  if (isRunning(inst) && (inst.url || foregroundMode(inst))) {
+    act.append(h('button', {
+      class: 'btn outline hero-open', type: 'button',
+      onclick: () => stopInstance(inst),
+    }, h('span', { class: 'ico', html: svgIcon('stop') }), '停止'));
+  }
   act.append(h('button', {
     class: 'linkbtn line act-link', type: 'button',
     title: `装进 ${hostFull(inst.harness)}`,
@@ -562,7 +572,7 @@ function renderSwitcher(box, inst) {
   box.append(h('button', {
     class: 'linkbtn line', type: 'button',
     onclick: () => setView('library'),
-  }, '全部 ›'));
+  }, '版本 ›'));
 }
 
 /** 头部只说「这个动作为什么现在点不了」；进程已不在之类的状态由概览卡和终端条说，不在这里重复。 */
@@ -583,6 +593,20 @@ function primaryButton(inst) {
       state.busy.action === 'stop' ? '正在停止…' : '正在启动…');
   }
   if (running) {
+    if (inst.url) {
+      return h('button', {
+        class: 'launch', type: 'button',
+        title: inst.url,
+        onclick: () => openExternal(inst.url),
+      }, h('span', { class: 'ico', html: svgIcon('external') }), '打开页面');
+    }
+    if (foregroundMode(inst)) {
+      return h('button', {
+        class: 'launch', type: 'button',
+        title: '打开前台终端',
+        onclick: () => openTerminal(inst),
+      }, h('span', { class: 'ico', html: svgIcon('terminal') }), '打开终端');
+    }
     return h('button', {
       class: 'launch stop', type: 'button',
       title: '停止这个整合包',

@@ -658,3 +658,15 @@ body.drag-over::after{content:'松开安装整合包';position:fixed;right:20px;
 .tabbar{padding-left:max(24px,calc((100% - 860px)/2));padding-right:max(24px,calc((100% - 860px)/2))}
 .tabs{padding:0}
 .tabbar-end{padding-right:0}
+
+/* PCL 式启动卡：版本选择与大按钮在同一张卡里 */
+.pane-head.launch-hero{background:var(--surface);border:1px solid var(--line);border-radius:12px;margin:16px auto 0;padding:18px 20px 16px;box-shadow:0 1px 0 rgba(20,20,16,.02)}
+.hero-version{display:flex;align-items:center;gap:8px;margin-top:10px;min-width:0}
+.hero-version .tab-switch{max-width:320px}
+.ph-act .launch{min-width:150px;height:46px;font-size:15px;border-radius:8px}
+.ph-act .hero-open{height:32px;margin-top:6px}
+.ph-act{align-items:flex-end}
+.pane-head.launch-hero .inst-name{font-size:30px}
+.pane-head.launch-hero .ph-main{max-width:none}
+.pane-head.launch-hero .eyebrow{margin-bottom:6px}
+.pane-head.launch-hero .subline{margin-top:6px}
